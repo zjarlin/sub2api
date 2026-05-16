@@ -129,6 +129,7 @@ import { useAppStore } from '@/stores'
 import { paymentAPI } from '@/api/payment'
 import { extractI18nErrorMessage } from '@/utils/apiError'
 import { getPaymentPopupFeatures } from '@/components/payment/providerConfig'
+import { PAYMENT_STATUS_POLL_INTERVAL_MS } from '@/components/payment/constants'
 import type { PaymentOrder } from '@/types/payment'
 import Icon from '@/components/icons/Icon.vue'
 import QRCode from 'qrcode'
@@ -280,7 +281,7 @@ if (props.expiresAt) {
   seconds = Math.floor((new Date(props.expiresAt).getTime() - Date.now()) / 1000)
 }
 startCountdown(seconds)
-pollTimer = setInterval(pollStatus, 3000)
+pollTimer = setInterval(pollStatus, PAYMENT_STATUS_POLL_INTERVAL_MS)
 renderQR()
 
 watch(() => qrUrl.value, () => renderQR())

@@ -32,16 +32,12 @@ func TestDefaultKiroModelMapping_MatchesKiroReferenceModels(t *testing.T) {
 	t.Parallel()
 
 	expected := map[string]string{
-		"claude-opus-4-6":                     "claude-opus-4.6",
-		"claude-opus-4-6-thinking":            "claude-opus-4.6",
-		"claude-sonnet-4-6":                   "claude-sonnet-4.6",
-		"claude-sonnet-4-6-thinking":          "claude-sonnet-4.6",
-		"claude-opus-4-5-20251101":            "claude-opus-4.5",
-		"claude-opus-4-5-20251101-thinking":   "claude-opus-4.5",
-		"claude-sonnet-4-5-20250929":          "claude-sonnet-4.5",
-		"claude-sonnet-4-5-20250929-thinking": "claude-sonnet-4.5",
-		"claude-haiku-4-5-20251001":           "claude-haiku-4.5",
-		"claude-haiku-4-5-20251001-thinking":  "claude-haiku-4.5",
+		"claude-opus-4-7":                    "claude-opus-4.7",
+		"claude-opus-4-7-thinking":           "claude-opus-4.7",
+		"claude-sonnet-4-6":                  "claude-sonnet-4.6",
+		"claude-sonnet-4-6-thinking":         "claude-sonnet-4.6",
+		"claude-haiku-4-5-20251001":          "claude-haiku-4.5",
+		"claude-haiku-4-5-20251001-thinking": "claude-haiku-4.5",
 	}
 
 	if len(DefaultKiroModelMapping) != len(expected) {
@@ -55,7 +51,13 @@ func TestDefaultKiroModelMapping_MatchesKiroReferenceModels(t *testing.T) {
 
 	for _, model := range []string{
 		"claude-opus-4-5",
+		"claude-opus-4-6",
+		"claude-opus-4-6-thinking",
+		"claude-opus-4-5-20251101",
+		"claude-opus-4-5-20251101-thinking",
 		"claude-sonnet-4-5",
+		"claude-sonnet-4-5-20250929",
+		"claude-sonnet-4-5-20250929-thinking",
 		"claude-sonnet-4",
 		"claude-3-5-sonnet-20241022",
 		"claude-3-5-haiku-20241022",
@@ -64,7 +66,6 @@ func TestDefaultKiroModelMapping_MatchesKiroReferenceModels(t *testing.T) {
 		"deepseek-3-2",
 		"minimax-m2-1",
 		"qwen3-coder-next",
-		"claude-opus-4-7",
 		"claude-sonnet-4-6-chat",
 	} {
 		if _, ok := DefaultKiroModelMapping[model]; ok {

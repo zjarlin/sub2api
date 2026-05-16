@@ -3174,6 +3174,28 @@ export default {
       openai: {
         baseUrlHint: 'Leave default for official OpenAI API',
         apiKeyHint: 'Your OpenAI API Key',
+        geminiBaseUrlHint: 'Gemini direct mode defaults to the official OpenAI compatibility base URL and uses the chat/completions-compatible path.',
+        geminiApiKeyHint: 'Gemini API Key, usually starting with AIza.',
+        mimoBaseUrlHint: 'Mimo uses a raw api-key header like openai-local-proxy, not Bearer auth.',
+        mimoApiKeyHint: 'Mimo upstream API key sent directly through the api-key header.',
+        traeBaseUrlHint: 'Trae local compatible service usually listens on port 17080; adjust to your deployment.',
+        traeApiKeyHint: 'Access token for the Trae-compatible upstream.',
+        openaiLocalProxyBaseUrlHint: 'openai-local-proxy listens on 18081 by default and exposes OpenAI-compatible /v1 endpoints.',
+        openaiLocalProxyApiKeyHint: 'Only used for optional openai-local-proxy auth. Leave empty when OPENAI_LOCAL_PROXY_API_KEY is not configured.',
+        customBaseUrlHint: 'Custom OpenAI-compatible upstream address. The vendor preset only fills defaults; you can still override everything.',
+        customApiKeyHint: 'Use whatever credential the compatible upstream expects; for special auth, edit the header and scheme below.',
+        vendorPreset: 'Vendor Preset',
+        vendorPresetHint: 'Quickly fills Base URL, auth header, and model presets. You can still override them manually afterward.',
+        authHeader: 'Auth Header',
+        authScheme: 'Auth Scheme',
+        vendorOptions: {
+          openai: 'Official OpenAI',
+          gemini: 'Gemini OpenAI',
+          mimo: 'Mimo',
+          trae: 'Trae',
+          openaiLocalProxy: 'openai-local-proxy',
+          custom: 'Custom Compatible Upstream'
+        },
         oauthPassthrough: 'Auto passthrough (auth only)',
         oauthPassthroughDesc:
           'When enabled, this OpenAI account uses automatic passthrough: the gateway forwards request/response as-is and only swaps auth, while keeping billing/concurrency/audit and necessary safety filtering.',

@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"net/http/httptest"
 	"testing"
 
@@ -86,4 +87,33 @@ func TestAppendOpsUpstreamError_BackfillsSelectedAccountSnapshot(t *testing.T) {
 	require.Equal(t, int64(42), events[0].AccountID)
 	require.Equal(t, "pool-account-42", events[0].AccountName)
 	require.Equal(t, "openai", events[0].Platform)
+}
+
+func TestDecorateScheduledAccountClientErrorJSONBody_Admin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Set("user_role", RoleAdmin)
+	SetOpsSelectedAccount(c, 42, "pool-account-42", PlatformOpenAI)
+
+	body := []byte(`{"error":{"type":"api_error","message":"Service temporarily unavailable"}}`)
+	patched := DecorateScheduledAccountClientErrorJSONBody(c, body)
+
+	var parsed map[string]any
+	require.NoError(t, json.Unmarshal(patched, &parsed))
+	errorObj, ok := parsed["error"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "Service temporarily unavailable [scheduled account: pool-account-42]", errorObj["message"])
+}
+
+func TestDecorateScheduledAccountClientErrorJSONBody_NonAdmin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	SetOpsSelectedAccount(c, 42, "pool-account-42", PlatformOpenAI)
+
+	body := []byte(`{"error":{"type":"api_error","message":"Service temporarily unavailable"}}`)
+	patched := DecorateScheduledAccountClientErrorJSONBody(c, body)
+
+	require.JSONEq(t, string(body), string(patched))
 }

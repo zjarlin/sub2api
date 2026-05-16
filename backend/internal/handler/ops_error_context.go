@@ -27,9 +27,8 @@ func selectionUnavailableMessage(err error) string {
 	return fallback + ": " + msg
 }
 
-func decorateScheduledAccountErrorMessage(_ *gin.Context, _ int, message string) string {
-	message = strings.TrimSpace(message)
-	return message
+func decorateScheduledAccountErrorMessage(c *gin.Context, _ int, message string) string {
+	return service.DecorateScheduledAccountClientError(c, message)
 }
 
 func ensureOpsUpstreamErrorEvent(c *gin.Context, statusCode int, kind, message string) {

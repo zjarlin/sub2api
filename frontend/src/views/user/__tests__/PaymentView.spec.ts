@@ -43,6 +43,21 @@ vi.mock('vue-i18n', async () => {
   }
 })
 
+vi.mock('@/i18n', () => ({
+  getLocale: () => 'en',
+  i18n: {
+    global: {
+      locale: {
+        value: 'en',
+      },
+    },
+  },
+  loadLocaleMessages: vi.fn(),
+  initI18n: vi.fn(),
+  setLocale: vi.fn(),
+  availableLocales: [],
+}))
+
 vi.mock('@/stores/auth', () => ({
   useAuthStore: () => ({
     user: {
@@ -180,8 +195,37 @@ function oauthOrderFixture() {
   }
 }
 
+function installMemoryLocalStorage() {
+  const store = new Map<string, string>()
+  const localStorageMock = {
+    getItem: vi.fn((key: string) => store.get(key) ?? null),
+    setItem: vi.fn((key: string, value: string) => {
+      store.set(key, String(value))
+    }),
+    removeItem: vi.fn((key: string) => {
+      store.delete(key)
+    }),
+    clear: vi.fn(() => {
+      store.clear()
+    }),
+    key: vi.fn((index: number) => Array.from(store.keys())[index] ?? null),
+  }
+
+  Object.defineProperty(localStorageMock, 'length', {
+    get() {
+      return store.size
+    },
+  })
+
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    value: localStorageMock,
+  })
+}
+
 describe('PaymentView WeChat JSAPI flow', () => {
   beforeEach(() => {
+    installMemoryLocalStorage()
     routeState.path = '/purchase'
     routeState.query = {
       wechat_resume: '1',
@@ -228,6 +272,55 @@ describe('PaymentView WeChat JSAPI flow', () => {
         order_id: '123',
         out_trade_no: 'sub2_jsapi_123',
         resume_token: 'resume-token-123',
+      },
+    })
+    expect(window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY)).toBeNull()
+  })
+
+  it('redirects QR polling success to /payment/result after the status panel reports success', async () => {
+    routeState.query = {}
+    window.localStorage.setItem(PAYMENT_RECOVERY_STORAGE_KEY, JSON.stringify({
+      orderId: 456,
+      amount: 88,
+      qrCode: 'https://pay.example.com/qr/456',
+      expiresAt: '2099-01-01T00:10:00.000Z',
+      paymentType: 'alipay',
+      payUrl: '',
+      outTradeNo: 'sub2_qr_success_456',
+      clientSecret: '',
+      payAmount: 88,
+      orderType: 'balance',
+      paymentMode: 'qrcode',
+      resumeToken: 'resume-qr-success-456',
+      createdAt: Date.UTC(2099, 0, 1, 0, 0, 0),
+    }))
+
+    const wrapper = shallowMount(PaymentView, {
+      global: {
+        stubs: {
+          Teleport: true,
+          Transition: false,
+          PaymentStatusPanel: {
+            name: 'PaymentStatusPanel',
+            template: '<div class="payment-status-panel-stub" />',
+            emits: ['success'],
+          },
+        },
+      },
+    })
+    await flushPromises()
+    await flushPromises()
+    expect(wrapper.html()).toContain('payment-status-panel-stub')
+    wrapper.getComponent({ name: 'PaymentStatusPanel' }).vm.$emit('success')
+    await flushPromises()
+
+    expect(refreshUser).toHaveBeenCalled()
+    expect(routerPush).toHaveBeenCalledWith({
+      path: '/payment/result',
+      query: {
+        order_id: '456',
+        out_trade_no: 'sub2_qr_success_456',
+        resume_token: 'resume-qr-success-456',
       },
     })
     expect(window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY)).toBeNull()

@@ -3333,6 +3333,28 @@ export default {
       openai: {
         baseUrlHint: '留空使用官方 OpenAI API',
         apiKeyHint: '您的 OpenAI API Key',
+        geminiBaseUrlHint: 'Gemini 直连默认填写官方 OpenAI compatibility base URL；该厂商会走 chat/completions 兼容路径。',
+        geminiApiKeyHint: 'Gemini API Key，通常以 AIza 开头。',
+        mimoBaseUrlHint: 'Mimo 使用 openai-local-proxy 同款 api-key 原样鉴权，不走 Bearer。',
+        mimoApiKeyHint: 'Mimo 上游 API Key，直接写入 api-key 请求头。',
+        traeBaseUrlHint: 'Trae 本地兼容服务默认监听在 17080，可按你的实际部署修改。',
+        traeApiKeyHint: 'Trae 兼容服务的访问令牌。',
+        openaiLocalProxyBaseUrlHint: 'openai-local-proxy 默认监听 18081，并暴露 /v1 OpenAI 兼容接口。',
+        openaiLocalProxyApiKeyHint: '只用于 openai-local-proxy 自身的可选代理鉴权；本地代理未设置 OPENAI_LOCAL_PROXY_API_KEY 时可留空。',
+        customBaseUrlHint: '自定义 OpenAI 兼容上游地址；厂商预设只负责填充默认值，仍可手工改写。',
+        customApiKeyHint: '填写该兼容上游要求的凭证；如需特殊鉴权，直接改下面的请求头和方案。',
+        vendorPreset: '厂商预设',
+        vendorPresetHint: '用于快速填充 Base URL、鉴权头和模型预设；切换后仍可继续手工修改。',
+        authHeader: '鉴权请求头',
+        authScheme: '鉴权方案',
+        vendorOptions: {
+          openai: 'OpenAI 官方',
+          gemini: 'Gemini OpenAI',
+          mimo: 'Mimo',
+          trae: 'Trae',
+          openaiLocalProxy: 'openai-local-proxy',
+          custom: '自定义兼容上游'
+        },
         oauthPassthrough: '自动透传（仅替换认证）',
         oauthPassthroughDesc:
           '开启后，该 OpenAI 账号将自动透传请求与响应，仅替换认证并保留计费/并发/审计及必要安全过滤；如遇兼容性问题可随时关闭回滚。',

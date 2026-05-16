@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { PAYMENT_STATUS_POLL_INTERVAL_MS } from '../constants'
 
 const pollOrderStatus = vi.hoisted(() => vi.fn())
 const cancelOrder = vi.hoisted(() => vi.fn())
@@ -89,7 +90,7 @@ describe('PaymentStatusPanel', () => {
     })
 
     await flushPromises()
-    await vi.advanceTimersByTimeAsync(3000)
+    await vi.advanceTimersByTimeAsync(PAYMENT_STATUS_POLL_INTERVAL_MS)
     await flushPromises()
 
     expect(pollOrderStatus).toHaveBeenCalledWith(42)

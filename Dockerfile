@@ -12,24 +12,37 @@ ARG ALPINE_IMAGE=alpine:3.21
 ARG POSTGRES_IMAGE=postgres:18-alpine
 ARG GOPROXY=https://goproxy.cn,direct
 ARG GOSUMDB=sum.golang.google.cn
+ARG SKIP_FRONTEND_BUILD=0
 
 # -----------------------------------------------------------------------------
 # Stage 1: Frontend Builder
 # -----------------------------------------------------------------------------
 FROM ${NODE_IMAGE} AS frontend-builder
 
-WORKDIR /app/frontend
+ARG SKIP_FRONTEND_BUILD
+
+WORKDIR /app
+
+# Allow the Docker build to reuse a host-built frontend dist when update.sh
+# already compiled it locally. This keeps routine upgrade builds practical.
+COPY backend/internal/web/dist /app/prebuilt-dist
 
 # Install pnpm
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN if [ "${SKIP_FRONTEND_BUILD}" != "1" ]; then corepack enable && corepack prepare pnpm@latest --activate; fi
 
 # Install dependencies first (better caching)
-COPY frontend/package.json frontend/pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+WORKDIR /app/frontend
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/.npmrc ./
+RUN if [ "${SKIP_FRONTEND_BUILD}" != "1" ]; then pnpm install --frozen-lockfile --ignore-scripts=false; fi
 
 # Copy frontend source and build
 COPY frontend/ ./
-RUN pnpm run build
+RUN mkdir -p /app/backend/internal/web/dist && \
+    if [ "${SKIP_FRONTEND_BUILD}" = "1" ]; then \
+    cp -a /app/prebuilt-dist/. /app/backend/internal/web/dist; \
+    else \
+    pnpm run build; \
+    fi
 
 # -----------------------------------------------------------------------------
 # Stage 2: Backend Builder

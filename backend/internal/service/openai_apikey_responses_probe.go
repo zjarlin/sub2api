@@ -69,9 +69,19 @@ func (s *AccountTestService) ProbeOpenAIAPIKeyResponsesSupport(ctx context.Conte
 		// 仅 OpenAI APIKey 账号需要探测；其他账号类型无能力差异。
 		return
 	}
+	if account.ShouldUseOpenAIChatCompletionsUpstream() {
+		if err := s.accountRepo.UpdateExtra(ctx, accountID, map[string]any{
+			openai_compat.ExtraKeyResponsesSupported: false,
+		}); err != nil {
+			logger.LegacyPrintf("service.openai_probe", "probe_persist_vendor_chat_only_failed: account_id=%d vendor=%s err=%v", accountID, account.GetOpenAIVendor(), err)
+			return
+		}
+		logger.LegacyPrintf("service.openai_probe", "probe_skip_vendor_chat_only: account_id=%d vendor=%s supported=false", accountID, account.GetOpenAIVendor())
+		return
+	}
 
 	apiKey := account.GetOpenAIApiKey()
-	if apiKey == "" {
+	if apiKey == "" && !account.AllowsEmptyOpenAIApiKey() {
 		logger.LegacyPrintf("service.openai_probe", "probe_skip_no_apikey: account_id=%d", accountID)
 		return
 	}
@@ -96,8 +106,8 @@ func (s *AccountTestService) ProbeOpenAIAPIKeyResponsesSupport(ctx context.Conte
 		return
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Accept", "application/json")
+	applyOpenAIUpstreamAuthHeaders(req.Header, account, apiKey)
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {

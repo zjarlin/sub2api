@@ -80,6 +80,7 @@ import { useAppStore } from '@/stores'
 import { paymentAPI } from '@/api/payment'
 import { extractI18nErrorMessage } from '@/utils/apiError'
 import { getPaymentPopupFeatures } from '@/components/payment/providerConfig'
+import { PAYMENT_STATUS_POLL_INTERVAL_MS } from '@/components/payment/constants'
 import type { PaymentOrder } from '@/types/payment'
 import QRCode from 'qrcode'
 import alipayIcon from '@/assets/icons/alipay.svg'
@@ -257,7 +258,7 @@ function init() {
     seconds = Math.floor((expiresAt.getTime() - Date.now()) / 1000)
   }
   startCountdown(seconds)
-  pollTimer = setInterval(pollStatus, 3000)
+  pollTimer = setInterval(pollStatus, PAYMENT_STATUS_POLL_INTERVAL_MS)
   renderQR()
 }
 

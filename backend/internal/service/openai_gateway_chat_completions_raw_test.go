@@ -36,6 +36,7 @@ func TestBuildOpenAIChatCompletionsURL(t *testing.T) {
 		// 第三方上游常见形式
 		{"third-party bare domain", "https://api.deepseek.com", "https://api.deepseek.com/v1/chat/completions"},
 		{"third-party with path prefix", "https://api.gptgod.online/api", "https://api.gptgod.online/api/v1/chat/completions"},
+		{"gemini openai compatibility root", "https://generativelanguage.googleapis.com/v1beta/openai/", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"},
 		// 带空白字符
 		{"whitespace trimmed", "  https://api.openai.com/v1  ", "https://api.openai.com/v1/chat/completions"},
 	}
@@ -63,7 +64,9 @@ func TestBuildOpenAIResponsesURL_ProbeURL(t *testing.T) {
 		{"domain trailing slash", "https://api.openai.com/", "https://api.openai.com/v1/responses"},
 		{"bare /v1", "https://api.openai.com/v1", "https://api.openai.com/v1/responses"},
 		{"already /responses", "https://api.openai.com/v1/responses", "https://api.openai.com/v1/responses"},
+		{"chat endpoint root", "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", "https://generativelanguage.googleapis.com/v1beta/openai/responses"},
 		{"third-party bare domain", "https://api.deepseek.com", "https://api.deepseek.com/v1/responses"},
+		{"gemini openai compatibility root", "https://generativelanguage.googleapis.com/v1beta/openai/", "https://generativelanguage.googleapis.com/v1beta/openai/responses"},
 		{"only domain, no scheme", "api.gptgod.online", "api.gptgod.online/v1/responses"},
 	}
 

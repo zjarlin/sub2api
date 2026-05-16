@@ -28,23 +28,46 @@
 
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey'" class="space-y-4">
+        <div v-if="account.platform === 'openai'" class="grid gap-4 md:grid-cols-2">
+          <div class="md:col-span-2">
+            <label class="input-label">{{ t('admin.accounts.openai.vendorPreset') }}</label>
+            <select v-model="openAIVendorPresetId" class="input" @change="handleOpenAIVendorPresetChange">
+              <option
+                v-for="option in openAIVendorOptions"
+                :key="option.value"
+                :value="option.value"
+              >
+                {{ option.label }}
+              </option>
+            </select>
+            <p class="input-hint">{{ t('admin.accounts.openai.vendorPresetHint') }}</p>
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accounts.openai.authHeader') }}</label>
+            <input
+              v-model="openAIAuthHeader"
+              type="text"
+              class="input font-mono"
+              :placeholder="selectedOpenAIVendorPreset.authHeader"
+            />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accounts.openai.authScheme') }}</label>
+            <input
+              v-model="openAIAuthScheme"
+              type="text"
+              class="input font-mono"
+              :placeholder="selectedOpenAIVendorPreset.authScheme"
+            />
+          </div>
+        </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
             v-model="editBaseUrl"
             type="text"
             class="input"
-            :placeholder="
-              account.platform === 'openai'
-                ? 'https://api.openai.com'
-                : account.platform === 'gemini'
-                  ? 'https://generativelanguage.googleapis.com'
-                  : account.platform === 'kiro'
-                    ? 'https://your-kiro-upstream.example.com'
-                  : account.platform === 'antigravity'
-                    ? 'https://cloudcode-pa.googleapis.com'
-                    : 'https://api.anthropic.com'
-            "
+            :placeholder="currentApiKeyBaseUrlPlaceholder"
           />
           <p class="input-hint">{{ baseUrlHint }}</p>
         </div>
@@ -58,19 +81,12 @@
             data-1p-ignore
             data-lpignore="true"
             data-bwignore="true"
-            :placeholder="
-              account.platform === 'openai'
-                ? 'sk-proj-...'
-                : account.platform === 'gemini'
-                  ? 'AIza...'
-                  : account.platform === 'kiro'
-                    ? 'sk-...'
-                  : account.platform === 'antigravity'
-                    ? 'sk-...'
-                    : 'sk-ant-...'
-            "
+            :placeholder="currentApiKeyPlaceholder"
           />
-          <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
+          <p class="input-hint">
+            {{ apiKeyHint }}
+            <span class="ml-1">{{ t('admin.accounts.leaveEmptyToKeep') }}</span>
+          </p>
         </div>
 
         <div v-if="account.platform === 'kiro'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
@@ -228,7 +244,7 @@
 
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" />
+              <ModelWhitelistSelector v-model="allowedModels" :platforms="currentModelWhitelistPlatforms" />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
                 <span v-if="allowedModels.length === 0">{{
@@ -2430,10 +2446,19 @@ import {
 import {
   fetchKiroDefaultMappings,
   getPresetMappingsByPlatform,
+  getModelsByPlatforms,
   commonErrorCodes,
   buildModelMappingObject,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
+import {
+  getOpenAIVendorModelPlatforms,
+  getOpenAIVendorPreset,
+  getOpenAIVendorPresetPlatform,
+  inferOpenAIVendorPreset,
+  listOpenAIVendorPresets,
+  type OpenAIVendorPresetId
+} from '@/composables/useOpenAIVendorPreset'
 
 interface Props {
   show: boolean
@@ -2452,17 +2477,78 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
 
+const openAIVendorPresetId = ref<OpenAIVendorPresetId>('openai')
+const openAIAuthHeader = ref('authorization')
+const openAIAuthScheme = ref('bearer')
+const selectedOpenAIVendorPreset = computed(() => getOpenAIVendorPreset(openAIVendorPresetId.value))
+const openAIVendorOptions = computed(() =>
+  listOpenAIVendorPresets().map(preset => ({
+    value: preset.id,
+    label: t(preset.labelKey)
+  }))
+)
+
+const currentModelWhitelistPlatforms = computed(() => {
+  if (props.account?.platform === 'openai' && props.account?.type === 'apikey') {
+    return getOpenAIVendorModelPlatforms(openAIVendorPresetId.value)
+  }
+  return props.account?.platform ? [props.account.platform] : ['anthropic']
+})
+
+const currentPresetMappingPlatform = computed(() => {
+  if (props.account?.platform === 'openai' && props.account?.type === 'apikey') {
+    return getOpenAIVendorPresetPlatform(openAIVendorPresetId.value)
+  }
+  return props.account?.platform || 'anthropic'
+})
+
+const currentApiKeyBaseUrlPlaceholder = computed(() => {
+  if (props.account?.platform === 'openai' && props.account?.type === 'apikey') {
+    return selectedOpenAIVendorPreset.value.baseUrl
+  }
+  if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
+  if (props.account?.platform === 'kiro') return 'https://your-kiro-upstream.example.com'
+  if (props.account?.platform === 'antigravity') return 'https://cloudcode-pa.googleapis.com'
+  return 'https://api.anthropic.com'
+})
+
+const currentApiKeyPlaceholder = computed(() => {
+  if (props.account?.platform === 'openai' && props.account?.type === 'apikey') {
+    return selectedOpenAIVendorPreset.value.apiKeyPlaceholder
+  }
+  if (props.account?.platform === 'gemini') return 'AIza...'
+  if (props.account?.platform === 'kiro') return 'sk-...'
+  if (props.account?.platform === 'antigravity') return 'sk-...'
+  return 'sk-ant-...'
+})
+
 // Platform-specific hint for Base URL
 const baseUrlHint = computed(() => {
   if (!props.account) return t('admin.accounts.baseUrlHint')
+  if (props.account.platform === 'openai' && props.account.type === 'apikey') {
+    return t(selectedOpenAIVendorPreset.value.baseUrlHintKey)
+  }
   if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (props.account.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
   if (props.account.platform === 'kiro') return t('admin.accounts.kiro.baseUrlHint')
   return t('admin.accounts.baseUrlHint')
 })
 
+const apiKeyHint = computed(() => {
+  if (!props.account) return ''
+  if (props.account.platform === 'openai' && props.account.type === 'apikey') {
+    return t(selectedOpenAIVendorPreset.value.apiKeyHintKey)
+  }
+  if (props.account.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
+  if (props.account.platform === 'kiro') return t('admin.accounts.kiro.apiKeyHint')
+  if (props.account.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
+  if (props.account.platform === 'anthropic') return t('admin.accounts.apiKeyHint')
+  return ''
+})
+
 const antigravityPresetMappings = computed(() => getPresetMappingsByPlatform('antigravity'))
 const bedrockPresets = computed(() => getPresetMappingsByPlatform('bedrock'))
+const presetMappings = computed(() => getPresetMappingsByPlatform(currentPresetMappingPlatform.value))
 const isKiroOAuthAccount = computed(() => props.account?.platform === 'kiro' && props.account?.type === 'oauth')
 
 // Model mapping type
@@ -2693,8 +2779,38 @@ const openAICompactStatusKey = computed(() => {
   return 'admin.accounts.openai.compactAuto'
 })
 
-// Computed: current preset mappings based on platform
-const presetMappings = computed(() => getPresetMappingsByPlatform(props.account?.platform || 'anthropic'))
+const getCurrentWhitelistModels = () => getModelsByPlatforms(currentModelWhitelistPlatforms.value)
+
+const applyOpenAIVendorPresetToForm = (vendor: OpenAIVendorPresetId) => {
+  const preset = getOpenAIVendorPreset(vendor)
+  editBaseUrl.value = preset.baseUrl
+  openAIAuthHeader.value = preset.authHeader
+  openAIAuthScheme.value = preset.authScheme
+}
+
+const buildOpenAIVendorCredentials = () => {
+  const preset = selectedOpenAIVendorPreset.value
+  return {
+    vendor: openAIVendorPresetId.value,
+    auth_header: (openAIAuthHeader.value.trim() || preset.authHeader).toLowerCase(),
+    auth_scheme: (openAIAuthScheme.value.trim() || preset.authScheme).toLowerCase()
+  }
+}
+
+const isOpenAILocalProxyVendor = computed(() =>
+  props.account?.platform === 'openai' && props.account?.type === 'apikey' && openAIVendorPresetId.value === 'openai-local-proxy'
+)
+
+const handleOpenAIVendorPresetChange = () => {
+  if (props.account?.platform !== 'openai' || props.account?.type !== 'apikey') {
+    return
+  }
+  applyOpenAIVendorPresetToForm(openAIVendorPresetId.value)
+  if (modelRestrictionMode.value === 'whitelist') {
+    allowedModels.value = [...getCurrentWhitelistModels()]
+  }
+}
+
 const tempUnschedPresets = computed(() => [
   {
     label: t('admin.accounts.tempUnschedulable.presets.overloadLabel'),
@@ -2730,7 +2846,11 @@ const tempUnschedPresets = computed(() => [
 
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
-  if (props.account?.platform === 'openai') return 'https://api.openai.com'
+  if (props.account?.platform === 'openai') {
+    return props.account?.type === 'apikey'
+      ? selectedOpenAIVendorPreset.value.baseUrl
+      : 'https://api.openai.com'
+  }
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'kiro') return ''
   return 'https://api.anthropic.com'
@@ -2831,6 +2951,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   openaiPassthroughEnabled.value = false
   openAICompactMode.value = 'auto'
   openAICompactModelMappings.value = []
+  openAIVendorPresetId.value = 'openai'
+  openAIAuthHeader.value = 'authorization'
+  openAIAuthScheme.value = 'bearer'
   openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   codexCLIOnlyEnabled.value = false
@@ -2952,9 +3075,27 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   // Initialize API Key fields for apikey type
   if (newAccount.type === 'apikey' && newAccount.credentials) {
     const credentials = newAccount.credentials as Record<string, unknown>
+    if (newAccount.platform === 'openai') {
+      const inferredVendor = inferOpenAIVendorPreset({
+        vendor: typeof credentials.vendor === 'string' ? credentials.vendor : undefined,
+        baseUrl: typeof credentials.base_url === 'string' ? credentials.base_url : undefined,
+        authHeader: typeof credentials.auth_header === 'string' ? credentials.auth_header : undefined,
+        authScheme: typeof credentials.auth_scheme === 'string' ? credentials.auth_scheme : undefined
+      })
+      const preset = getOpenAIVendorPreset(inferredVendor)
+      openAIVendorPresetId.value = inferredVendor
+      openAIAuthHeader.value =
+        typeof credentials.auth_header === 'string' && credentials.auth_header.trim()
+          ? credentials.auth_header
+          : preset.authHeader
+      openAIAuthScheme.value =
+        typeof credentials.auth_scheme === 'string' && credentials.auth_scheme.trim()
+          ? credentials.auth_scheme
+          : preset.authScheme
+    }
     const platformDefaultUrl =
       newAccount.platform === 'openai'
-        ? 'https://api.openai.com'
+        ? getOpenAIVendorPreset(openAIVendorPresetId.value).baseUrl
         : newAccount.platform === 'gemini'
           ? 'https://generativelanguage.googleapis.com'
           : newAccount.platform === 'kiro'
@@ -3660,6 +3801,9 @@ const handleSubmit = async () => {
         ...currentCredentials,
         base_url: newBaseUrl
       }
+      if (props.account.platform === 'openai') {
+        Object.assign(newCredentials, buildOpenAIVendorCredentials())
+      }
 
       // Handle API key
       if (editApiKey.value.trim()) {
@@ -3668,9 +3812,11 @@ const handleSubmit = async () => {
       } else if (currentCredentials.api_key) {
         // Preserve existing api_key
         newCredentials.api_key = currentCredentials.api_key
-      } else {
+      } else if (!isOpenAILocalProxyVendor.value) {
         appStore.showError(t('admin.accounts.apiKeyIsRequired'))
         return
+      } else {
+        delete newCredentials.api_key
       }
 
       // Add model mapping if configured（OpenAI 开启自动透传时保留现有映射，不再编辑）

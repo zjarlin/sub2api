@@ -69,14 +69,10 @@ describe('useModelWhitelist', () => {
     const models = getModelsByPlatform('kiro')
 
     expect(models).toEqual([
-      'claude-opus-4-6',
-      'claude-opus-4-6-thinking',
+      'claude-opus-4-7',
+      'claude-opus-4-7-thinking',
       'claude-sonnet-4-6',
       'claude-sonnet-4-6-thinking',
-      'claude-opus-4-5-20251101',
-      'claude-opus-4-5-20251101-thinking',
-      'claude-sonnet-4-5-20250929',
-      'claude-sonnet-4-5-20250929-thinking',
       'claude-haiku-4-5-20251001',
       'claude-haiku-4-5-20251001-thinking'
     ])
@@ -85,6 +81,7 @@ describe('useModelWhitelist', () => {
     expect(models.some(model => model.endsWith('-chat'))).toBe(false)
     expect(models).not.toContain('kiro-auto')
     expect(models).not.toContain('claude-opus-4-5')
+    expect(models).not.toContain('claude-opus-4-6')
     expect(models).not.toContain('claude-sonnet-4-5')
     expect(models).not.toContain('claude-sonnet-4')
     expect(models).not.toContain('claude-3-5-sonnet-20241022')
@@ -136,14 +133,10 @@ describe('useModelWhitelist', () => {
     const mappingTargets = mappings.map(item => item.to)
 
     expect(mappings.map(({ from, to }) => ({ from, to }))).toEqual([
-      { from: 'claude-opus-4-6', to: 'claude-opus-4.6' },
-      { from: 'claude-opus-4-6-thinking', to: 'claude-opus-4.6' },
+      { from: 'claude-opus-4-7', to: 'claude-opus-4.7' },
+      { from: 'claude-opus-4-7-thinking', to: 'claude-opus-4.7' },
       { from: 'claude-sonnet-4-6', to: 'claude-sonnet-4.6' },
       { from: 'claude-sonnet-4-6-thinking', to: 'claude-sonnet-4.6' },
-      { from: 'claude-opus-4-5-20251101', to: 'claude-opus-4.5' },
-      { from: 'claude-opus-4-5-20251101-thinking', to: 'claude-opus-4.5' },
-      { from: 'claude-sonnet-4-5-20250929', to: 'claude-sonnet-4.5' },
-      { from: 'claude-sonnet-4-5-20250929-thinking', to: 'claude-sonnet-4.5' },
       { from: 'claude-haiku-4-5-20251001', to: 'claude-haiku-4.5' },
       { from: 'claude-haiku-4-5-20251001-thinking', to: 'claude-haiku-4.5' }
     ])
@@ -159,6 +152,9 @@ describe('useModelWhitelist', () => {
     expect(mappings.some(item => item.from === 'claude-3-5-sonnet-20241022')).toBe(false)
     expect(mappings.some(item => item.from === 'claude-3-5-haiku-20241022')).toBe(false)
     expect(mappings.some(item => item.from === 'claude-haiku-4-5')).toBe(false)
+    expect(mappings.some(item => item.from === 'claude-opus-4-6')).toBe(false)
+    expect(mappings.some(item => item.from === 'claude-opus-4-5-20251101')).toBe(false)
+    expect(mappings.some(item => item.from === 'claude-sonnet-4-5-20250929')).toBe(false)
     expect(mappingTargets).not.toContain('gpt-4o')
     expect(mappingTargets).not.toContain('gpt-4')
     expect(mappingTargets).not.toContain('gpt-4-turbo')
@@ -172,18 +168,14 @@ describe('useModelWhitelist', () => {
     const mappings = await fetchKiroDefaultMappings()
 
     expect(mappings).toEqual(expect.arrayContaining([
-      { from: 'claude-opus-4-6', to: 'claude-opus-4.6' },
-      { from: 'claude-opus-4-6-thinking', to: 'claude-opus-4.6' },
+      { from: 'claude-opus-4-7', to: 'claude-opus-4.7' },
+      { from: 'claude-opus-4-7-thinking', to: 'claude-opus-4.7' },
       { from: 'claude-sonnet-4-6', to: 'claude-sonnet-4.6' },
       { from: 'claude-sonnet-4-6-thinking', to: 'claude-sonnet-4.6' },
-      { from: 'claude-opus-4-5-20251101', to: 'claude-opus-4.5' },
-      { from: 'claude-opus-4-5-20251101-thinking', to: 'claude-opus-4.5' },
-      { from: 'claude-sonnet-4-5-20250929', to: 'claude-sonnet-4.5' },
-      { from: 'claude-sonnet-4-5-20250929-thinking', to: 'claude-sonnet-4.5' },
       { from: 'claude-haiku-4-5-20251001', to: 'claude-haiku-4.5' },
       { from: 'claude-haiku-4-5-20251001-thinking', to: 'claude-haiku-4.5' }
     ]))
-    expect(mappings).toHaveLength(10)
+    expect(mappings).toHaveLength(6)
     expect(mappings.every(item => !item.from.startsWith('kiro-'))).toBe(true)
     expect(mappings.every(item => !item.to.startsWith('kiro-'))).toBe(true)
     expect(mappings.every(item => !item.from.endsWith('-agentic'))).toBe(true)
@@ -192,6 +184,9 @@ describe('useModelWhitelist', () => {
     expect(mappings.every(item => !item.to.endsWith('-chat'))).toBe(true)
     expect(mappings.every(item => item.from.startsWith('claude-'))).toBe(true)
     expect(mappings.every(item => item.to.startsWith('claude-'))).toBe(true)
-    expect(mappings.some(item => item.to === 'claude-opus-4-7')).toBe(false)
+    expect(mappings.some(item => item.from === 'claude-opus-4-6')).toBe(false)
+    expect(mappings.some(item => item.from === 'claude-opus-4-5-20251101')).toBe(false)
+    expect(mappings.some(item => item.from === 'claude-sonnet-4-5-20250929')).toBe(false)
+    expect(mappings.some(item => item.to === 'claude-opus-4.7')).toBe(true)
   })
 })

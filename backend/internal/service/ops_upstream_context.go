@@ -3,11 +3,14 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // Gin context keys used by Ops error logger for capturing upstream error details.
@@ -133,6 +136,110 @@ func GetOpsSelectedAccountSnapshot(c *gin.Context) OpsSelectedAccountSnapshot {
 	}
 
 	return snapshot
+}
+
+func ShouldExposeScheduledAccountInClientError(c *gin.Context) bool {
+	if c == nil {
+		return false
+	}
+	v, ok := c.Get("user_role")
+	if !ok {
+		return false
+	}
+	role, ok := v.(string)
+	return ok && strings.EqualFold(strings.TrimSpace(role), RoleAdmin)
+}
+
+func ResolveClientScheduledAccountLabel(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+
+	snapshot := GetOpsSelectedAccountSnapshot(c)
+	if name := strings.TrimSpace(snapshot.Name); name != "" {
+		return name
+	}
+	if snapshot.ID > 0 {
+		return strconv.FormatInt(snapshot.ID, 10)
+	}
+
+	if v, ok := c.Get(OpsUpstreamErrorsKey); ok {
+		if events, ok := v.([]*OpsUpstreamErrorEvent); ok {
+			for i := len(events) - 1; i >= 0; i-- {
+				ev := events[i]
+				if ev == nil {
+					continue
+				}
+				if name := strings.TrimSpace(ev.AccountName); name != "" {
+					return name
+				}
+				if ev.AccountID > 0 {
+					return strconv.FormatInt(ev.AccountID, 10)
+				}
+			}
+		}
+	}
+
+	return ""
+}
+
+func DecorateScheduledAccountClientError(c *gin.Context, message string) string {
+	message = strings.TrimSpace(message)
+	if message == "" || !ShouldExposeScheduledAccountInClientError(c) {
+		return message
+	}
+	if strings.Contains(message, "[scheduled account:") {
+		return message
+	}
+	label := ResolveClientScheduledAccountLabel(c)
+	if label == "" {
+		return message
+	}
+	return message + " [scheduled account: " + label + "]"
+}
+
+func DecorateScheduledAccountClientErrorJSONBody(c *gin.Context, body []byte) []byte {
+	if len(body) == 0 {
+		return body
+	}
+
+	message := strings.TrimSpace(gjson.GetBytes(body, "error.message").String())
+	if message == "" {
+		return body
+	}
+
+	decorated := DecorateScheduledAccountClientError(c, message)
+	if decorated == message {
+		return body
+	}
+
+	patched, err := sjson.SetBytes(body, "error.message", decorated)
+	if err != nil {
+		return body
+	}
+	return patched
+}
+
+func WriteOpenAIClientError(c *gin.Context, statusCode int, errType, message string, extraFields gin.H) {
+	payload := gin.H{
+		"type":    errType,
+		"message": DecorateScheduledAccountClientError(c, message),
+	}
+	for key, value := range extraFields {
+		payload[key] = value
+	}
+	c.JSON(statusCode, gin.H{"error": payload})
+}
+
+func WriteResponsesClientError(c *gin.Context, statusCode int, code, message string, extraFields gin.H) {
+	payload := gin.H{
+		"code":    code,
+		"message": DecorateScheduledAccountClientError(c, message),
+	}
+	for key, value := range extraFields {
+		payload[key] = value
+	}
+	c.JSON(statusCode, gin.H{"error": payload})
 }
 
 func setOpsUpstreamRequestBody(c *gin.Context, body []byte) {

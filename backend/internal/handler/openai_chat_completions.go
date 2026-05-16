@@ -87,8 +87,6 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	// 解析渠道级模型映射
-	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
-
 	if h.errorPassthroughService != nil {
 		service.BindErrorPassthroughService(c, h.errorPassthroughService)
 	}
@@ -124,15 +122,17 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
+	effectiveReqModel := reqModel
 
 	for {
+		currentChannelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, effectiveReqModel)
 		reqLog.Debug("openai_chat_completions.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithScheduler(
 			c.Request.Context(),
 			apiKey.GroupID,
 			"",
 			sessionHash,
-			reqModel,
+			effectiveReqModel,
 			failedAccountIDs,
 			service.OpenAIUpstreamTransportAny,
 			false,
@@ -176,8 +176,10 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		forwardStart := time.Now()
 
 		forwardBody := body
-		if channelMapping.Mapped {
-			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
+		if currentChannelMapping.Mapped {
+			forwardBody = h.gatewayService.ReplaceModelInBody(body, currentChannelMapping.MappedModel)
+		} else if effectiveReqModel != reqModel {
+			forwardBody = h.gatewayService.ReplaceModelInBody(body, effectiveReqModel)
 		}
 		result, err := h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, promptCacheKey, "")
 
@@ -205,6 +207,20 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					h.gatewayService.ReportOpenAIAccountScheduleResult(account.ID, false, nil)
+					if downgradedModel, ok := resolveOpenAIRequestDowngradeModel(account, effectiveReqModel, failoverErr); ok {
+						reqLog.Warn("openai_chat_completions.model_downgrade_retrying",
+							zap.Int64("account_id", account.ID),
+							zap.Int("upstream_status", failoverErr.StatusCode),
+							zap.String("from_model", effectiveReqModel),
+							zap.String("to_model", downgradedModel),
+						)
+						effectiveReqModel = downgradedModel
+						failedAccountIDs = make(map[int64]struct{})
+						sameAccountRetryCount = make(map[int64]int)
+						lastFailoverErr = nil
+						switchCount = 0
+						continue
+					}
 					// Pool mode: retry on the same account
 					if failoverErr.RetryableOnSameAccount {
 						retryLimit := account.GetPoolModeRetryCount()
@@ -273,7 +289,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				UserAgent:          userAgent,
 				IPAddress:          clientIP,
 				APIKeyService:      h.apiKeyService,
-				ChannelUsageFields: channelMapping.ToUsageFields(reqModel, result.UpstreamModel),
+				ChannelUsageFields: currentChannelMapping.ToUsageFields(reqModel, result.UpstreamModel),
 			}); err != nil {
 				logger.L().With(
 					zap.String("component", "handler.openai_gateway.chat_completions"),
@@ -293,14 +309,12 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	}
 }
 
-// resolveRawCCUpstreamEndpoint returns the actual upstream endpoint for
-// OpenAI Chat Completions requests. For APIKey accounts whose upstream
-// has been probed to not support the Responses API, the request is
-// forwarded directly to /v1/chat/completions — not through the default
-// CC→Responses conversion path.
+// resolveRawCCUpstreamEndpoint 返回 Chat Completions 请求实际使用的上游端点。
+// 对厂商明确要求直连 Chat Completions、或探测确认不支持 Responses 的 APIKey 账号，
+// 运维记录必须显示 /v1/chat/completions，而不是默认的 /v1/responses。
 func resolveRawCCUpstreamEndpoint(c *gin.Context, account *service.Account) string {
 	if account != nil && account.Type == service.AccountTypeAPIKey &&
-		!openai_compat.ShouldUseResponsesAPI(account.Extra) {
+		(account.ShouldUseOpenAIChatCompletionsUpstream() || !openai_compat.ShouldUseResponsesAPI(account.Extra)) {
 		return "/v1/chat/completions"
 	}
 	return GetUpstreamEndpoint(c, account.Platform)

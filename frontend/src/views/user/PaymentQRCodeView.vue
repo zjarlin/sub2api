@@ -41,6 +41,7 @@ import { usePaymentStore } from '@/stores/payment'
 import { paymentAPI } from '@/api/payment'
 import { extractI18nErrorMessage } from '@/utils/apiError'
 import { useAppStore } from '@/stores'
+import { PAYMENT_STATUS_POLL_INTERVAL_MS } from '@/components/payment/constants'
 import QRCode from 'qrcode'
 import alipayIcon from '@/assets/icons/alipay.svg'
 import wxpayIcon from '@/assets/icons/wxpay.svg'
@@ -195,7 +196,7 @@ onMounted(() => {
     seconds = Math.floor((expiresAt.getTime() - now.getTime()) / 1000)
   }
   startCountdown(seconds)
-  pollTimer = setInterval(pollStatus, 3000)
+  pollTimer = setInterval(pollStatus, PAYMENT_STATUS_POLL_INTERVAL_MS)
   renderQR()
 })
 

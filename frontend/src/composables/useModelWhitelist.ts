@@ -4,6 +4,9 @@
 
 // OpenAI
 const openaiModels = [
+  'gpt-4o', 'gpt-4o-mini',
+  'gpt-4.1', 'gpt-4.1-mini',
+  'o1', 'o3',
   // GPT-5.2 系列
   'gpt-5.2', 'gpt-5.2-2025-12-11', 'gpt-5.2-chat-latest',
   'gpt-5.2-pro', 'gpt-5.2-pro-2025-12-11',
@@ -11,6 +14,7 @@ const openaiModels = [
   'gpt-5.5',
   // GPT-5.4 系列
   'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-2026-03-05',
+  'gpt-5-mini', 'gpt-5-nano',
   // GPT-5.3 / Codex 系列
   'gpt-5.3-codex', 'gpt-5.3-codex-spark', 'codex-auto-review',
   'gpt-4o-audio-preview', 'gpt-4o-realtime-preview',
@@ -53,6 +57,91 @@ const geminiModels = [
   'gemini-3-pro-preview'
 ]
 
+const mimoModels = [
+  'mimo-v2.5',
+  'mimo-v2.5-pro',
+  'mimo-v2.5-tts-voiceclone',
+  'mimo-v2.5-tts-voicedesign',
+  'mimo-v2.5-tts',
+  'mimo-v2-omni',
+  'mimo-v2-tts'
+]
+
+const traeModels = [
+  'gpt-4o',
+  'claude-3.5-sonnet'
+]
+
+const openaiLocalProxyModels = [
+  'smart',
+  'pool:smart',
+  'doubao',
+  'doubao:doubao',
+  'doubao-pro',
+  'doubao:doubao-pro',
+  'kimi-k2.5',
+  'kimi:kimi-k2.5',
+  'kimi-k2',
+  'kimi:kimi-k2',
+  'kimi-k2.5-thinking',
+  'kimi:kimi-k2.5-thinking',
+  'kimi-k2-thinking',
+  'kimi:kimi-k2-thinking',
+  'kimi-k2.5-search',
+  'kimi:kimi-k2.5-search',
+  'kimi-k2-search',
+  'kimi:kimi-k2-search',
+  'kimi-k2.5-thinking-search',
+  'kimi:kimi-k2.5-thinking-search',
+  'kimi-k2.5-search-thinking',
+  'kimi:kimi-k2.5-search-thinking',
+  'kimi-k2-thinking-search',
+  'kimi:kimi-k2-thinking-search',
+  'kimi-k2-search-thinking',
+  'kimi:kimi-k2-search-thinking',
+  'kimi-thinking',
+  'kimi:kimi-thinking',
+  'kimi-search',
+  'kimi:kimi-search',
+  'kimi-thinking-search',
+  'kimi:kimi-thinking-search',
+  'kimi-search-thinking',
+  'kimi:kimi-search-thinking',
+  'gpt-4o',
+  'gpt-4o-mini',
+  'gpt-4.1',
+  'gpt-4.1-mini',
+  'gpt-5.4',
+  'gpt-5-mini',
+  'gpt-5-nano',
+  'claude-3.7-sonnet',
+  'claude-sonnet-4',
+  'gemini-2.5-flash',
+  'gemini:gemini-2.5-flash',
+  'gemini-2.5-pro',
+  'gemini:gemini-2.5-pro',
+  'mimo-v2.5',
+  'mimo:mimo-v2.5',
+  'mimo-v2.5-pro',
+  'mimo:mimo-v2.5-pro',
+  'mimo-v2.5-tts-voiceclone',
+  'mimo:mimo-v2.5-tts-voiceclone',
+  'mimo-v2.5-tts-voicedesign',
+  'mimo:mimo-v2.5-tts-voicedesign',
+  'mimo-v2.5-tts',
+  'mimo:mimo-v2.5-tts',
+  'mimo-v2-omni',
+  'mimo:mimo-v2-omni',
+  'mimo-v2-tts',
+  'mimo:mimo-v2-tts',
+  'trae:gpt-4o',
+  'trae:claude-3.5-sonnet',
+  'opencode/big-pickle',
+  'opencode/minimax-m2.5-free',
+  'opencode/nemotron-3-super-free',
+  'opencode/ling-2.6-flash-free'
+]
+
 // Antigravity 官方支持的模型（精确匹配）
 // 基于官方 API 返回的模型列表，只支持 Claude 4.5+ 和 Gemini 2.5+
 const antigravityModels = [
@@ -85,14 +174,10 @@ const antigravityModels = [
 ]
 
 const kiroModels = [
-  'claude-opus-4-6',
-  'claude-opus-4-6-thinking',
+  'claude-opus-4-7',
+  'claude-opus-4-7-thinking',
   'claude-sonnet-4-6',
   'claude-sonnet-4-6-thinking',
-  'claude-opus-4-5-20251101',
-  'claude-opus-4-5-20251101-thinking',
-  'claude-sonnet-4-5-20250929',
-  'claude-sonnet-4-5-20250929-thinking',
   'claude-haiku-4-5-20251001',
   'claude-haiku-4-5-20251001-thinking'
 ]
@@ -223,10 +308,13 @@ const perplexityModels = [
 ]
 
 // 所有模型（去重）
-const allModelsList: string[] = [
+const allModelsList = Array.from(new Set<string>([
   ...openaiModels,
   ...claudeModels,
   ...geminiModels,
+  ...mimoModels,
+  ...traeModels,
+  ...openaiLocalProxyModels,
   ...zhipuModels,
   ...qwenModels,
   ...deepseekModels,
@@ -242,7 +330,7 @@ const allModelsList: string[] = [
   ...sparkModels,
   ...hunyuanModels,
   ...perplexityModels
-]
+]))
 
 // 转换为下拉选项格式
 export const allModels = allModelsList.map(m => ({ value: m, label: m }))
@@ -276,6 +364,31 @@ const openaiPresetMappings = [
   { label: 'Haiku→5.4', from: 'claude-haiku-4-5-20251001', to: 'gpt-5.4', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
   { label: 'Opus→5.4', from: 'claude-opus-4-6', to: 'gpt-5.4', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
   { label: 'Sonnet→5.4', from: 'claude-sonnet-4-6', to: 'gpt-5.4', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' }
+]
+
+const mimoPresetMappings = [
+  { label: 'Mimo 2.5', from: 'mimo-v2.5', to: 'mimo-v2.5', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
+  { label: 'Mimo 2.5 Pro', from: 'mimo-v2.5-pro', to: 'mimo-v2.5-pro', color: 'bg-pink-100 text-pink-700 hover:bg-pink-200 dark:bg-pink-900/30 dark:text-pink-400' },
+  { label: 'Mimo Omni', from: 'mimo-v2-omni', to: 'mimo-v2-omni', color: 'bg-fuchsia-100 text-fuchsia-700 hover:bg-fuchsia-200 dark:bg-fuchsia-900/30 dark:text-fuchsia-400' },
+  { label: 'Voice Clone', from: 'mimo-v2.5-tts-voiceclone', to: 'mimo-v2.5-tts-voiceclone', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400' },
+  { label: 'TTS', from: 'mimo-v2.5-tts', to: 'mimo-v2.5-tts', color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400' }
+]
+
+const traePresetMappings = [
+  { label: 'GPT-4o', from: 'gpt-4o', to: 'gpt-4o', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  { label: 'Claude 3.5 Sonnet', from: 'claude-3.5-sonnet', to: 'claude-3.5-sonnet', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' }
+]
+
+const openaiLocalProxyPresetMappings = [
+  { label: 'Smart Pool', from: 'smart', to: 'pool:smart', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  { label: 'Smart GPT-4o', from: 'gpt-4o', to: 'pool:smart', color: 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400' },
+  { label: 'Smart GPT-4.1', from: 'gpt-4.1', to: 'pool:smart', color: 'bg-lime-100 text-lime-700 hover:bg-lime-200 dark:bg-lime-900/30 dark:text-lime-400' },
+  { label: 'Smart GPT-5.4', from: 'gpt-5.4', to: 'pool:smart', color: 'bg-teal-100 text-teal-700 hover:bg-teal-200 dark:bg-teal-900/30 dark:text-teal-400' },
+  { label: 'Kimi K2.5', from: 'kimi-k2.5', to: 'kimi:kimi-k2.5', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' },
+  { label: 'Doubao', from: 'doubao', to: 'doubao:doubao', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' },
+  { label: 'Gemini 2.5 Flash', from: 'gemini-2.5-flash', to: 'gemini:gemini-2.5-flash', color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400' },
+  { label: 'Mimo 2.5', from: 'mimo-v2.5', to: 'mimo:mimo-v2.5', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
+  { label: 'Opencode Free', from: 'opencode/big-pickle', to: 'opencode/big-pickle', color: 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800/60 dark:text-slate-300' }
 ]
 
 const geminiPresetMappings = [
@@ -320,14 +433,10 @@ const antigravityPresetMappings = [
 ]
 
 const kiroPresetMappings = [
-  { label: 'Opus 4.6', from: 'claude-opus-4-6', to: 'claude-opus-4.6', color: 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-300' },
-  { label: 'Opus 4.6 Thinking', from: 'claude-opus-4-6-thinking', to: 'claude-opus-4.6', color: 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-300' },
+  { label: 'Opus 4.7', from: 'claude-opus-4-7', to: 'claude-opus-4.7', color: 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-300' },
+  { label: 'Opus 4.7 Thinking', from: 'claude-opus-4-7-thinking', to: 'claude-opus-4.7', color: 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-300' },
   { label: 'Sonnet 4.6', from: 'claude-sonnet-4-6', to: 'claude-sonnet-4.6', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-300' },
   { label: 'Sonnet 4.6 Thinking', from: 'claude-sonnet-4-6-thinking', to: 'claude-sonnet-4.6', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-300' },
-  { label: 'Opus 4.5', from: 'claude-opus-4-5-20251101', to: 'claude-opus-4.5', color: 'bg-pink-100 text-pink-700 hover:bg-pink-200 dark:bg-pink-900/30 dark:text-pink-300' },
-  { label: 'Opus 4.5 Thinking', from: 'claude-opus-4-5-20251101-thinking', to: 'claude-opus-4.5', color: 'bg-pink-100 text-pink-700 hover:bg-pink-200 dark:bg-pink-900/30 dark:text-pink-300' },
-  { label: 'Sonnet 4.5', from: 'claude-sonnet-4-5-20250929', to: 'claude-sonnet-4.5', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-300' },
-  { label: 'Sonnet 4.5 Thinking', from: 'claude-sonnet-4-5-20250929-thinking', to: 'claude-sonnet-4.5', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-300' },
   { label: 'Haiku 4.5', from: 'claude-haiku-4-5-20251001', to: 'claude-haiku-4.5', color: 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-300' },
   { label: 'Haiku 4.5 Thinking', from: 'claude-haiku-4-5-20251001-thinking', to: 'claude-haiku-4.5', color: 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-300' }
 ]
@@ -398,6 +507,9 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'anthropic':
     case 'claude': return claudeModels
     case 'gemini': return geminiModels
+    case 'mimo': return mimoModels
+    case 'trae': return traeModels
+    case 'openai-local-proxy': return openaiLocalProxyModels
     case 'antigravity': return antigravityModels
     case 'kiro': return kiroModels
     case 'zhipu': return zhipuModels
@@ -419,10 +531,20 @@ export function getModelsByPlatform(platform: string): string[] {
   }
 }
 
+export function getModelsByPlatforms(platforms: string[]): string[] {
+  if (platforms.length === 0) {
+    return [...allModelsList]
+  }
+  return Array.from(new Set(platforms.flatMap(platform => getModelsByPlatform(platform))))
+}
+
 // 按平台获取预设映射
 export function getPresetMappingsByPlatform(platform: string) {
   if (platform === 'openai') return openaiPresetMappings
   if (platform === 'gemini') return geminiPresetMappings
+  if (platform === 'mimo') return mimoPresetMappings
+  if (platform === 'trae') return traePresetMappings
+  if (platform === 'openai-local-proxy') return openaiLocalProxyPresetMappings
   if (platform === 'antigravity') return antigravityPresetMappings
   if (platform === 'kiro') return kiroPresetMappings
   if (platform === 'bedrock') return bedrockPresetMappings

@@ -116,7 +116,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 
 	// 5. Build upstream request
 	apiKey := account.GetOpenAIApiKey()
-	if apiKey == "" {
+	if apiKey == "" && !account.AllowsEmptyOpenAIApiKey() {
 		return nil, fmt.Errorf("account %d missing api_key", account.ID)
 	}
 	baseURL := account.GetOpenAIBaseURL()
@@ -136,12 +136,12 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
 	upstreamReq.Header.Set("Content-Type", "application/json")
-	upstreamReq.Header.Set("Authorization", "Bearer "+apiKey)
 	if clientStream {
 		upstreamReq.Header.Set("Accept", "text/event-stream")
 	} else {
 		upstreamReq.Header.Set("Accept", "application/json")
 	}
+	applyOpenAIUpstreamAuthHeaders(upstreamReq.Header, account, apiKey)
 
 	// 透传白名单中的客户端 header。详见 openaiCCRawAllowedHeaders 的设计说明。
 	for key, values := range c.Request.Header {
@@ -422,6 +422,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 //
 //   - base 已是 /chat/completions：原样返回
 //   - base 以 /v1 结尾：追加 /chat/completions
+//   - base 已是其他 OpenAI-compatible API root：追加 /chat/completions
 //   - 其他情况：追加 /v1/chat/completions
 //
 // 与 buildOpenAIResponsesURL 是姐妹函数。
@@ -431,6 +432,9 @@ func buildOpenAIChatCompletionsURL(base string) string {
 		return normalized
 	}
 	if strings.HasSuffix(normalized, "/v1") {
+		return normalized + "/chat/completions"
+	}
+	if openAIBaseURLLooksLikeAPIRoot(normalized) {
 		return normalized + "/chat/completions"
 	}
 	return normalized + "/v1/chat/completions"

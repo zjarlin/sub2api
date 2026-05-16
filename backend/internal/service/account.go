@@ -6,6 +6,7 @@ import (
 	"errors"
 	"hash/fnv"
 	"log/slog"
+	"net/http"
 	"reflect"
 	"sort"
 	"strconv"
@@ -496,14 +497,14 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 	if a.Credentials == nil {
 		// 部分平台在未显式配置 model_mapping 时仍应使用默认映射，
 		// 以限制可调度/可转发的模型集合。
-		if defaults := defaultModelMappingForPlatform(a.Platform); defaults != nil {
+		if defaults := a.defaultModelMapping(); defaults != nil {
 			return defaults
 		}
 		// Bedrock 默认映射由 forwardBedrock 统一处理（需配合 region prefix 调整）
 		return nil
 	}
 	if len(rawMapping) == 0 {
-		if defaults := defaultModelMappingForPlatform(a.Platform); defaults != nil {
+		if defaults := a.defaultModelMapping(); defaults != nil {
 			return defaults
 		}
 		return nil
@@ -526,10 +527,22 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 		return result
 	}
 
-	if defaults := defaultModelMappingForPlatform(a.Platform); defaults != nil {
+	if defaults := a.defaultModelMapping(); defaults != nil {
 		return defaults
 	}
 	return nil
+}
+
+func (a *Account) defaultModelMapping() map[string]string {
+	if a == nil {
+		return nil
+	}
+	if a.Platform == PlatformOpenAI && a.Type == AccountTypeAPIKey {
+		if defaults := defaultOpenAIModelMappingForVendor(a.GetOpenAIVendor()); defaults != nil {
+			return defaults
+		}
+	}
+	return defaultModelMappingForPlatform(a.Platform)
 }
 
 func defaultModelMappingForPlatform(platform string) map[string]string {
@@ -540,6 +553,114 @@ func defaultModelMappingForPlatform(platform string) map[string]string {
 		return domain.DefaultKiroModelMapping
 	default:
 		return nil
+	}
+}
+
+var openAILocalProxyDefaultModelMapping = map[string]string{
+	"smart":                          "pool:smart",
+	"pool:smart":                     "pool:smart",
+	"doubao":                         "doubao:doubao",
+	"doubao:doubao":                  "doubao:doubao",
+	"doubao-pro":                     "doubao:doubao-pro",
+	"doubao:doubao-pro":              "doubao:doubao-pro",
+	"kimi-k2.5":                      "kimi:kimi-k2.5",
+	"kimi:kimi-k2.5":                 "kimi:kimi-k2.5",
+	"kimi-k2":                        "kimi:kimi-k2",
+	"kimi:kimi-k2":                   "kimi:kimi-k2",
+	"kimi-k2.5-thinking":             "kimi:kimi-k2.5-thinking",
+	"kimi:kimi-k2.5-thinking":        "kimi:kimi-k2.5-thinking",
+	"kimi-k2-thinking":               "kimi:kimi-k2-thinking",
+	"kimi:kimi-k2-thinking":          "kimi:kimi-k2-thinking",
+	"kimi-k2.5-search":               "kimi:kimi-k2.5-search",
+	"kimi:kimi-k2.5-search":          "kimi:kimi-k2.5-search",
+	"kimi-k2-search":                 "kimi:kimi-k2-search",
+	"kimi:kimi-k2-search":            "kimi:kimi-k2-search",
+	"kimi-k2.5-thinking-search":      "kimi:kimi-k2.5-thinking-search",
+	"kimi:kimi-k2.5-thinking-search": "kimi:kimi-k2.5-thinking-search",
+	"kimi-k2.5-search-thinking":      "kimi:kimi-k2.5-search-thinking",
+	"kimi:kimi-k2.5-search-thinking": "kimi:kimi-k2.5-search-thinking",
+	"kimi-k2-thinking-search":        "kimi:kimi-k2-thinking-search",
+	"kimi:kimi-k2-thinking-search":   "kimi:kimi-k2-thinking-search",
+	"kimi-k2-search-thinking":        "kimi:kimi-k2-search-thinking",
+	"kimi:kimi-k2-search-thinking":   "kimi:kimi-k2-search-thinking",
+	"kimi-thinking":                  "kimi:kimi-thinking",
+	"kimi:kimi-thinking":             "kimi:kimi-thinking",
+	"kimi-search":                    "kimi:kimi-search",
+	"kimi:kimi-search":               "kimi:kimi-search",
+	"kimi-thinking-search":           "kimi:kimi-thinking-search",
+	"kimi:kimi-thinking-search":      "kimi:kimi-thinking-search",
+	"kimi-search-thinking":           "kimi:kimi-search-thinking",
+	"kimi:kimi-search-thinking":      "kimi:kimi-search-thinking",
+	"gpt-4o":                         "pool:smart",
+	"gpt-4o-mini":                    "pool:smart",
+	"gpt-4.1":                        "pool:smart",
+	"gpt-4.1-mini":                   "pool:smart",
+	"gpt-5.4":                        "pool:smart",
+	"gpt-5-mini":                     "pool:smart",
+	"gpt-5-nano":                     "pool:smart",
+	"claude-3.7-sonnet":              "opencode/nemotron-3-super-free",
+	"claude-sonnet-4":                "opencode/nemotron-3-super-free",
+	"gemini-2.5-flash":               "gemini:gemini-2.5-flash",
+	"gemini:gemini-2.5-flash":        "gemini:gemini-2.5-flash",
+	"gemini-2.5-pro":                 "gemini:gemini-2.5-pro",
+	"gemini:gemini-2.5-pro":          "gemini:gemini-2.5-pro",
+	"mimo-v2.5":                      "mimo:mimo-v2.5",
+	"mimo:mimo-v2.5":                 "mimo:mimo-v2.5",
+	"mimo-v2.5-pro":                  "mimo:mimo-v2.5-pro",
+	"mimo:mimo-v2.5-pro":             "mimo:mimo-v2.5-pro",
+	"mimo-v2.5-tts-voiceclone":       "mimo:mimo-v2.5-tts-voiceclone",
+	"mimo:mimo-v2.5-tts-voiceclone":  "mimo:mimo-v2.5-tts-voiceclone",
+	"mimo-v2.5-tts-voicedesign":      "mimo:mimo-v2.5-tts-voicedesign",
+	"mimo:mimo-v2.5-tts-voicedesign": "mimo:mimo-v2.5-tts-voicedesign",
+	"mimo-v2.5-tts":                  "mimo:mimo-v2.5-tts",
+	"mimo:mimo-v2.5-tts":             "mimo:mimo-v2.5-tts",
+	"mimo-v2-omni":                   "mimo:mimo-v2-omni",
+	"mimo:mimo-v2-omni":              "mimo:mimo-v2-omni",
+	"mimo-v2-tts":                    "mimo:mimo-v2-tts",
+	"mimo:mimo-v2-tts":               "mimo:mimo-v2-tts",
+	"trae:gpt-4o":                    "trae:gpt-4o",
+	"trae:claude-3.5-sonnet":         "trae:claude-3.5-sonnet",
+	"opencode/big-pickle":            "opencode/big-pickle",
+	"opencode/minimax-m2.5-free":     "opencode/minimax-m2.5-free",
+	"opencode/nemotron-3-super-free": "opencode/nemotron-3-super-free",
+	"opencode/ling-2.6-flash-free":   "opencode/ling-2.6-flash-free",
+}
+
+func cloneStringMap(input map[string]string) map[string]string {
+	if len(input) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(input))
+	for key, value := range input {
+		out[key] = value
+	}
+	return out
+}
+
+func defaultOpenAIModelMappingForVendor(vendor string) map[string]string {
+	switch strings.ToLower(strings.TrimSpace(vendor)) {
+	case "openai-local-proxy":
+		return cloneStringMap(openAILocalProxyDefaultModelMapping)
+	default:
+		return nil
+	}
+}
+
+func openAIVendorPrefersChatCompletions(vendor string) bool {
+	switch strings.ToLower(strings.TrimSpace(vendor)) {
+	case "gemini", "mimo", "trae":
+		return true
+	default:
+		return false
+	}
+}
+
+func openAIVendorAllowsEmptyAPIKey(vendor string) bool {
+	switch strings.ToLower(strings.TrimSpace(vendor)) {
+	case "openai-local-proxy":
+		return true
+	default:
+		return false
 	}
 }
 
@@ -634,6 +755,51 @@ func resolveRequestedModelInMapping(mapping map[string]string, requestedModel st
 	return matchWildcardMappingResult(mapping, requestedModel)
 }
 
+func resolveOpenAIRequestedModelFallbacks(account *Account, requestedModel string) []string {
+	if account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey {
+		return nil
+	}
+
+	trimmed := strings.TrimSpace(requestedModel)
+	if trimmed == "" {
+		return nil
+	}
+
+	if canonicalizeOpenAIModelAliasSpelling(lastOpenAIModelSegment(trimmed)) != "gpt-5.5" {
+		return nil
+	}
+
+	seen := make(map[string]struct{}, 2)
+	fallbacks := make([]string, 0, 2)
+	add := func(candidate string) {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || candidate == trimmed {
+			return
+		}
+		key := strings.ToLower(candidate)
+		if _, exists := seen[key]; exists {
+			return
+		}
+		seen[key] = struct{}{}
+		fallbacks = append(fallbacks, candidate)
+	}
+
+	if idx := strings.LastIndex(trimmed, "/"); idx >= 0 {
+		add(trimmed[:idx+1] + "gpt-5.4")
+	}
+	add("gpt-5.4")
+
+	return fallbacks
+}
+
+func ResolveOpenAIRequestedModelFallbackCandidates(account *Account, requestedModel string) []string {
+	fallbacks := resolveOpenAIRequestedModelFallbacks(account, requestedModel)
+	if len(fallbacks) == 0 {
+		return nil
+	}
+	return append([]string(nil), fallbacks...)
+}
+
 // IsModelSupported 检查模型是否在 model_mapping 中（支持通配符）。
 // 对带默认映射的平台（如 Antigravity/Kiro），未显式配置时也会先回退到默认映射。
 func (a *Account) IsModelSupported(requestedModel string) bool {
@@ -645,7 +811,19 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 		return true
 	}
 	normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
-	return normalized != requestedModel && mappingSupportsRequestedModel(mapping, normalized)
+	if normalized != requestedModel && mappingSupportsRequestedModel(mapping, normalized) {
+		return true
+	}
+	for _, fallbackModel := range resolveOpenAIRequestedModelFallbacks(a, requestedModel) {
+		if mappingSupportsRequestedModel(mapping, fallbackModel) {
+			return true
+		}
+		normalizedFallback := normalizeRequestedModelForLookup(a.Platform, fallbackModel)
+		if normalizedFallback != fallbackModel && mappingSupportsRequestedModel(mapping, normalizedFallback) {
+			return true
+		}
+	}
+	return false
 }
 
 // GetMappedModel 获取映射后的模型名（支持通配符，最长优先匹配）。
@@ -669,6 +847,17 @@ func (a *Account) ResolveMappedModel(requestedModel string) (mappedModel string,
 	if normalized != requestedModel {
 		if mappedModel, matched := resolveRequestedModelInMapping(mapping, normalized); matched {
 			return mappedModel, true
+		}
+	}
+	for _, fallbackModel := range resolveOpenAIRequestedModelFallbacks(a, requestedModel) {
+		if mappedModel, matched := resolveRequestedModelInMapping(mapping, fallbackModel); matched {
+			return mappedModel, true
+		}
+		normalizedFallback := normalizeRequestedModelForLookup(a.Platform, fallbackModel)
+		if normalizedFallback != fallbackModel {
+			if mappedModel, matched := resolveRequestedModelInMapping(mapping, normalizedFallback); matched {
+				return mappedModel, true
+			}
 		}
 	}
 	return requestedModel, false
@@ -1045,6 +1234,77 @@ func (a *Account) GetOpenAIApiKey() string {
 		return ""
 	}
 	return a.GetCredential("api_key")
+}
+
+func (a *Account) GetOpenAIVendor() string {
+	if !a.IsOpenAIApiKey() {
+		return ""
+	}
+	return strings.TrimSpace(a.GetCredential("vendor"))
+}
+
+func (a *Account) ShouldUseOpenAIChatCompletionsUpstream() bool {
+	return a.IsOpenAIApiKey() && openAIVendorPrefersChatCompletions(a.GetOpenAIVendor())
+}
+
+func (a *Account) AllowsEmptyOpenAIApiKey() bool {
+	return a.IsOpenAIApiKey() && openAIVendorAllowsEmptyAPIKey(a.GetOpenAIVendor())
+}
+
+func (a *Account) GetOpenAIAuthHeaderName() string {
+	if !a.IsOpenAIApiKey() {
+		return ""
+	}
+	headerName := strings.TrimSpace(a.GetCredential("auth_header"))
+	if headerName == "" {
+		if strings.EqualFold(a.GetOpenAIVendor(), "mimo") {
+			return "api-key"
+		}
+		return "authorization"
+	}
+	return strings.ToLower(headerName)
+}
+
+func (a *Account) GetOpenAIAuthScheme() string {
+	if !a.IsOpenAIApiKey() {
+		return ""
+	}
+	scheme := strings.TrimSpace(a.GetCredential("auth_scheme"))
+	if scheme == "" {
+		if strings.EqualFold(a.GetOpenAIVendor(), "mimo") {
+			return "raw"
+		}
+		return "bearer"
+	}
+	return strings.ToLower(scheme)
+}
+
+func (a *Account) BuildOpenAIAuthHeaders(token string) http.Header {
+	headers := make(http.Header)
+	if !a.IsOpenAIApiKey() {
+		return headers
+	}
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return headers
+	}
+
+	name := a.GetOpenAIAuthHeaderName()
+	if name == "" {
+		name = "authorization"
+	}
+	scheme := a.GetOpenAIAuthScheme()
+	value := token
+	switch scheme {
+	case "", "raw", "none":
+		value = token
+	case "bearer":
+		value = "Bearer " + token
+	default:
+		value = strings.TrimSpace(scheme + " " + token)
+	}
+	headers.Set(name, value)
+	return headers
 }
 
 func (a *Account) GetOpenAIUserAgent() string {

@@ -736,12 +736,7 @@ func (s *OpenAIGatewayService) writeOpenAIWSFallbackErrorResponse(c *gin.Context
 			Message:            upstreamMessage,
 		})
 	}
-	c.JSON(statusCode, gin.H{
-		"error": gin.H{
-			"type":    errType,
-			"message": clientMessage,
-		},
-	})
+	WriteOpenAIClientError(c, statusCode, errType, clientMessage, nil)
 	return true
 }
 
@@ -2108,7 +2103,7 @@ func (s *OpenAIGatewayService) GetAccessToken(ctx context.Context, account *Acco
 		return accessToken, "oauth", nil
 	case AccountTypeAPIKey:
 		apiKey := account.GetOpenAIApiKey()
-		if apiKey == "" {
+		if apiKey == "" && !account.AllowsEmptyOpenAIApiKey() {
 			return "", "", errors.New("api_key not found in credentials")
 		}
 		return apiKey, "apikey", nil
@@ -2146,12 +2141,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	apiKeyID := getAPIKeyIDFromContext(c)
 	logCodexCLIOnlyDetection(ctx, c, account, apiKeyID, restrictionResult, body)
 	if restrictionResult.Enabled && !restrictionResult.Matched {
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": gin.H{
-				"type":    "forbidden_error",
-				"message": "This account only allows Codex official clients",
-			},
-		})
+		WriteOpenAIClientError(c, http.StatusForbidden, "forbidden_error", "This account only allows Codex official clients", nil)
 		return nil, errors.New("codex_cli_only restriction: only codex official clients are allowed")
 	}
 
@@ -2184,12 +2174,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	// 当前仅支持 WSv2；WSv1 命中时直接返回错误，避免出现“配置可开但行为不确定”。
 	if wsDecision.Transport == OpenAIUpstreamTransportResponsesWebsocket {
 		if c != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"type":    "invalid_request_error",
-					"message": "OpenAI WSv1 is temporarily unsupported. Please enable responses_websockets_v2.",
-				},
-			})
+			WriteOpenAIClientError(c, http.StatusBadRequest, "invalid_request_error", "OpenAI WSv1 is temporarily unsupported. Please enable responses_websockets_v2.", nil)
 		}
 		return nil, errors.New("openai ws v1 is temporarily unsupported; use ws v2")
 	}
@@ -2225,12 +2210,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	codexImageGenerationBridgeEnabled := isCodexCLI && imageGenerationAllowed && s.isCodexImageGenerationBridgeEnabled(ctx, account, apiKey)
 	if IsImageGenerationIntentMap(openAIResponsesEndpoint, reqModel, reqBody) && !imageGenerationAllowed {
 		setOpsUpstreamError(c, http.StatusForbidden, ImageGenerationPermissionMessage(), "")
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": gin.H{
-				"type":    "permission_error",
-				"message": ImageGenerationPermissionMessage(),
-			},
-		})
+		WriteOpenAIClientError(c, http.StatusForbidden, "permission_error", ImageGenerationPermissionMessage(), nil)
 		return nil, errors.New("image generation disabled for group")
 	}
 
@@ -2334,13 +2314,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 	if err := validateOpenAIResponsesImageModel(reqBody, upstreamModel); err != nil {
 		setOpsUpstreamError(c, http.StatusBadRequest, err.Error(), "")
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"type":    "invalid_request_error",
-				"message": err.Error(),
-				"param":   "model",
-			},
-		})
+		WriteOpenAIClientError(c, http.StatusBadRequest, "invalid_request_error", err.Error(), gin.H{"param": "model"})
 		return nil, err
 	}
 	if hasOpenAIImageGenerationTool(reqBody) {
@@ -2354,13 +2328,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 	if err := validateCodexSparkInput(reqBody, upstreamModel); err != nil {
 		setOpsUpstreamError(c, http.StatusBadRequest, err.Error(), "")
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": gin.H{
-				"type":    "invalid_request_error",
-				"message": err.Error(),
-				"param":   "input",
-			},
-		})
+		WriteOpenAIClientError(c, http.StatusBadRequest, "invalid_request_error", err.Error(), gin.H{"param": "input"})
 		return nil, err
 	}
 
@@ -2554,12 +2522,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 
 	if IsImageGenerationIntentMap(openAIResponsesEndpoint, reqModel, reqBody) && !imageGenerationAllowed {
 		setOpsUpstreamError(c, http.StatusForbidden, ImageGenerationPermissionMessage(), "")
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": gin.H{
-				"type":    "permission_error",
-				"message": ImageGenerationPermissionMessage(),
-			},
-		})
+		WriteOpenAIClientError(c, http.StatusForbidden, "permission_error", ImageGenerationPermissionMessage(), nil)
 		return nil, errors.New("image generation disabled for group")
 	}
 	imageBillingModel := ""
@@ -2569,13 +2532,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		imageBillingModel, imageSizeTier, imageCfgErr = resolveOpenAIResponsesImageBillingConfig(reqBody, billingModel)
 		if imageCfgErr != nil {
 			setOpsUpstreamError(c, http.StatusBadRequest, imageCfgErr.Error(), "")
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"type":    "invalid_request_error",
-					"message": imageCfgErr.Error(),
-					"param":   "size",
-				},
-			})
+			WriteOpenAIClientError(c, http.StatusBadRequest, "invalid_request_error", imageCfgErr.Error(), gin.H{"param": "size"})
 			return nil, imageCfgErr
 		}
 	}
@@ -2859,12 +2816,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				Kind:               "request_error",
 				Message:            safeErr,
 			})
-			c.JSON(http.StatusBadGateway, gin.H{
-				"error": gin.H{
-					"type":    "upstream_error",
-					"message": "Upstream request failed",
-				},
-			})
+			WriteOpenAIClientError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed", nil)
 			return nil, fmt.Errorf("upstream request failed: %s", safeErr)
 		}
 
@@ -3015,12 +2967,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 				Detail:             rejectReason,
 			})
 			logOpenAIPassthroughInstructionsRejected(ctx, c, account, reqModel, rejectReason, body)
-			c.JSON(http.StatusForbidden, gin.H{
-				"error": gin.H{
-					"type":    "forbidden_error",
-					"message": rejectMsg,
-				},
-			})
+			WriteOpenAIClientError(c, http.StatusForbidden, "forbidden_error", rejectMsg, nil)
 			return nil, fmt.Errorf("openai passthrough rejected before upstream: %s", rejectReason)
 		}
 
@@ -3065,12 +3012,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	apiKey := getAPIKeyFromContext(c)
 	if IsImageGenerationIntent(openAIResponsesEndpoint, reqModel, body) && !GroupAllowsImageGeneration(apiKeyGroup(apiKey)) {
 		setOpsUpstreamError(c, http.StatusForbidden, ImageGenerationPermissionMessage(), "")
-		c.JSON(http.StatusForbidden, gin.H{
-			"error": gin.H{
-				"type":    "permission_error",
-				"message": ImageGenerationPermissionMessage(),
-			},
-		})
+		WriteOpenAIClientError(c, http.StatusForbidden, "permission_error", ImageGenerationPermissionMessage(), nil)
 		return nil, errors.New("image generation disabled for group")
 	}
 	imageBillingModel := ""
@@ -3080,13 +3022,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		imageBillingModel, imageSizeTier, imageCfgErr = resolveOpenAIResponsesImageBillingConfigFromBody(body, reqModel)
 		if imageCfgErr != nil {
 			setOpsUpstreamError(c, http.StatusBadRequest, imageCfgErr.Error(), "")
-			c.JSON(http.StatusBadRequest, gin.H{
-				"error": gin.H{
-					"type":    "invalid_request_error",
-					"message": imageCfgErr.Error(),
-					"param":   "size",
-				},
-			})
+			WriteOpenAIClientError(c, http.StatusBadRequest, "invalid_request_error", imageCfgErr.Error(), gin.H{"param": "size"})
 			return nil, imageCfgErr
 		}
 	}
@@ -3152,12 +3088,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			Kind:               "request_error",
 			Message:            safeErr,
 		})
-		c.JSON(http.StatusBadGateway, gin.H{
-			"error": gin.H{
-				"type":    "upstream_error",
-				"message": "Upstream request failed",
-			},
-		})
+		WriteOpenAIClientError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed", nil)
 		return nil, fmt.Errorf("upstream request failed: %s", safeErr)
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -3293,10 +3224,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	}
 
 	// 覆盖入站鉴权残留，并注入上游认证
-	req.Header.Del("authorization")
-	req.Header.Del("x-api-key")
-	req.Header.Del("x-goog-api-key")
-	req.Header.Set("authorization", "Bearer "+token)
+	applyOpenAIUpstreamAuthHeaders(req.Header, account, token)
 
 	// OAuth 透传到 ChatGPT internal API 时补齐必要头。
 	if account.Type == AccountTypeOAuth {
@@ -3470,6 +3398,7 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 	if contentType == "" {
 		contentType = "application/json"
 	}
+	body = DecorateScheduledAccountClientErrorJSONBody(c, body)
 	c.Data(resp.StatusCode, contentType, body)
 
 	if upstreamMsg == "" {
@@ -4002,7 +3931,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	}
 
 	// Set authentication header
-	req.Header.Set("authorization", "Bearer "+token)
+	applyOpenAIUpstreamAuthHeaders(req.Header, account, token)
 
 	// Set headers specific to OAuth accounts (ChatGPT internal API)
 	if account.Type == AccountTypeOAuth {
@@ -4120,12 +4049,7 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 		"upstream_error",
 		"Upstream request failed",
 	); matched {
-		c.JSON(status, gin.H{
-			"error": gin.H{
-				"type":    errType,
-				"message": errMsg,
-			},
-		})
+		WriteOpenAIClientError(c, status, errType, errMsg, nil)
 		if upstreamMsg == "" {
 			upstreamMsg = errMsg
 		}
@@ -4147,12 +4071,7 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 			Message:            upstreamMsg,
 			Detail:             upstreamDetail,
 		})
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": gin.H{
-				"type":    "upstream_error",
-				"message": "Upstream gateway error",
-			},
-		})
+		WriteOpenAIClientError(c, http.StatusInternalServerError, "upstream_error", "Upstream gateway error", nil)
 		if upstreamMsg == "" {
 			return nil, fmt.Errorf("upstream error: %d (not in custom error codes)", resp.StatusCode)
 		}
@@ -4213,12 +4132,7 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 		errMsg = "Upstream request failed"
 	}
 
-	c.JSON(statusCode, gin.H{
-		"error": gin.H{
-			"type":    errType,
-			"message": errMsg,
-		},
-	})
+	WriteOpenAIClientError(c, statusCode, errType, errMsg, nil)
 
 	if upstreamMsg == "" {
 		return nil, fmt.Errorf("upstream error: %d", resp.StatusCode)
@@ -4981,12 +4895,7 @@ func (s *OpenAIGatewayService) writeOpenAINonStreamingProtocolError(resp *http.R
 	setOpsUpstreamError(c, http.StatusBadGateway, message, "")
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
-	c.JSON(http.StatusBadGateway, gin.H{
-		"error": gin.H{
-			"type":    "upstream_error",
-			"message": message,
-		},
-	})
+	WriteOpenAIClientError(c, http.StatusBadGateway, "upstream_error", message, nil)
 	return fmt.Errorf("non-streaming openai protocol error: %s", message)
 }
 
@@ -5116,16 +5025,42 @@ func (s *OpenAIGatewayService) validateUpstreamBaseURL(raw string) (string, erro
 // buildOpenAIResponsesURL 组装 OpenAI Responses 端点。
 // - base 以 /v1 结尾：追加 /responses
 // - base 已是 /responses：原样返回
+// - base 已是其他 OpenAI-compatible API root：追加 /responses
 // - 其他情况：追加 /v1/responses
 func buildOpenAIResponsesURL(base string) string {
 	normalized := strings.TrimRight(strings.TrimSpace(base), "/")
 	if strings.HasSuffix(normalized, "/responses") {
 		return normalized
 	}
+	if strings.HasSuffix(normalized, "/chat/completions") {
+		return strings.TrimSuffix(normalized, "/chat/completions") + "/responses"
+	}
 	if strings.HasSuffix(normalized, "/v1") {
 		return normalized + "/responses"
 	}
+	if openAIBaseURLLooksLikeAPIRoot(normalized) {
+		return normalized + "/responses"
+	}
 	return normalized + "/v1/responses"
+}
+
+func openAIBaseURLLooksLikeAPIRoot(normalized string) bool {
+	lower := strings.ToLower(strings.TrimRight(strings.TrimSpace(normalized), "/"))
+	if lower == "" {
+		return false
+	}
+	for _, suffix := range []string{
+		"/openai",
+		"/openai/v1",
+		"/openai/v1beta",
+		"/v1beta/openai",
+		"/v1alpha/openai",
+	} {
+		if strings.HasSuffix(lower, suffix) {
+			return true
+		}
+	}
+	return false
 }
 
 func trimOpenAIEncryptedReasoningItems(reqBody map[string]any) bool {
@@ -6222,12 +6157,7 @@ func writeOpenAIFastPolicyBlockedResponse(c *gin.Context, err *OpenAIFastBlocked
 	if c == nil || err == nil {
 		return
 	}
-	c.JSON(http.StatusForbidden, gin.H{
-		"error": gin.H{
-			"type":    "permission_error",
-			"message": err.Message,
-		},
-	})
+	WriteOpenAIClientError(c, http.StatusForbidden, "permission_error", err.Message, nil)
 }
 
 // applyOpenAIFastPolicyToWSResponseCreate evaluates the OpenAI fast policy
