@@ -52,15 +52,15 @@ services:
             # Server Configuration
             # =======================================================================
             - SERVER_HOST=0.0.0.0
-            - SERVER_PORT=18080
+            - SERVER_PORT=8080
             - SERVER_MODE=${SERVER_MODE:-release}
             - RUN_MODE=${RUN_MODE:-standard}
 
             # =======================================================================
             # Database Configuration (PostgreSQL)
             # =======================================================================
-            - DATABASE_HOST=host.docker.internal:15432
-            - DATABASE_PORT=15432
+            - DATABASE_HOST=host.docker.internal
+            - DATABASE_PORT=${DATABASE_PORT:-15432}
             - DATABASE_USER=${POSTGRES_USER:-postgres}
             - DATABASE_PASSWORD=${POSTGRES_PASSWORD:-zhou9955}
             - DATABASE_DBNAME=${POSTGRES_DB:-sub2api}
@@ -73,8 +73,8 @@ services:
             # =======================================================================
             # Redis Configuration
             # =======================================================================
-            - REDIS_HOST=host.docker.internal:6379
-            - REDIS_PORT=6379
+            - REDIS_HOST=host.docker.internal
+            - REDIS_PORT=${REDIS_PORT:-6379}
             - REDIS_PASSWORD=${REDIS_PASSWORD:-zhou9955}
             - REDIS_DB=${REDIS_DB:-0}
             - REDIS_POOL_SIZE=${REDIS_POOL_SIZE:-1024}

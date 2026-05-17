@@ -32,7 +32,7 @@ RUN if [ "${SKIP_FRONTEND_BUILD}" != "1" ]; then corepack enable && corepack pre
 
 # Install dependencies first (better caching)
 WORKDIR /app/frontend
-COPY frontend/package.json frontend/pnpm-lock.yaml frontend/.npmrc ./
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml frontend/.npmrc ./
 RUN if [ "${SKIP_FRONTEND_BUILD}" != "1" ]; then pnpm install --frozen-lockfile --ignore-scripts=false; fi
 
 # Copy frontend source and build

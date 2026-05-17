@@ -3,31 +3,30 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-FRONTEND_DIR="${SCRIPT_DIR}/frontend"
-DEFAULT_COMPOSE_FILE="${SCRIPT_DIR}/deploy/docker-compose.standalone.yml"
+DEFAULT_COMPOSE_FILE="${SCRIPT_DIR}/docker-compose.yml"
 DEFAULT_COMPOSE_ENV_FILE="${SCRIPT_DIR}/.env"
 COMPOSE_FILE="${COMPOSE_FILE:-$DEFAULT_COMPOSE_FILE}"
 COMPOSE_ENV_FILE="${COMPOSE_ENV_FILE:-$DEFAULT_COMPOSE_ENV_FILE}"
 SERVICE_NAME="${SERVICE_NAME:-sub2api}"
 CONTAINER_NAME="${CONTAINER_NAME:-sub2api}"
 IMAGE_TAG="${IMAGE_TAG:-weishaw/sub2api:latest}"
+MAIN_REMOTE="${MAIN_REMOTE:-origin}"
+MAIN_BRANCH="${MAIN_BRANCH:-main}"
+ALLOW_DIRTY_UPDATE="${ALLOW_DIRTY_UPDATE:-0}"
 HEALTH_TIMEOUT_SECONDS="${HEALTH_TIMEOUT_SECONDS:-180}"
-ACTIVE_ENV_FILE=""
 
-cleanup_env_file() {
-  if [[ -n "$ACTIVE_ENV_FILE" && -f "$ACTIVE_ENV_FILE" ]]; then
-    rm -f "$ACTIVE_ENV_FILE"
-  fi
-}
-
-trap cleanup_env_file EXIT
-
-run_pnpm() {
-  if command -v pnpm >/dev/null 2>&1; then
-    pnpm "$@"
+require_git_clean() {
+  if [[ "$ALLOW_DIRTY_UPDATE" == "1" ]]; then
     return
   fi
-  npm exec --yes pnpm@latest -- "$@"
+
+  local status
+  status="$(git -C "$SCRIPT_DIR" status --porcelain)"
+  if [[ -n "$status" ]]; then
+    echo "Working tree has uncommitted changes. Commit/stash them, or run ALLOW_DIRTY_UPDATE=1 ./update.sh." >&2
+    echo "$status" >&2
+    exit 1
+  fi
 }
 
 if [[ ! -f "$COMPOSE_FILE" ]]; then
@@ -36,40 +35,32 @@ if [[ ! -f "$COMPOSE_FILE" ]]; then
   exit 1
 fi
 
-if docker inspect "$CONTAINER_NAME" >/dev/null 2>&1; then
-  ACTIVE_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/sub2api-update-env.XXXXXX")"
-  docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$CONTAINER_NAME" > "$ACTIVE_ENV_FILE"
-else
-  ACTIVE_ENV_FILE="$COMPOSE_ENV_FILE"
-fi
-
-if [[ ! -f "$ACTIVE_ENV_FILE" ]]; then
-  echo "Compose env file not found: $ACTIVE_ENV_FILE" >&2
+if [[ ! -f "$COMPOSE_ENV_FILE" ]]; then
+  echo "Compose env file not found: $COMPOSE_ENV_FILE" >&2
   echo "Expected default: $COMPOSE_ENV_FILE" >&2
   exit 1
 fi
 
 COMPOSE_DIR="$(cd -- "$(dirname -- "$COMPOSE_FILE")" && pwd)"
 echo "[0/5] Using compose file: $COMPOSE_FILE"
-echo "[0/5] Using compose env file: $ACTIVE_ENV_FILE"
+echo "[0/5] Using compose env file: $COMPOSE_ENV_FILE"
 
-echo "[1/5] Building frontend locally..."
-if [[ ! -d "$FRONTEND_DIR" ]]; then
-  echo "Frontend directory not found: $FRONTEND_DIR" >&2
-  exit 1
-fi
-(
-  cd "$FRONTEND_DIR"
-  CI=true run_pnpm install --frozen-lockfile --ignore-scripts=false
-  run_pnpm run build
-)
+echo "[1/5] Fetching and merging ${MAIN_REMOTE}/${MAIN_BRANCH}..."
+require_git_clean
+git -C "$SCRIPT_DIR" fetch "$MAIN_REMOTE" "$MAIN_BRANCH"
+git -C "$SCRIPT_DIR" merge --no-edit "${MAIN_REMOTE}/${MAIN_BRANCH}"
+COMMIT_SHA="$(git -C "$SCRIPT_DIR" rev-parse --short=12 HEAD)"
 
-echo "[2/5] Building local image from current workspace..."
-docker build --build-arg SKIP_FRONTEND_BUILD=1 -t "$IMAGE_TAG" "$SCRIPT_DIR"
+echo "[2/5] Building local image from source at ${COMMIT_SHA}..."
+docker build \
+  --pull \
+  --build-arg COMMIT="$COMMIT_SHA" \
+  -t "$IMAGE_TAG" \
+  "$SCRIPT_DIR"
 
 echo "[3/5] Recreating service via docker compose..."
 docker compose \
-  --env-file "$ACTIVE_ENV_FILE" \
+  --env-file "$COMPOSE_ENV_FILE" \
   -f "$COMPOSE_FILE" \
   --project-directory "$COMPOSE_DIR" \
   up -d --force-recreate --no-deps "$SERVICE_NAME"
