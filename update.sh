@@ -4,8 +4,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 FRONTEND_DIR="${SCRIPT_DIR}/frontend"
-COMPOSE_FILE="${COMPOSE_FILE:-/Users/zjarlin/Library/CloudStorage/Nextcloud-zjarlin@nextcloud․addzero․site/workspace/sub2api/docker-compose.yml}"
-COMPOSE_DIR="$(cd -- "$(dirname -- "$COMPOSE_FILE")" && pwd)"
+DEFAULT_COMPOSE_FILE="/Users/zjarlin/Nextcloud/DockerCompose/sub2api/docker-compose.yml"
+COMPOSE_FILE="${COMPOSE_FILE:-$DEFAULT_COMPOSE_FILE}"
 SERVICE_NAME="${SERVICE_NAME:-sub2api}"
 CONTAINER_NAME="${CONTAINER_NAME:-sub2api}"
 IMAGE_TAG="${IMAGE_TAG:-weishaw/sub2api:latest}"
@@ -13,8 +13,12 @@ HEALTH_TIMEOUT_SECONDS="${HEALTH_TIMEOUT_SECONDS:-180}"
 
 if [[ ! -f "$COMPOSE_FILE" ]]; then
   echo "Compose file not found: $COMPOSE_FILE" >&2
+  echo "Expected default: $DEFAULT_COMPOSE_FILE" >&2
   exit 1
 fi
+
+COMPOSE_DIR="$(cd -- "$(dirname -- "$COMPOSE_FILE")" && pwd)"
+echo "[0/5] Using compose file: $COMPOSE_FILE"
 
 echo "[1/5] Building frontend locally..."
 if [[ ! -d "$FRONTEND_DIR" ]]; then
