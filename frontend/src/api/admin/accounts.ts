@@ -144,6 +144,16 @@ export async function create(accountData: CreateAccountRequest): Promise<Account
 }
 
 /**
+ * Duplicate an existing account.
+ * @param id - Source account ID
+ * @returns Created account copy
+ */
+export async function copyAccount(id: number): Promise<Account> {
+  const { data } = await apiClient.post<Account>(`/admin/accounts/${id}/copy`)
+  return data
+}
+
+/**
  * Update account
  * @param id - Account ID
  * @param updates - Fields to update
@@ -665,6 +675,7 @@ export const accountsAPI = {
   listWithEtag,
   getById,
   create,
+  copyAccount,
   update,
   checkMixedChannelRisk,
   delete: deleteAccount,

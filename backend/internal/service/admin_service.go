@@ -71,6 +71,7 @@ type AdminService interface {
 	GetAccount(ctx context.Context, id int64) (*Account, error)
 	GetAccountsByIDs(ctx context.Context, ids []int64) ([]*Account, error)
 	CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error)
+	CopyAccount(ctx context.Context, id int64) (*Account, error)
 	UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error)
 	DeleteAccount(ctx context.Context, id int64) error
 	RefreshAccountCredentials(ctx context.Context, id int64) (*Account, error)
@@ -2435,6 +2436,151 @@ func (s *adminServiceImpl) GetAccountsByIDs(ctx context.Context, ids []int64) ([
 	}
 
 	return accounts, nil
+}
+
+var accountCopyTransientExtraKeys = map[string]struct{}{
+	"antigravity_credits_overages": {},
+	"antigravity_quota_scopes":     {},
+	"codex_usage_updated_at":       {},
+	"model_rate_limits":            {},
+	"quota_daily_reset_at":         {},
+	"quota_daily_start":            {},
+	"quota_daily_used":             {},
+	"quota_used":                   {},
+	"quota_weekly_reset_at":        {},
+	"quota_weekly_start":           {},
+	"quota_weekly_used":            {},
+	"session_window_utilization":   {},
+}
+
+var accountCopyTransientExtraPrefixes = []string{
+	"codex_5h_",
+	"codex_7d_",
+	"codex_primary_",
+	"codex_secondary_",
+	"passive_usage_",
+}
+
+func cloneJSONMap(input map[string]any) map[string]any {
+	if len(input) == 0 {
+		return map[string]any{}
+	}
+
+	raw, err := json.Marshal(input)
+	if err == nil {
+		var out map[string]any
+		if unmarshalErr := json.Unmarshal(raw, &out); unmarshalErr == nil {
+			if out == nil {
+				return map[string]any{}
+			}
+			return out
+		}
+	}
+
+	out := make(map[string]any, len(input))
+	for key, value := range input {
+		out[key] = value
+	}
+	return out
+}
+
+func sanitizeCopiedAccountExtra(input map[string]any) map[string]any {
+	cloned := cloneJSONMap(input)
+	if len(cloned) == 0 {
+		return cloned
+	}
+
+	for key := range accountCopyTransientExtraKeys {
+		delete(cloned, key)
+	}
+	for key := range cloned {
+		for _, prefix := range accountCopyTransientExtraPrefixes {
+			if strings.HasPrefix(key, prefix) {
+				delete(cloned, key)
+				break
+			}
+		}
+	}
+	return cloned
+}
+
+func copiedAccountName(name string) string {
+	trimmed := strings.TrimSpace(name)
+	if trimmed == "" {
+		return "_copy"
+	}
+	return trimmed + "_copy"
+}
+
+func cloneAccountInt64Ptr(value *int64) *int64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func cloneAccountFloat64Ptr(value *float64) *float64 {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func cloneAccountIntPtr(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func cloneAccountStringPtr(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
+func (s *adminServiceImpl) CopyAccount(ctx context.Context, id int64) (*Account, error) {
+	source, err := s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	groupIDs := append([]int64(nil), source.GroupIDs...)
+	var expiresAt *int64
+	if source.ExpiresAt != nil {
+		expiresAtUnix := source.ExpiresAt.Unix()
+		expiresAt = &expiresAtUnix
+	}
+	autoPauseOnExpired := source.AutoPauseOnExpired
+
+	created, err := s.CreateAccount(ctx, &CreateAccountInput{
+		Name:                  copiedAccountName(source.Name),
+		Notes:                 cloneAccountStringPtr(source.Notes),
+		Platform:              source.Platform,
+		Type:                  source.Type,
+		Credentials:           cloneJSONMap(source.Credentials),
+		Extra:                 sanitizeCopiedAccountExtra(source.Extra),
+		ProxyID:               cloneAccountInt64Ptr(source.ProxyID),
+		Concurrency:           source.Concurrency,
+		Priority:              source.Priority,
+		RateMultiplier:        cloneAccountFloat64Ptr(source.RateMultiplier),
+		LoadFactor:            cloneAccountIntPtr(source.LoadFactor),
+		GroupIDs:              groupIDs,
+		ExpiresAt:             expiresAt,
+		AutoPauseOnExpired:    &autoPauseOnExpired,
+		SkipDefaultGroupBind:  true,
+		SkipMixedChannelCheck: true,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return s.accountRepo.GetByID(ctx, created.ID)
 }
 
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
