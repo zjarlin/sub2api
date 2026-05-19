@@ -3456,6 +3456,8 @@ export default {
       bulkImportMappingsHint: '每行一条，支持 `from => to`、`from -> to`、`from,to`、`from:to`、Tab 分隔等常见格式。',
       bulkImportMappingsPlaceholder: 'gpt-4.1 => gpt-4.1-mini\nclaude-3-opus,claude-opus-4-1',
       importMappings: '导入映射',
+      copyCurrentMappings: '复制现有映射',
+      currentMappingsCopied: '现有映射已复制到剪贴板',
       noValidMappingsImported: '未识别到有效映射，请检查粘贴内容格式。',
       displayGroups: '显示分组',
       displayGroupsPlaceholder: '输入后回车，或直接粘贴多行/逗号分隔文本',

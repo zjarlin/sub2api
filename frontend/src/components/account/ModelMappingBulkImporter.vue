@@ -20,22 +20,39 @@
       class="input mt-3 w-full font-mono text-sm"
       :placeholder="placeholder"
     />
+    <div v-if="canCopyCurrentMappings" class="mt-3 flex justify-end">
+      <button
+        type="button"
+        class="btn btn-secondary btn-sm"
+        data-testid="copy-mappings"
+        @click="copyCurrentMappings"
+      >
+        {{ copyButtonText }}
+      </button>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useClipboard } from '@/composables/useClipboard'
 
 const props = withDefaults(defineProps<{
   title?: string
   hint?: string
   placeholder?: string
   clearSignal?: number
+  copyText?: string
+  copyButtonText?: string
+  copySuccessMessage?: string
 }>(), {
   title: '',
   hint: '',
-  placeholder: ''
+  placeholder: '',
+  copyText: '',
+  copyButtonText: '',
+  copySuccessMessage: ''
 })
 
 const emit = defineEmits<{
@@ -43,8 +60,11 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const { copyToClipboard } = useClipboard()
 const draft = ref('')
 const buttonText = computed(() => t('admin.accounts.importMappings'))
+const copyButtonText = computed(() => props.copyButtonText || t('admin.accounts.copyCurrentMappings'))
+const canCopyCurrentMappings = computed(() => props.copyText.trim().length > 0)
 
 watch(() => props.clearSignal, () => {
   draft.value = ''
@@ -54,5 +74,13 @@ const submit = () => {
   if (!draft.value.trim()) return
   emit('import', draft.value)
   draft.value = ''
+}
+
+const copyCurrentMappings = async () => {
+  if (!canCopyCurrentMappings.value) return
+  await copyToClipboard(
+    props.copyText,
+    props.copySuccessMessage || t('admin.accounts.currentMappingsCopied')
+  )
 }
 </script>

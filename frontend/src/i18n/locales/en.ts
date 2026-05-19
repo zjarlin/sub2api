@@ -3301,6 +3301,8 @@ export default {
       bulkImportMappingsHint: 'One mapping per line. Supports `from => to`, `from -> to`, `from,to`, `from:to`, tab-delimited rows, and similar formats.',
       bulkImportMappingsPlaceholder: 'gpt-4.1 => gpt-4.1-mini\nclaude-3-opus,claude-opus-4-1',
       importMappings: 'Import mappings',
+      copyCurrentMappings: 'Copy current mappings',
+      currentMappingsCopied: 'Current mappings copied to clipboard',
       noValidMappingsImported: 'No valid mappings were detected. Check the pasted format.',
       displayGroups: 'Display groups',
       displayGroupsPlaceholder: 'Press Enter after typing, or paste multi-line / comma-separated text',

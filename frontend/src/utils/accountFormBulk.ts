@@ -91,6 +91,12 @@ export function mergeModelMappings(existing: FormModelMapping[], text: string): 
   return merged
 }
 
+export function serializeModelMappings(mappings: FormModelMapping[]): string {
+  return normalizeModelMappings(mappings)
+    .map(({ from, to }) => `${from} => ${to}`)
+    .join('\n')
+}
+
 export function getUIDisplayGroups(extra?: Record<string, unknown>): string[] {
   const raw = extra?.[ACCOUNT_UI_DISPLAY_GROUPS_KEY]
   if (Array.isArray(raw)) {

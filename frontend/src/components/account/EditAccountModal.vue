@@ -277,6 +277,7 @@
                 :title="t('admin.accounts.bulkImportMappings')"
                 :hint="t('admin.accounts.bulkImportMappingsHint')"
                 :placeholder="t('admin.accounts.bulkImportMappingsPlaceholder')"
+                :copy-text="serializeModelMappings(modelMappings)"
                 @import="importModelMappings"
               />
 
@@ -661,6 +662,7 @@
               :title="t('admin.accounts.bulkImportMappings')"
               :hint="t('admin.accounts.bulkImportMappingsHint')"
               :placeholder="t('admin.accounts.bulkImportMappingsPlaceholder')"
+              :copy-text="serializeModelMappings(modelMappings)"
               @import="importModelMappings"
             />
 
@@ -892,6 +894,7 @@
               :title="t('admin.accounts.bulkImportMappings')"
               :hint="t('admin.accounts.bulkImportMappingsHint')"
               :placeholder="t('admin.accounts.bulkImportMappingsPlaceholder')"
+              :copy-text="serializeModelMappings(modelMappings)"
               @import="importModelMappings"
             />
 
@@ -1189,6 +1192,7 @@
             :title="t('admin.accounts.bulkImportMappings')"
             :hint="t('admin.accounts.bulkImportMappingsHint')"
             :placeholder="t('admin.accounts.bulkImportMappingsPlaceholder')"
+            :copy-text="serializeModelMappings(antigravityModelMappings)"
             @import="importAntigravityModelMappings"
           />
 
@@ -1829,6 +1833,7 @@
             :title="t('admin.accounts.bulkImportMappings')"
             :hint="t('admin.accounts.bulkImportMappingsHint')"
             :placeholder="t('admin.accounts.bulkImportMappingsPlaceholder')"
+            :copy-text="serializeModelMappings(openAICompactModelMappings)"
             @import="importOpenAICompactModelMappings"
           />
           <div v-if="openAICompactModelMappings.length > 0" class="mb-3 space-y-2">
@@ -2430,6 +2435,7 @@ import { formatDateTime, formatDateTimeLocalInput, parseDateTimeLocalInput } fro
 import {
   getUIDisplayGroups,
   mergeModelMappings,
+  serializeModelMappings,
   writeUIDisplayGroupsToExtra
 } from '@/utils/accountFormBulk'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'

@@ -21,6 +21,13 @@ vi.mock('@/stores/auth', () => ({
   })
 }))
 
+vi.mock('@/composables/useClipboard', () => ({
+  useClipboard: () => ({
+    copied: { value: false },
+    copyToClipboard: vi.fn()
+  })
+}))
+
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
@@ -39,6 +46,17 @@ vi.mock('@/api/admin', () => ({
 
 vi.mock('@/api/admin/accounts', () => ({
   getAntigravityDefaultModelMapping: vi.fn()
+}))
+
+vi.mock('@/i18n', () => ({
+  i18n: {
+    global: {
+      t: (key: string) => key,
+      locale: { value: 'zh' },
+      setLocaleMessage: () => {}
+    }
+  },
+  getLocale: () => 'zh'
 }))
 
 vi.mock('vue-i18n', async () => {
