@@ -351,12 +351,12 @@ export async function exchangeCode(
 export async function batchCreate(accounts: CreateAccountRequest[]): Promise<{
   success: number
   failed: number
-  results: Array<{ success: boolean; account?: Account; error?: string }>
+  results: Array<{ success: boolean; id?: number; name?: string; account?: Account; error?: string }>
 }> {
   const { data } = await apiClient.post<{
     success: number
     failed: number
-    results: Array<{ success: boolean; account?: Account; error?: string }>
+    results: Array<{ success: boolean; id?: number; name?: string; account?: Account; error?: string }>
   }>('/admin/accounts/batch', { accounts })
   return data
 }

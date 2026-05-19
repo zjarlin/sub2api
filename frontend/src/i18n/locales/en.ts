@@ -3173,6 +3173,7 @@ export default {
       apiKeyRequired: 'API Key *',
       apiKeyPlaceholder: 'sk-ant-api03-...',
       apiKeyHint: 'Your Claude Console API Key',
+      apiKeyMultiHint: 'Separate multiple API keys by line, comma, space, or semicolon. Multiple keys create names with _1, _2 suffixes.',
       // OpenAI specific hints
       openai: {
         baseUrlHint: 'Leave default for official OpenAI API',
@@ -3438,6 +3439,8 @@ export default {
       creating: 'Creating...',
       updating: 'Updating...',
       accountCreated: 'Account created successfully',
+      accountsCreated: 'Created {count} accounts',
+      accountsCreatedPartial: 'Created {success} accounts, {failed} failed',
       accountUpdated: 'Account updated successfully',
       failedToCreate: 'Failed to create account',
       failedToUpdate: 'Failed to update account',

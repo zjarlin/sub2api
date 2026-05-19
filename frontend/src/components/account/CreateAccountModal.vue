@@ -1013,14 +1013,16 @@
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.apiKeyRequired') }}</label>
-          <input
+          <textarea
             v-model="apiKeyValue"
-            type="password"
             required
+            rows="3"
             class="input font-mono"
             placeholder="sk-..."
-          />
-          <p class="input-hint">{{ apiKeyHint }}</p>
+            spellcheck="false"
+            autocomplete="off"
+          ></textarea>
+          <p class="input-hint">{{ apiKeyHint }} {{ t('admin.accounts.apiKeyMultiHint') }}</p>
         </div>
       </div>
 
@@ -1525,14 +1527,16 @@
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.apiKeyRequired') }}</label>
-          <input
+          <textarea
             v-model="apiKeyValue"
-            type="password"
             :required="!isOpenAILocalProxyVendor"
+            rows="3"
             class="input font-mono"
             :placeholder="currentApiKeyPlaceholder"
-          />
-          <p class="input-hint">{{ apiKeyHint }}</p>
+            spellcheck="false"
+            autocomplete="off"
+          ></textarea>
+          <p class="input-hint">{{ apiKeyHint }} {{ t('admin.accounts.apiKeyMultiHint') }}</p>
         </div>
 
         <!-- Gemini API Key tier selection -->
@@ -3698,7 +3702,11 @@ import DelimitedTagInput from '@/components/common/DelimitedTagInput.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import ModelMappingBulkImporter from '@/components/account/ModelMappingBulkImporter.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
-import { applyInterceptWarmup } from '@/components/account/credentialsBuilder'
+import {
+  applyInterceptWarmup,
+  buildBulkApiKeyAccountName,
+  parseAccountApiKeys
+} from '@/components/account/credentialsBuilder'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { mergeModelMappings, writeUIDisplayGroupsToExtra } from '@/utils/accountFormBulk'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
@@ -4746,6 +4754,60 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
   }
 }
 
+const firstBatchCreateError = (
+  results: Array<{ success: boolean; name?: string; error?: string }>
+): string | null => {
+  const failed = results.find((result) => !result.success && result.error)
+  if (!failed?.error) {
+    return null
+  }
+  return failed.name ? `${failed.name}: ${failed.error}` : failed.error
+}
+
+const submitCreateAccounts = async (payloads: CreateAccountRequest[]) => {
+  if (payloads.length === 1) {
+    await submitCreateAccount(payloads[0])
+    return
+  }
+
+  submitting.value = true
+  try {
+    const result = await adminAPI.accounts.batchCreate(payloads.map(withAntigravityConfirmFlag))
+    if (result.failed > 0) {
+      const detail = firstBatchCreateError(result.results)
+      const message = result.success > 0
+        ? t('admin.accounts.accountsCreatedPartial', { success: result.success, failed: result.failed })
+        : (detail || t('admin.accounts.failedToCreate'))
+      if (result.success > 0) {
+        appStore.showWarning(detail ? `${message}: ${detail}` : message)
+        emit('created')
+        handleClose()
+      } else {
+        appStore.showError(message)
+      }
+      return
+    }
+
+    appStore.showSuccess(t('admin.accounts.accountsCreated', { count: result.success }))
+    emit('created')
+    handleClose()
+  } catch (error: any) {
+    if (error.response?.status === 409 && error.response?.data?.error === 'mixed_channel_warning' && needsMixedChannelCheck(form.platform)) {
+      openMixedChannelDialog({
+        message: error.response?.data?.message,
+        onConfirm: async () => {
+          antigravityMixedChannelConfirmed.value = true
+          await submitCreateAccounts(payloads)
+        }
+      })
+      return
+    }
+    appStore.showError(error.response?.data?.message || error.response?.data?.detail || t('admin.accounts.failedToCreate'))
+  } finally {
+    submitting.value = false
+  }
+}
+
 // Methods
 const resetForm = () => {
   step.value = 1
@@ -4926,6 +4988,16 @@ const doCreateAccount = async (payload: CreateAccountRequest) => {
     return
   }
   await submitCreateAccount(payload)
+}
+
+const doCreateAccounts = async (payloads: CreateAccountRequest[]) => {
+  const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {
+    await submitCreateAccounts(payloads)
+  })
+  if (!canContinue) {
+    return
+  }
+  await submitCreateAccounts(payloads)
 }
 
 // Handle mixed channel warning confirmation
@@ -5154,14 +5226,14 @@ const handleSubmit = async () => {
       appStore.showError(t('admin.accounts.upstream.pleaseEnterBaseUrl'))
       return
     }
-    if (!apiKeyValue.value.trim()) {
+    const apiKeys = parseAccountApiKeys(apiKeyValue.value)
+    if (apiKeys.length === 0) {
       appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
       return
     }
 
     const credentials: Record<string, unknown> = {
-      base_url: apiKeyBaseUrl.value.trim(),
-      api_key: apiKeyValue.value.trim()
+      base_url: apiKeyBaseUrl.value.trim()
     }
 
     const modelMapping = buildModelMappingObject('mapping', [], kiroModelMappings.value)
@@ -5179,12 +5251,17 @@ const handleSubmit = async () => {
       credentials.custom_error_codes = [...selectedErrorCodes.value]
     }
 
-    await createAccountAndFinish('kiro', 'apikey', credentials)
+    await createApiKeyAccountsAndFinish('kiro', credentials, undefined, apiKeys)
     return
   }
 
   // For apikey type, create directly
-  if (!apiKeyValue.value.trim() && !isOpenAILocalProxyVendor.value) {
+  if (!form.name.trim()) {
+    appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
+    return
+  }
+  const apiKeys = parseAccountApiKeys(apiKeyValue.value)
+  if (apiKeys.length === 0 && !isOpenAILocalProxyVendor.value) {
     appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
     return
   }
@@ -5200,9 +5277,6 @@ const handleSubmit = async () => {
   // Build credentials with optional model mapping
   const credentials: Record<string, unknown> = {
     base_url: apiKeyBaseUrl.value.trim() || defaultBaseUrl
-  }
-  if (apiKeyValue.value.trim()) {
-    credentials.api_key = apiKeyValue.value.trim()
   }
   if (form.platform === 'openai') {
     Object.assign(credentials, buildOpenAIVendorCredentials())
@@ -5238,19 +5312,9 @@ const handleSubmit = async () => {
   }
 
   applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
-  if (!applyTempUnschedConfig(credentials)) {
-    return
-  }
-
-  form.credentials = credentials
   const extra = buildAnthropicExtra(buildOpenAIExtra())
 
-  await doCreateAccount({
-    ...form,
-    group_ids: form.group_ids,
-    extra,
-    auto_pause_on_expired: autoPauseOnExpired.value
-  })
+  await createApiKeyAccountsAndFinish(form.platform, credentials, extra, apiKeys)
 }
 
 const goBackToBasicInfo = () => {
@@ -5308,17 +5372,14 @@ const handleValidateSessionToken = (_sessionToken: string) => {
 const formatDateTimeLocal = formatDateTimeLocalInput
 const parseDateTimeLocal = parseDateTimeLocalInput
 
-// Create account and handle success/failure
-const createAccountAndFinish = async (
-  platform: AccountPlatform,
+const cloneOptionalRecord = (record?: Record<string, unknown>): Record<string, unknown> | undefined => {
+  return record ? { ...record } : undefined
+}
+
+const buildFinalCreateExtra = (
   type: AccountType,
-  credentials: Record<string, unknown>,
   extra?: Record<string, unknown>
-) => {
-  if (!applyTempUnschedConfig(credentials)) {
-    return
-  }
-  // Inject quota limits for apikey/bedrock accounts
+): Record<string, unknown> | undefined => {
   let finalExtra = extra
   if (type === 'apikey' || type === 'bedrock') {
     const quotaExtra: Record<string, unknown> = { ...(extra || {}) }
@@ -5350,7 +5411,13 @@ const createAccountAndFinish = async (
       finalExtra = quotaExtra
     }
   }
-  finalExtra = writeUIDisplayGroupsToExtra(finalExtra, uiDisplayGroups.value)
+  return writeUIDisplayGroupsToExtra(finalExtra, uiDisplayGroups.value)
+}
+
+const applyOpenAICompactCreateConfig = (
+  platform: AccountPlatform,
+  credentials: Record<string, unknown>
+) => {
   if (platform === 'openai') {
     const compactModelMapping = buildOpenAICompactModelMapping()
     if (compactModelMapping) {
@@ -5359,22 +5426,76 @@ const createAccountAndFinish = async (
       delete credentials.compact_model_mapping
     }
   }
-  await doCreateAccount({
-    name: form.name,
-    notes: form.notes,
-    platform,
-    type,
-    credentials,
-    extra: finalExtra,
-    proxy_id: form.proxy_id,
-    concurrency: form.concurrency,
-    load_factor: form.load_factor ?? undefined,
-    priority: form.priority,
-    rate_multiplier: form.rate_multiplier,
-    group_ids: form.group_ids,
-    expires_at: form.expires_at,
-    auto_pause_on_expired: autoPauseOnExpired.value
+}
+
+const buildCreatePayload = (
+  platform: AccountPlatform,
+  type: AccountType,
+  credentials: Record<string, unknown>,
+  extra?: Record<string, unknown>,
+  name: string = form.name
+): CreateAccountRequest => ({
+  name,
+  notes: form.notes,
+  platform,
+  type,
+  credentials,
+  extra,
+  proxy_id: form.proxy_id,
+  concurrency: form.concurrency,
+  load_factor: form.load_factor ?? undefined,
+  priority: form.priority,
+  rate_multiplier: form.rate_multiplier,
+  group_ids: [...form.group_ids],
+  expires_at: form.expires_at,
+  auto_pause_on_expired: autoPauseOnExpired.value
+})
+
+// Create account and handle success/failure
+const createAccountAndFinish = async (
+  platform: AccountPlatform,
+  type: AccountType,
+  credentials: Record<string, unknown>,
+  extra?: Record<string, unknown>
+) => {
+  if (!applyTempUnschedConfig(credentials)) {
+    return
+  }
+  const finalExtra = buildFinalCreateExtra(type, extra)
+  applyOpenAICompactCreateConfig(platform, credentials)
+  await doCreateAccount(buildCreatePayload(platform, type, credentials, finalExtra))
+}
+
+const createApiKeyAccountsAndFinish = async (
+  platform: AccountPlatform,
+  credentials: Record<string, unknown>,
+  extra: Record<string, unknown> | undefined,
+  apiKeys: string[]
+) => {
+  if (!applyTempUnschedConfig(credentials)) {
+    return
+  }
+  const finalExtra = buildFinalCreateExtra('apikey', extra)
+  applyOpenAICompactCreateConfig(platform, credentials)
+
+  const keysOrEmpty = apiKeys.length > 0 ? apiKeys : ['']
+  const payloads = keysOrEmpty.map((apiKey, index) => {
+    const accountCredentials = { ...credentials }
+    if (apiKey) {
+      accountCredentials.api_key = apiKey
+    } else {
+      delete accountCredentials.api_key
+    }
+    return buildCreatePayload(
+      platform,
+      'apikey',
+      accountCredentials,
+      cloneOptionalRecord(finalExtra),
+      buildBulkApiKeyAccountName(form.name, index, keysOrEmpty.length)
+    )
   })
+
+  await doCreateAccounts(payloads)
 }
 
 // OpenAI OAuth 授权码兑换

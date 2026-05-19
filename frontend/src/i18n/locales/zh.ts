@@ -3332,6 +3332,7 @@ export default {
       apiKeyRequired: 'API Key *',
       apiKeyPlaceholder: 'sk-ant-api03-...',
       apiKeyHint: '您的 Claude Console API Key',
+      apiKeyMultiHint: '可每行、逗号、空格或分号分隔多个 API Key；多个时账号名会自动加 _1、_2 后缀。',
       // OpenAI specific hints
       openai: {
         baseUrlHint: '留空使用官方 OpenAI API',
@@ -3590,6 +3591,8 @@ export default {
       creating: '创建中...',
       updating: '更新中...',
       accountCreated: '账号创建成功',
+      accountsCreated: '已创建 {count} 个账号',
+      accountsCreatedPartial: '已创建 {success} 个账号，{failed} 个失败',
       accountUpdated: '账号更新成功',
       failedToCreate: '创建账号失败',
       failedToUpdate: '更新账号失败',

@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest'
-import { applyInterceptWarmup } from '../credentialsBuilder'
+import {
+  applyInterceptWarmup,
+  buildBulkApiKeyAccountName,
+  parseAccountApiKeys
+} from '../credentialsBuilder'
 
 describe('applyInterceptWarmup', () => {
   it('create + enabled=true: should set intercept_warmup_requests to true', () => {
@@ -42,5 +46,32 @@ describe('applyInterceptWarmup', () => {
     expect(creds.api_key).toBe('sk')
     expect(creds.base_url).toBe('url')
     expect('intercept_warmup_requests' in creds).toBe(false)
+  })
+})
+
+describe('parseAccountApiKeys', () => {
+  it('splits API keys from lines, commas, and whitespace', () => {
+    expect(parseAccountApiKeys('sk-a\nsk-b, sk-c；sk-d')).toEqual([
+      'sk-a',
+      'sk-b',
+      'sk-c',
+      'sk-d'
+    ])
+  })
+
+  it('filters empty separators without reordering or deduping keys', () => {
+    expect(parseAccountApiKeys('  sk-a\n\nsk-a  ,  sk-b  ')).toEqual(['sk-a', 'sk-a', 'sk-b'])
+  })
+})
+
+describe('buildBulkApiKeyAccountName', () => {
+  it('preserves the original name for a single account', () => {
+    expect(buildBulkApiKeyAccountName('main', 0, 1)).toBe('main')
+  })
+
+  it('adds numeric suffixes for multi-key account creation', () => {
+    expect(buildBulkApiKeyAccountName('main', 0, 3)).toBe('main_1')
+    expect(buildBulkApiKeyAccountName('main', 1, 3)).toBe('main_2')
+    expect(buildBulkApiKeyAccountName('main', 2, 3)).toBe('main_3')
   })
 })

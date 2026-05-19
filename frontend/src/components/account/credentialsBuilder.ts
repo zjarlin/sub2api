@@ -9,3 +9,17 @@ export function applyInterceptWarmup(
     delete credentials.intercept_warmup_requests
   }
 }
+
+export function parseAccountApiKeys(input: string): string[] {
+  return input
+    .split(/[\s,，;；]+/)
+    .map((key) => key.trim())
+    .filter((key) => key.length > 0)
+}
+
+export function buildBulkApiKeyAccountName(baseName: string, index: number, total: number): string {
+  if (total <= 1) {
+    return baseName
+  }
+  return `${baseName.trim()}_${index + 1}`
+}
