@@ -37,7 +37,8 @@ RUN if [ "${SKIP_FRONTEND_BUILD}" != "1" ]; then pnpm install --frozen-lockfile 
 
 # Copy frontend source and build
 COPY frontend/ ./
-RUN mkdir -p /app/backend/internal/web/dist && \
+RUN rm -f pnpm-workspace.yaml && \
+    mkdir -p /app/backend/internal/web/dist && \
     if [ "${SKIP_FRONTEND_BUILD}" = "1" ]; then \
     cp -a /app/prebuilt-dist/. /app/backend/internal/web/dist; \
     else \
