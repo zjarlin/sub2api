@@ -27,8 +27,8 @@ WORKDIR /app
 # already compiled it locally. This keeps routine upgrade builds practical.
 COPY backend/internal/web/dist /app/prebuilt-dist
 
-# Install pnpm
-RUN if [ "${SKIP_FRONTEND_BUILD}" != "1" ]; then corepack enable && corepack prepare pnpm@latest --activate; fi
+# Install pnpm (pinned to v9 to match CI and keep builds reproducible)
+RUN if [ "${SKIP_FRONTEND_BUILD}" != "1" ]; then corepack enable && corepack prepare pnpm@9 --activate; fi
 
 # Install dependencies first (better caching)
 WORKDIR /app/frontend
