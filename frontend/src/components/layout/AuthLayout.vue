@@ -1,27 +1,10 @@
 <template>
-  <div class="relative flex min-h-screen items-center justify-center overflow-hidden p-4">
-    <!-- Background -->
-    <div
-      class="absolute inset-0 bg-gradient-to-br from-gray-50 via-primary-50/30 to-gray-100 dark:from-dark-950 dark:via-dark-900 dark:to-dark-950"
-    ></div>
-
-    <!-- Decorative Elements -->
+  <div class="liquid-page relative flex min-h-screen items-center justify-center overflow-hidden p-4">
+    <div class="auth-refraction pointer-events-none absolute inset-0"></div>
     <div class="pointer-events-none absolute inset-0 overflow-hidden">
-      <!-- Gradient Orbs -->
-      <div
-        class="absolute -right-40 -top-40 h-80 w-80 rounded-full bg-primary-400/20 blur-3xl"
-      ></div>
-      <div
-        class="absolute -bottom-40 -left-40 h-80 w-80 rounded-full bg-primary-500/15 blur-3xl"
-      ></div>
-      <div
-        class="absolute left-1/2 top-1/2 h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary-300/10 blur-3xl"
-      ></div>
-
-      <!-- Grid Pattern -->
-      <div
-        class="absolute inset-0 bg-[linear-gradient(rgba(20,184,166,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(20,184,166,0.03)_1px,transparent_1px)] bg-[size:64px_64px]"
-      ></div>
+      <div class="glass-sheet glass-sheet-a"></div>
+      <div class="glass-sheet glass-sheet-b"></div>
+      <div class="glass-sheet glass-sheet-c"></div>
     </div>
 
     <!-- Content Container -->
@@ -45,7 +28,7 @@
       </div>
 
       <!-- Card Container -->
-      <div class="card-glass rounded-2xl p-8 shadow-glass">
+      <div class="card-glass rounded-2xl p-8">
         <slot />
       </div>
 
@@ -83,6 +66,64 @@ onMounted(() => {
 
 <style scoped>
 .text-gradient {
-  @apply bg-gradient-to-r from-primary-600 to-primary-500 bg-clip-text text-transparent;
+  background: linear-gradient(100deg, var(--product-blue), var(--product-magenta) 52%, var(--product-orange));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.auth-refraction {
+  background:
+    linear-gradient(120deg, transparent 0 16%, rgba(0, 95, 255, 0.13) 18%, transparent 30%),
+    linear-gradient(250deg, transparent 0 50%, rgba(255, 51, 102, 0.11) 54%, transparent 66%),
+    radial-gradient(90% 70% at 50% 50%, rgba(255, 138, 0, 0.12), transparent 64%);
+}
+
+.glass-sheet {
+  position: absolute;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: linear-gradient(135deg, rgba(0, 95, 255, 0.92), rgba(255, 51, 102, 0.86) 56%, rgba(255, 138, 0, 0.84));
+  box-shadow: 0 26px 70px rgba(17, 19, 24, 0.18);
+  clip-path: polygon(8% 0, 100% 0, 92% 100%, 0 100%);
+  transform: rotate(-12deg);
+}
+
+.glass-sheet-a {
+  top: -10rem;
+  right: -7rem;
+  width: 26rem;
+  height: 42rem;
+  border-radius: 0;
+}
+
+.glass-sheet-b {
+  bottom: -14rem;
+  left: -8rem;
+  width: 30rem;
+  height: 36rem;
+  border-radius: 0;
+  transform: rotate(17deg);
+}
+
+.glass-sheet-c {
+  left: 50%;
+  top: 45%;
+  width: 22rem;
+  height: 22rem;
+  border-radius: 0;
+  transform: translate(-50%, -50%) rotate(28deg);
+  opacity: 0.5;
+  background: linear-gradient(135deg, rgba(0, 200, 255, 0.88), rgba(183, 255, 0, 0.62));
+}
+
+:global(.dark) .auth-refraction {
+  background:
+    linear-gradient(120deg, transparent 0 16%, rgba(0, 95, 255, 0.16) 18%, transparent 30%),
+    linear-gradient(250deg, transparent 0 50%, rgba(255, 51, 102, 0.13) 54%, transparent 66%),
+    radial-gradient(90% 70% at 50% 50%, rgba(255, 138, 0, 0.12), transparent 64%);
+}
+
+:global(.dark) .glass-sheet {
+  background: linear-gradient(135deg, rgba(0, 95, 255, 0.92), rgba(255, 51, 102, 0.86) 56%, rgba(255, 138, 0, 0.84));
 }
 </style>

@@ -12,7 +12,7 @@
 
     <!-- 滚动区域：表格 -->
     <div class="layout-section-scrollable">
-      <div class="card table-scroll-container">
+      <div class="card liquid-surface table-scroll-container">
         <slot name="table" />
       </div>
     </div>
@@ -60,7 +60,7 @@ onUnmounted(() => {
 
 /* 表格滚动容器 - 增强版表体滚动方案 */
 .table-scroll-container {
-  @apply flex flex-col overflow-hidden h-full bg-white dark:bg-dark-800 rounded-2xl border border-gray-200 dark:border-dark-700 shadow-sm;
+  @apply flex h-full flex-col overflow-hidden rounded-2xl border;
 }
 
 .table-scroll-container :deep(.table-wrapper) {
@@ -76,7 +76,12 @@ onUnmounted(() => {
 }
 
 .table-scroll-container :deep(thead) {
-  @apply bg-gray-50/80 dark:bg-dark-800/80 backdrop-blur-sm;
+  @apply backdrop-blur-xl;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+:global(.dark) .table-scroll-container :deep(thead) {
+  background: rgba(14, 31, 30, 0.78);
 }
 
 .table-scroll-container :deep(tbody) {
@@ -84,11 +89,13 @@ onUnmounted(() => {
 }
 
 .table-scroll-container :deep(th) {
-  @apply px-5 py-4 text-left text-sm font-medium text-gray-600 dark:text-dark-300 border-b border-gray-200 dark:border-dark-700;
+  @apply border-b px-5 py-4 text-left text-sm font-medium text-gray-600 dark:text-dark-300;
+  border-color: var(--liquid-border-soft);
 }
 
 .table-scroll-container :deep(td) {
-  @apply px-5 py-4 text-sm text-gray-700 dark:text-gray-300 border-b border-gray-100 dark:border-dark-800;
+  @apply border-b px-5 py-4 text-sm text-gray-700 dark:text-gray-300;
+  border-color: var(--liquid-border-soft);
 }
 
 /* 移动端：恢复正常滚动 */
