@@ -1,5 +1,6 @@
 docs/claude-relay-service/
 .codex
+.playwright-mcp/
 
 # ===================
 # Go 后端
