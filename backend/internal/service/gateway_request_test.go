@@ -330,6 +330,73 @@ func TestFilterThinkingBlocksForRetry_DisablesThinkingAndPreservesAsText(t *test
 	require.Equal(t, "Let me think...", first["text"])
 }
 
+func TestIsThinkingBlockSignatureError_ThinkingReplayMustBePassedBack(t *testing.T) {
+	svc := &GatewayService{}
+	body := []byte(`{"error":{"message":"The ` + "`content[].thinking`" + ` in the thinking mode must be passed back to the API.","type":"invalid_request_error"}}`)
+
+	require.True(t, svc.isThinkingBlockSignatureError(body))
+}
+
+func TestStripAnthropicThinkingBlocksFromResponse_RemovesThinkingAndPreservesVisibleContent(t *testing.T) {
+	input := []byte(`{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"thinking","thinking":"hidden","signature":"sig"},{"type":"text","text":"Visible"},{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"pwd"}},{"type":"redacted_thinking","data":"..."}],"usage":{"input_tokens":1,"output_tokens":2}}`)
+
+	out := stripAnthropicThinkingBlocksFromResponse(input)
+
+	require.NotContains(t, string(out), `"type":"thinking"`)
+	require.NotContains(t, string(out), `"type":"redacted_thinking"`)
+	require.Contains(t, string(out), `"type":"text"`)
+	require.Contains(t, string(out), `"Visible"`)
+	require.Contains(t, string(out), `"type":"tool_use"`)
+	require.Contains(t, string(out), `"input_tokens":1`)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(out, &resp))
+	content, ok := resp["content"].([]any)
+	require.True(t, ok)
+	require.Len(t, content, 2)
+}
+
+func TestStripAnthropicThinkingBlocksFromResponse_AllThinkingGetsPlaceholder(t *testing.T) {
+	input := []byte(`{"content":[{"type":"redacted_thinking","data":"..."}],"usage":{"output_tokens":1}}`)
+
+	out := stripAnthropicThinkingBlocksFromResponse(input)
+
+	var resp map[string]any
+	require.NoError(t, json.Unmarshal(out, &resp))
+	content, ok := resp["content"].([]any)
+	require.True(t, ok)
+	require.Len(t, content, 1)
+	block, ok := content[0].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "text", block["type"])
+	require.NotEmpty(t, block["text"])
+}
+
+func TestAnthropicThinkingStreamFilter_SuppressesThinkingBlockEvents(t *testing.T) {
+	filter := newAnthropicThinkingStreamFilter()
+
+	events := []struct {
+		raw  string
+		want bool
+	}{
+		{`{"type":"message_start","message":{"usage":{"input_tokens":1}}}`, true},
+		{`{"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}`, false},
+		{`{"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hidden"}}`, false},
+		{`{"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig"}}`, false},
+		{`{"type":"content_block_stop","index":0}`, false},
+		{`{"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}`, true},
+		{`{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Visible"}}`, true},
+		{`{"type":"content_block_stop","index":1}`, true},
+		{`{"type":"message_delta","usage":{"output_tokens":4}}`, true},
+	}
+
+	for _, tt := range events {
+		var event map[string]any
+		require.NoError(t, json.Unmarshal([]byte(tt.raw), &event))
+		require.Equal(t, tt.want, filter.shouldForward(event), tt.raw)
+	}
+}
+
 func TestFilterThinkingBlocksForRetry_DisablesThinkingEvenWithoutThinkingBlocks(t *testing.T) {
 	input := []byte(`{
 		"model":"claude-3-5-sonnet-20241022",

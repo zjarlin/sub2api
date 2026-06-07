@@ -73,9 +73,10 @@ func TestHandle429_FallbackUsesDBSeconds(t *testing.T) {
 
 	account := &Account{ID: 42, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
 	before := time.Now()
-	svc.handle429(context.Background(), account, http.Header{}, []byte(`{"error":{"type":"rate_limit_error","message":"slow down"}}`))
+	marked := svc.handle429(context.Background(), account, http.Header{}, []byte(`{"error":{"type":"rate_limit_error","message":"slow down"}}`))
 	after := time.Now()
 
+	require.True(t, marked)
 	require.Equal(t, 1, accountRepo.rateLimitCalls)
 	require.Equal(t, int64(42), accountRepo.lastRateLimitID)
 	require.True(t, !accountRepo.lastRateLimitReset.Before(before.Add(12*time.Second)) && !accountRepo.lastRateLimitReset.After(after.Add(12*time.Second)))
@@ -92,8 +93,9 @@ func TestHandle429_FallbackDisabledSkipsLocalMark(t *testing.T) {
 	svc.SetSettingService(settingSvc)
 
 	account := &Account{ID: 43, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
-	svc.handle429(context.Background(), account, http.Header{}, []byte(`{"error":{"type":"rate_limit_error","message":"slow down"}}`))
+	marked := svc.handle429(context.Background(), account, http.Header{}, []byte(`{"error":{"type":"rate_limit_error","message":"slow down"}}`))
 
+	require.False(t, marked)
 	require.Zero(t, accountRepo.rateLimitCalls)
 }
 
@@ -104,9 +106,10 @@ func TestHandle429_FallbackUsesDefaultSecondsWhenSettingServiceMissing(t *testin
 
 	account := &Account{ID: 44, Platform: PlatformGemini, Type: AccountTypeAPIKey}
 	before := time.Now()
-	svc.handle429(context.Background(), account, http.Header{}, []byte(`{"error":{"message":"slow down"}}`))
+	marked := svc.handle429(context.Background(), account, http.Header{}, []byte(`{"error":{"message":"slow down"}}`))
 	after := time.Now()
 
+	require.True(t, marked)
 	require.Equal(t, 1, accountRepo.rateLimitCalls)
 	require.Equal(t, int64(44), accountRepo.lastRateLimitID)
 	require.True(t, !accountRepo.lastRateLimitReset.Before(before.Add(5*time.Second)) && !accountRepo.lastRateLimitReset.After(after.Add(5*time.Second)))

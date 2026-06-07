@@ -22,6 +22,17 @@ const openaiModels = [
   'gpt-image-1', 'gpt-image-1.5', 'gpt-image-2'
 ]
 
+const openrouterModels = [
+  '~openai/gpt-latest',
+  'openai/gpt-oss-120b:free',
+  'openai/gpt-5',
+  'openai/gpt-4o',
+  'anthropic/claude-sonnet-4.5',
+  'google/gemini-2.5-flash',
+  'deepseek/deepseek-chat-v3.1',
+  'qwen/qwen3-coder'
+]
+
 // Anthropic Claude
 export const claudeModels = [
   'claude-3-5-sonnet-20241022', 'claude-3-5-sonnet-20240620',
@@ -65,6 +76,19 @@ const mimoModels = [
   'mimo-v2.5-tts',
   'mimo-v2-omni',
   'mimo-v2-tts'
+]
+
+const ollamaModels = [
+  'llama3.1',
+  'llama3.2',
+  'llama3.3',
+  'qwen2.5',
+  'qwen3',
+  'deepseek-r1',
+  'mistral',
+  'gemma3',
+  'phi4',
+  'codellama'
 ]
 
 const traeModels = [
@@ -310,9 +334,11 @@ const perplexityModels = [
 // 所有模型（去重）
 const allModelsList = Array.from(new Set<string>([
   ...openaiModels,
+  ...openrouterModels,
   ...claudeModels,
   ...geminiModels,
   ...mimoModels,
+  ...ollamaModels,
   ...traeModels,
   ...openaiLocalProxyModels,
   ...zhipuModels,
@@ -366,12 +392,28 @@ const openaiPresetMappings = [
   { label: 'Sonnet→5.4', from: 'claude-sonnet-4-6', to: 'gpt-5.4', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' }
 ]
 
+const openrouterPresetMappings = [
+  { label: 'GPT Latest', from: 'gpt-latest', to: '~openai/gpt-latest', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  { label: 'GPT OSS Free', from: 'gpt-oss-120b', to: 'openai/gpt-oss-120b:free', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' },
+  { label: 'GPT-4o', from: 'gpt-4o', to: 'openai/gpt-4o', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' },
+  { label: 'Gemini Flash', from: 'gemini-2.5-flash', to: 'google/gemini-2.5-flash', color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400' },
+  { label: 'Claude Sonnet', from: 'claude-sonnet-4.5', to: 'anthropic/claude-sonnet-4.5', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' }
+]
+
 const mimoPresetMappings = [
   { label: 'Mimo 2.5', from: 'mimo-v2.5', to: 'mimo-v2.5', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
   { label: 'Mimo 2.5 Pro', from: 'mimo-v2.5-pro', to: 'mimo-v2.5-pro', color: 'bg-pink-100 text-pink-700 hover:bg-pink-200 dark:bg-pink-900/30 dark:text-pink-400' },
   { label: 'Mimo Omni', from: 'mimo-v2-omni', to: 'mimo-v2-omni', color: 'bg-fuchsia-100 text-fuchsia-700 hover:bg-fuchsia-200 dark:bg-fuchsia-900/30 dark:text-fuchsia-400' },
   { label: 'Voice Clone', from: 'mimo-v2.5-tts-voiceclone', to: 'mimo-v2.5-tts-voiceclone', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400' },
   { label: 'TTS', from: 'mimo-v2.5-tts', to: 'mimo-v2.5-tts', color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400' }
+]
+
+const ollamaPresetMappings = [
+  { label: 'Llama 3.1', from: 'llama3.1', to: 'llama3.1', color: 'bg-stone-100 text-stone-700 hover:bg-stone-200 dark:bg-stone-800/60 dark:text-stone-300' },
+  { label: 'Llama 3.2', from: 'llama3.2', to: 'llama3.2', color: 'bg-zinc-100 text-zinc-700 hover:bg-zinc-200 dark:bg-zinc-800/60 dark:text-zinc-300' },
+  { label: 'Qwen 2.5', from: 'qwen2.5', to: 'qwen2.5', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' },
+  { label: 'DeepSeek R1', from: 'deepseek-r1', to: 'deepseek-r1', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' },
+  { label: 'Mistral', from: 'mistral', to: 'mistral', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400' }
 ]
 
 const traePresetMappings = [
@@ -504,10 +546,12 @@ export const commonErrorCodes = [
 export function getModelsByPlatform(platform: string): string[] {
   switch (platform) {
     case 'openai': return openaiModels
+    case 'openrouter': return openrouterModels
     case 'anthropic':
     case 'claude': return claudeModels
     case 'gemini': return geminiModels
     case 'mimo': return mimoModels
+    case 'ollama': return ollamaModels
     case 'trae': return traeModels
     case 'openai-local-proxy': return openaiLocalProxyModels
     case 'antigravity': return antigravityModels
@@ -541,8 +585,10 @@ export function getModelsByPlatforms(platforms: string[]): string[] {
 // 按平台获取预设映射
 export function getPresetMappingsByPlatform(platform: string) {
   if (platform === 'openai') return openaiPresetMappings
+  if (platform === 'openrouter') return openrouterPresetMappings
   if (platform === 'gemini') return geminiPresetMappings
   if (platform === 'mimo') return mimoPresetMappings
+  if (platform === 'ollama') return ollamaPresetMappings
   if (platform === 'trae') return traePresetMappings
   if (platform === 'openai-local-proxy') return openaiLocalProxyPresetMappings
   if (platform === 'antigravity') return antigravityPresetMappings

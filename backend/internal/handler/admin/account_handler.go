@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"net/http"
@@ -580,6 +581,22 @@ func (h *AccountHandler) CheckMixedChannel(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{"has_risk": false})
+}
+
+func (h *AccountHandler) ResolveUpstreamKeyRate(c *gin.Context) {
+	var req service.ResolveUpstreamKeyRateInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	result, err := h.adminService.ResolveUpstreamKeyRate(c.Request.Context(), req)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, result)
 }
 
 // Create handles creating a new account
@@ -1826,6 +1843,60 @@ func (h *AccountHandler) GetTempUnschedulable(c *gin.Context) {
 
 	if state == nil || state.UntilUnix <= time.Now().Unix() {
 		response.Success(c, gin.H{"active": false})
+		return
+	}
+
+	response.Success(c, gin.H{
+		"active": true,
+		"state":  state,
+	})
+}
+
+type SetTempUnschedulableRequest struct {
+	DurationMinutes int    `json:"duration_minutes"`
+	Reason          string `json:"reason"`
+	StatusCode      int    `json:"status_code"`
+}
+
+// SetTempUnschedulable handles manually setting temporary unschedulable status.
+// POST /api/v1/admin/accounts/:id/temp-unschedulable
+func (h *AccountHandler) SetTempUnschedulable(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	if h.rateLimitService == nil {
+		response.InternalError(c, "Rate limit service is not available")
+		return
+	}
+
+	var req SetTempUnschedulableRequest
+	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		response.BadRequest(c, "Invalid request body")
+		return
+	}
+	if req.DurationMinutes <= 0 {
+		req.DurationMinutes = 10
+	}
+	if req.DurationMinutes > 1440 {
+		response.BadRequest(c, "duration_minutes must be between 1 and 1440")
+		return
+	}
+	reason := strings.TrimSpace(req.Reason)
+	if reason == "" {
+		reason = "Manual temporary disable from ops error log"
+	}
+
+	state, err := h.rateLimitService.SetTempUnschedulableManual(
+		c.Request.Context(),
+		accountID,
+		time.Duration(req.DurationMinutes)*time.Minute,
+		reason,
+		req.StatusCode,
+	)
+	if err != nil {
+		response.ErrorFrom(c, err)
 		return
 	}
 

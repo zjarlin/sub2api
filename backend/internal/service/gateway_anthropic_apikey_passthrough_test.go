@@ -1186,6 +1186,72 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingSendsKeepaliveDuring
 	require.Contains(t, rec.Body.String(), "data: [DONE]")
 }
 
+func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingFiltersThinkingBlocks(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	svc := &GatewayService{
+		cfg: &config.Config{
+			Gateway: config.GatewayConfig{
+				MaxLineSize: defaultMaxLineSize,
+			},
+		},
+		rateLimitService: &RateLimitService{},
+	}
+
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body: io.NopCloser(strings.NewReader(`event: message_start
+data: {"type":"message_start","message":{"usage":{"input_tokens":2}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hidden"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: content_block_start
+data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Visible"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":1}
+
+event: message_delta
+data: {"type":"message_delta","usage":{"output_tokens":3}}
+
+event: message_stop
+data: {"type":"message_stop"}
+
+`)),
+	}
+
+	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 7}, time.Now(), "claude-sonnet")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 2, result.usage.InputTokens)
+	require.Equal(t, 3, result.usage.OutputTokens)
+
+	body := rec.Body.String()
+	require.NotContains(t, body, "thinking_delta")
+	require.NotContains(t, body, "signature_delta")
+	require.NotContains(t, body, `"type":"thinking"`)
+	require.Contains(t, body, "text_delta")
+	require.Contains(t, body, "Visible")
+	require.Contains(t, body, "message_stop")
+}
+
 func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingKeepaliveDoesNotInterleavePartialEvent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()

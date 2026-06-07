@@ -142,14 +142,31 @@
 
               <!-- Scheduled Account -->
               <td class="px-4 py-2">
-                <el-tooltip v-if="scheduledAccountTooltip(log)" :content="scheduledAccountTooltip(log)" placement="top" :show-after="500">
-                  <span class="max-w-[140px] truncate text-xs font-medium text-gray-900 dark:text-gray-200">
+                <div class="flex max-w-[220px] items-center gap-2">
+                  <el-tooltip v-if="scheduledAccountTooltip(log)" :content="scheduledAccountTooltip(log)" placement="top" :show-after="500">
+                    <span class="min-w-0 flex-1 truncate text-xs font-medium text-gray-900 dark:text-gray-200">
+                      {{ displayScheduledAccount(log) }}
+                    </span>
+                  </el-tooltip>
+                  <span
+                    v-else
+                    :class="[
+                      'min-w-0 flex-1 truncate',
+                      isAuthFailureBeforeScheduling(log) ? 'text-xs font-medium text-gray-900 dark:text-gray-200' : 'text-xs text-gray-400'
+                    ]"
+                  >
                     {{ displayScheduledAccount(log) }}
                   </span>
-                </el-tooltip>
-                <span v-else :class="isAuthFailureBeforeScheduling(log) ? 'text-xs font-medium text-gray-900 dark:text-gray-200' : 'text-xs text-gray-400'">
-                  {{ displayScheduledAccount(log) }}
-                </span>
+                  <button
+                    v-if="canTempDisableScheduledAccount(log)"
+                    type="button"
+                    class="shrink-0 rounded bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-amber-900/20 dark:text-amber-300 dark:hover:bg-amber-900/30"
+                    :disabled="isTempDisableLoading(log)"
+                    @click.stop="handleTempDisableScheduledAccount(log)"
+                  >
+                    {{ isTempDisableLoading(log) ? t('admin.ops.errorLog.tempDisableLoading') : t('admin.ops.errorLog.tempDisable') }}
+                  </button>
+                </div>
               </td>
 
               <!-- Status -->
@@ -216,13 +233,20 @@
 </template>
 
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Pagination from '@/components/common/Pagination.vue'
+import { adminAPI } from '@/api/admin'
 import type { OpsErrorLog } from '@/api/admin/ops'
+import { useAppStore } from '@/stores'
 import { getSeverityClass, formatDateTime } from '../utils/opsFormatters'
 import { isAuthFailureBeforeScheduling } from '../utils/opsErrorDisplay'
 
+const TEMP_UNSCHED_DURATION_MINUTES = 10
+
 const { t } = useI18n()
+const appStore = useAppStore()
+const tempDisableLoadingKeys = ref<Set<number>>(new Set())
 
 function isUpstreamRow(log: OpsErrorLog): boolean {
   const phase = String(log.phase || '').toLowerCase()
@@ -260,6 +284,21 @@ function scheduledAccountTooltip(log: OpsErrorLog): string {
   if (log.scheduled_account_id != null) parts.push(`${t('admin.ops.errorLog.accountId')} ${log.scheduled_account_id}`)
   if (log.scheduled_account_name) parts.push(log.scheduled_account_name)
   return parts.join('\n')
+}
+
+function canTempDisableScheduledAccount(log: OpsErrorLog): boolean {
+  return log.scheduled_account_id != null && !isAuthFailureBeforeScheduling(log)
+}
+
+function isTempDisableLoading(log: OpsErrorLog): boolean {
+  return tempDisableLoadingKeys.value.has(log.id)
+}
+
+function setTempDisableLoading(log: OpsErrorLog, loading: boolean) {
+  const next = new Set(tempDisableLoadingKeys.value)
+  if (loading) next.add(log.id)
+  else next.delete(log.id)
+  tempDisableLoadingKeys.value = next
 }
 
 function displayPlatform(log: OpsErrorLog): string {
@@ -349,6 +388,36 @@ interface Emits {
 
 defineProps<Props>()
 const emit = defineEmits<Emits>()
+
+function buildTempDisableReason(log: OpsErrorLog): string {
+  const message = formatSmartMessage(log.message)
+  const parts = [`Ops error log #${log.id}`]
+  if (log.status_code) parts.push(`status ${log.status_code}`)
+  if (message) parts.push(message)
+  return parts.join(': ')
+}
+
+async function handleTempDisableScheduledAccount(log: OpsErrorLog) {
+  const accountId = log.scheduled_account_id
+  if (accountId == null || isTempDisableLoading(log)) return
+  setTempDisableLoading(log, true)
+  try {
+    await adminAPI.accounts.setTempUnschedulable(accountId, {
+      duration_minutes: TEMP_UNSCHED_DURATION_MINUTES,
+      status_code: log.status_code,
+      reason: buildTempDisableReason(log)
+    })
+    appStore.showSuccess(t('admin.ops.errorLog.tempDisableSuccess', {
+      id: accountId,
+      minutes: TEMP_UNSCHED_DURATION_MINUTES
+    }))
+  } catch (error: any) {
+    console.error('[OpsErrorLogTable] Failed to temp-disable scheduled account', error)
+    appStore.showError(error?.message || t('admin.ops.errorLog.tempDisableFailed'))
+  } finally {
+    setTempDisableLoading(log, false)
+  }
+}
 
 function getStatusClass(code: number): string {
   if (code >= 500) return 'bg-red-50 text-red-700 ring-red-600/20 dark:bg-red-900/30 dark:text-red-400 dark:ring-red-500/30'

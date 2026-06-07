@@ -1300,6 +1300,48 @@ func isOpenAIAccountEligibleForRequest(account *Account, requestedModel string, 
 	return true
 }
 
+func filterOpenAIAccountsByExplicitModelSupport(accounts []Account, requestedModel string) []Account {
+	if strings.TrimSpace(requestedModel) == "" || len(accounts) == 0 {
+		return accounts
+	}
+	hasExplicitSupport := false
+	for i := range accounts {
+		if accountHasExplicitModelMappingSupport(&accounts[i], requestedModel) {
+			hasExplicitSupport = true
+			break
+		}
+	}
+	if !hasExplicitSupport {
+		return accounts
+	}
+	filtered := make([]Account, 0, len(accounts))
+	for i := range accounts {
+		if accountHasExplicitModelMappingSupport(&accounts[i], requestedModel) {
+			filtered = append(filtered, accounts[i])
+		}
+	}
+	return filtered
+}
+
+func openAIAccountsHaveExplicitModelSupport(accounts []Account, requestedModel string) bool {
+	if strings.TrimSpace(requestedModel) == "" {
+		return false
+	}
+	for i := range accounts {
+		if accountHasExplicitModelMappingSupport(&accounts[i], requestedModel) {
+			return true
+		}
+	}
+	return false
+}
+
+func openAIAccountAllowedByExplicitModelScope(account *Account, requestedModel string, explicitModelScope bool) bool {
+	if !explicitModelScope {
+		return true
+	}
+	return accountHasExplicitModelMappingSupport(account, requestedModel)
+}
+
 // prioritizeOpenAICompactAccounts re-orders a slice so that accounts with known
 // compact support are tried first, followed by unknown, then explicitly unsupported.
 // The relative order within each tier is preserved.
@@ -1356,21 +1398,24 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 
 	// 1. 尝试粘性会话命中
 	// Try sticky session hit
-	if account := s.tryStickySessionHit(ctx, groupID, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID); account != nil {
+	accounts, err := s.listSchedulableAccounts(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
+	explicitModelScope := openAIAccountsHaveExplicitModelSupport(accounts, requestedModel)
+
+	if account := s.tryStickySessionHit(ctx, groupID, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID, explicitModelScope); account != nil {
 		return account, nil
 	}
 
 	// 2. 获取可调度的 OpenAI 账号
 	// Get schedulable OpenAI accounts
-	accounts, err := s.listSchedulableAccounts(ctx, groupID)
-	if err != nil {
-		return nil, err
-	}
+	accounts = filterOpenAIAccountsByExplicitModelSupport(accounts, requestedModel)
 
 	// 3. 按优先级 + LRU 选择最佳账号
 	// Select by priority + LRU
 	filterStats := s.collectOpenAISelectionFilterStats(ctx, groupID, accounts, requestedModel, excludedIDs, OpenAIUpstreamTransportAny, requireCompact)
-	selected, compactBlocked, attemptStats := s.selectBestAccount(ctx, groupID, accounts, requestedModel, excludedIDs, requireCompact)
+	selected, compactBlocked, attemptStats := s.selectBestAccount(ctx, groupID, accounts, requestedModel, excludedIDs, requireCompact, explicitModelScope)
 
 	if selected == nil {
 		return nil, newOpenAINoAvailableAccountsError(
@@ -1400,7 +1445,7 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 //
 // tryStickySessionHit attempts to get account from sticky session.
 // Returns account if hit and usable; clears session and returns nil if account is unavailable.
-func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID *int64, sessionHash, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64) *Account {
+func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID *int64, sessionHash, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64, explicitModelScope bool) *Account {
 	if sessionHash == "" {
 		return nil
 	}
@@ -1432,11 +1477,15 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 
 	// 验证账号是否可用于当前请求
 	// Verify account is usable for current request
-	if !isOpenAIAccountEligibleForRequest(account, requestedModel, false) {
+	if !isOpenAIAccountEligibleForRequest(account, requestedModel, false) || !openAIAccountAllowedByExplicitModelScope(account, requestedModel, explicitModelScope) {
 		return nil
 	}
 	account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, requestedModel, requireCompact)
 	if account == nil {
+		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+		return nil
+	}
+	if !openAIAccountAllowedByExplicitModelScope(account, requestedModel, explicitModelScope) {
 		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 		return nil
 	}
@@ -1459,7 +1508,7 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 // Returns nil if no available account. The second return reports whether at
 // least one candidate was filtered out solely because it lacks compact support
 // (only meaningful when requireCompact=true).
-func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *int64, accounts []Account, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool) (*Account, bool, openAISelectionAttemptStats) {
+func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *int64, accounts []Account, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, explicitModelScope bool) (*Account, bool, openAISelectionAttemptStats) {
 	var selected *Account
 	selectedCompactTier := -1
 	compactBlocked := false
@@ -1480,8 +1529,16 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 			stats.FreshLookupRejected++
 			continue
 		}
+		if !openAIAccountAllowedByExplicitModelScope(fresh, requestedModel, explicitModelScope) {
+			stats.FreshLookupRejected++
+			continue
+		}
 		fresh = s.recheckSelectedOpenAIAccountFromDB(ctx, fresh, requestedModel, false)
 		if fresh == nil {
+			stats.RecheckRejected++
+			continue
+		}
+		if !openAIAccountAllowedByExplicitModelScope(fresh, requestedModel, explicitModelScope) {
 			stats.RecheckRejected++
 			continue
 		}
@@ -1631,6 +1688,8 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	if err != nil {
 		return nil, err
 	}
+	explicitModelScope := openAIAccountsHaveExplicitModelSupport(accounts, requestedModel)
+	accounts = filterOpenAIAccountsByExplicitModelSupport(accounts, requestedModel)
 	if len(accounts) == 0 {
 		return nil, newOpenAINoAvailableAccountsError(
 			"list_schedulable_accounts",
@@ -1659,9 +1718,11 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 				if clearSticky {
 					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 				}
-				if !clearSticky && isOpenAIAccountEligibleForRequest(account, requestedModel, false) {
+				if !clearSticky && isOpenAIAccountEligibleForRequest(account, requestedModel, false) && openAIAccountAllowedByExplicitModelScope(account, requestedModel, explicitModelScope) {
 					account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, requestedModel, requireCompact)
 					if account == nil {
+						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+					} else if !openAIAccountAllowedByExplicitModelScope(account, requestedModel, explicitModelScope) {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
 					} else if needsUpstreamCheck && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, account, requestedModel, requireCompact) {
 						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
@@ -1743,8 +1804,16 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 				attemptStats.FreshLookupRejected++
 				continue
 			}
+			if !openAIAccountAllowedByExplicitModelScope(fresh, requestedModel, explicitModelScope) {
+				attemptStats.FreshLookupRejected++
+				continue
+			}
 			fresh = s.recheckSelectedOpenAIAccountFromDB(ctx, fresh, requestedModel, requireCompact)
 			if fresh == nil {
+				attemptStats.RecheckRejected++
+				continue
+			}
+			if !openAIAccountAllowedByExplicitModelScope(fresh, requestedModel, explicitModelScope) {
 				attemptStats.RecheckRejected++
 				continue
 			}
@@ -1861,8 +1930,16 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 					attemptStats.FreshLookupRejected++
 					continue
 				}
+				if !openAIAccountAllowedByExplicitModelScope(fresh, requestedModel, explicitModelScope) {
+					attemptStats.FreshLookupRejected++
+					continue
+				}
 				fresh = s.recheckSelectedOpenAIAccountFromDB(ctx, fresh, requestedModel, requireCompact)
 				if fresh == nil {
+					attemptStats.RecheckRejected++
+					continue
+				}
+				if !openAIAccountAllowedByExplicitModelScope(fresh, requestedModel, explicitModelScope) {
 					attemptStats.RecheckRejected++
 					continue
 				}
@@ -1905,8 +1982,16 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			attemptStats.FreshLookupRejected++
 			continue
 		}
+		if !openAIAccountAllowedByExplicitModelScope(fresh, requestedModel, explicitModelScope) {
+			attemptStats.FreshLookupRejected++
+			continue
+		}
 		fresh = s.recheckSelectedOpenAIAccountFromDB(ctx, fresh, requestedModel, requireCompact)
 		if fresh == nil {
+			attemptStats.RecheckRejected++
+			continue
+		}
+		if !openAIAccountAllowedByExplicitModelScope(fresh, requestedModel, explicitModelScope) {
 			attemptStats.RecheckRejected++
 			continue
 		}

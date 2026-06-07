@@ -558,6 +558,7 @@ type GatewayService struct {
 	deferredService       *DeferredService
 	concurrencyService    *ConcurrencyService
 	claudeTokenProvider   *ClaudeTokenProvider
+	geminiTokenProvider   *GeminiTokenProvider
 	kiroTokenProvider     *KiroTokenProvider
 	kiroCooldownStore     KiroCooldownStore
 	sessionLimitCache     SessionLimitCache // 会话数量限制缓存（仅 Anthropic OAuth/SetupToken）
@@ -598,6 +599,7 @@ func NewGatewayService(
 	httpUpstream HTTPUpstream,
 	deferredService *DeferredService,
 	claudeTokenProvider *ClaudeTokenProvider,
+	geminiTokenProvider *GeminiTokenProvider,
 	kiroTokenProvider *KiroTokenProvider,
 	kiroCooldownStore KiroCooldownStore,
 	sessionLimitCache SessionLimitCache,
@@ -632,6 +634,7 @@ func NewGatewayService(
 		httpUpstream:         httpUpstream,
 		deferredService:      deferredService,
 		claudeTokenProvider:  claudeTokenProvider,
+		geminiTokenProvider:  geminiTokenProvider,
 		kiroTokenProvider:    kiroTokenProvider,
 		kiroCooldownStore:    kiroCooldownStore,
 		sessionLimitCache:    sessionLimitCache,
@@ -996,6 +999,136 @@ func deleteJSONPathBytes(body []byte, path string) ([]byte, bool) {
 		return body, false
 	}
 	return next, true
+}
+
+func isAnthropicThinkingBlockType(blockType string) bool {
+	switch strings.ToLower(strings.TrimSpace(blockType)) {
+	case "thinking", "redacted_thinking":
+		return true
+	default:
+		return false
+	}
+}
+
+func isAnthropicThinkingDeltaType(deltaType string) bool {
+	switch strings.ToLower(strings.TrimSpace(deltaType)) {
+	case "thinking_delta", "signature_delta", "redacted_thinking_delta":
+		return true
+	default:
+		return false
+	}
+}
+
+func stripAnthropicThinkingBlocksFromResponse(body []byte) []byte {
+	content := gjson.GetBytes(body, "content")
+	if !content.IsArray() {
+		return body
+	}
+
+	items := make([][]byte, 0, len(content.Array()))
+	removed := false
+	content.ForEach(func(_, item gjson.Result) bool {
+		blockType := item.Get("type").String()
+		if isAnthropicThinkingBlockType(blockType) || (blockType == "" && item.Get("thinking").Exists()) {
+			removed = true
+			return true
+		}
+		items = append(items, []byte(item.Raw))
+		return true
+	})
+
+	if !removed {
+		return body
+	}
+	if len(items) == 0 {
+		items = append(items, []byte(`{"type":"text","text":" "}`))
+	}
+	next, ok := setJSONRawBytes(body, "content", buildJSONArrayRaw(items))
+	if !ok {
+		return body
+	}
+	return next
+}
+
+type anthropicThinkingStreamFilter struct {
+	hiddenIndexes map[int]struct{}
+}
+
+func newAnthropicThinkingStreamFilter() *anthropicThinkingStreamFilter {
+	return &anthropicThinkingStreamFilter{hiddenIndexes: make(map[int]struct{})}
+}
+
+func parseSSEEventIndex(event map[string]any) (int, bool) {
+	if event == nil {
+		return 0, false
+	}
+	return parseSSEUsageInt(event["index"])
+}
+
+func (f *anthropicThinkingStreamFilter) shouldForward(event map[string]any) bool {
+	if f == nil || event == nil {
+		return true
+	}
+	eventType, _ := event["type"].(string)
+	index, hasIndex := parseSSEEventIndex(event)
+
+	switch eventType {
+	case "content_block_start":
+		contentBlock, _ := event["content_block"].(map[string]any)
+		blockType, _ := contentBlock["type"].(string)
+		if isAnthropicThinkingBlockType(blockType) {
+			if hasIndex {
+				f.hiddenIndexes[index] = struct{}{}
+			}
+			return false
+		}
+	case "content_block_delta":
+		if hasIndex {
+			if _, hidden := f.hiddenIndexes[index]; hidden {
+				return false
+			}
+		}
+		delta, _ := event["delta"].(map[string]any)
+		deltaType, _ := delta["type"].(string)
+		if isAnthropicThinkingDeltaType(deltaType) {
+			if hasIndex {
+				f.hiddenIndexes[index] = struct{}{}
+			}
+			return false
+		}
+	case "content_block_stop":
+		if hasIndex {
+			if _, hidden := f.hiddenIndexes[index]; hidden {
+				delete(f.hiddenIndexes, index)
+				return false
+			}
+		}
+	}
+
+	return true
+}
+
+func parseAnthropicSSEEventLines(lines []string) (eventName string, dataLine string) {
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "event:") {
+			eventName = strings.TrimSpace(strings.TrimPrefix(trimmed, "event:"))
+			continue
+		}
+		if dataLine == "" && sseDataRe.MatchString(trimmed) {
+			dataLine = sseDataRe.ReplaceAllString(trimmed, "")
+		}
+	}
+	return eventName, dataLine
+}
+
+func buildAnthropicSSEBlock(eventName, dataLine string) string {
+	block := ""
+	if eventName != "" {
+		block = "event: " + eventName + "\n"
+	}
+	block += "data: " + dataLine + "\n\n"
+	return block
 }
 
 func normalizeClaudeOAuthSystemBody(body []byte, opts claudeOAuthNormalizeOptions) ([]byte, bool) {
@@ -5504,12 +5637,73 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 	}
 	lastDataAt := time.Now()
 	inPartialEvent := false
+	thinkingStreamFilter := newAnthropicThinkingStreamFilter()
+	pendingEventLines := make([]string, 0, 4)
+
+	processPassthroughSSEEvent := func(lines []string) ([]string, string) {
+		if len(lines) == 0 {
+			return nil, ""
+		}
+
+		eventName, dataLine := parseAnthropicSSEEventLines(lines)
+		if dataLine == "" {
+			return []string{strings.Join(lines, "\n") + "\n\n"}, ""
+		}
+		if dataLine == "[DONE]" {
+			return []string{buildAnthropicSSEBlock(eventName, dataLine)}, dataLine
+		}
+
+		var event map[string]any
+		if err := json.Unmarshal([]byte(dataLine), &event); err != nil {
+			return []string{buildAnthropicSSEBlock(eventName, dataLine)}, dataLine
+		}
+		eventType, _ := event["type"].(string)
+		if eventName == "" {
+			eventName = eventType
+		}
+		if !thinkingStreamFilter.shouldForward(event) {
+			return nil, dataLine
+		}
+		return []string{buildAnthropicSSEBlock(eventName, dataLine)}, dataLine
+	}
+	flushPassthroughPendingEvent := func() {
+		if len(pendingEventLines) == 0 {
+			return
+		}
+		outputBlocks, data := processPassthroughSSEEvent(pendingEventLines)
+		pendingEventLines = pendingEventLines[:0]
+		trimmedData := strings.TrimSpace(data)
+		if anthropicStreamEventIsTerminal("", trimmedData) {
+			sawTerminalEvent = true
+		}
+		if firstTokenMs == nil && len(outputBlocks) > 0 && trimmedData != "" && trimmedData != "[DONE]" {
+			ms := int(time.Since(startTime).Milliseconds())
+			firstTokenMs = &ms
+		}
+		s.parseSSEUsagePassthrough(data, usage)
+
+		for _, block := range outputBlocks {
+			if clientDisconnected {
+				break
+			}
+			restored := string(reverseToolNamesIfPresent(c, []byte(block)))
+			if _, err := io.WriteString(w, restored); err != nil {
+				clientDisconnected = true
+				logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
+				break
+			}
+			flusher.Flush()
+			lastDataAt = time.Now()
+		}
+		inPartialEvent = false
+	}
 
 	for {
 		select {
 		case ev, ok := <-events:
 			if !ok {
 				if !clientDisconnected {
+					flushPassthroughPendingEvent()
 					// 兜底补刷，确保最后一个未以空行结尾的事件也能及时送达客户端。
 					flusher.Flush()
 				}
@@ -5542,46 +5736,23 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 			}
 
 			line := ev.line
-			if data, ok := extractAnthropicSSEDataLine(line); ok {
-				trimmed := strings.TrimSpace(data)
-				if anthropicStreamEventIsTerminal("", trimmed) {
-					sawTerminalEvent = true
-				}
-				if firstTokenMs == nil && trimmed != "" && trimmed != "[DONE]" {
-					ms := int(time.Since(startTime).Milliseconds())
-					firstTokenMs = &ms
-				}
-				s.parseSSEUsagePassthrough(data, usage)
-			} else {
-				trimmed := strings.TrimSpace(line)
-				if strings.HasPrefix(trimmed, "event:") && anthropicStreamEventIsTerminal(strings.TrimSpace(strings.TrimPrefix(trimmed, "event:")), "") {
-					sawTerminalEvent = true
-				}
+			if strings.TrimSpace(line) != "" {
+				pendingEventLines = append(pendingEventLines, line)
+				inPartialEvent = true
+				continue
+			}
+			if len(pendingEventLines) == 0 {
+				continue
 			}
 
-			if !clientDisconnected {
-				restored := string(reverseToolNamesIfPresent(c, []byte(line)))
-				if _, err := io.WriteString(w, restored); err != nil {
-					clientDisconnected = true
-					logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
-				} else if _, err := io.WriteString(w, "\n"); err != nil {
-					clientDisconnected = true
-					logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
-				} else if line == "" {
-					// 按 SSE 事件边界刷出，减少每行 flush 带来的 syscall 开销。
-					flusher.Flush()
-					lastDataAt = time.Now()
-					inPartialEvent = false
-				} else {
-					inPartialEvent = true
-				}
-			}
+			flushPassthroughPendingEvent()
 
 		case <-intervalCh:
 			lastRead := time.Unix(0, atomic.LoadInt64(&lastReadAt))
 			if time.Since(lastRead) < streamInterval {
 				continue
 			}
+			flushPassthroughPendingEvent()
 			if clientDisconnected {
 				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, fmt.Errorf("stream usage incomplete after timeout")
 			}
@@ -5750,6 +5921,7 @@ func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 	if contentType == "" {
 		contentType = "application/json"
 	}
+	body = stripAnthropicThinkingBlocksFromResponse(body)
 	body = reverseToolNamesIfPresent(c, body)
 	c.Data(resp.StatusCode, contentType, body)
 	return usage, nil
@@ -6894,6 +7066,13 @@ func (s *GatewayService) isThinkingBlockSignatureError(respBody []byte) bool {
 		return true
 	}
 
+	// 检测 thinking 模式历史回放缺失错误。
+	// 例如: "The `content[].thinking` in the thinking mode must be passed back to the API."
+	if strings.Contains(msg, "thinking") && strings.Contains(msg, "passed back") {
+		logger.LegacyPrintf("service.gateway", "[SignatureCheck] Detected thinking replay error")
+		return true
+	}
+
 	// 检测空消息内容错误（可能是过滤 thinking blocks 后导致的，或客户端发送了空 text block）
 	// 例如: "all messages must have non-empty content"
 	//       "messages: text content blocks must be non-empty"
@@ -7444,6 +7623,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 	clientDisconnected := false // 客户端断开标志，断开后继续读取上游以获取完整usage
 	sawTerminalEvent := false
 
+	thinkingStreamFilter := newAnthropicThinkingStreamFilter()
 	pendingEventLines := make([]string, 0, 4)
 
 	processSSEEvent := func(lines []string) ([]string, string, *sseUsagePatch, error) {
@@ -7451,18 +7631,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 			return nil, "", nil, nil
 		}
 
-		eventName := ""
-		dataLine := ""
-		for _, line := range lines {
-			trimmed := strings.TrimSpace(line)
-			if strings.HasPrefix(trimmed, "event:") {
-				eventName = strings.TrimSpace(strings.TrimPrefix(trimmed, "event:"))
-				continue
-			}
-			if dataLine == "" && sseDataRe.MatchString(trimmed) {
-				dataLine = sseDataRe.ReplaceAllString(trimmed, "")
-			}
-		}
+		eventName, dataLine := parseAnthropicSSEEventLines(lines)
 
 		if eventName == "error" {
 			return nil, dataLine, nil, errors.New("have error in stream")
@@ -7474,23 +7643,13 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 
 		if dataLine == "[DONE]" {
 			sawTerminalEvent = true
-			block := ""
-			if eventName != "" {
-				block = "event: " + eventName + "\n"
-			}
-			block += "data: " + dataLine + "\n\n"
-			return []string{block}, dataLine, nil, nil
+			return []string{buildAnthropicSSEBlock(eventName, dataLine)}, dataLine, nil, nil
 		}
 
 		var event map[string]any
 		if err := json.Unmarshal([]byte(dataLine), &event); err != nil {
 			// JSON 解析失败，直接透传原始数据
-			block := ""
-			if eventName != "" {
-				block = "event: " + eventName + "\n"
-			}
-			block += "data: " + dataLine + "\n\n"
-			return []string{block}, dataLine, nil, nil
+			return []string{buildAnthropicSSEBlock(eventName, dataLine)}, dataLine, nil, nil
 		}
 
 		eventType, _ := event["type"].(string)
@@ -7498,6 +7657,10 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 			eventName = eventType
 		}
 		eventChanged := false
+
+		if !thinkingStreamFilter.shouldForward(event) {
+			return nil, dataLine, nil, nil
+		}
 
 		// 兼容 Kimi cached_tokens → cache_read_input_tokens
 		if eventType == "message_start" {
@@ -7544,31 +7707,17 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 			sawTerminalEvent = true
 		}
 		if !eventChanged {
-			block := ""
-			if eventName != "" {
-				block = "event: " + eventName + "\n"
-			}
-			block += "data: " + dataLine + "\n\n"
-			return []string{block}, dataLine, usagePatch, nil
+			return []string{buildAnthropicSSEBlock(eventName, dataLine)}, dataLine, usagePatch, nil
 		}
 
 		newData, err := json.Marshal(event)
 		if err != nil {
 			// 序列化失败，直接透传原始数据
-			block := ""
-			if eventName != "" {
-				block = "event: " + eventName + "\n"
-			}
-			block += "data: " + dataLine + "\n\n"
-			return []string{block}, dataLine, usagePatch, nil
+			return []string{buildAnthropicSSEBlock(eventName, dataLine)}, dataLine, usagePatch, nil
 		}
 
-		block := ""
-		if eventName != "" {
-			block = "event: " + eventName + "\n"
-		}
-		block += "data: " + string(newData) + "\n\n"
-		return []string{block}, string(newData), usagePatch, nil
+		newDataLine := string(newData)
+		return []string{buildAnthropicSSEBlock(eventName, newDataLine)}, newDataLine, usagePatch, nil
 	}
 
 	for {
@@ -7999,6 +8148,7 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 		}
 	}
 
+	body = stripAnthropicThinkingBlocksFromResponse(body)
 	body = reverseToolNamesIfPresent(c, body)
 
 	// 写入响应

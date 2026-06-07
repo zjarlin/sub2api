@@ -174,6 +174,36 @@ export async function checkMixedChannelRisk(
   return data
 }
 
+export interface ResolveUpstreamKeyRateRequest {
+  base_url: string
+  login_path?: string
+  keys_path?: string
+  email: string
+  password: string
+  api_key: string
+  page_size?: number
+  max_pages?: number
+}
+
+export interface ResolveUpstreamKeyRateResponse {
+  rate_multiplier: number
+  group_id?: number
+  group_name?: string
+  key_id?: number
+  key_name?: string
+  matched_field?: string
+}
+
+export async function resolveUpstreamKeyRate(
+  payload: ResolveUpstreamKeyRateRequest
+): Promise<ResolveUpstreamKeyRateResponse> {
+  const { data } = await apiClient.post<ResolveUpstreamKeyRateResponse>(
+    '/admin/accounts/resolve-upstream-key-rate',
+    payload
+  )
+  return data
+}
+
 /**
  * Delete account
  * @param id - Account ID
@@ -299,6 +329,29 @@ export async function resetAccountQuota(id: number): Promise<Account> {
 export async function getTempUnschedulableStatus(id: number): Promise<TempUnschedulableStatus> {
   const { data } = await apiClient.get<TempUnschedulableStatus>(
     `/admin/accounts/${id}/temp-unschedulable`
+  )
+  return data
+}
+
+export interface SetTempUnschedulableRequest {
+  duration_minutes?: number
+  reason?: string
+  status_code?: number
+}
+
+/**
+ * Set temporary unschedulable status
+ * @param id - Account ID
+ * @param payload - Temporary disable options
+ * @returns Status with detail state if active
+ */
+export async function setTempUnschedulable(
+  id: number,
+  payload?: SetTempUnschedulableRequest
+): Promise<TempUnschedulableStatus> {
+  const { data } = await apiClient.post<TempUnschedulableStatus>(
+    `/admin/accounts/${id}/temp-unschedulable`,
+    payload || {}
   )
   return data
 }
@@ -678,6 +731,7 @@ export const accountsAPI = {
   copyAccount,
   update,
   checkMixedChannelRisk,
+  resolveUpstreamKeyRate,
   delete: deleteAccount,
   toggleStatus,
   testAccount,
@@ -691,6 +745,7 @@ export const accountsAPI = {
   recoverState,
   resetAccountQuota,
   getTempUnschedulableStatus,
+  setTempUnschedulable,
   resetTempUnschedulable,
   setSchedulable,
   getAvailableModels,

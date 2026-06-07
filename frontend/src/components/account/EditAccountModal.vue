@@ -1501,6 +1501,87 @@
           <p class="input-hint">{{ t('admin.accounts.billingRateMultiplierHint') }}</p>
         </div>
       </div>
+      <div
+        v-if="showUpstreamKeyRateTool"
+        class="rounded-lg border border-blue-200 bg-blue-50/60 p-4 dark:border-blue-900/50 dark:bg-blue-950/20"
+      >
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <Icon name="calculator" size="sm" class="text-blue-600 dark:text-blue-300" />
+            <span class="text-sm font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.accounts.openai.upstreamRate.title') }}
+            </span>
+          </div>
+          <button
+            type="button"
+            class="btn btn-secondary text-sm"
+            :disabled="upstreamKeyRateResolving"
+            @click="handleResolveUpstreamKeyRate"
+          >
+            <Icon
+              name="refresh"
+              size="sm"
+              class="mr-1.5"
+              :class="{ 'animate-spin': upstreamKeyRateResolving }"
+            />
+            {{
+              upstreamKeyRateResolving
+                ? t('admin.accounts.openai.upstreamRate.reading')
+                : t('admin.accounts.openai.upstreamRate.read')
+            }}
+          </button>
+        </div>
+        <div class="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+          <div>
+            <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.consoleBaseUrl') }}</label>
+            <input
+              v-model="upstreamKeyRateForm.baseUrl"
+              type="text"
+              class="input"
+              placeholder="https://api.addzero.site"
+            />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.email') }}</label>
+            <input
+              v-model="upstreamKeyRateForm.email"
+              type="email"
+              class="input"
+              autocomplete="username"
+            />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.password') }}</label>
+            <input
+              v-model="upstreamKeyRateForm.password"
+              type="password"
+              class="input"
+              autocomplete="current-password"
+            />
+          </div>
+          <div class="md:col-span-2 lg:col-span-3">
+            <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.targetApiKey') }}</label>
+            <input
+              v-model="upstreamKeyRateForm.apiKey"
+              type="password"
+              class="input font-mono"
+              autocomplete="new-password"
+              spellcheck="false"
+              data-1p-ignore
+              data-lpignore="true"
+              data-bwignore="true"
+            />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.loginPath') }}</label>
+            <input v-model="upstreamKeyRateForm.loginPath" type="text" class="input font-mono" />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.keysPath') }}</label>
+            <input v-model="upstreamKeyRateForm.keysPath" type="text" class="input font-mono" />
+          </div>
+        </div>
+      </div>
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <label class="input-label">{{ t('admin.accounts.expiresAt') }}</label>
         <input v-model="expiresAtInput" type="datetime-local" class="input" />
@@ -2439,6 +2520,13 @@ import {
   writeUIDisplayGroupsToExtra
 } from '@/utils/accountFormBulk'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
+import {
+  buildUpstreamRateSuccessParams,
+  createUpstreamKeyRateForm,
+  deriveUpstreamConsoleBaseUrl,
+  getFirstUpstreamAPIKey,
+  resetUpstreamKeyRateSecretFields
+} from '@/utils/upstreamKeyRate'
 import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
 import {
   OPENAI_WS_MODE_CTX_POOL,
@@ -2575,6 +2663,8 @@ interface TempUnschedRuleForm {
 const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
+const upstreamKeyRateForm = reactive(createUpstreamKeyRateForm())
+const upstreamKeyRateResolving = ref(false)
 // Bedrock credentials
 const editBedrockAccessKeyId = ref('')
 const editBedrockSecretAccessKey = ref('')
@@ -2803,15 +2893,69 @@ const buildOpenAIVendorCredentials = () => {
   }
 }
 
-const isOpenAILocalProxyVendor = computed(() =>
-  props.account?.platform === 'openai' && props.account?.type === 'apikey' && openAIVendorPresetId.value === 'openai-local-proxy'
+const isOpenAIOptionalApiKeyVendor = computed(() =>
+  props.account?.platform === 'openai' &&
+  props.account?.type === 'apikey' &&
+  ['openai-local-proxy', 'ollama'].includes(openAIVendorPresetId.value)
 )
+
+const showUpstreamKeyRateTool = computed(() =>
+  props.account?.platform === 'openai' && props.account?.type === 'apikey'
+)
+
+const syncUpstreamKeyRateDefaults = () => {
+  if (!upstreamKeyRateForm.baseUrl.trim()) {
+    upstreamKeyRateForm.baseUrl = deriveUpstreamConsoleBaseUrl(editBaseUrl.value || selectedOpenAIVendorPreset.value.baseUrl)
+  }
+  if (!upstreamKeyRateForm.apiKey.trim()) {
+    upstreamKeyRateForm.apiKey = getFirstUpstreamAPIKey(editApiKey.value)
+  }
+}
+
+const handleResolveUpstreamKeyRate = async () => {
+  syncUpstreamKeyRateDefaults()
+  if (!upstreamKeyRateForm.baseUrl.trim()) {
+    appStore.showError(t('admin.accounts.openai.upstreamRate.baseUrlRequired'))
+    return
+  }
+  if (!upstreamKeyRateForm.email.trim()) {
+    appStore.showError(t('admin.accounts.openai.upstreamRate.emailRequired'))
+    return
+  }
+  if (!upstreamKeyRateForm.password.trim()) {
+    appStore.showError(t('admin.accounts.openai.upstreamRate.passwordRequired'))
+    return
+  }
+  if (!upstreamKeyRateForm.apiKey.trim()) {
+    appStore.showError(t('admin.accounts.openai.upstreamRate.apiKeyRequired'))
+    return
+  }
+
+  upstreamKeyRateResolving.value = true
+  try {
+    const result = await adminAPI.accounts.resolveUpstreamKeyRate({
+      base_url: upstreamKeyRateForm.baseUrl.trim(),
+      login_path: upstreamKeyRateForm.loginPath.trim() || undefined,
+      keys_path: upstreamKeyRateForm.keysPath.trim() || undefined,
+      email: upstreamKeyRateForm.email.trim(),
+      password: upstreamKeyRateForm.password,
+      api_key: upstreamKeyRateForm.apiKey.trim()
+    })
+    form.rate_multiplier = result.rate_multiplier
+    appStore.showSuccess(t('admin.accounts.openai.upstreamRate.success', buildUpstreamRateSuccessParams(result)))
+  } catch (error: any) {
+    appStore.showError(error?.message || t('admin.accounts.openai.upstreamRate.failed'))
+  } finally {
+    upstreamKeyRateResolving.value = false
+  }
+}
 
 const handleOpenAIVendorPresetChange = () => {
   if (props.account?.platform !== 'openai' || props.account?.type !== 'apikey') {
     return
   }
   applyOpenAIVendorPresetToForm(openAIVendorPresetId.value)
+  upstreamKeyRateForm.baseUrl = deriveUpstreamConsoleBaseUrl(editBaseUrl.value)
   if (modelRestrictionMode.value === 'whitelist') {
     allowedModels.value = [...getCurrentWhitelistModels()]
   }
@@ -2919,6 +3063,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   if (!newAccount) {
     return
   }
+  upstreamKeyRateForm.baseUrl = ''
+  resetUpstreamKeyRateSecretFields(upstreamKeyRateForm)
   antigravityMixedChannelConfirmed.value = false
   showMixedChannelWarning.value = false
   mixedChannelWarningDetails.value = null
@@ -3290,6 +3436,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     selectedErrorCodes.value = []
   }
   editApiKey.value = ''
+  if (newAccount.platform === 'openai' && newAccount.type === 'apikey') {
+    upstreamKeyRateForm.baseUrl = deriveUpstreamConsoleBaseUrl(editBaseUrl.value || selectedOpenAIVendorPreset.value.baseUrl)
+  }
 }
 
 async function loadTLSProfiles() {
@@ -3737,6 +3886,8 @@ const parseDateTimeLocal = parseDateTimeLocalInput
 const handleClose = () => {
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
+  upstreamKeyRateForm.baseUrl = ''
+  resetUpstreamKeyRateSecretFields(upstreamKeyRateForm)
   emit('close')
 }
 
@@ -3818,7 +3969,7 @@ const handleSubmit = async () => {
       } else if (currentCredentials.api_key) {
         // Preserve existing api_key
         newCredentials.api_key = currentCredentials.api_key
-      } else if (!isOpenAILocalProxyVendor.value) {
+      } else if (!isOpenAIOptionalApiKeyVendor.value) {
         appStore.showError(t('admin.accounts.apiKeyIsRequired'))
         return
       } else {

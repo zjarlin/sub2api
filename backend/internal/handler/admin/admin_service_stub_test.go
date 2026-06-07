@@ -405,6 +405,10 @@ func (s *stubAdminService) CheckMixedChannelRisk(ctx context.Context, currentAcc
 	return s.checkMixedErr
 }
 
+func (s *stubAdminService) ResolveUpstreamKeyRate(ctx context.Context, input service.ResolveUpstreamKeyRateInput) (*service.ResolveUpstreamKeyRateResult, error) {
+	return &service.ResolveUpstreamKeyRateResult{RateMultiplier: 1}, nil
+}
+
 func (s *stubAdminService) ListProxies(ctx context.Context, page, pageSize int, protocol, status, search string, sortBy, sortOrder string) ([]service.Proxy, int64, error) {
 	s.lastListProxies.protocol = protocol
 	s.lastListProxies.status = status

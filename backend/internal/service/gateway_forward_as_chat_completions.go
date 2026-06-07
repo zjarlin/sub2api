@@ -33,6 +33,10 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	body []byte,
 	parsed *ParsedRequest,
 ) (*ForwardResult, error) {
+	if account != nil && account.Platform == PlatformGemini {
+		return s.ForwardAsGeminiChatCompletions(ctx, c, account, body)
+	}
+
 	startTime := time.Now()
 
 	// 1. Parse Chat Completions request

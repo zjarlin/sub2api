@@ -5,8 +5,11 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { useClipboard } from '@/composables/useClipboard'
 import { useAppStore } from '@/stores'
+import { adminAPI } from '@/api/admin'
 import { opsAPI, type OpsRequestDetailsParams, type OpsRequestDetail } from '@/api/admin/ops'
 import { parseTimeRangeMinutes, formatDateTime } from '../utils/opsFormatters'
+
+const TEMP_UNSCHED_DURATION_MINUTES = 10
 
 export interface OpsRequestDetailsPreset {
   title: string
@@ -39,6 +42,7 @@ const items = ref<OpsRequestDetail[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
+const tempDisableLoadingKeys = ref<Set<string>>(new Set())
 
 const close = () => emit('update:modelValue', false)
 
@@ -143,6 +147,58 @@ function displayScheduledAccount(row: OpsRequestDetail): string {
   return '-'
 }
 
+function canTempDisableScheduledAccount(row: OpsRequestDetail): boolean {
+  return row.kind === 'error' && row.scheduled_account_id != null
+}
+
+function tempDisableKey(row: OpsRequestDetail, idx: number): string {
+  return `${row.scheduled_account_id || 0}:${row.error_id || row.request_id || idx}`
+}
+
+function isTempDisableLoading(row: OpsRequestDetail, idx: number): boolean {
+  return tempDisableLoadingKeys.value.has(tempDisableKey(row, idx))
+}
+
+function setTempDisableLoading(row: OpsRequestDetail, idx: number, loading: boolean) {
+  const key = tempDisableKey(row, idx)
+  const next = new Set(tempDisableLoadingKeys.value)
+  if (loading) next.add(key)
+  else next.delete(key)
+  tempDisableLoadingKeys.value = next
+}
+
+function buildTempDisableReason(row: OpsRequestDetail): string {
+  const parts = ['Ops request details error']
+  if (row.error_id) parts.push(`#${row.error_id}`)
+  if (row.request_id) parts.push(`request ${row.request_id}`)
+  if (row.status_code) parts.push(`status ${row.status_code}`)
+  const message = String(row.message || '').trim()
+  if (message) parts.push(message.length > 160 ? `${message.substring(0, 160)}...` : message)
+  return parts.join(': ')
+}
+
+async function handleTempDisableScheduledAccount(row: OpsRequestDetail, idx: number) {
+  const accountId = row.scheduled_account_id
+  if (accountId == null || isTempDisableLoading(row, idx)) return
+  setTempDisableLoading(row, idx, true)
+  try {
+    await adminAPI.accounts.setTempUnschedulable(accountId, {
+      duration_minutes: TEMP_UNSCHED_DURATION_MINUTES,
+      status_code: row.status_code ?? undefined,
+      reason: buildTempDisableReason(row)
+    })
+    appStore.showSuccess(t('admin.ops.requestDetails.tempDisableSuccess', {
+      id: accountId,
+      minutes: TEMP_UNSCHED_DURATION_MINUTES
+    }))
+  } catch (error: any) {
+    console.error('[OpsRequestDetailsModal] Failed to temp-disable scheduled account', error)
+    appStore.showError(error?.message || t('admin.ops.requestDetails.tempDisableFailed'))
+  } finally {
+    setTempDisableLoading(row, idx, false)
+  }
+}
+
 function openErrorDetail(errorId: number | null | undefined) {
   if (!errorId) return
   close()
@@ -245,9 +301,20 @@ const kindBadgeClass = (kind: string) => {
                     {{ row.model || '-' }}
                   </td>
                   <td class="px-4 py-3 text-xs font-medium text-gray-700 dark:text-gray-200">
-                    <span class="block max-w-[180px] truncate" :title="displayScheduledAccount(row)">
-                      {{ displayScheduledAccount(row) }}
-                    </span>
+                    <div class="flex max-w-[260px] items-center gap-2">
+                      <span class="min-w-0 flex-1 truncate" :title="displayScheduledAccount(row)">
+                        {{ displayScheduledAccount(row) }}
+                      </span>
+                      <button
+                        v-if="canTempDisableScheduledAccount(row)"
+                        type="button"
+                        class="shrink-0 rounded bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-amber-900/20 dark:text-amber-300 dark:hover:bg-amber-900/30"
+                        :disabled="isTempDisableLoading(row, idx)"
+                        @click="handleTempDisableScheduledAccount(row, idx)"
+                      >
+                        {{ isTempDisableLoading(row, idx) ? t('admin.ops.requestDetails.tempDisableLoading') : t('admin.ops.requestDetails.tempDisable') }}
+                      </button>
+                    </div>
                   </td>
                   <td class="whitespace-nowrap px-4 py-3 text-xs text-gray-600 dark:text-gray-300">
                     {{ typeof row.duration_ms === 'number' ? `${row.duration_ms} ms` : '-' }}

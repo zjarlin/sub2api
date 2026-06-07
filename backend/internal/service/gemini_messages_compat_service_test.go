@@ -261,6 +261,67 @@ func TestGeminiMessagesCompatServiceForward_PreservesRequestedModelAndMappedUpst
 	require.Contains(t, httpStub.lastReq.URL.String(), "/models/claude-sonnet-4-20250514:")
 }
 
+func TestGatewayServiceForwardAsGeminiChatCompletions_ConvertsOpenAIChatToGeminiAndBack(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+
+	httpStub := &geminiCompatHTTPUpstreamStub{
+		response: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"x-request-id": []string{"gemini-cc-1"}},
+			Body:       io.NopCloser(strings.NewReader(`{"candidates":[{"content":{"parts":[{"text":"hello from gemini"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":12,"candidatesTokenCount":4}}`)),
+		},
+	}
+	svc := &GatewayService{httpUpstream: httpStub, cfg: &config.Config{}}
+	account := &Account{
+		ID:       7,
+		Name:     "gemini-api-key",
+		Platform: PlatformGemini,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key": "test-key",
+			"model_mapping": map[string]any{
+				"gemini-chat": "gemini-2.5-pro",
+			},
+		},
+	}
+	body := []byte(`{"model":"gemini-chat","messages":[{"role":"system","content":"Be terse."},{"role":"user","content":"Say hello"}],"max_tokens":64}`)
+
+	result, err := svc.ForwardAsGeminiChatCompletions(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "gemini-chat", result.Model)
+	require.Equal(t, "gemini-2.5-pro", result.UpstreamModel)
+	require.Equal(t, 12, result.Usage.InputTokens)
+	require.Equal(t, 4, result.Usage.OutputTokens)
+	require.Equal(t, 1, httpStub.calls)
+	require.NotNil(t, httpStub.lastReq)
+	require.Contains(t, httpStub.lastReq.URL.String(), "/v1beta/models/gemini-2.5-pro:generateContent")
+
+	postedBody, err := io.ReadAll(httpStub.lastReq.Body)
+	require.NoError(t, err)
+	var posted map[string]any
+	require.NoError(t, json.Unmarshal(postedBody, &posted))
+	require.Contains(t, posted, "contents")
+	require.NotContains(t, posted, "messages")
+	require.NotContains(t, posted, "max_tokens")
+	require.Equal(t, "test-key", httpStub.lastReq.Header.Get("x-goog-api-key"))
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var chatResp map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &chatResp))
+	require.Equal(t, "chat.completion", chatResp["object"])
+	require.Equal(t, "gemini-chat", chatResp["model"])
+	choices, ok := chatResp["choices"].([]any)
+	require.True(t, ok)
+	require.Len(t, choices, 1)
+	message := choices[0].(map[string]any)["message"].(map[string]any)
+	require.Equal(t, "assistant", message["role"])
+	require.Equal(t, "hello from gemini", message["content"])
+}
+
 func TestGeminiMessagesCompatServiceForward_NormalizesWebSearchToolForAIStudio(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	w := httptest.NewRecorder()

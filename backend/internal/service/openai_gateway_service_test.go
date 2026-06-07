@@ -609,6 +609,53 @@ func TestOpenAISelectAccountWithLoadAwareness_LoadBatchErrorFallback(t *testing.
 	}
 }
 
+func TestOpenAISelectAccountWithLoadAwareness_PrefersExplicitModelMapping(t *testing.T) {
+	groupID := int64(1)
+	repo := stubOpenAIAccountRepo{
+		accounts: []Account{
+			{ID: 1, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0},
+			{
+				ID:          2,
+				Platform:    PlatformOpenAI,
+				Status:      StatusActive,
+				Schedulable: true,
+				Concurrency: 1,
+				Priority:    9,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{"qwen2.5:7b": "qwen2.5:7b"},
+				},
+			},
+		},
+	}
+	cache := &stubGatewayCache{}
+	concurrencyCache := stubConcurrencyCache{
+		loadMap: map[int64]*AccountLoadInfo{
+			1: {AccountID: 1, LoadRate: 0},
+			2: {AccountID: 2, LoadRate: 90},
+		},
+	}
+
+	svc := &OpenAIGatewayService{
+		accountRepo:        repo,
+		cache:              cache,
+		concurrencyService: NewConcurrencyService(concurrencyCache),
+	}
+
+	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, "qwen", "qwen2.5:7b", nil)
+	if err != nil {
+		t.Fatalf("SelectAccountWithLoadAwareness error: %v", err)
+	}
+	if selection == nil || selection.Account == nil {
+		t.Fatalf("expected selection")
+	}
+	if selection.Account.ID != 2 {
+		t.Fatalf("expected explicit qwen account 2, got %d", selection.Account.ID)
+	}
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
 func TestOpenAISelectAccountWithLoadAwareness_NoSlotFallbackWait(t *testing.T) {
 	groupID := int64(1)
 	repo := stubOpenAIAccountRepo{

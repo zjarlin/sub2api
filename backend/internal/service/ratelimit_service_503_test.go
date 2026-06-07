@@ -90,6 +90,71 @@ func TestRateLimitService_HandleUpstreamError_OpenAI400CapabilityBypassesCustomE
 	require.False(t, *repo.lastSchedulable)
 }
 
+func TestRateLimitService_HandleUpstreamError_429TriggersFailoverWhenRateLimited(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{
+		ID:       406,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+	}
+	headers := http.Header{}
+	headers.Set("x-codex-primary-used-percent", "100")
+	headers.Set("x-codex-primary-reset-after-seconds", "60")
+	headers.Set("x-codex-primary-window-minutes", "300")
+
+	require.True(t, service.HandleUpstreamError(context.Background(), account, http.StatusTooManyRequests, headers, nil))
+}
+
+func TestRateLimitService_HandleUpstreamError_429DoesNotFailoverWhenFallbackDisabled(t *testing.T) {
+	repo := &rateLimit429AccountRepoStub{}
+	settingRepo := newMockSettingRepo()
+	data, _ := json.Marshal(RateLimit429CooldownSettings{Enabled: false, CooldownSeconds: 12})
+	settingRepo.data[SettingKeyRateLimit429CooldownSettings] = string(data)
+
+	settingSvc := NewSettingService(settingRepo, &config.Config{})
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	service.SetSettingService(settingSvc)
+	account := &Account{
+		ID:       407,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+	}
+
+	require.False(t, service.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusTooManyRequests,
+		http.Header{},
+		[]byte(`{"error":{"type":"rate_limit_error","message":"slow down"}}`),
+	))
+	require.Zero(t, repo.rateLimitCalls)
+}
+
+func TestRateLimitService_HandleUpstreamError_Custom429StopsScheduling(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{
+		ID:       408,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"custom_error_codes_enabled": true,
+			"custom_error_codes":         []any{float64(http.StatusTooManyRequests)},
+		},
+	}
+
+	require.True(t, service.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusTooManyRequests,
+		http.Header{},
+		[]byte(`{"error":{"type":"rate_limit_error","message":"stop this account"}}`),
+	))
+	require.Equal(t, 1, repo.setErrorCalls)
+	require.Contains(t, repo.lastErrorMsg, "Custom error code 429")
+}
+
 func TestRateLimitService_HandleTempUnschedulable_RespectsTriggerCount(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)

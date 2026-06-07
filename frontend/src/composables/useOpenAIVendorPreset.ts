@@ -1,7 +1,9 @@
 export type OpenAIVendorPresetId =
   | 'openai'
+  | 'openrouter'
   | 'gemini'
   | 'mimo'
+  | 'ollama'
   | 'trae'
   | 'openai-local-proxy'
   | 'custom'
@@ -32,6 +34,18 @@ const OPENAI_VENDOR_PRESETS: Record<OpenAIVendorPresetId, OpenAIVendorPreset> = 
     baseUrlHintKey: 'admin.accounts.openai.baseUrlHint',
     apiKeyHintKey: 'admin.accounts.openai.apiKeyHint'
   },
+  openrouter: {
+    id: 'openrouter',
+    labelKey: 'admin.accounts.openai.vendorOptions.openrouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    authHeader: 'authorization',
+    authScheme: 'bearer',
+    apiKeyPlaceholder: 'sk-or-v1-...',
+    modelPlatforms: ['openrouter'],
+    presetPlatform: 'openrouter',
+    baseUrlHintKey: 'admin.accounts.openai.openrouterBaseUrlHint',
+    apiKeyHintKey: 'admin.accounts.openai.openrouterApiKeyHint'
+  },
   gemini: {
     id: 'gemini',
     labelKey: 'admin.accounts.openai.vendorOptions.gemini',
@@ -55,6 +69,18 @@ const OPENAI_VENDOR_PRESETS: Record<OpenAIVendorPresetId, OpenAIVendorPreset> = 
     presetPlatform: 'mimo',
     baseUrlHintKey: 'admin.accounts.openai.mimoBaseUrlHint',
     apiKeyHintKey: 'admin.accounts.openai.mimoApiKeyHint'
+  },
+  ollama: {
+    id: 'ollama',
+    labelKey: 'admin.accounts.openai.vendorOptions.ollama',
+    baseUrl: 'http://127.0.0.1:11434/v1',
+    authHeader: 'authorization',
+    authScheme: 'bearer',
+    apiKeyPlaceholder: 'optional-local-token',
+    modelPlatforms: ['ollama'],
+    presetPlatform: 'ollama',
+    baseUrlHintKey: 'admin.accounts.openai.ollamaBaseUrlHint',
+    apiKeyHintKey: 'admin.accounts.openai.ollamaApiKeyHint'
   },
   trae: {
     id: 'trae',
@@ -96,8 +122,10 @@ const OPENAI_VENDOR_PRESETS: Record<OpenAIVendorPresetId, OpenAIVendorPreset> = 
 
 const PRESET_ORDER: OpenAIVendorPresetId[] = [
   'openai',
+  'openrouter',
   'gemini',
   'mimo',
+  'ollama',
   'trae',
   'openai-local-proxy',
   'custom'
@@ -152,8 +180,14 @@ export function inferOpenAIVendorPreset(input: {
   if (baseUrl.includes('generativelanguage.googleapis.com')) {
     return 'gemini'
   }
+  if (baseUrl.includes('openrouter.ai')) {
+    return 'openrouter'
+  }
   if (baseUrl.includes('xiaomimimo.com')) {
     return 'mimo'
+  }
+  if (baseUrl.includes(':11434') || baseUrl.includes('ollama')) {
+    return 'ollama'
   }
   if (baseUrl.includes(':17080') || baseUrl.includes('/trae')) {
     return 'trae'

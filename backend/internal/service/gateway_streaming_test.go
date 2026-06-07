@@ -222,6 +222,68 @@ func TestHandleStreamingResponse_SpecialCharactersInJSON(t *testing.T) {
 	require.Contains(t, body, "content_block_delta", "响应应包含转发的 SSE 事件")
 }
 
+func TestHandleStreamingResponse_FiltersThinkingBlocks(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	svc := newMinimalGatewayService()
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+
+	pr, pw := io.Pipe()
+	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: pr}
+
+	go func() {
+		defer func() { _ = pw.Close() }()
+		_, _ = pw.Write([]byte(`event: message_start
+data: {"type":"message_start","message":{"usage":{"input_tokens":5}}}
+
+event: content_block_start
+data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"hidden"}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":0,"delta":{"type":"signature_delta","signature":"sig"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":0}
+
+event: content_block_start
+data: {"type":"content_block_start","index":1,"content_block":{"type":"text","text":""}}
+
+event: content_block_delta
+data: {"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"Visible"}}
+
+event: content_block_stop
+data: {"type":"content_block_stop","index":1}
+
+event: message_delta
+data: {"type":"message_delta","usage":{"output_tokens":7}}
+
+event: message_stop
+data: {"type":"message_stop"}
+
+`))
+	}()
+
+	result, err := svc.handleStreamingResponse(context.Background(), resp, c, &Account{ID: 1}, time.Now(), "model", "model", false)
+	_ = pr.Close()
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 5, result.usage.InputTokens)
+	require.Equal(t, 7, result.usage.OutputTokens)
+
+	body := rec.Body.String()
+	require.NotContains(t, body, "thinking_delta")
+	require.NotContains(t, body, "signature_delta")
+	require.NotContains(t, body, `"type":"thinking"`)
+	require.Contains(t, body, "text_delta")
+	require.Contains(t, body, "Visible")
+	require.Contains(t, body, "message_stop")
+}
+
 // 上游中途读错误（如 HTTP/2 GOAWAY 触发的 unexpected EOF）发生在向客户端写入任何字节前：
 // 网关应返回 *UpstreamFailoverError 触发账号 failover/重试，而不是把错误事件直接发给客户端。
 func TestHandleStreamingResponse_StreamReadErrorBeforeOutput_TriggersFailover(t *testing.T) {

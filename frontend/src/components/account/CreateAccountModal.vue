@@ -45,6 +45,58 @@
       @submit.prevent="handleSubmit"
       class="space-y-5"
     >
+      <div class="rounded-lg border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <Icon name="key" size="sm" class="text-emerald-600 dark:text-emerald-300" />
+            <span class="text-sm font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.accounts.quickOpenAI.title') }}
+            </span>
+            <span
+              v-if="quickOpenAIDefaultGroup"
+              class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+            >
+              {{ quickOpenAIDefaultGroup.name }}
+            </span>
+          </div>
+          <button
+            type="button"
+            class="btn btn-primary text-sm"
+            :disabled="submitting"
+            @click="handleQuickOpenAIAdd"
+          >
+            <svg
+              v-if="submitting"
+              class="-ml-1 mr-2 h-4 w-4 animate-spin"
+              fill="none"
+              viewBox="0 0 24 24"
+            >
+              <circle
+                class="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                stroke-width="4"
+              ></circle>
+              <path
+                class="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+              ></path>
+            </svg>
+            {{ submitting ? t('admin.accounts.quickOpenAI.adding') : t('admin.accounts.quickOpenAI.add') }}
+          </button>
+        </div>
+        <textarea
+          v-model="quickOpenAIInput"
+          rows="2"
+          class="input font-mono text-sm"
+          spellcheck="false"
+          :placeholder="t('admin.accounts.quickOpenAI.placeholder')"
+        ></textarea>
+      </div>
+
       <div>
         <label class="input-label">{{ t('admin.accounts.accountName') }}</label>
         <input
@@ -1530,7 +1582,7 @@
           <label class="input-label">{{ t('admin.accounts.apiKeyRequired') }}</label>
           <textarea
             v-model="apiKeyValue"
-            :required="!isOpenAILocalProxyVendor"
+            :required="!isOpenAIOptionalApiKeyVendor"
             rows="3"
             class="input font-mono"
             :placeholder="currentApiKeyPlaceholder"
@@ -2994,6 +3046,87 @@
           <p class="input-hint">{{ t('admin.accounts.billingRateMultiplierHint') }}</p>
         </div>
       </div>
+      <div
+        v-if="showUpstreamKeyRateTool"
+        class="rounded-lg border border-blue-200 bg-blue-50/60 p-4 dark:border-blue-900/50 dark:bg-blue-950/20"
+      >
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <Icon name="calculator" size="sm" class="text-blue-600 dark:text-blue-300" />
+            <span class="text-sm font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.accounts.openai.upstreamRate.title') }}
+            </span>
+          </div>
+          <button
+            type="button"
+            class="btn btn-secondary text-sm"
+            :disabled="upstreamKeyRateResolving"
+            @click="handleResolveUpstreamKeyRate"
+          >
+            <Icon
+              name="refresh"
+              size="sm"
+              class="mr-1.5"
+              :class="{ 'animate-spin': upstreamKeyRateResolving }"
+            />
+            {{
+              upstreamKeyRateResolving
+                ? t('admin.accounts.openai.upstreamRate.reading')
+                : t('admin.accounts.openai.upstreamRate.read')
+            }}
+          </button>
+        </div>
+        <div class="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+          <div>
+            <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.consoleBaseUrl') }}</label>
+            <input
+              v-model="upstreamKeyRateForm.baseUrl"
+              type="text"
+              class="input"
+              placeholder="https://api.addzero.site"
+            />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.email') }}</label>
+            <input
+              v-model="upstreamKeyRateForm.email"
+              type="email"
+              class="input"
+              autocomplete="username"
+            />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.password') }}</label>
+            <input
+              v-model="upstreamKeyRateForm.password"
+              type="password"
+              class="input"
+              autocomplete="current-password"
+            />
+          </div>
+          <div class="md:col-span-2 lg:col-span-3">
+            <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.targetApiKey') }}</label>
+            <input
+              v-model="upstreamKeyRateForm.apiKey"
+              type="password"
+              class="input font-mono"
+              autocomplete="new-password"
+              spellcheck="false"
+              data-1p-ignore
+              data-lpignore="true"
+              data-bwignore="true"
+            />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.loginPath') }}</label>
+            <input v-model="upstreamKeyRateForm.loginPath" type="text" class="input font-mono" />
+          </div>
+          <div>
+            <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.keysPath') }}</label>
+            <input v-model="upstreamKeyRateForm.keysPath" type="text" class="input font-mono" />
+          </div>
+        </div>
+      </div>
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <label class="input-label">{{ t('admin.accounts.expiresAt') }}</label>
         <input v-model="expiresAtInput" type="datetime-local" class="input" />
@@ -3280,6 +3413,9 @@
           :groups="groups"
           :platform="form.platform"
           :mixed-scheduling="mixedScheduling"
+          :show-default-selector="form.platform === 'openai' && accountCategory === 'apikey'"
+          :default-group-id="quickOpenAIDefaultGroupId"
+          @update:default-group-id="handleQuickOpenAIDefaultGroupChange"
           data-tour="account-form-groups"
         />
       </div>
@@ -3714,6 +3850,13 @@ import {
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { mergeModelMappings, serializeModelMappings, writeUIDisplayGroupsToExtra } from '@/utils/accountFormBulk'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
+import {
+  buildUpstreamRateSuccessParams,
+  createUpstreamKeyRateForm,
+  deriveUpstreamConsoleBaseUrl,
+  getFirstUpstreamAPIKey,
+  resetUpstreamKeyRateSecretFields
+} from '@/utils/upstreamKeyRate'
 import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
 import {
   OPENAI_WS_MODE_CTX_POOL,
@@ -3896,6 +4039,10 @@ const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_acco
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
+const quickOpenAIInput = ref('')
+const quickOpenAIDefaultGroupId = ref<number | null>(null)
+const upstreamKeyRateForm = reactive(createUpstreamKeyRateForm())
+const upstreamKeyRateResolving = ref(false)
 const editQuotaLimit = ref<number | null>(null)
 const editQuotaDailyLimit = ref<number | null>(null)
 const editQuotaWeeklyLimit = ref<number | null>(null)
@@ -4082,6 +4229,177 @@ const isOpenAIModelRestrictionDisabled = computed(() =>
   form.platform === 'openai' && openaiPassthroughEnabled.value
 )
 
+const QUICK_OPENAI_DEFAULT_GROUP_STORAGE_KEY = 'sub2api.quickOpenAI.defaultGroupId'
+
+const openAIGroups = computed(() => props.groups.filter(group => group.platform === 'openai'))
+
+const quickOpenAIDefaultGroup = computed(() =>
+  openAIGroups.value.find(group => group.id === quickOpenAIDefaultGroupId.value) || null
+)
+
+type QuickOpenAIParseErrorKey =
+  | 'inputRequired'
+  | 'baseUrlRequired'
+  | 'invalidBaseUrl'
+  | 'apiKeyRequired'
+
+interface QuickOpenAIParseResult {
+  baseUrl?: string
+  apiKey?: string
+  errorKey?: QuickOpenAIParseErrorKey
+}
+
+const trimQuickOpenAIToken = (value: string) =>
+  value
+    .trim()
+    .replace(/^[`"'(<[{]+/, '')
+    .replace(/[`"')>\]};,，；。]+$/, '')
+
+const stripQuickOpenAILabel = (value: string) =>
+  trimQuickOpenAIToken(value).replace(
+    /^(?:api[_-]?key|key|token|authorization|bearer|base[_-]?url|url)\s*[:=]\s*/i,
+    ''
+  )
+
+const isQuickOpenAIKeyCandidate = (value: string) => {
+  const normalized = value.replace(/[:=]$/, '')
+  if (/^(?:api[_-]?key|key|token|authorization|bearer|base[_-]?url|url)$/i.test(normalized)) {
+    return false
+  }
+  return value.length >= 8 && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value)
+}
+
+const parseQuickOpenAIInput = (raw: string): QuickOpenAIParseResult => {
+  const input = raw.trim()
+  if (!input) {
+    return { errorKey: 'inputRequired' }
+  }
+
+  const urlMatch = input.match(/https?:\/\/[^\s"'<>`]+/i)
+  if (!urlMatch) {
+    return { errorKey: 'baseUrlRequired' }
+  }
+
+  const baseUrl = trimQuickOpenAIToken(urlMatch[0])
+  try {
+    const parsed = new URL(baseUrl)
+    if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname) {
+      return { errorKey: 'invalidBaseUrl' }
+    }
+  } catch {
+    return { errorKey: 'invalidBaseUrl' }
+  }
+
+  const remaining = input.replace(urlMatch[0], ' ')
+  const skMatch = remaining.match(/\bsk-[^\s"'<>`]+/i)
+  const apiKey = skMatch
+    ? trimQuickOpenAIToken(skMatch[0])
+    : remaining
+        .split(/[\s,;]+/)
+        .map(stripQuickOpenAILabel)
+        .map(trimQuickOpenAIToken)
+        .find(isQuickOpenAIKeyCandidate)
+
+  if (!apiKey) {
+    return { errorKey: 'apiKeyRequired' }
+  }
+
+  return { baseUrl, apiKey }
+}
+
+const loadQuickOpenAIDefaultGroup = () => {
+  let raw: string | null = null
+  try {
+    raw = window.localStorage.getItem(QUICK_OPENAI_DEFAULT_GROUP_STORAGE_KEY)
+  } catch {
+    return
+  }
+
+  if (!raw) {
+    quickOpenAIDefaultGroupId.value = null
+    return
+  }
+
+  const groupId = Number(raw)
+  if (!Number.isInteger(groupId) || groupId <= 0) {
+    handleQuickOpenAIDefaultGroupChange(null)
+    return
+  }
+
+  quickOpenAIDefaultGroupId.value = groupId
+  if (openAIGroups.value.length > 0 && !openAIGroups.value.some(group => group.id === groupId)) {
+    handleQuickOpenAIDefaultGroupChange(null)
+  }
+}
+
+const persistQuickOpenAIDefaultGroup = (groupId: number | null) => {
+  try {
+    if (groupId == null) {
+      window.localStorage.removeItem(QUICK_OPENAI_DEFAULT_GROUP_STORAGE_KEY)
+      return
+    }
+    window.localStorage.setItem(QUICK_OPENAI_DEFAULT_GROUP_STORAGE_KEY, String(groupId))
+  } catch {
+    // localStorage may be disabled; the current in-memory selection still works for this modal session.
+  }
+}
+
+const handleQuickOpenAIDefaultGroupChange = (groupId: number | null) => {
+  quickOpenAIDefaultGroupId.value = groupId
+  persistQuickOpenAIDefaultGroup(groupId)
+}
+
+const showUpstreamKeyRateTool = computed(() =>
+  form.platform === 'openai' && accountCategory.value === 'apikey'
+)
+
+const syncUpstreamKeyRateDefaults = () => {
+  if (!upstreamKeyRateForm.baseUrl.trim()) {
+    upstreamKeyRateForm.baseUrl = deriveUpstreamConsoleBaseUrl(apiKeyBaseUrl.value || selectedOpenAIVendorPreset.value.baseUrl)
+  }
+  if (!upstreamKeyRateForm.apiKey.trim()) {
+    upstreamKeyRateForm.apiKey = getFirstUpstreamAPIKey(apiKeyValue.value)
+  }
+}
+
+const handleResolveUpstreamKeyRate = async () => {
+  syncUpstreamKeyRateDefaults()
+  if (!upstreamKeyRateForm.baseUrl.trim()) {
+    appStore.showError(t('admin.accounts.openai.upstreamRate.baseUrlRequired'))
+    return
+  }
+  if (!upstreamKeyRateForm.email.trim()) {
+    appStore.showError(t('admin.accounts.openai.upstreamRate.emailRequired'))
+    return
+  }
+  if (!upstreamKeyRateForm.password.trim()) {
+    appStore.showError(t('admin.accounts.openai.upstreamRate.passwordRequired'))
+    return
+  }
+  if (!upstreamKeyRateForm.apiKey.trim()) {
+    appStore.showError(t('admin.accounts.openai.upstreamRate.apiKeyRequired'))
+    return
+  }
+
+  upstreamKeyRateResolving.value = true
+  try {
+    const result = await adminAPI.accounts.resolveUpstreamKeyRate({
+      base_url: upstreamKeyRateForm.baseUrl.trim(),
+      login_path: upstreamKeyRateForm.loginPath.trim() || undefined,
+      keys_path: upstreamKeyRateForm.keysPath.trim() || undefined,
+      email: upstreamKeyRateForm.email.trim(),
+      password: upstreamKeyRateForm.password,
+      api_key: upstreamKeyRateForm.apiKey.trim()
+    })
+    form.rate_multiplier = result.rate_multiplier
+    appStore.showSuccess(t('admin.accounts.openai.upstreamRate.success', buildUpstreamRateSuccessParams(result)))
+  } catch (error: any) {
+    appStore.showError(error?.message || t('admin.accounts.openai.upstreamRate.failed'))
+  } finally {
+    upstreamKeyRateResolving.value = false
+  }
+}
+
 const mixedChannelWarningMessageText = computed(() => {
   if (mixedChannelWarningDetails.value) {
     return t('admin.accounts.mixedChannelWarning', mixedChannelWarningDetails.value)
@@ -4122,8 +4440,10 @@ const buildOpenAIVendorCredentials = () => {
   }
 }
 
-const isOpenAILocalProxyVendor = computed(() =>
-  form.platform === 'openai' && accountCategory.value === 'apikey' && openAIVendorPresetId.value === 'openai-local-proxy'
+const isOpenAIOptionalApiKeyVendor = computed(() =>
+  form.platform === 'openai' &&
+  accountCategory.value === 'apikey' &&
+  ['openai-local-proxy', 'ollama'].includes(openAIVendorPresetId.value)
 )
 
 // Computed: current preset mappings based on platform
@@ -4224,6 +4544,7 @@ watch(
   () => props.show,
   (newVal) => {
     if (newVal) {
+      loadQuickOpenAIDefaultGroup()
       // Load TLS fingerprint profiles
       adminAPI.tlsFingerprintProfiles.list()
         .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
@@ -4251,6 +4572,16 @@ watch(
       resetForm()
     }
   }
+)
+
+watch(
+  [openAIGroups, quickOpenAIDefaultGroupId],
+  ([groups, groupId]) => {
+    if (groupId != null && groups.length > 0 && !groups.some(group => group.id === groupId)) {
+      handleQuickOpenAIDefaultGroupChange(null)
+    }
+  },
+  { immediate: true }
 )
 
 // Sync form.type based on accountCategory, addMethod, and platform-specific type
@@ -4350,6 +4681,7 @@ watch(
       openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       codexCLIOnlyEnabled.value = false
+      resetUpstreamKeyRateSecretFields(upstreamKeyRateForm)
     }
     if (newPlatform !== 'anthropic') {
       anthropicPassthroughEnabled.value = false
@@ -4384,10 +4716,20 @@ watch(openAIVendorPresetId, (vendor) => {
     return
   }
   applyOpenAIVendorPresetToForm(vendor)
+  upstreamKeyRateForm.baseUrl = deriveUpstreamConsoleBaseUrl(apiKeyBaseUrl.value)
   if (modelRestrictionMode.value === 'whitelist') {
     allowedModels.value = [...getCurrentWhitelistModels()]
   }
 })
+
+watch(
+  [() => props.show, () => form.platform, accountCategory],
+  ([show]) => {
+    if (show && showUpstreamKeyRateTool.value) {
+      upstreamKeyRateForm.baseUrl = deriveUpstreamConsoleBaseUrl(apiKeyBaseUrl.value || selectedOpenAIVendorPreset.value.baseUrl)
+    }
+  }
+)
 
 watch(
   [() => props.show, () => form.platform, accountCategory],
@@ -4758,6 +5100,54 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
   }
 }
 
+const handleQuickOpenAIAdd = async () => {
+  if (submitting.value) {
+    return
+  }
+
+  const parsed = parseQuickOpenAIInput(quickOpenAIInput.value)
+  if (parsed.errorKey) {
+    appStore.showError(t(`admin.accounts.quickOpenAI.${parsed.errorKey}`))
+    return
+  }
+  if (!parsed.baseUrl) {
+    appStore.showError(t('admin.accounts.quickOpenAI.baseUrlRequired'))
+    return
+  }
+  if (!parsed.apiKey) {
+    appStore.showError(t('admin.accounts.quickOpenAI.apiKeyRequired'))
+    return
+  }
+
+  const group = quickOpenAIDefaultGroup.value
+  if (!group) {
+    appStore.showError(t('admin.accounts.quickOpenAI.defaultGroupRequired'))
+    return
+  }
+
+  await submitCreateAccount({
+    name: parsed.baseUrl,
+    notes: '',
+    platform: 'openai',
+    type: 'apikey',
+    credentials: {
+      base_url: parsed.baseUrl,
+      api_key: parsed.apiKey,
+      vendor: 'custom',
+      auth_header: 'authorization',
+      auth_scheme: 'bearer'
+    },
+    proxy_id: null,
+    concurrency: form.concurrency,
+    load_factor: form.load_factor ?? undefined,
+    priority: form.priority,
+    rate_multiplier: form.rate_multiplier,
+    group_ids: [group.id],
+    expires_at: form.expires_at,
+    auto_pause_on_expired: autoPauseOnExpired.value
+  })
+}
+
 const firstBatchCreateError = (
   results: Array<{ success: boolean; name?: string; error?: string }>
 ): string | null => {
@@ -4831,6 +5221,9 @@ const resetForm = () => {
   addMethod.value = 'oauth'
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
+  quickOpenAIInput.value = ''
+  upstreamKeyRateForm.baseUrl = ''
+  resetUpstreamKeyRateSecretFields(upstreamKeyRateForm)
   openAIVendorPresetId.value = 'openai'
   openAIAuthHeader.value = 'authorization'
   openAIAuthScheme.value = 'bearer'
@@ -5265,7 +5658,7 @@ const handleSubmit = async () => {
     return
   }
   const apiKeys = parseAccountApiKeys(apiKeyValue.value)
-  if (apiKeys.length === 0 && !isOpenAILocalProxyVendor.value) {
+  if (apiKeys.length === 0 && !isOpenAIOptionalApiKeyVendor.value) {
     appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
     return
   }

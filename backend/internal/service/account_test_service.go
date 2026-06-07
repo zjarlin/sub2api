@@ -793,9 +793,16 @@ func defaultOpenAITestModel(account *Account) string {
 		return "gemini-2.5-flash"
 	case "mimo":
 		return "mimo-v2.5"
+	case "ollama":
+		return "llama3.1"
+	case "openrouter":
+		return "~openai/gpt-latest"
 	case "trae":
 		return "gpt-4o"
 	default:
+		if account != nil && openAIBaseURLPrefersChatCompletions(account.GetOpenAIBaseURL()) {
+			return "~openai/gpt-latest"
+		}
 		return openai.DefaultTestModel
 	}
 }

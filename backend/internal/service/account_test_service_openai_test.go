@@ -373,3 +373,146 @@ func TestAccountTestService_OpenAIVendorChatCompletionsBypassesResponsesProbe(t 
 	require.Contains(t, recorder.Body.String(), `"model":"gemini-2.5-flash"`)
 	require.NotContains(t, upstream.requests[0].URL.String(), "/responses")
 }
+
+func TestDefaultOpenAITestModel_Ollama(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"vendor": "ollama",
+		},
+	}
+
+	require.Equal(t, "llama3.1", defaultOpenAITestModel(account))
+}
+
+func TestDefaultOpenAITestModel_OpenRouter(t *testing.T) {
+	for _, account := range []*Account{
+		{
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeAPIKey,
+			Credentials: map[string]any{
+				"vendor": "openrouter",
+			},
+		},
+		{
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeAPIKey,
+			Credentials: map[string]any{
+				"base_url": "https://openrouter.ai/api/v1",
+			},
+		},
+	} {
+		require.Equal(t, "~openai/gpt-latest", defaultOpenAITestModel(account))
+	}
+}
+
+func TestAccountTestService_OllamaUsesChatCompletionsPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, recorder := newTestContext()
+
+	resp := newJSONResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`)
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
+	svc := &AccountTestService{
+		httpUpstream: upstream,
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled:           false,
+			AllowInsecureHTTP: true,
+		}}},
+	}
+	account := &Account{
+		ID:          92,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"vendor": "ollama",
+		},
+	}
+
+	err := svc.testOpenAIAccountConnection(ctx, account, "", "", "")
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 1)
+	require.Contains(t, upstream.requests[0].URL.String(), "/v1/chat/completions")
+	require.NotContains(t, upstream.requests[0].URL.String(), "/v1/responses")
+	require.Contains(t, recorder.Body.String(), "test_complete")
+}
+
+func TestAccountTestService_OpenRouterUsesChatCompletionsPath(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, recorder := newTestContext()
+
+	resp := newJSONResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`)
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
+	svc := &AccountTestService{
+		httpUpstream: upstream,
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled: false,
+		}}},
+	}
+	account := &Account{
+		ID:          93,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key": "test-token",
+			"vendor":  "openrouter",
+		},
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesSupported: true,
+		},
+	}
+
+	err := svc.testOpenAIAccountConnection(ctx, account, "", "", "")
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, "https://openrouter.ai/api/v1/chat/completions", upstream.requests[0].URL.String())
+	require.Contains(t, recorder.Body.String(), `"model":"~openai/gpt-latest"`)
+	require.NotContains(t, upstream.requests[0].URL.String(), "/responses")
+
+	body, err := io.ReadAll(upstream.requests[0].Body)
+	require.NoError(t, err)
+	require.Contains(t, string(body), `"messages"`)
+	require.Contains(t, string(body), `"role":"user"`)
+	require.NotContains(t, string(body), `"role":"developer"`)
+	require.NotContains(t, string(body), `"input"`)
+}
+
+func TestAccountTestService_OpenRouterBaseURLUsesChatCompletionsWithoutVendor(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := newTestContext()
+
+	resp := newJSONResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`)
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
+	svc := &AccountTestService{
+		httpUpstream: upstream,
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled: false,
+		}}},
+	}
+	account := &Account{
+		ID:          94,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "test-token",
+			"base_url": "https://openrouter.ai/api/v1",
+		},
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesSupported: true,
+		},
+	}
+
+	err := svc.testOpenAIAccountConnection(ctx, account, "openai/gpt-oss-120b:free", "", "")
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, "https://openrouter.ai/api/v1/chat/completions", upstream.requests[0].URL.String())
+
+	body, err := io.ReadAll(upstream.requests[0].Body)
+	require.NoError(t, err)
+	require.Contains(t, string(body), `"model":"openai/gpt-oss-120b:free"`)
+	require.Contains(t, string(body), `"role":"user"`)
+	require.NotContains(t, string(body), `"role":"developer"`)
+}

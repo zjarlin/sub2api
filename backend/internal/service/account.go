@@ -646,18 +646,36 @@ func defaultOpenAIModelMappingForVendor(vendor string) map[string]string {
 	}
 }
 
+func defaultOpenAIBaseURLForVendor(vendor string) string {
+	switch strings.ToLower(strings.TrimSpace(vendor)) {
+	case "openai-local-proxy":
+		return "http://127.0.0.1:18081/v1"
+	case "ollama":
+		return "http://127.0.0.1:11434/v1"
+	case "openrouter":
+		return "https://openrouter.ai/api/v1"
+	default:
+		return ""
+	}
+}
+
 func openAIVendorPrefersChatCompletions(vendor string) bool {
 	switch strings.ToLower(strings.TrimSpace(vendor)) {
-	case "gemini", "mimo", "trae":
+	case "gemini", "mimo", "ollama", "openrouter", "trae":
 		return true
 	default:
 		return false
 	}
 }
 
+func openAIBaseURLPrefersChatCompletions(baseURL string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(baseURL))
+	return strings.Contains(normalized, "openrouter.ai")
+}
+
 func openAIVendorAllowsEmptyAPIKey(vendor string) bool {
 	switch strings.ToLower(strings.TrimSpace(vendor)) {
-	case "openai-local-proxy":
+	case "ollama", "openai-local-proxy":
 		return true
 	default:
 		return false
@@ -739,6 +757,33 @@ func mappingSupportsRequestedModel(mapping map[string]string, requestedModel str
 	}
 	for pattern := range mapping {
 		if matchWildcard(pattern, requestedModel) {
+			return true
+		}
+	}
+	return false
+}
+
+func accountHasExplicitModelMappingSupport(account *Account, requestedModel string) bool {
+	if account == nil || strings.TrimSpace(requestedModel) == "" || account.Credentials == nil {
+		return false
+	}
+	mapping := stringMappingFromRaw(account.Credentials["model_mapping"])
+	if len(mapping) == 0 {
+		return false
+	}
+	if mappingSupportsRequestedModel(mapping, requestedModel) {
+		return true
+	}
+	normalized := normalizeRequestedModelForLookup(account.Platform, requestedModel)
+	if normalized != requestedModel && mappingSupportsRequestedModel(mapping, normalized) {
+		return true
+	}
+	for _, fallbackModel := range resolveOpenAIRequestedModelFallbacks(account, requestedModel) {
+		if mappingSupportsRequestedModel(mapping, fallbackModel) {
+			return true
+		}
+		normalizedFallback := normalizeRequestedModelForLookup(account.Platform, fallbackModel)
+		if normalizedFallback != fallbackModel && mappingSupportsRequestedModel(mapping, normalizedFallback) {
 			return true
 		}
 	}
@@ -1204,6 +1249,9 @@ func (a *Account) GetOpenAIBaseURL() string {
 		if baseURL != "" {
 			return baseURL
 		}
+		if vendorBaseURL := defaultOpenAIBaseURLForVendor(a.GetOpenAIVendor()); vendorBaseURL != "" {
+			return vendorBaseURL
+		}
 	}
 	return "https://api.openai.com"
 }
@@ -1244,7 +1292,9 @@ func (a *Account) GetOpenAIVendor() string {
 }
 
 func (a *Account) ShouldUseOpenAIChatCompletionsUpstream() bool {
-	return a.IsOpenAIApiKey() && openAIVendorPrefersChatCompletions(a.GetOpenAIVendor())
+	return a.IsOpenAIApiKey() &&
+		(openAIVendorPrefersChatCompletions(a.GetOpenAIVendor()) ||
+			openAIBaseURLPrefersChatCompletions(a.GetOpenAIBaseURL()))
 }
 
 func (a *Account) AllowsEmptyOpenAIApiKey() bool {

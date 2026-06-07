@@ -253,6 +253,10 @@ func (s *defaultOpenAIAccountScheduler) Select(
 
 	previousResponseID := strings.TrimSpace(req.PreviousResponseID)
 	if previousResponseID != "" {
+		explicitModelScope := false
+		if accounts, err := s.service.listSchedulableAccounts(ctx, req.GroupID); err == nil {
+			explicitModelScope = openAIAccountsHaveExplicitModelSupport(accounts, req.RequestedModel)
+		}
 		selection, err := s.service.SelectAccountByPreviousResponseID(
 			ctx,
 			req.GroupID,
@@ -260,6 +264,7 @@ func (s *defaultOpenAIAccountScheduler) Select(
 			req.RequestedModel,
 			req.ExcludedIDs,
 			req.RequireCompact,
+			explicitModelScope,
 		)
 		if err != nil {
 			return nil, decision, err
@@ -353,7 +358,15 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
 		return nil, nil
 	}
+	explicitModelScope := false
+	if accounts, err := s.service.listSchedulableAccounts(ctx, req.GroupID); err == nil {
+		explicitModelScope = openAIAccountsHaveExplicitModelSupport(accounts, req.RequestedModel)
+	}
 	if shouldClearStickySession(account, req.RequestedModel) || !account.IsOpenAI() || !account.IsSchedulable() {
+		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+		return nil, nil
+	}
+	if !openAIAccountAllowedByExplicitModelScope(account, req.RequestedModel, explicitModelScope) {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
 		return nil, nil
 	}
@@ -366,6 +379,10 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	}
 	account = s.service.recheckSelectedOpenAIAccountFromDB(ctx, account, req.RequestedModel, req.RequireCompact)
 	if account == nil || !s.isAccountTransportCompatible(account, req.RequiredTransport) {
+		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+		return nil, nil
+	}
+	if !openAIAccountAllowedByExplicitModelScope(account, req.RequestedModel, explicitModelScope) {
 		_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
 		return nil, nil
 	}
@@ -613,6 +630,8 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	if err != nil {
 		return nil, 0, 0, 0, err
 	}
+	explicitModelScope := openAIAccountsHaveExplicitModelSupport(accounts, req.RequestedModel)
+	accounts = filterOpenAIAccountsByExplicitModelSupport(accounts, req.RequestedModel)
 	if len(accounts) == 0 {
 		return nil, 0, 0, 0, newOpenAINoAvailableAccountsError(
 			"list_schedulable_accounts",
@@ -873,8 +892,16 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 			attemptStats.FreshLookupRejected++
 			continue
 		}
+		if !openAIAccountAllowedByExplicitModelScope(fresh, req.RequestedModel, explicitModelScope) {
+			attemptStats.FreshLookupRejected++
+			continue
+		}
 		fresh = s.service.recheckSelectedOpenAIAccountFromDB(ctx, fresh, req.RequestedModel, false)
 		if fresh == nil || !s.isAccountTransportCompatible(fresh, req.RequiredTransport) || !s.isAccountRequestCompatible(ctx, fresh, req) {
+			attemptStats.RecheckRejected++
+			continue
+		}
+		if !openAIAccountAllowedByExplicitModelScope(fresh, req.RequestedModel, explicitModelScope) {
 			attemptStats.RecheckRejected++
 			continue
 		}
@@ -917,8 +944,16 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 			attemptStats.FreshLookupRejected++
 			continue
 		}
+		if !openAIAccountAllowedByExplicitModelScope(fresh, req.RequestedModel, explicitModelScope) {
+			attemptStats.FreshLookupRejected++
+			continue
+		}
 		fresh = s.service.recheckSelectedOpenAIAccountFromDB(ctx, fresh, req.RequestedModel, false)
 		if fresh == nil || !s.isAccountTransportCompatible(fresh, req.RequiredTransport) || !s.isAccountRequestCompatible(ctx, fresh, req) {
+			attemptStats.RecheckRejected++
+			continue
+		}
+		if !openAIAccountAllowedByExplicitModelScope(fresh, req.RequestedModel, explicitModelScope) {
 			attemptStats.RecheckRejected++
 			continue
 		}

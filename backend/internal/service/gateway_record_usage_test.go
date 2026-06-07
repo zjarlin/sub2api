@@ -18,34 +18,35 @@ func newGatewayRecordUsageServiceForTest(usageRepo UsageLogRepository, userRepo 
 	cfg := &config.Config{}
 	cfg.Default.RateMultiplier = 1.1
 	return NewGatewayService(
-		nil,
-		nil,
+		nil, // accountRepo
+		nil, // groupRepo
 		usageRepo,
-		nil,
+		nil, // usageBillingRepo
 		userRepo,
 		subRepo,
-		nil,
-		nil,
+		nil, // userGroupRateRepo
+		nil, // cache
 		cfg,
-		nil,
-		nil,
+		nil, // schedulerSnapshot
+		nil, // concurrencyService
 		NewBillingService(cfg, nil),
-		nil,
+		nil, // rateLimitService
 		&BillingCacheService{},
-		nil,
-		nil,
+		nil, // identityService
+		nil, // httpUpstream
 		&DeferredService{},
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
-		nil,
+		nil, // claudeTokenProvider
+		nil, // geminiTokenProvider
+		nil, // kiroTokenProvider
+		nil, // kiroCooldownStore
+		nil, // sessionLimitCache
+		nil, // rpmCache
+		nil, // digestStore
+		nil, // settingService
+		nil, // tlsFPProfileService
+		nil, // channelService
+		nil, // resolver
+		nil, // balanceNotifyService
 	)
 }
 

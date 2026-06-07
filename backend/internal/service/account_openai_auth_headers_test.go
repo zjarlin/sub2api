@@ -87,6 +87,9 @@ func TestAccountOpenAILocalProxyDefaults(t *testing.T) {
 	if !account.AllowsEmptyOpenAIApiKey() {
 		t.Fatal("openai-local-proxy should allow an empty proxy auth token")
 	}
+	if got := account.GetOpenAIBaseURL(); got != "http://127.0.0.1:18081/v1" {
+		t.Fatalf("base url = %q, want openai-local-proxy default base url", got)
+	}
 	if account.ShouldUseOpenAIChatCompletionsUpstream() {
 		t.Fatal("openai-local-proxy should expose its own Responses compatibility")
 	}
@@ -113,7 +116,7 @@ func TestAccountOpenAILocalProxyDefaults(t *testing.T) {
 }
 
 func TestAccountOpenAIVendorChatCompletionsPreference(t *testing.T) {
-	for _, vendor := range []string{"gemini", "mimo", "trae"} {
+	for _, vendor := range []string{"gemini", "mimo", "ollama", "openrouter", "trae"} {
 		account := &Account{
 			Platform: PlatformOpenAI,
 			Type:     AccountTypeAPIKey,
@@ -124,5 +127,56 @@ func TestAccountOpenAIVendorChatCompletionsPreference(t *testing.T) {
 		if !account.ShouldUseOpenAIChatCompletionsUpstream() {
 			t.Fatalf("vendor %q should prefer chat/completions upstream", vendor)
 		}
+	}
+}
+
+func TestAccountOpenRouterDefaults(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"vendor": "openrouter",
+		},
+	}
+
+	if got := account.GetOpenAIBaseURL(); got != "https://openrouter.ai/api/v1" {
+		t.Fatalf("base url = %q, want OpenRouter default base url", got)
+	}
+	if !account.ShouldUseOpenAIChatCompletionsUpstream() {
+		t.Fatal("OpenRouter should use chat/completions upstream")
+	}
+}
+
+func TestAccountOpenRouterBaseURLUsesChatCompletionsWithoutVendor(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://openrouter.ai/api/v1",
+		},
+	}
+
+	if !account.ShouldUseOpenAIChatCompletionsUpstream() {
+		t.Fatal("OpenRouter base URL should use chat/completions upstream")
+	}
+}
+
+func TestAccountOllamaDefaults(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"vendor": "ollama",
+		},
+	}
+
+	if !account.AllowsEmptyOpenAIApiKey() {
+		t.Fatal("ollama should allow an empty API key")
+	}
+	if got := account.GetOpenAIBaseURL(); got != "http://127.0.0.1:11434/v1" {
+		t.Fatalf("base url = %q, want ollama default base url when base_url is unset", got)
+	}
+	if got := account.GetOpenAIVendor(); got != "ollama" {
+		t.Fatalf("vendor = %q, want ollama", got)
 	}
 }

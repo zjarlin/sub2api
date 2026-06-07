@@ -292,8 +292,16 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		)
 		shouldDisable = s.handle403(ctx, account, upstreamMsg, responseBody)
 	case 429:
-		s.handle429(ctx, account, headers, responseBody)
-		shouldDisable = false
+		if customErrorCodesEnabled {
+			msg := "Custom error code triggered"
+			if upstreamMsg != "" {
+				msg = upstreamMsg
+			}
+			s.handleCustomErrorCode(ctx, account, statusCode, msg)
+			shouldDisable = true
+			break
+		}
+		shouldDisable = s.handle429(ctx, account, headers, responseBody)
 	case 503:
 		if customErrorCodesEnabled {
 			msg := "Custom error code triggered"
@@ -1007,9 +1015,9 @@ func isOpenAI400CapabilityMismatch(upstreamMsg string, responseBody []byte) bool
 	return strings.Contains(text, openAI400CapabilityKeyword)
 }
 
-// handle429 处理429限流错误
-// 解析响应头获取重置时间，标记账号为限流状态
-func (s *RateLimitService) handle429(ctx context.Context, account *Account, headers http.Header, responseBody []byte) {
+// handle429 处理429限流错误。
+// 返回 true 表示账号已被临时标记为限流，当前请求应触发 failover，避免继续命中同一账号。
+func (s *RateLimitService) handle429(ctx context.Context, account *Account, headers http.Header, responseBody []byte) bool {
 	// 1. OpenAI 平台：优先尝试解析 x-codex-* 响应头（用于 rate_limit_exceeded）
 	if account.Platform == PlatformOpenAI {
 		persistOpenAI429PlanType(ctx, s.accountRepo, account, responseBody)
@@ -1017,10 +1025,10 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 		if resetAt := s.calculateOpenAI429ResetTime(headers); resetAt != nil {
 			if err := s.accountRepo.SetRateLimited(ctx, account.ID, *resetAt); err != nil {
 				slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
-				return
+				return false
 			}
 			slog.Info("openai_account_rate_limited", "account_id", account.ID, "reset_at", *resetAt)
-			return
+			return true
 		}
 	}
 
@@ -1028,7 +1036,7 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 	if result := calculateAnthropic429ResetTime(headers); result != nil {
 		if err := s.accountRepo.SetRateLimited(ctx, account.ID, result.resetAt); err != nil {
 			slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
-			return
+			return false
 		}
 
 		// 更新 session window：优先使用 5h-reset 头精确计算，否则从 resetAt 反推
@@ -1042,7 +1050,7 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 		}
 
 		slog.Info("anthropic_account_rate_limited", "account_id", account.ID, "reset_at", result.resetAt, "reset_in", time.Until(result.resetAt).Truncate(time.Second))
-		return
+		return true
 	}
 
 	// 3. 尝试从响应头解析重置时间（Anthropic 聚合头，向后兼容）
@@ -1057,10 +1065,10 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 				resetTime := time.Unix(*resetAt, 0)
 				if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetTime); err != nil {
 					slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
-					return
+					return false
 				}
 				slog.Info("account_rate_limited", "account_id", account.ID, "platform", account.Platform, "reset_at", resetTime, "reset_in", time.Until(resetTime).Truncate(time.Second))
-				return
+				return true
 			}
 		case PlatformGemini, PlatformAntigravity:
 			// 尝试解析 Gemini 格式（用于其他平台）
@@ -1068,10 +1076,10 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 				resetTime := time.Unix(*resetAt, 0)
 				if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetTime); err != nil {
 					slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
-					return
+					return false
 				}
 				slog.Info("account_rate_limited", "account_id", account.ID, "platform", account.Platform, "reset_at", resetTime, "reset_in", time.Until(resetTime).Truncate(time.Second))
-				return
+				return true
 			}
 		}
 
@@ -1082,20 +1090,18 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 				"account_id", account.ID,
 				"platform", account.Platform,
 				"reason", "no rate limit reset time in headers, likely not a real rate limit")
-			return
+			return false
 		}
 
 		// 其他平台：没有重置时间，使用可配置的秒级默认回避，避免误伤长时间不可调度。
-		s.apply429FallbackRateLimit(ctx, account, "no_reset_time")
-		return
+		return s.apply429FallbackRateLimit(ctx, account, "no_reset_time")
 	}
 
 	// 解析Unix时间戳
 	ts, err := strconv.ParseInt(resetTimestamp, 10, 64)
 	if err != nil {
 		slog.Warn("rate_limit_reset_parse_failed", "reset_timestamp", resetTimestamp, "error", err)
-		s.apply429FallbackRateLimit(ctx, account, "reset_parse_failed")
-		return
+		return s.apply429FallbackRateLimit(ctx, account, "reset_parse_failed")
 	}
 
 	resetAt := time.Unix(ts, 0)
@@ -1103,7 +1109,7 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 	// 标记限流状态
 	if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetAt); err != nil {
 		slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
-		return
+		return false
 	}
 
 	// 根据重置时间反推5h窗口
@@ -1114,20 +1120,23 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 	}
 
 	slog.Info("account_rate_limited", "account_id", account.ID, "reset_at", resetAt)
+	return true
 }
 
-func (s *RateLimitService) apply429FallbackRateLimit(ctx context.Context, account *Account, reason string) {
+func (s *RateLimitService) apply429FallbackRateLimit(ctx context.Context, account *Account, reason string) bool {
 	cooldown, enabled := s.get429FallbackCooldown(ctx, account)
 	if !enabled {
 		slog.Info("rate_limit_429_fallback_ignored", "account_id", account.ID, "platform", account.Platform, "reason", reason)
-		return
+		return false
 	}
 
 	resetAt := time.Now().Add(cooldown)
 	slog.Warn("rate_limit_429_fallback_used", "account_id", account.ID, "platform", account.Platform, "reason", reason, "using_default", cooldown.String())
 	if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetAt); err != nil {
 		slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
+		return false
 	}
+	return true
 }
 
 func (s *RateLimitService) get429FallbackCooldown(ctx context.Context, account *Account) (time.Duration, bool) {
@@ -1664,6 +1673,47 @@ func (s *RateLimitService) ClearTempUnschedulable(ctx context.Context, accountID
 	}
 	s.resetTempUnschedCounters(accountID)
 	return nil
+}
+
+func (s *RateLimitService) SetTempUnschedulableManual(ctx context.Context, accountID int64, duration time.Duration, reason string, statusCode int) (*TempUnschedState, error) {
+	if accountID <= 0 {
+		return nil, fmt.Errorf("invalid account id")
+	}
+	if duration <= 0 {
+		return nil, fmt.Errorf("duration must be positive")
+	}
+	now := time.Now()
+	until := now.Add(duration)
+	state := &TempUnschedState{
+		UntilUnix:       until.Unix(),
+		TriggeredAtUnix: now.Unix(),
+		StatusCode:      statusCode,
+		MatchedKeyword:  "manual",
+		RuleIndex:       -1,
+		ErrorMessage:    strings.TrimSpace(reason),
+	}
+	if state.ErrorMessage == "" {
+		state.ErrorMessage = "Manual temporary disable from ops error log"
+	}
+	payload, err := json.Marshal(state)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.accountRepo.SetTempUnschedulable(ctx, accountID, until, string(payload)); err != nil {
+		return nil, err
+	}
+	if s.tempUnschedCache != nil {
+		if err := s.tempUnschedCache.DeleteTempUnsched(ctx, accountID); err != nil {
+			slog.Warn("temp_unsched_cache_delete_failed", "account_id", accountID, "error", err)
+		}
+	}
+	if current, err := s.GetTempUnschedStatus(ctx, accountID); err != nil {
+		slog.Warn("temp_unsched_status_refresh_failed", "account_id", accountID, "error", err)
+	} else if current != nil {
+		state = current
+	}
+	s.resetTempUnschedCounters(accountID)
+	return state, nil
 }
 
 func hasRecoverableRuntimeState(account *Account) bool {
