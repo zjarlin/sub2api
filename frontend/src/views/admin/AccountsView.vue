@@ -37,6 +37,31 @@
             @create="showCreate = true"
           >
             <template #after>
+              <button
+                type="button"
+                class="btn btn-secondary px-2 md:px-3"
+                :disabled="loading || batchTestingAccounts || accounts.length === 0"
+                :title="t('admin.accounts.batchTestCurrentPageHint')"
+                @click="handleBatchTestCurrentPage"
+              >
+                <Icon
+                  name="beaker"
+                  size="sm"
+                  :class="[batchTestingAccounts ? 'animate-pulse' : '']"
+                  class="md:mr-1.5"
+                />
+                <span class="hidden md:inline">
+                  {{
+                    batchTestingAccounts
+                      ? t('admin.accounts.batchTestingProgress', {
+                          done: batchTestDone,
+                          total: batchTestTotal
+                        })
+                      : t('admin.accounts.batchTestAccounts')
+                  }}
+                </span>
+              </button>
+
               <!-- Auto Refresh Dropdown -->
               <div class="relative" ref="autoRefreshDropdownRef">
                 <button
@@ -234,11 +259,11 @@
             <div class="flex flex-col">
               <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
               <span
-                v-if="row.extra?.email_address"
+                v-if="row.extra?.email_address || row.extra?.email || row.credentials?.email"
                 class="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]"
-                :title="row.extra.email_address"
+                :title="String(row.extra?.email_address || row.extra?.email || row.credentials?.email)"
               >
-                {{ row.extra.email_address }}
+                {{ row.extra?.email_address || row.extra?.email || row.credentials?.email }}
               </span>
               <div v-if="getAccountUIDisplayGroups(row).length > 0" class="mt-1 flex flex-wrap gap-1">
                 <span
@@ -315,6 +340,12 @@
           <template #cell-groups="{ row }">
             <AccountGroupsCell :groups="row.groups" :max-display="4" />
           </template>
+          <template #header-usage="{ column }">
+            <div class="flex items-center">
+              <span>{{ column.label }}</span>
+              <HelpTooltip :content="t('admin.accounts.usageWindowsHint')" width-class="w-72" />
+            </div>
+          </template>
           <template #cell-usage="{ row }">
             <AccountUsageCell
               :account="row"
@@ -343,6 +374,9 @@
           </template>
           <template #cell-last_used_at="{ value }">
             <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatRelativeTime(value) }}</span>
+          </template>
+          <template #cell-created_at="{ value }">
+            <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatDateTime(value) }}</span>
           </template>
           <template #cell-expires_at="{ row, value }">
             <div class="flex flex-col items-start gap-1">
@@ -441,6 +475,7 @@ import { useTableSelection } from '@/composables/useTableSelection'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
+import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrsModal, TempUnschedStatusModal } from '@/components/account'
@@ -725,6 +760,9 @@ const showSchedulePanel = ref(false)
 const scheduleAcc = ref<Account | null>(null)
 const scheduleModelOptions = ref<SelectOption[]>([])
 const togglingSchedulable = ref<number | null>(null)
+const batchTestingAccounts = ref(false)
+const batchTestTotal = ref(0)
+const batchTestDone = ref(0)
 const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number, left:number}|null}>({ show: false, acc: null, pos: null })
 const exportingData = ref(false)
 
@@ -732,8 +770,9 @@ const exportingData = ref(false)
 const showAccountToolsDropdown = ref(false)
 const accountToolsDropdownRef = ref<HTMLElement | null>(null)
 const hiddenColumns = reactive<Set<string>>(new Set())
-const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'proxy', 'notes', 'priority', 'rate_multiplier']
+const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'proxy', 'notes', 'priority']
 const HIDDEN_COLUMNS_KEY = 'account-hidden-columns'
+const RATE_MULTIPLIER_COLUMN_VISIBLE_MIGRATION_KEY = 'account-rate-multiplier-column-visible-v1'
 
 // Sorting settings
 const ACCOUNT_SORT_STORAGE_KEY = 'account-table-sort'
@@ -749,6 +788,7 @@ const ACCOUNT_SORTABLE_KEYS = new Set([
   'priority',
   'rate_multiplier',
   'last_used_at',
+  'created_at',
   'expires_at'
 ])
 const loadInitialAccountSortState = (): AccountSortState => {
@@ -903,6 +943,18 @@ const loadSavedColumns = () => {
     DEFAULT_HIDDEN_COLUMNS.forEach(key => {
       hiddenColumns.add(key)
     })
+  }
+  migrateRateMultiplierColumnVisibility()
+}
+
+const migrateRateMultiplierColumnVisibility = () => {
+  try {
+    if (localStorage.getItem(RATE_MULTIPLIER_COLUMN_VISIBLE_MIGRATION_KEY) === '1') return
+    hiddenColumns.delete('rate_multiplier')
+    localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
+    localStorage.setItem(RATE_MULTIPLIER_COLUMN_VISIBLE_MIGRATION_KEY, '1')
+  } catch (e) {
+    console.error('Failed to migrate rate multiplier column visibility:', e)
   }
 }
 
@@ -1634,6 +1686,7 @@ const allColumns = computed(() => {
     { key: 'priority', label: t('admin.accounts.columns.priority'), sortable: true },
     { key: 'rate_multiplier', label: t('admin.accounts.columns.billingRateMultiplier'), sortable: true },
     { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true },
+    { key: 'created_at', label: t('admin.accounts.columns.createdAt'), sortable: true },
     { key: 'expires_at', label: t('admin.accounts.columns.expiresAt'), sortable: true },
     { key: 'notes', label: t('admin.accounts.columns.notes'), sortable: false },
     { key: 'actions', label: t('admin.accounts.columns.actions'), sortable: false }
@@ -1747,6 +1800,233 @@ const updateSchedulableInList = (accountIds: number[], schedulable: boolean) => 
   const idSet = new Set(accountIds)
   accounts.value = accounts.value.map((account) => (idSet.has(account.id) ? { ...account, schedulable } : account))
 }
+
+interface AccountTestStreamEvent {
+  type: string
+  success?: boolean
+  error?: string
+}
+
+interface BatchAccountTestResult {
+  accountId: number
+  success: boolean
+  scheduleUpdateFailed: boolean
+  error?: string
+}
+
+const BATCH_ACCOUNT_TEST_CONCURRENCY = 3
+const BATCH_ACCOUNT_TEST_TIMEOUT_MS = 120_000
+
+const getBatchAccountTestHeaders = () => {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json'
+  }
+  const token = localStorage.getItem('auth_token')
+  if (token) {
+    headers.Authorization = `Bearer ${token}`
+  }
+  return headers
+}
+
+const parseAccountTestSSELine = (line: string): AccountTestStreamEvent | null => {
+  const trimmed = line.trim()
+  if (!trimmed.startsWith('data:')) {
+    return null
+  }
+
+  const payload = trimmed.replace(/^data:\s*/, '')
+  if (!payload) {
+    return null
+  }
+
+  try {
+    return JSON.parse(payload) as AccountTestStreamEvent
+  } catch {
+    return null
+  }
+}
+
+const runAccountSSETest = async (
+  account: Account,
+  modelId: string
+): Promise<{ success: boolean; error?: string }> => {
+  const controller = new AbortController()
+  const timeout = window.setTimeout(() => controller.abort(), BATCH_ACCOUNT_TEST_TIMEOUT_MS)
+  let completed = false
+  let success = false
+  let errorMessage = ''
+
+  const handleLine = (line: string) => {
+    const event = parseAccountTestSSELine(line)
+    if (!event) return
+    if (event.type === 'error') {
+      errorMessage = event.error || t('admin.accounts.testFailed')
+      return
+    }
+    if (event.type === 'test_complete') {
+      completed = true
+      success = event.success === true
+      if (!success && event.error) {
+        errorMessage = event.error
+      }
+    }
+  }
+
+  try {
+    const response = await fetch(`/api/v1/admin/accounts/${account.id}/test`, {
+      method: 'POST',
+      headers: getBatchAccountTestHeaders(),
+      body: JSON.stringify({ model_id: modelId }),
+      signal: controller.signal
+    })
+    if (!response.ok) {
+      return { success: false, error: `HTTP ${response.status}` }
+    }
+
+    const reader = response.body?.getReader()
+    if (!reader) {
+      return { success: false, error: t('admin.accounts.batchTestStreamNoBody') }
+    }
+
+    const decoder = new TextDecoder()
+    let buffer = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+      for (const line of lines) {
+        handleLine(line)
+      }
+    }
+    if (buffer) {
+      handleLine(buffer)
+    }
+
+    if (errorMessage) {
+      return { success: false, error: errorMessage }
+    }
+    if (!completed) {
+      return { success: false, error: t('admin.accounts.batchTestStreamIncomplete') }
+    }
+    return { success }
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      return { success: false, error: t('admin.accounts.batchTestTimeout') }
+    }
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error)
+    }
+  } finally {
+    window.clearTimeout(timeout)
+  }
+}
+
+const getFirstBatchTestModelId = async (account: Account): Promise<string | null> => {
+  const models = await adminAPI.accounts.getAvailableModels(account.id)
+  return models[0]?.id || null
+}
+
+const testAccountAndApplySchedulable = async (account: Account): Promise<BatchAccountTestResult> => {
+  let testSuccess = false
+  let testError: string | undefined
+
+  try {
+    const modelId = await getFirstBatchTestModelId(account)
+    if (!modelId) {
+      testError = t('admin.accounts.batchTestNoModel')
+    } else {
+      const result = await runAccountSSETest(account, modelId)
+      testSuccess = result.success
+      testError = result.error
+    }
+  } catch (error) {
+    testError = error instanceof Error ? error.message : String(error)
+  }
+
+  let scheduleUpdateFailed = false
+  try {
+    const updated = await adminAPI.accounts.setSchedulable(account.id, testSuccess)
+    patchAccountInList(updated)
+  } catch (error) {
+    scheduleUpdateFailed = true
+    console.error('Failed to apply schedulable after account test:', {
+      accountId: account.id,
+      schedulable: testSuccess,
+      error
+    })
+  }
+
+  return {
+    accountId: account.id,
+    success: testSuccess,
+    scheduleUpdateFailed,
+    error: testError
+  }
+}
+
+const runBatchAccountTestQueue = async (targetAccounts: Account[]) => {
+  const results: BatchAccountTestResult[] = []
+  let nextIndex = 0
+  const workerCount = Math.min(BATCH_ACCOUNT_TEST_CONCURRENCY, targetAccounts.length)
+
+  const worker = async () => {
+    while (nextIndex < targetAccounts.length) {
+      const account = targetAccounts[nextIndex]
+      nextIndex += 1
+      try {
+        results.push(await testAccountAndApplySchedulable(account))
+      } finally {
+        batchTestDone.value += 1
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: workerCount }, () => worker()))
+  return results
+}
+
+const handleBatchTestCurrentPage = async () => {
+  if (batchTestingAccounts.value) return
+  const targetAccounts = [...accounts.value]
+  if (targetAccounts.length === 0) {
+    appStore.showError(t('admin.accounts.batchTestAccountsEmpty'))
+    return
+  }
+
+  showAutoRefreshDropdown.value = false
+  closeAccountToolsDropdown()
+  batchTestingAccounts.value = true
+  batchTestTotal.value = targetAccounts.length
+  batchTestDone.value = 0
+  enterAutoRefreshSilentWindow()
+
+  try {
+    const results = await runBatchAccountTestQueue(targetAccounts)
+    const passed = results.filter(result => result.success).length
+    const failed = results.length - passed
+    const scheduleFailed = results.filter(result => result.scheduleUpdateFailed).length
+    if (scheduleFailed > 0) {
+      appStore.showWarning(t('admin.accounts.batchTestAccountsPartial', { passed, failed, scheduleFailed }))
+    } else if (failed > 0) {
+      appStore.showWarning(t('admin.accounts.batchTestAccountsDone', { passed, failed }))
+    } else {
+      appStore.showSuccess(t('admin.accounts.batchTestAccountsDone', { passed, failed }))
+    }
+    enterAutoRefreshSilentWindow()
+  } catch (error) {
+    console.error('Failed to batch test accounts:', error)
+    appStore.showError(t('admin.accounts.batchTestAccountsFailed'))
+  } finally {
+    batchTestingAccounts.value = false
+    batchTestTotal.value = 0
+    batchTestDone.value = 0
+  }
+}
+
 const normalizeBulkSchedulableResult = (
   result: {
     success?: number

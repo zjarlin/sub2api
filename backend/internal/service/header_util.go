@@ -109,6 +109,20 @@ func addHeaderRaw(h http.Header, key, value string) {
 	h[key] = append(h[key], value)
 }
 
+// deleteHeaderAllForms removes a header in all common key forms (raw, wire casing,
+// canonical) so subsequent setHeaderRaw will not coexist with a passthrough value
+// written under a different casing.
+func deleteHeaderAllForms(h http.Header, key string) {
+	if h == nil || key == "" {
+		return
+	}
+	h.Del(key) // canonical
+	delete(h, key)
+	if wk := resolveWireCasing(key); wk != key {
+		delete(h, wk)
+	}
+}
+
 // getHeaderRaw reads a header value, trying multiple key forms to handle the mismatch
 // between Go canonical keys, wire casing keys, and raw keys:
 //  1. exact key as provided
@@ -127,6 +141,27 @@ func getHeaderRaw(h http.Header, key string) string {
 	}
 	// 3. canonical fallback
 	return h.Get(key)
+}
+
+func getHeaderCI(h http.Header, key string) string {
+	if h == nil || key == "" {
+		return ""
+	}
+	if value := strings.TrimSpace(h.Get(key)); value != "" {
+		return value
+	}
+	lowerKey := strings.ToLower(key)
+	for actual, values := range h {
+		if !strings.EqualFold(actual, lowerKey) {
+			continue
+		}
+		for _, value := range values {
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	return ""
 }
 
 // sortHeadersByWireOrder 按照真实 Claude CLI 的 header 顺序返回排序后的 key 列表。

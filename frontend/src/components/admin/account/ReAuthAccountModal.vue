@@ -639,11 +639,17 @@ const handleExchangeCode = async () => {
     if (!tokenInfo) return
 
     try {
-      await updateAccountCredentials({
+      const credentials = buildUpdatedCredentials(openaiOAuth.buildCredentials(tokenInfo))
+      const extra = openaiOAuth.buildExtraInfo(tokenInfo) as Record<string, unknown> | undefined
+      const updatedAccount = await adminAPI.accounts.applyOAuthCredentials(props.account.id, {
         type: 'oauth',
-        credentials: buildUpdatedCredentials(openaiOAuth.buildCredentials(tokenInfo)),
-        extra: openaiOAuth.buildExtraInfo(tokenInfo) as Record<string, unknown> | undefined
+        credentials,
+        extra
       })
+
+      appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
+      emit('reauthorized', updatedAccount)
+      handleClose()
     } catch (error: any) {
       openaiOAuth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
       appStore.showError(openaiOAuth.error.value)
@@ -757,11 +763,16 @@ const handleExchangeCode = async () => {
       ...proxyConfig
     })
 
-    await updateAccountCredentials({
-      type: addMethod.value,
-      credentials: buildUpdatedCredentials(tokenInfo),
-      extra: claudeOAuth.buildExtraInfo(tokenInfo)
+    const extra = claudeOAuth.buildExtraInfo(tokenInfo)
+    const updatedAccount = await adminAPI.accounts.applyOAuthCredentials(props.account.id, {
+      type: addMethod.value as 'oauth' | 'setup-token',
+      credentials: buildUpdatedCredentials(tokenInfo as unknown as Record<string, unknown>),
+      extra
     })
+
+    appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
+    emit('reauthorized', updatedAccount)
+    handleClose()
   } catch (error: any) {
     claudeOAuth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
     appStore.showError(claudeOAuth.error.value)
@@ -780,10 +791,13 @@ const handleKiroImport = async () => {
   if (!tokenInfo) return
 
   try {
-    await updateAccountCredentials({
+    const updatedAccount = await adminAPI.accounts.applyOAuthCredentials(props.account.id, {
       type: 'oauth',
       credentials: buildUpdatedCredentials(kiroOAuth.buildCredentials(tokenInfo))
     })
+    appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
+    emit('reauthorized', updatedAccount)
+    handleClose()
   } catch (error: any) {
     kiroOAuth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
     appStore.showError(kiroOAuth.error.value)
@@ -809,11 +823,17 @@ const handleCookieAuth = async (sessionKey: string) => {
       ...proxyConfig
     })
 
-    await updateAccountCredentials({
-      type: addMethod.value,
-      credentials: buildUpdatedCredentials(tokenInfo),
-      extra: claudeOAuth.buildExtraInfo(tokenInfo)
+    const extra = claudeOAuth.buildExtraInfo(tokenInfo)
+
+    const updatedAccount = await adminAPI.accounts.applyOAuthCredentials(props.account.id, {
+      type: addMethod.value as 'oauth' | 'setup-token',
+      credentials: buildUpdatedCredentials(tokenInfo as unknown as Record<string, unknown>),
+      extra
     })
+
+    appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
+    emit('reauthorized', updatedAccount)
+    handleClose()
   } catch (error: any) {
     claudeOAuth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.cookieAuthFailed')
   } finally {
