@@ -3408,7 +3408,7 @@ export default {
         title: 'Quick Add OpenAI-Compatible Account',
         add: 'Quick Add',
         adding: 'Adding...',
-        placeholder: 'https://api.example.com/v1\nsk-...',
+        placeholder: 'https://api.example.com/v1\nsk-...\nor: sk-... https://api.example.com',
         defaultGroupHint: 'Set as the default group for quick-added OpenAI accounts',
         inputRequired: 'Paste the upstream Base URL and API Key',
         baseUrlRequired: 'No valid Base URL was detected',

@@ -3567,7 +3567,7 @@ export default {
         title: '快速添加 OpenAI 兼容账号',
         add: '快速添加',
         adding: '添加中...',
-        placeholder: 'https://api.example.com/v1\nsk-...',
+        placeholder: 'https://api.example.com/v1\nsk-...\n或：sk-... https://api.example.com',
         defaultGroupHint: '设为快速添加 OpenAI 账号使用的默认分组',
         inputRequired: '请粘贴上游 Base URL 和 API Key',
         baseUrlRequired: '未识别到有效的 Base URL',

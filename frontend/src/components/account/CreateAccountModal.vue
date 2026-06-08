@@ -3955,7 +3955,8 @@ import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import {
   applyInterceptWarmup,
   buildBulkApiKeyAccountName,
-  parseAccountApiKeys
+  parseAccountApiKeys,
+  parseQuickOpenAIInput
 } from '@/components/account/credentialsBuilder'
 import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 import { mergeModelMappings, serializeModelMappings, writeUIDisplayGroupsToExtra } from '@/utils/accountFormBulk'
@@ -4436,76 +4437,6 @@ const openAIGroups = computed(() => props.groups.filter(group => group.platform 
 const quickOpenAIDefaultGroup = computed(() =>
   openAIGroups.value.find(group => group.id === quickOpenAIDefaultGroupId.value) || null
 )
-
-type QuickOpenAIParseErrorKey =
-  | 'inputRequired'
-  | 'baseUrlRequired'
-  | 'invalidBaseUrl'
-  | 'apiKeyRequired'
-
-interface QuickOpenAIParseResult {
-  baseUrl?: string
-  apiKey?: string
-  errorKey?: QuickOpenAIParseErrorKey
-}
-
-const trimQuickOpenAIToken = (value: string) =>
-  value
-    .trim()
-    .replace(/^[`"'(<[{]+/, '')
-    .replace(/[`"')>\]};,，；。]+$/, '')
-
-const stripQuickOpenAILabel = (value: string) =>
-  trimQuickOpenAIToken(value).replace(
-    /^(?:api[_-]?key|key|token|authorization|bearer|base[_-]?url|url)\s*[:=]\s*/i,
-    ''
-  )
-
-const isQuickOpenAIKeyCandidate = (value: string) => {
-  const normalized = value.replace(/[:=]$/, '')
-  if (/^(?:api[_-]?key|key|token|authorization|bearer|base[_-]?url|url)$/i.test(normalized)) {
-    return false
-  }
-  return value.length >= 8 && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value)
-}
-
-const parseQuickOpenAIInput = (raw: string): QuickOpenAIParseResult => {
-  const input = raw.trim()
-  if (!input) {
-    return { errorKey: 'inputRequired' }
-  }
-
-  const urlMatch = input.match(/https?:\/\/[^\s"'<>`]+/i)
-  if (!urlMatch) {
-    return { errorKey: 'baseUrlRequired' }
-  }
-
-  const baseUrl = trimQuickOpenAIToken(urlMatch[0])
-  try {
-    const parsed = new URL(baseUrl)
-    if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname) {
-      return { errorKey: 'invalidBaseUrl' }
-    }
-  } catch {
-    return { errorKey: 'invalidBaseUrl' }
-  }
-
-  const remaining = input.replace(urlMatch[0], ' ')
-  const skMatch = remaining.match(/\bsk-[^\s"'<>`]+/i)
-  const apiKey = skMatch
-    ? trimQuickOpenAIToken(skMatch[0])
-    : remaining
-        .split(/[\s,;]+/)
-        .map(stripQuickOpenAILabel)
-        .map(trimQuickOpenAIToken)
-        .find(isQuickOpenAIKeyCandidate)
-
-  if (!apiKey) {
-    return { errorKey: 'apiKeyRequired' }
-  }
-
-  return { baseUrl, apiKey }
-}
 
 const loadQuickOpenAIDefaultGroup = () => {
   let raw: string | null = null

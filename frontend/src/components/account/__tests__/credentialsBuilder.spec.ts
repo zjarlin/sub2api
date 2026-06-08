@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import {
   applyInterceptWarmup,
   buildBulkApiKeyAccountName,
-  parseAccountApiKeys
+  parseAccountApiKeys,
+  parseQuickOpenAIInput
 } from '../credentialsBuilder'
 
 describe('applyInterceptWarmup', () => {
@@ -73,5 +74,21 @@ describe('buildBulkApiKeyAccountName', () => {
     expect(buildBulkApiKeyAccountName('main', 0, 3)).toBe('main_1')
     expect(buildBulkApiKeyAccountName('main', 1, 3)).toBe('main_2')
     expect(buildBulkApiKeyAccountName('main', 2, 3)).toBe('main_3')
+  })
+})
+
+describe('parseQuickOpenAIInput', () => {
+  it('parses OpenAI-compatible quick add input regardless of key/url order', () => {
+    expect(parseQuickOpenAIInput('sk-test-key-12345 https://api.example.com')).toEqual({
+      apiKey: 'sk-test-key-12345',
+      baseUrl: 'https://api.example.com'
+    })
+  })
+
+  it('parses url-first input with Chinese separators', () => {
+    expect(parseQuickOpenAIInput('https://api.example.com/v1，sk-test-key-67890')).toEqual({
+      apiKey: 'sk-test-key-67890',
+      baseUrl: 'https://api.example.com/v1'
+    })
   })
 })
