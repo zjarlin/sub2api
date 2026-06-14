@@ -49,6 +49,71 @@ describe('UseKeyModal', () => {
     expect(configToml).toContain('[features]\ngoals = true')
   })
 
+  it('renders OpenAI Responses Codex config for Gemini groups', () => {
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-test',
+        baseUrl: 'https://example.com/v1',
+        platform: 'gemini'
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            template: '<div><slot /><slot name="footer" /></div>'
+          },
+          Icon: {
+            template: '<span />'
+          }
+        }
+      }
+    })
+
+    const codeBlocks = wrapper.findAll('pre code').map((code) => code.text())
+    const configToml = codeBlocks.find((content) => content.includes('model_provider = "Gemini"'))
+
+    expect(configToml).toBeDefined()
+    expect(configToml).toContain('model = "gemini-2.5-pro"')
+    expect(configToml).toContain('wire_api = "responses"')
+    expect(configToml).not.toContain('model = "gpt-5.5"')
+  })
+
+  it('renders OpenCode Responses config for Gemini groups', async () => {
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-test',
+        baseUrl: 'https://example.com/v1',
+        platform: 'gemini'
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            template: '<div><slot /><slot name="footer" /></div>'
+          },
+          Icon: {
+            template: '<span />'
+          }
+        }
+      }
+    })
+
+    const tab = wrapper.findAll('button').find((button) =>
+      button.text().includes('keys.useKeyModal.cliTabs.opencodeResponses')
+    )
+
+    expect(tab).toBeDefined()
+    await tab!.trigger('click')
+    await nextTick()
+
+    const codeBlock = wrapper.find('pre code')
+    expect(codeBlock.exists()).toBe(true)
+    expect(codeBlock.text()).toContain('"openai"')
+    expect(codeBlock.text()).toContain('"npm": "@ai-sdk/openai"')
+    expect(codeBlock.text()).toContain('"Gemini 2.5 Pro"')
+    expect(codeBlock.text()).toContain('"store": false')
+  })
+
   it('renders GPT-5.5 and goals feature in OpenAI Codex WebSocket config', async () => {
     const wrapper = mount(UseKeyModal, {
       props: {

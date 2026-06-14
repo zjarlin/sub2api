@@ -182,7 +182,7 @@ const defaultClientTab = computed(() => {
     case 'openai':
       return 'codex'
     case 'gemini':
-      return 'gemini'
+      return 'codex'
     case 'antigravity':
       return 'claude'
     default:
@@ -279,7 +279,9 @@ const clientTabs = computed((): TabConfig[] => {
     }
     case 'gemini':
       return [
+        { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
         { id: 'gemini', label: t('keys.useKeyModal.cliTabs.geminiCli'), icon: SparkleIcon },
+        { id: 'opencode-responses', label: t('keys.useKeyModal.cliTabs.opencodeResponses'), icon: TerminalIcon },
         { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
       ]
     case 'antigravity':
@@ -309,7 +311,9 @@ const openaiTabs: TabConfig[] = [
   { id: 'windows', label: 'Windows', icon: WindowsIcon }
 ]
 
-const showShellTabs = computed(() => activeClientTab.value !== 'opencode')
+const isOpenCodeTab = computed(() => activeClientTab.value.startsWith('opencode'))
+
+const showShellTabs = computed(() => !isOpenCodeTab.value)
 
 const currentTabs = computed(() => {
   if (!showShellTabs.value) return []
@@ -320,6 +324,9 @@ const currentTabs = computed(() => {
 })
 
 const platformDescription = computed(() => {
+  if (isOpenCodeTab.value) {
+    return t('keys.useKeyModal.opencode.title')
+  }
   switch (props.platform) {
     case 'openai':
       if (activeClientTab.value === 'claude') {
@@ -327,6 +334,9 @@ const platformDescription = computed(() => {
       }
       return t('keys.useKeyModal.openai.description')
     case 'gemini':
+      if (activeClientTab.value === 'codex') {
+        return t('keys.useKeyModal.openai.description')
+      }
       return t('keys.useKeyModal.gemini.description')
     case 'antigravity':
       return t('keys.useKeyModal.antigravity.description')
@@ -345,6 +355,11 @@ const platformNote = computed(() => {
         ? t('keys.useKeyModal.openai.noteWindows')
         : t('keys.useKeyModal.openai.note')
     case 'gemini':
+      if (activeClientTab.value === 'codex') {
+        return activeTab.value === 'windows'
+          ? t('keys.useKeyModal.openai.noteWindows')
+          : t('keys.useKeyModal.openai.note')
+      }
       return t('keys.useKeyModal.gemini.note')
     case 'antigravity':
       return activeClientTab.value === 'claude'
@@ -355,7 +370,7 @@ const platformNote = computed(() => {
   }
 })
 
-const showPlatformNote = computed(() => activeClientTab.value !== 'opencode')
+const showPlatformNote = computed(() => !isOpenCodeTab.value)
 
 const escapeHtml = (value: string) => value
   .replace(/&/g, '&amp;')
@@ -412,6 +427,18 @@ const currentFiles = computed((): FileConfig[] => {
     }
   }
 
+  if (activeClientTab.value === 'opencode-responses') {
+    if (props.platform === 'gemini') {
+      return [generateOpenCodeConfig('openai', apiBase, apiKey, 'opencode.json (Responses)', {
+        name: 'Gemini (Responses)',
+        npm: '@ai-sdk/openai',
+        models: geminiModelsForOpenCode(),
+        agent: true,
+      })]
+    }
+    return [generateOpenCodeConfig('openai', apiBase, apiKey)]
+  }
+
   switch (props.platform) {
     case 'openai':
       if (activeClientTab.value === 'claude') {
@@ -422,6 +449,14 @@ const currentFiles = computed((): FileConfig[] => {
       }
       return generateOpenAIFiles(baseUrl, apiKey)
     case 'gemini':
+      if (activeClientTab.value === 'codex') {
+        return generateOpenAIFiles(baseUrl, apiKey, {
+          providerKey: 'Gemini',
+          providerName: 'Gemini',
+          model: 'gemini-2.5-pro',
+          reviewModel: 'gemini-2.5-pro',
+        })
+      }
       return [generateGeminiCliContent(baseUrl, apiKey)]
     case 'antigravity':
       if (activeClientTab.value === 'gemini') {
@@ -525,21 +560,32 @@ ${keyword('$env:')}${variable('GEMINI_MODEL')}${operator('=')}${string(`"${model
   return { path, content, highlighted }
 }
 
-function generateOpenAIFiles(baseUrl: string, apiKey: string): FileConfig[] {
+interface CodexResponsesConfigOptions {
+  providerKey?: string
+  providerName?: string
+  model?: string
+  reviewModel?: string
+}
+
+function generateOpenAIFiles(baseUrl: string, apiKey: string, options: CodexResponsesConfigOptions = {}): FileConfig[] {
   const isWindows = activeTab.value === 'windows'
   const configDir = isWindows ? '%userprofile%\\.codex' : '~/.codex'
+  const providerKey = options.providerKey ?? 'OpenAI'
+  const providerName = options.providerName ?? providerKey
+  const model = options.model ?? 'gpt-5.5'
+  const reviewModel = options.reviewModel ?? model
 
   // config.toml content
-  const configContent = `model_provider = "OpenAI"
-model = "gpt-5.5"
-review_model = "gpt-5.5"
+  const configContent = `model_provider = "${providerKey}"
+model = "${model}"
+review_model = "${reviewModel}"
 model_reasoning_effort = "xhigh"
 disable_response_storage = true
 network_access = "enabled"
 windows_wsl_setup_acknowledged = true
 
-[model_providers.OpenAI]
-name = "OpenAI"
+[model_providers.${providerKey}]
+name = "${providerName}"
 base_url = "${baseUrl}"
 wire_api = "responses"
 requires_openai_auth = true
@@ -607,7 +653,20 @@ goals = true`
   ]
 }
 
-function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: string, pathLabel?: string): FileConfig {
+interface OpenCodeProviderOptions {
+  name?: string
+  npm?: string
+  models?: Record<string, any>
+  agent?: boolean
+}
+
+function generateOpenCodeConfig(
+  platform: string,
+  baseUrl: string,
+  apiKey: string,
+  pathLabel?: string,
+  options: OpenCodeProviderOptions = {},
+): FileConfig {
   const provider: Record<string, any> = {
     [platform]: {
       options: {
@@ -1002,25 +1061,34 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
     }
   }
 
-  if (platform === 'gemini') {
-    provider[platform].npm = '@ai-sdk/google'
-    provider[platform].models = geminiModels
+  const resolvedProvider = provider[platform]
+  if (options.name) {
+    resolvedProvider.name = options.name
+  }
+  if (options.npm) {
+    resolvedProvider.npm = options.npm
+  }
+  if (options.models) {
+    resolvedProvider.models = options.models
+  } else if (platform === 'gemini') {
+    resolvedProvider.npm = '@ai-sdk/google'
+    resolvedProvider.models = geminiModels
   } else if (platform === 'anthropic') {
-    provider[platform].npm = '@ai-sdk/anthropic'
+    resolvedProvider.npm = '@ai-sdk/anthropic'
   } else if (platform === 'antigravity-claude') {
-    provider[platform].npm = '@ai-sdk/anthropic'
-    provider[platform].name = 'Antigravity (Claude)'
-    provider[platform].models = claudeModels
+    resolvedProvider.npm = '@ai-sdk/anthropic'
+    resolvedProvider.name = 'Antigravity (Claude)'
+    resolvedProvider.models = claudeModels
   } else if (platform === 'antigravity-gemini') {
-    provider[platform].npm = '@ai-sdk/google'
-    provider[platform].name = 'Antigravity (Gemini)'
-    provider[platform].models = antigravityGeminiModels
+    resolvedProvider.npm = '@ai-sdk/google'
+    resolvedProvider.name = 'Antigravity (Gemini)'
+    resolvedProvider.models = antigravityGeminiModels
   } else if (platform === 'openai') {
-    provider[platform].models = openaiModels
+    resolvedProvider.models = openaiModels
   }
 
   const agent =
-    platform === 'openai'
+    platform === 'openai' || options.agent
       ? {
           build: {
             options: {
@@ -1049,6 +1117,42 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
     path: pathLabel ?? 'opencode.json',
     content,
     hint: t('keys.useKeyModal.opencode.hint')
+  }
+}
+
+function geminiModelsForOpenCode(): Record<string, any> {
+  return {
+    'gemini-2.5-pro': {
+      name: 'Gemini 2.5 Pro',
+      limit: {
+        context: 2097152,
+        output: 65536,
+      },
+      options: {
+        store: false,
+      },
+      variants: {
+        low: {},
+        medium: {},
+        high: {},
+        xhigh: {},
+      },
+    },
+    'gemini-2.5-flash': {
+      name: 'Gemini 2.5 Flash',
+      limit: {
+        context: 1048576,
+        output: 65536,
+      },
+      options: {
+        store: false,
+      },
+      variants: {
+        low: {},
+        medium: {},
+        high: {},
+      },
+    },
   }
 }
 

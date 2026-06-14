@@ -111,6 +111,7 @@ import {
   API_MODE_RESPONSES,
   PROVIDER_OPENAI,
 } from '@/constants/channelMonitor'
+import { supportsResponsesApiMode } from '@/utils/channelMonitorApiMode'
 
 const props = defineProps<{
   provider?: Provider
@@ -299,7 +300,7 @@ const bodyModeHint = computed(() => {
 })
 
 const bodyPlaceholder = computed(() => {
-  if (props.provider === PROVIDER_OPENAI && props.apiMode === API_MODE_RESPONSES) {
+  if (supportsResponsesApiMode(props.provider) && props.apiMode === API_MODE_RESPONSES) {
     if (props.bodyOverrideMode === 'merge') {
       return '{\n  "max_output_tokens": 20\n}'
     }
