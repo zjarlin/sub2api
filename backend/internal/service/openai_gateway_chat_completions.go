@@ -61,6 +61,10 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	promptCacheKey string,
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
+	if account.Type == AccountTypeAPIKey && account.ShouldUseOpenCodeServerUpstream() {
+		return s.forwardChatCompletionsViaOpenCodeServer(ctx, c, account, body, defaultMappedModel)
+	}
+
 	// 入口分流：APIKey 账号 + vendor 已知只走 Chat Completions，或探测确认
 	// 上游不支持 Responses，走 CC 直转。
 	// 标记缺失（未探测）按"现状即证据"原则继续走下方原 Responses 转换路径。

@@ -2638,6 +2638,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	reqModel, reqStream, promptCacheKey := requestView.Model, requestView.Stream, requestView.PromptCacheKey
 	originalModel := reqModel
 
+	if account.Type == AccountTypeAPIKey && account.ShouldUseOpenCodeServerUpstream() {
+		return s.forwardResponsesViaOpenCodeServer(ctx, c, account, body)
+	}
+
 	if account.Type == AccountTypeAPIKey &&
 		(account.ShouldUseOpenAIChatCompletionsUpstream() || !openai_compat.ShouldUseResponsesAPI(account.Extra)) {
 		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)

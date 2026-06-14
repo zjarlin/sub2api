@@ -695,7 +695,16 @@ func defaultOpenAIBaseURLForVendor(vendor string) string {
 
 func openAIVendorPrefersChatCompletions(vendor string) bool {
 	switch strings.ToLower(strings.TrimSpace(vendor)) {
-	case "deepseek", "gemini", "mimo", "ollama", "opencode", "openrouter", "trae":
+	case "deepseek", "gemini", "mimo", "ollama", "openrouter", "trae":
+		return true
+	default:
+		return false
+	}
+}
+
+func openAIVendorPrefersOpenCodeServer(vendor string) bool {
+	switch strings.ToLower(strings.TrimSpace(vendor)) {
+	case "opencode", "opencode-server":
 		return true
 	default:
 		return false
@@ -706,7 +715,6 @@ func openAIBaseURLPrefersChatCompletions(baseURL string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(baseURL))
 	return strings.Contains(normalized, "api.deepseek.com") ||
 		strings.Contains(normalized, "deepseek.com") ||
-		strings.Contains(normalized, "opencode.ai") ||
 		strings.Contains(normalized, "openrouter.ai")
 }
 
@@ -1408,6 +1416,10 @@ func (a *Account) ShouldUseOpenAIChatCompletionsUpstream() bool {
 	return a.IsOpenAIApiKey() &&
 		(openAIVendorPrefersChatCompletions(a.GetOpenAIVendor()) ||
 			openAIBaseURLPrefersChatCompletions(a.GetOpenAIBaseURL()))
+}
+
+func (a *Account) ShouldUseOpenCodeServerUpstream() bool {
+	return a.IsOpenAIApiKey() && openAIVendorPrefersOpenCodeServer(a.GetOpenAIVendor())
 }
 
 func (a *Account) AllowsEmptyOpenAIApiKey() bool {
