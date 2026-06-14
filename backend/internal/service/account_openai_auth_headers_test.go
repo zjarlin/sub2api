@@ -116,7 +116,7 @@ func TestAccountOpenAILocalProxyDefaults(t *testing.T) {
 }
 
 func TestAccountOpenAIVendorChatCompletionsPreference(t *testing.T) {
-	for _, vendor := range []string{"deepseek", "gemini", "mimo", "ollama", "openrouter", "trae"} {
+	for _, vendor := range []string{"deepseek", "gemini", "mimo", "ollama", "opencode", "openrouter", "trae"} {
 		account := &Account{
 			Platform: PlatformOpenAI,
 			Type:     AccountTypeAPIKey,
@@ -130,7 +130,7 @@ func TestAccountOpenAIVendorChatCompletionsPreference(t *testing.T) {
 	}
 }
 
-func TestAccountOpenCodeVendorUsesOpenCodeServer(t *testing.T) {
+func TestAccountOpenCodeVendorUsesChatCompletions(t *testing.T) {
 	account := &Account{
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeAPIKey,
@@ -139,28 +139,36 @@ func TestAccountOpenCodeVendorUsesOpenCodeServer(t *testing.T) {
 		},
 	}
 
-	if !account.ShouldUseOpenCodeServerUpstream() {
-		t.Fatal("OpenCode vendor should use OpenCode server upstream")
-	}
-	if account.ShouldUseOpenAIChatCompletionsUpstream() {
-		t.Fatal("OpenCode vendor should not use raw chat/completions fallback")
+	if !account.ShouldUseOpenAIChatCompletionsUpstream() {
+		t.Fatal("OpenCode vendor should use chat/completions upstream")
 	}
 }
 
-func TestAccountOpenCodeBaseURLDoesNotForceChatCompletionsWithoutVendor(t *testing.T) {
-	account := &Account{
-		Platform: PlatformOpenAI,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"base_url": "https://api.opencode.ai/v1",
-		},
+func TestAccountChatCompletionsBaseURLPreferencesWithoutVendor(t *testing.T) {
+	tests := []struct {
+		name    string
+		baseURL string
+	}{
+		{name: "opencode", baseURL: "https://api.opencode.ai/v1"},
+		{name: "openrouter", baseURL: "https://openrouter.ai/api/v1"},
+		{name: "gemini openai compat", baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/"},
+		{name: "mimo", baseURL: "https://api.xiaomimimo.com/v1"},
+		{name: "mimo token plan", baseURL: "https://api-mimo-share-token.xiaomimimo.com/v1"},
 	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			account := &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"base_url": tt.baseURL,
+				},
+			}
 
-	if account.ShouldUseOpenAIChatCompletionsUpstream() {
-		t.Fatal("OpenCode base URL should not force chat/completions upstream")
-	}
-	if account.ShouldUseOpenCodeServerUpstream() {
-		t.Fatal("OpenCode server upstream requires an explicit vendor")
+			if !account.ShouldUseOpenAIChatCompletionsUpstream() {
+				t.Fatalf("base URL %q should use chat/completions upstream", tt.baseURL)
+			}
+		})
 	}
 }
 
@@ -201,6 +209,46 @@ func TestAccountDeepSeekDefaults(t *testing.T) {
 	}
 }
 
+func TestAccountGeminiDefaults(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"vendor": "gemini",
+		},
+	}
+
+	if got := account.GetOpenAIBaseURL(); got != "https://generativelanguage.googleapis.com/v1beta/openai" {
+		t.Fatalf("base url = %q, want Gemini OpenAI-compatible default base url", got)
+	}
+	if !account.ShouldUseOpenAIChatCompletionsUpstream() {
+		t.Fatal("Gemini should use chat/completions upstream")
+	}
+}
+
+func TestAccountMimoDefaults(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"vendor": "mimo",
+		},
+	}
+
+	if got := account.GetOpenAIBaseURL(); got != "https://api.xiaomimimo.com/v1" {
+		t.Fatalf("base url = %q, want MiMo OpenAI-compatible default base url", got)
+	}
+	if !account.ShouldUseOpenAIChatCompletionsUpstream() {
+		t.Fatal("MiMo should use chat/completions upstream")
+	}
+	if got := account.GetOpenAIAuthHeaderName(); got != "api-key" {
+		t.Fatalf("auth header name = %q, want %q", got, "api-key")
+	}
+	if got := account.GetOpenAIAuthScheme(); got != "raw" {
+		t.Fatalf("auth scheme = %q, want %q", got, "raw")
+	}
+}
+
 func TestAccountOpenRouterDefaults(t *testing.T) {
 	account := &Account{
 		Platform: PlatformOpenAI,
@@ -215,20 +263,6 @@ func TestAccountOpenRouterDefaults(t *testing.T) {
 	}
 	if !account.ShouldUseOpenAIChatCompletionsUpstream() {
 		t.Fatal("OpenRouter should use chat/completions upstream")
-	}
-}
-
-func TestAccountOpenRouterBaseURLUsesChatCompletionsWithoutVendor(t *testing.T) {
-	account := &Account{
-		Platform: PlatformOpenAI,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"base_url": "https://openrouter.ai/api/v1",
-		},
-	}
-
-	if !account.ShouldUseOpenAIChatCompletionsUpstream() {
-		t.Fatal("OpenRouter base URL should use chat/completions upstream")
 	}
 }
 

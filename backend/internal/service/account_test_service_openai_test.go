@@ -454,6 +454,43 @@ func TestDefaultOpenAITestModel_OpenRouter(t *testing.T) {
 	}
 }
 
+func TestDefaultOpenAITestModel_CompatibleBaseURL(t *testing.T) {
+	tests := []struct {
+		name      string
+		baseURL   string
+		wantModel string
+	}{
+		{
+			name:      "gemini openai compatibility",
+			baseURL:   "https://generativelanguage.googleapis.com/v1beta/openai",
+			wantModel: "gemini-2.5-flash",
+		},
+		{
+			name:      "mimo",
+			baseURL:   "https://api.xiaomimimo.com/v1",
+			wantModel: "mimo-v2.5",
+		},
+		{
+			name:      "openrouter",
+			baseURL:   "https://openrouter.ai/api/v1",
+			wantModel: "~openai/gpt-latest",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			account := &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"base_url": tt.baseURL,
+				},
+			}
+
+			require.Equal(t, tt.wantModel, defaultOpenAITestModel(account))
+		})
+	}
+}
+
 func TestAccountTestService_OllamaUsesChatCompletionsPath(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, recorder := newTestContext()

@@ -682,6 +682,10 @@ func defaultOpenAIBaseURLForVendor(vendor string) string {
 	switch strings.ToLower(strings.TrimSpace(vendor)) {
 	case "deepseek":
 		return "https://api.deepseek.com"
+	case "gemini":
+		return "https://generativelanguage.googleapis.com/v1beta/openai"
+	case "mimo":
+		return "https://api.xiaomimimo.com/v1"
 	case "openai-local-proxy":
 		return "http://127.0.0.1:18081/v1"
 	case "ollama":
@@ -695,16 +699,7 @@ func defaultOpenAIBaseURLForVendor(vendor string) string {
 
 func openAIVendorPrefersChatCompletions(vendor string) bool {
 	switch strings.ToLower(strings.TrimSpace(vendor)) {
-	case "deepseek", "gemini", "mimo", "ollama", "openrouter", "trae":
-		return true
-	default:
-		return false
-	}
-}
-
-func openAIVendorPrefersOpenCodeServer(vendor string) bool {
-	switch strings.ToLower(strings.TrimSpace(vendor)) {
-	case "opencode", "opencode-server":
+	case "deepseek", "gemini", "mimo", "ollama", "opencode", "openrouter", "trae":
 		return true
 	default:
 		return false
@@ -713,9 +708,33 @@ func openAIVendorPrefersOpenCodeServer(vendor string) bool {
 
 func openAIBaseURLPrefersChatCompletions(baseURL string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(baseURL))
+	return openAIBaseURLLooksLikeDeepSeek(normalized) ||
+		openAIBaseURLLooksLikeOpenCode(normalized) ||
+		openAIBaseURLLooksLikeGeminiOpenAICompat(normalized) ||
+		openAIBaseURLLooksLikeMimo(normalized) ||
+		openAIBaseURLLooksLikeOpenRouter(normalized)
+}
+
+func openAIBaseURLLooksLikeDeepSeek(normalized string) bool {
 	return strings.Contains(normalized, "api.deepseek.com") ||
-		strings.Contains(normalized, "deepseek.com") ||
-		strings.Contains(normalized, "openrouter.ai")
+		strings.Contains(normalized, "deepseek.com")
+}
+
+func openAIBaseURLLooksLikeOpenCode(normalized string) bool {
+	return strings.Contains(normalized, "opencode.ai")
+}
+
+func openAIBaseURLLooksLikeGeminiOpenAICompat(normalized string) bool {
+	return strings.Contains(normalized, "googleapis.com/v1beta/openai") ||
+		strings.Contains(normalized, "googleapis.com/v1alpha/openai")
+}
+
+func openAIBaseURLLooksLikeMimo(normalized string) bool {
+	return strings.Contains(normalized, "xiaomimimo.com")
+}
+
+func openAIBaseURLLooksLikeOpenRouter(normalized string) bool {
+	return strings.Contains(normalized, "openrouter.ai")
 }
 
 func openAIVendorAllowsEmptyAPIKey(vendor string) bool {
@@ -1416,10 +1435,6 @@ func (a *Account) ShouldUseOpenAIChatCompletionsUpstream() bool {
 	return a.IsOpenAIApiKey() &&
 		(openAIVendorPrefersChatCompletions(a.GetOpenAIVendor()) ||
 			openAIBaseURLPrefersChatCompletions(a.GetOpenAIBaseURL()))
-}
-
-func (a *Account) ShouldUseOpenCodeServerUpstream() bool {
-	return a.IsOpenAIApiKey() && openAIVendorPrefersOpenCodeServer(a.GetOpenAIVendor())
 }
 
 func (a *Account) AllowsEmptyOpenAIApiKey() bool {

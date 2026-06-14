@@ -846,7 +846,7 @@ func normalizeOpenAIModelForUpstream(account *Account, model string) string {
 		return normalizeCodexModel(model)
 	}
 	trimmed := strings.TrimSpace(model)
-	if account.ShouldUseOpenAIChatCompletionsUpstream() || account.ShouldUseOpenCodeServerUpstream() {
+	if account.ShouldUseOpenAIChatCompletionsUpstream() {
 		return normalizeOpenAICompatibleUpstreamModel(trimmed)
 	}
 	return trimmed

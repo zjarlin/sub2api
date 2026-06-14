@@ -800,7 +800,13 @@ func defaultOpenAITestModel(account *Account) string {
 	case "trae":
 		return "gpt-4o"
 	default:
-		if account != nil && openAIBaseURLPrefersChatCompletions(account.GetOpenAIBaseURL()) {
+		baseURL := strings.ToLower(strings.TrimSpace(account.GetOpenAIBaseURL()))
+		switch {
+		case openAIBaseURLLooksLikeGeminiOpenAICompat(baseURL):
+			return "gemini-2.5-flash"
+		case openAIBaseURLLooksLikeMimo(baseURL):
+			return "mimo-v2.5"
+		case openAIBaseURLLooksLikeOpenRouter(baseURL):
 			return "~openai/gpt-latest"
 		}
 		return openai.DefaultTestModel
