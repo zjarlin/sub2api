@@ -227,7 +227,7 @@ func TestForwardAsRawChatCompletions_PreservesDeepSeekReasoningContentInRequest(
 	require.Equal(t, "get_weather", gjson.GetBytes(upstream.lastBody, "messages.1.tool_calls.0.function.name").String())
 }
 
-func TestForwardAsRawChatCompletions_DeepSeekImageInputReturnsLocalFailover(t *testing.T) {
+func TestForwardAsRawChatCompletions_DeepSeekImageInputStripsImageAndForwardsText(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	body := []byte(`{"model":"gpt-5.5","messages":[{"role":"user","content":[{"type":"text","text":"describe"},{"type":"image_url","image_url":{"url":"data:image/png;base64,aGVsbG8="}}]}],"stream":false}`)
@@ -236,7 +236,11 @@ func TestForwardAsRawChatCompletions_DeepSeekImageInputReturnsLocalFailover(t *t
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	upstream := &httpUpstreamRecorder{}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_deepseek_raw_image_stripped"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"chatcmpl_image_stripped","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`)),
+	}}
 	svc := &OpenAIGatewayService{
 		cfg:          rawChatCompletionsTestConfig(),
 		httpUpstream: upstream,
@@ -254,14 +258,22 @@ func TestForwardAsRawChatCompletions_DeepSeekImageInputReturnsLocalFailover(t *t
 	}
 
 	result, err := svc.forwardAsRawChatCompletions(context.Background(), c, account, body, "")
-	require.Nil(t, result)
-	var failoverErr *UpstreamFailoverError
-	require.ErrorAs(t, err, &failoverErr)
-	require.Equal(t, http.StatusBadRequest, failoverErr.StatusCode)
-	require.True(t, IsDeepSeekImageInputUnsupportedFailover(failoverErr.ResponseBody))
-	require.Nil(t, upstream.lastReq)
-	require.False(t, c.Writer.Written(), "service should return failover before writing client response")
-	require.Empty(t, rec.Body.String())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, "describe", gjson.GetBytes(upstream.lastBody, "messages.0.content").String())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "messages.0.content.0.image_url").Exists())
+	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "choices.0.message.content").String())
+}
+
+func TestStripDeepSeekImageInputFromChatBody_ImageOnlyUsesNotice(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.5","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,aGVsbG8="}}]}],"stream":false}`)
+
+	got, changed, err := stripDeepSeekImageInputFromChatBody(body)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, openAIDeepSeekImageOmittedNotice, gjson.GetBytes(got, "messages.0.content").String())
+	require.False(t, gjson.GetBytes(got, "messages.0.content.0.image_url").Exists())
 }
 
 func TestForwardAsRawChatCompletions_SilentRefusalTriggersFailover(t *testing.T) {

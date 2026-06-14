@@ -19,8 +19,6 @@ import (
 	"go.uber.org/zap"
 )
 
-const openAIDeepSeekImageInputUnsupportedCode = "deepseek_image_input_unsupported"
-
 // forwardResponsesViaRawChatCompletions serves /v1/responses clients through an
 // upstream that only supports /v1/chat/completions.
 func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
@@ -56,10 +54,6 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	reasoningEffort := extractOpenAIReasoningEffortFromBody(body, originalModel)
 	serviceTier := extractOpenAIServiceTierFromBody(body)
 
-	if accountUsesDeepSeekOpenAICompat(account) && openAIRequestBodyMayContainImageInput(body) {
-		return nil, newDeepSeekImageInputUnsupportedFailover()
-	}
-
 	chatReq, err := apicompat.ResponsesToChatCompletionsRequest(&responsesReq)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -85,6 +79,13 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	chatBody, err := json.Marshal(chatReq)
 	if err != nil {
 		return nil, fmt.Errorf("marshal chat completions fallback request: %w", err)
+	}
+	if accountUsesDeepSeekOpenAICompat(account) {
+		var stripErr error
+		chatBody, _, stripErr = stripDeepSeekImageInputFromChatBody(chatBody)
+		if stripErr != nil {
+			return nil, stripErr
+		}
 	}
 	chatBody, err = s.applyOpenAIFastPolicyToBody(ctx, account, upstreamModel, chatBody)
 	if err != nil {
@@ -210,18 +211,6 @@ func accountUsesDeepSeekOpenAICompat(account *Account) bool {
 	}
 	return openAIBaseURLPrefersChatCompletions(account.GetOpenAIBaseURL()) &&
 		strings.Contains(strings.ToLower(account.GetOpenAIBaseURL()), "deepseek")
-}
-
-func newDeepSeekImageInputUnsupportedFailover() *UpstreamFailoverError {
-	return &UpstreamFailoverError{
-		StatusCode: http.StatusBadRequest,
-		ResponseBody: []byte(`{"error":{"type":"invalid_request_error","code":"` + openAIDeepSeekImageInputUnsupportedCode +
-			`","message":"DeepSeek chat completions upstream does not support image input. Use a vision-capable OpenAI account or remove image_url/input_image content."}}`),
-	}
-}
-
-func IsDeepSeekImageInputUnsupportedFailover(body []byte) bool {
-	return extractUpstreamErrorCode(body) == openAIDeepSeekImageInputUnsupportedCode
 }
 
 func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(

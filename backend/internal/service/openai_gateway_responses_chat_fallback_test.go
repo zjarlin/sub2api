@@ -99,7 +99,7 @@ func TestForwardResponses_DeepSeekVendorRoutesToChatCompletions(t *testing.T) {
 	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
 }
 
-func TestForwardResponses_DeepSeekImageInputReturnsLocalFailover(t *testing.T) {
+func TestForwardResponses_DeepSeekImageInputStripsImageAndForwardsText(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	body := []byte(`{"model":"gpt-5.5","input":[{"role":"user","content":[{"type":"input_text","text":"describe"},{"type":"input_image","image_url":"data:image/png;base64,aGVsbG8="}]}],"stream":false}`)
@@ -108,7 +108,13 @@ func TestForwardResponses_DeepSeekImageInputReturnsLocalFailover(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
-	upstream := &httpUpstreamRecorder{}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_deepseek_image_stripped"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"chatcmpl_deepseek_image_stripped","object":"chat.completion","model":"deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`,
+		)),
+	}}
 	svc := &OpenAIGatewayService{
 		cfg:          rawChatCompletionsTestConfig(),
 		httpUpstream: upstream,
@@ -126,14 +132,12 @@ func TestForwardResponses_DeepSeekImageInputReturnsLocalFailover(t *testing.T) {
 	}
 
 	result, err := svc.Forward(context.Background(), c, account, body)
-	require.Nil(t, result)
-	var failoverErr *UpstreamFailoverError
-	require.ErrorAs(t, err, &failoverErr)
-	require.Equal(t, http.StatusBadRequest, failoverErr.StatusCode)
-	require.True(t, IsDeepSeekImageInputUnsupportedFailover(failoverErr.ResponseBody))
-	require.Nil(t, upstream.lastReq)
-	require.False(t, c.Writer.Written(), "service should return failover before writing client response")
-	require.Empty(t, rec.Body.String())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, "describe", gjson.GetBytes(upstream.lastBody, "messages.0.content").String())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "messages.0.content.0.image_url").Exists())
+	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
 }
 
 func TestForwardResponses_ForceChatCompletionsRoutesStreamingToChatCompletions(t *testing.T) {

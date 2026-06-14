@@ -199,27 +199,6 @@ func TestOpenAIHandleFailoverExhaustedSimple_BackfillsUpstreamEvent(t *testing.T
 	assert.Contains(t, events[0].Message, "temporarily unavailable")
 }
 
-func TestOpenAIHandleFailoverExhausted_DeepSeekImageInputReturns400(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-
-	message := "DeepSeek chat completions upstream does not support image input. Use a vision-capable OpenAI account or remove image_url/input_image content."
-	failoverErr := &service.UpstreamFailoverError{
-		StatusCode: http.StatusBadRequest,
-		ResponseBody: []byte(`{"error":{"type":"invalid_request_error","code":"deepseek_image_input_unsupported","message":"` +
-			message + `"}}`),
-	}
-
-	h := &OpenAIGatewayHandler{}
-	h.handleFailoverExhausted(c, failoverErr, false)
-
-	require.Equal(t, http.StatusBadRequest, w.Code)
-	require.Equal(t, "invalid_request_error", gjson.Get(w.Body.String(), "error.type").String())
-	require.Equal(t, message, gjson.Get(w.Body.String(), "error.message").String())
-}
-
 func TestReadRequestBodyWithPrealloc(t *testing.T) {
 	payload := `{"model":"gpt-5","input":"hello"}`
 	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(payload))

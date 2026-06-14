@@ -82,14 +82,18 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
 
-	if accountUsesDeepSeekOpenAICompat(account) && openAIRequestBodyMayContainImageInput(body) {
-		return nil, newDeepSeekImageInputUnsupportedFailover()
-	}
-
 	// 3. Rewrite model in body (no protocol conversion)
 	upstreamBody := body
 	if upstreamModel != originalModel {
 		upstreamBody = ReplaceModelInBody(body, upstreamModel)
+	}
+	if accountUsesDeepSeekOpenAICompat(account) {
+		var stripErr error
+		upstreamBody, _, stripErr = stripDeepSeekImageInputFromChatBody(upstreamBody)
+		if stripErr != nil {
+			writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+			return nil, stripErr
+		}
 	}
 
 	// 4. Apply OpenAI fast policy on the CC body
