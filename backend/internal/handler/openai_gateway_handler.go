@@ -1801,6 +1801,11 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 	service.SetOpsUpstreamError(c, statusCode, upstreamMsg, "")
 	ensureOpsUpstreamErrorEvent(c, statusCode, "failover", upstreamMsg)
 
+	if service.IsDeepSeekImageInputUnsupportedFailover(responseBody) {
+		h.handleStreamingAwareError(c, http.StatusBadRequest, "invalid_request_error", upstreamMsg, streamStarted)
+		return
+	}
+
 	// 先检查透传规则
 	if h.errorPassthroughService != nil && len(responseBody) > 0 {
 		if rule := h.errorPassthroughService.MatchRule("openai", statusCode, responseBody); rule != nil {

@@ -544,6 +544,11 @@ func isOpenAIAccountCandidateBetter(left openAIAccountCandidateScore, right open
 	if left.account.Priority != right.account.Priority {
 		return left.account.Priority < right.account.Priority
 	}
+	leftRate := left.account.UpstreamEffectiveRateMultiplier()
+	rightRate := right.account.UpstreamEffectiveRateMultiplier()
+	if leftRate != rightRate {
+		return leftRate < rightRate
+	}
 	if left.loadInfo.LoadRate != right.loadInfo.LoadRate {
 		return left.loadInfo.LoadRate < right.loadInfo.LoadRate
 	}
@@ -865,6 +870,11 @@ func sortOpenAICompactRetryCandidates(pool []openAIAccountCandidateScore) []open
 		if a.account.Priority != b.account.Priority {
 			return a.account.Priority < b.account.Priority
 		}
+		aRate := a.account.UpstreamEffectiveRateMultiplier()
+		bRate := b.account.UpstreamEffectiveRateMultiplier()
+		if aRate != bRate {
+			return aRate < bRate
+		}
 		if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
 			return a.loadInfo.LoadRate < b.loadInfo.LoadRate
 		}
@@ -1028,6 +1038,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 			req.RequireCompact && filterStats.CompactUnsupported > 0,
 		)
 	}
+	s.service.refreshUpstreamSiteModeRatesForAccountPointers(ctx, filtered)
 
 	loadMap := map[int64]*AccountLoadInfo{}
 	if s.service.concurrencyService != nil {

@@ -1810,6 +1810,9 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	if len(accounts) == 0 {
 		return nil, ErrNoAvailableAccounts
 	}
+	if platform == PlatformOpenAI {
+		s.refreshUpstreamSiteModeRatesForAccountValues(ctx, accounts)
+	}
 	ctx = s.withWindowCostPrefetch(ctx, accounts)
 	ctx = s.withRPMPrefetch(ctx, accounts)
 
@@ -3187,6 +3190,11 @@ func sortAccountsByPriorityAndLastUsed(accounts []*Account, preferOAuth bool) {
 		if a.Priority != b.Priority {
 			return a.Priority < b.Priority
 		}
+		aRate := a.UpstreamEffectiveRateMultiplier()
+		bRate := b.UpstreamEffectiveRateMultiplier()
+		if aRate != bRate {
+			return aRate < bRate
+		}
 		switch {
 		case a.LastUsedAt == nil && b.LastUsedAt != nil:
 			return true
@@ -3228,6 +3236,9 @@ func shuffleWithinSortGroups(accounts []accountWithLoad) {
 // sameAccountWithLoadGroup 判断两个 accountWithLoad 是否属于同一排序组
 func sameAccountWithLoadGroup(a, b accountWithLoad) bool {
 	if a.account.Priority != b.account.Priority {
+		return false
+	}
+	if a.account.UpstreamEffectiveRateMultiplier() != b.account.UpstreamEffectiveRateMultiplier() {
 		return false
 	}
 	if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
@@ -3286,6 +3297,9 @@ func sameAccountGroup(a, b *Account) bool {
 	if a.Priority != b.Priority {
 		return false
 	}
+	if a.UpstreamEffectiveRateMultiplier() != b.UpstreamEffectiveRateMultiplier() {
+		return false
+	}
 	return sameLastUsedAt(a.LastUsedAt, b.LastUsedAt)
 }
 
@@ -3312,6 +3326,17 @@ func (s *GatewayService) sortCandidatesForFallback(accounts []*Account, preferOA
 		// 默认按最后使用时间排序
 		sortAccountsByPriorityAndLastUsed(accounts, preferOAuth)
 	}
+}
+
+func (s *GatewayService) refreshUpstreamSiteModeRatesForAccountValues(ctx context.Context, accounts []Account) {
+	if len(accounts) == 0 || s == nil {
+		return
+	}
+	pointers := make([]*Account, 0, len(accounts))
+	for i := range accounts {
+		pointers = append(pointers, &accounts[i])
+	}
+	refreshAccountSliceUpstreamSiteModeRates(ctx, s.accountRepo, pointers)
 }
 
 // sortAccountsByPriorityOnly 仅按优先级排序

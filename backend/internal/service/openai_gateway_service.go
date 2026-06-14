@@ -1689,6 +1689,7 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 	// 2. 获取可调度的 OpenAI 账号
 	// Get schedulable OpenAI accounts
 	accounts = filterOpenAIAccountsByExplicitModelSupport(accounts, requestedModel)
+	s.refreshUpstreamSiteModeRatesForAccountValues(ctx, accounts)
 
 	// 3. 按优先级 + LRU 选择最佳账号
 	// Select by priority + LRU
@@ -1885,6 +1886,15 @@ func (s *OpenAIGatewayService) isBetterAccount(candidate, current *Account) bool
 		return false
 	}
 
+	candidateRate := candidate.UpstreamEffectiveRateMultiplier()
+	currentRate := current.UpstreamEffectiveRateMultiplier()
+	if candidateRate < currentRate {
+		return true
+	}
+	if candidateRate > currentRate {
+		return false
+	}
+
 	// 同优先级，比较最后使用时间
 	// Same priority, compare last used time
 	switch {
@@ -2077,6 +2087,7 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			requireCompact && filterStats.CompactUnsupported > 0,
 		)
 	}
+	s.refreshUpstreamSiteModeRatesForAccountPointers(ctx, candidates)
 
 	accountLoads := make([]AccountWithConcurrency, 0, len(candidates))
 	for _, acc := range candidates {
@@ -2113,6 +2124,11 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			a, b := available[i], available[j]
 			if a.account.Priority != b.account.Priority {
 				return a.account.Priority < b.account.Priority
+			}
+			aRate := a.account.UpstreamEffectiveRateMultiplier()
+			bRate := b.account.UpstreamEffectiveRateMultiplier()
+			if aRate != bRate {
+				return aRate < bRate
 			}
 			if a.loadInfo.LoadRate != b.loadInfo.LoadRate {
 				return a.loadInfo.LoadRate < b.loadInfo.LoadRate
@@ -2344,6 +2360,24 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 		),
 		false,
 	)
+}
+
+func (s *OpenAIGatewayService) refreshUpstreamSiteModeRatesForAccountValues(ctx context.Context, accounts []Account) {
+	if len(accounts) == 0 || s == nil {
+		return
+	}
+	pointers := make([]*Account, 0, len(accounts))
+	for i := range accounts {
+		pointers = append(pointers, &accounts[i])
+	}
+	s.refreshUpstreamSiteModeRatesForAccountPointers(ctx, pointers)
+}
+
+func (s *OpenAIGatewayService) refreshUpstreamSiteModeRatesForAccountPointers(ctx context.Context, accounts []*Account) {
+	if s == nil || len(accounts) == 0 {
+		return
+	}
+	refreshAccountSliceUpstreamSiteModeRates(ctx, s.accountRepo, accounts)
 }
 
 func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64) ([]Account, error) {
@@ -2604,7 +2638,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	reqModel, reqStream, promptCacheKey := requestView.Model, requestView.Stream, requestView.PromptCacheKey
 	originalModel := reqModel
 
-	if account.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(account.Extra) {
+	if account.Type == AccountTypeAPIKey &&
+		(account.ShouldUseOpenAIChatCompletionsUpstream() || !openai_compat.ShouldUseResponsesAPI(account.Extra)) {
 		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
 	}
 
@@ -7126,7 +7161,7 @@ func openAIRequestBodyMayContainImageInput(body []byte) bool {
 		return false
 	}
 	input := gjson.GetBytes(body, "input")
-	messages := gjson.GetBytes(body, "messages.#-1")
+	messages := gjson.GetBytes(body, "messages")
 	return openAIJSONValueMayContainImageInput(input) || openAIJSONValueMayContainImageInput(messages)
 }
 

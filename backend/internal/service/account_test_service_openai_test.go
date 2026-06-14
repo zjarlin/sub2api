@@ -3,6 +3,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -25,6 +26,7 @@ import (
 type queuedHTTPUpstream struct {
 	responses []*http.Response
 	requests  []*http.Request
+	bodies    [][]byte
 	tlsFlags  []bool
 }
 
@@ -33,6 +35,12 @@ func (u *queuedHTTPUpstream) Do(_ *http.Request, _ string, _ int64, _ int) (*htt
 }
 
 func (u *queuedHTTPUpstream) DoWithTLS(req *http.Request, _ string, _ int64, _ int, profile *tlsfingerprint.Profile) (*http.Response, error) {
+	if req != nil && req.Body != nil {
+		b, _ := io.ReadAll(req.Body)
+		u.bodies = append(u.bodies, append([]byte(nil), b...))
+		_ = req.Body.Close()
+		req.Body = io.NopCloser(bytes.NewReader(b))
+	}
 	u.requests = append(u.requests, req)
 	u.tlsFlags = append(u.tlsFlags, profile != nil)
 	if len(u.responses) == 0 {
@@ -374,6 +382,43 @@ func TestAccountTestService_OpenAIVendorChatCompletionsBypassesResponsesProbe(t 
 	require.Equal(t, "https://proxy.example.com/v1/chat/completions", upstream.requests[0].URL.String())
 	require.Contains(t, recorder.Body.String(), `"model":"gemini-2.5-flash"`)
 	require.NotContains(t, upstream.requests[0].URL.String(), "/responses")
+}
+
+func TestAccountTestService_DeepSeekChatCompletionsStripsMappedRateSuffix(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := newTestContext()
+
+	resp := newJSONResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`)
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
+	svc := &AccountTestService{
+		httpUpstream: upstream,
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled: false,
+		}}},
+	}
+	account := &Account{
+		ID:          92,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "test-token",
+			"vendor":   "deepseek",
+			"base_url": "https://api.deepseek.com",
+			"model_mapping": map[string]any{
+				"gpt-5.5": "deepseek-v4-pro[1m]",
+			},
+		},
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesSupported: true,
+		},
+	}
+
+	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.5", "", "")
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, "https://api.deepseek.com/v1/chat/completions", upstream.requests[0].URL.String())
+	require.Equal(t, "deepseek-v4-pro", gjson.GetBytes(upstream.bodies[0], "model").String())
 }
 
 func TestDefaultOpenAITestModel_Ollama(t *testing.T) {

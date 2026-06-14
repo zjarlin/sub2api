@@ -101,6 +101,9 @@ type AdminService interface {
 	BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error)
 	CheckMixedChannelRisk(ctx context.Context, currentAccountID int64, currentAccountPlatform string, groupIDs []int64) error
 	ResolveUpstreamKeyRate(ctx context.Context, input ResolveUpstreamKeyRateInput) (*ResolveUpstreamKeyRateResult, error)
+	TestUpstreamConsoleLogin(ctx context.Context, input TestUpstreamConsoleLoginInput) (*TestUpstreamConsoleLoginResult, error)
+	ListUpstreamKeyGroups(ctx context.Context, accountID int64) ([]UpstreamKeyGroupOption, error)
+	SwitchUpstreamKeyGroup(ctx context.Context, accountID int64, input SwitchUpstreamKeyGroupInput) (*Account, error)
 	// RevertAccountProxyFallback 将账号的 proxy_id 切回 proxy_fallback_origin_id，并清空 origin 字段。
 	// 若账号不存在返回 ErrAccountNotFound；若账号存在但不在 fallback 状态，返回 ErrAccountNotInFallback。
 	RevertAccountProxyFallback(ctx context.Context, id int64) error
@@ -2629,21 +2632,32 @@ func (s *adminServiceImpl) ListAccounts(ctx context.Context, page, pageSize int,
 		if err != nil {
 			return nil, 0, err
 		}
+		s.refreshUpstreamSiteModeRatesForAccountValues(ctx, accounts)
 		return accounts, result.Total, nil
 	}
 	if strings.TrimSpace(schedulable) != "" || strings.TrimSpace(displayGroup) != "" || strings.TrimSpace(namePrefix) != "" || strings.TrimSpace(searchRegex) != "" {
-		return listAccountsWithLegacyRepoAndExtraFilters(ctx, s.accountRepo, params, platform, accountType, status, schedulable, search, groupID, privacyMode, displayGroup, namePrefix, searchRegex)
+		accounts, total, err := listAccountsWithLegacyRepoAndExtraFilters(ctx, s.accountRepo, params, platform, accountType, status, schedulable, search, groupID, privacyMode, displayGroup, namePrefix, searchRegex)
+		if err != nil {
+			return nil, 0, err
+		}
+		s.refreshUpstreamSiteModeRatesForAccountValues(ctx, accounts)
+		return accounts, total, nil
 	}
 
 	accounts, result, err := s.accountRepo.ListWithFilters(ctx, params, platform, accountType, status, search, groupID, privacyMode)
 	if err != nil {
 		return nil, 0, err
 	}
+	s.refreshUpstreamSiteModeRatesForAccountValues(ctx, accounts)
 	return accounts, result.Total, nil
 }
 
 func (s *adminServiceImpl) GetAccount(ctx context.Context, id int64) (*Account, error) {
-	return s.accountRepo.GetByID(ctx, id)
+	account, err := s.accountRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return refreshAccountUpstreamSiteModeRateIfStale(ctx, s.accountRepo, account), nil
 }
 
 func (s *adminServiceImpl) GetAccountsByIDs(ctx context.Context, ids []int64) ([]*Account, error) {
@@ -2805,6 +2819,10 @@ func (s *adminServiceImpl) CopyAccount(ctx context.Context, id int64) (*Account,
 }
 
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
+	if err := s.prepareUpstreamSiteModeForCreate(ctx, input); err != nil {
+		return nil, err
+	}
+
 	// 绑定分组
 	groupIDs := input.GroupIDs
 	// 如果没有指定分组,自动绑定对应平台的默认分组
@@ -2906,7 +2924,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		}
 	}
 
-	return account, nil
+	return refreshAccountUpstreamSiteModeRateIfStale(ctx, s.accountRepo, account), nil
 }
 
 func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error) {
@@ -2915,6 +2933,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		return nil, err
 	}
 	wasOveragesEnabled := account.IsOveragesEnabled()
+	if err := s.prepareUpstreamSiteModeForUpdate(ctx, account, input); err != nil {
+		return nil, err
+	}
 
 	if input.Name != "" {
 		account.Name = input.Name
@@ -3035,7 +3056,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if err != nil {
 		return nil, err
 	}
-	return updated, nil
+	return refreshAccountUpstreamSiteModeRateIfStale(ctx, s.accountRepo, updated), nil
 }
 
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键

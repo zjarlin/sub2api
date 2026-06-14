@@ -1,5 +1,6 @@
 export type OpenAIVendorPresetId =
   | 'openai'
+  | 'deepseek'
   | 'openrouter'
   | 'gemini'
   | 'mimo'
@@ -33,6 +34,18 @@ const OPENAI_VENDOR_PRESETS: Record<OpenAIVendorPresetId, OpenAIVendorPreset> = 
     presetPlatform: 'openai',
     baseUrlHintKey: 'admin.accounts.openai.baseUrlHint',
     apiKeyHintKey: 'admin.accounts.openai.apiKeyHint'
+  },
+  deepseek: {
+    id: 'deepseek',
+    labelKey: 'admin.accounts.openai.vendorOptions.deepseek',
+    baseUrl: 'https://api.deepseek.com',
+    authHeader: 'authorization',
+    authScheme: 'bearer',
+    apiKeyPlaceholder: 'sk-...',
+    modelPlatforms: ['deepseek'],
+    presetPlatform: 'deepseek',
+    baseUrlHintKey: 'admin.accounts.openai.deepseekBaseUrlHint',
+    apiKeyHintKey: 'admin.accounts.openai.deepseekApiKeyHint'
   },
   openrouter: {
     id: 'openrouter',
@@ -122,6 +135,7 @@ const OPENAI_VENDOR_PRESETS: Record<OpenAIVendorPresetId, OpenAIVendorPreset> = 
 
 const PRESET_ORDER: OpenAIVendorPresetId[] = [
   'openai',
+  'deepseek',
   'openrouter',
   'gemini',
   'mimo',
@@ -179,6 +193,9 @@ export function inferOpenAIVendorPreset(input: {
 
   if (baseUrl.includes('generativelanguage.googleapis.com')) {
     return 'gemini'
+  }
+  if (baseUrl.includes('deepseek.com')) {
+    return 'deepseek'
   }
   if (baseUrl.includes('openrouter.ai')) {
     return 'openrouter'

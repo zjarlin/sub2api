@@ -257,7 +257,16 @@
           </template>
           <template #cell-name="{ row, value }">
             <div class="flex flex-col">
-              <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
+              <div class="flex min-w-0 items-center gap-2">
+                <span class="truncate font-medium text-gray-900 dark:text-white">{{ value }}</span>
+                <span
+                  v-if="getUpstreamSiteType(row)"
+                  class="shrink-0 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                  :title="t('admin.accounts.openai.upstreamRate.siteMode')"
+                >
+                  {{ getUpstreamSiteTypeLabel(row) }}
+                </span>
+              </div>
               <span
                 v-if="row.extra?.email_address || row.extra?.email || row.credentials?.email"
                 class="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]"
@@ -302,6 +311,12 @@
                   :class="['inline-block rounded px-1.5 py-0.5 text-[10px] font-medium', getAntigravityTierClass(row)]"
                 >
                   {{ getAntigravityTierLabel(row) }}
+                </span>
+                <span
+                  v-if="getUpstreamSiteType(row)"
+                  class="inline-block rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+                >
+                  {{ getUpstreamSiteTypeLabel(row) }}
                 </span>
               </div>
               <div
@@ -355,6 +370,17 @@
               @kiro-usage-meta="handleKiroUsageMeta(row, $event)"
             />
           </template>
+          <template #cell-upstream_balance="{ row }">
+            <div class="flex flex-col gap-0.5">
+              <span
+                v-if="getUpstreamAccountBalance(row) != null"
+                class="text-sm font-semibold font-mono text-emerald-700 dark:text-emerald-300"
+              >
+                {{ formatBalance(getUpstreamAccountBalance(row) ?? 0) }}
+              </span>
+              <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+            </div>
+          </template>
           <template #cell-proxy="{ row }">
             <div class="flex flex-col gap-1">
               <div v-if="row.proxy" class="flex items-center gap-2">
@@ -377,9 +403,31 @@
             </div>
           </template>
           <template #cell-rate_multiplier="{ row }">
-            <span class="text-sm font-mono text-gray-700 dark:text-gray-300">
-              {{ (row.rate_multiplier ?? 1).toFixed(2) }}x
-            </span>
+            <div class="flex flex-col gap-0.5">
+              <span
+                v-if="getUpstreamKeyRate(row) != null"
+                class="text-sm font-semibold font-mono text-blue-700 dark:text-blue-300"
+              >
+                {{ t('admin.accounts.openai.upstreamRate.keyRate') }} {{ formatRate(getUpstreamKeyRate(row) ?? 1) }}
+              </span>
+              <span class="text-xs font-mono text-gray-600 dark:text-gray-300">
+                {{ t('admin.accounts.openai.upstreamRate.accountRate') }} {{ formatRate(row.rate_multiplier ?? 1) }}
+              </span>
+              <span
+                v-if="getUpstreamRateError(row)"
+                class="max-w-[180px] truncate text-[11px] text-amber-600 dark:text-amber-300"
+                :title="getUpstreamRateError(row) || ''"
+              >
+                {{ t('admin.accounts.openai.upstreamRate.resolveFailed') }}
+              </span>
+              <span
+                v-if="getUpstreamKeyGroupName(row)"
+                class="max-w-[140px] truncate text-[11px] text-gray-400 dark:text-dark-400"
+                :title="getUpstreamKeyGroupName(row) || ''"
+              >
+                {{ t('admin.accounts.openai.upstreamRate.keyGroup') }} {{ getUpstreamKeyGroupName(row) }}
+              </span>
+            </div>
           </template>
           <template #cell-priority="{ value }">
             <span class="text-sm text-gray-700 dark:text-gray-300">{{ value }}</span>
@@ -1669,6 +1717,77 @@ function getOpenAICompactTitle(row: any): string {
   return `${label} | ${t('admin.accounts.openai.compactLastChecked')}: ${formatDateTime(new Date(checkedAt))}`
 }
 
+function numberFromExtra(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value)) return value
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value.trim())
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+function getUpstreamSiteType(row: Account): string | null {
+  if (row.platform !== 'openai' || row.type !== 'apikey') return null
+  const extra = row.extra as Record<string, unknown> | undefined
+  const raw = typeof extra?.upstream_site_type === 'string' ? extra.upstream_site_type.trim() : ''
+  if (raw === 'sub2api' || raw === 'new-api') return raw
+  return null
+}
+
+function getUpstreamSiteTypeLabel(row: Account): string {
+  const siteType = getUpstreamSiteType(row)
+  if (siteType === 'new-api') return 'new-api'
+  if (siteType === 'sub2api') return 'sub2api'
+  return ''
+}
+
+function getUpstreamKeyRate(row: Account): number | null {
+  const extra = row.extra as Record<string, unknown> | undefined
+  if (!isFreshUpstreamSnapshot(extra)) return null
+  return numberFromExtra(extra?.upstream_key_rate_multiplier)
+}
+
+function getUpstreamAccountBalance(row: Account): number | null {
+  const extra = row.extra as Record<string, unknown> | undefined
+  if (!isFreshUpstreamSnapshot(extra)) return null
+  return numberFromExtra(extra?.upstream_account_balance)
+}
+
+function getUpstreamRateError(row: Account): string | null {
+  const extra = row.extra as Record<string, unknown> | undefined
+  if (!extra || extra.upstream_key_rate_resolve_failed !== true) return null
+  const message = typeof extra.upstream_key_rate_resolve_error === 'string'
+    ? extra.upstream_key_rate_resolve_error.trim()
+    : ''
+  return message || t('admin.accounts.openai.upstreamRate.failed')
+}
+
+function isFreshUpstreamSnapshot(extra: Record<string, unknown> | undefined): boolean {
+  if (!extra) return false
+  const checkedAt = typeof extra.upstream_key_rate_checked_at === 'string'
+    ? Date.parse(extra.upstream_key_rate_checked_at)
+    : NaN
+  return Number.isFinite(checkedAt) && Date.now() - checkedAt < 2 * 60 * 60 * 1000
+}
+
+function getUpstreamKeyGroupName(row: Account): string | null {
+  const extra = row.extra as Record<string, unknown> | undefined
+  const name = typeof extra?.upstream_key_group_name === 'string'
+    ? extra.upstream_key_group_name.trim()
+    : ''
+  return name || null
+}
+
+function formatRate(value: number): string {
+  if (!Number.isFinite(value)) return '-'
+  return `${Number(value.toFixed(3)).toString()}x`
+}
+
+function formatBalance(value: number): string {
+  if (!Number.isFinite(value)) return '-'
+  return Number(value.toFixed(6)).toString()
+}
+
 function getAntigravityTierClass(row: any): string {
   const tier = getAntigravityTierFromRow(row)
   switch (tier) {
@@ -1695,6 +1814,7 @@ const allColumns = computed(() => {
   }
   c.push(
     { key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false },
+    { key: 'upstream_balance', label: t('admin.accounts.columns.upstreamBalance'), sortable: false },
     { key: 'proxy', label: t('admin.accounts.columns.proxy'), sortable: false },
     { key: 'priority', label: t('admin.accounts.columns.priority'), sortable: true },
     { key: 'rate_multiplier', label: t('admin.accounts.columns.billingRateMultiplier'), sortable: true },

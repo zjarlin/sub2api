@@ -180,11 +180,18 @@
 
           <div
             v-if="isOpenAIModelRestrictionDisabled"
-            class="mb-3 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20"
+            class="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20"
           >
             <p class="text-xs text-amber-700 dark:text-amber-400">
               {{ t('admin.accounts.openai.modelRestrictionDisabledByPassthrough') }}
             </p>
+            <button
+              type="button"
+              class="rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-700 dark:bg-dark-800 dark:text-amber-300 dark:hover:bg-amber-900/30"
+              @click="openaiPassthroughEnabled = false"
+            >
+              {{ t('admin.accounts.openai.disablePassthroughForModelRestriction') }}
+            </button>
           </div>
 
           <template v-else>
@@ -544,11 +551,18 @@
 
         <div
           v-if="isOpenAIModelRestrictionDisabled"
-          class="mb-3 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20"
+          class="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20"
         >
           <p class="text-xs text-amber-700 dark:text-amber-400">
             {{ t('admin.accounts.openai.modelRestrictionDisabledByPassthrough') }}
           </p>
+          <button
+            type="button"
+            class="rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-700 dark:bg-dark-800 dark:text-amber-300 dark:hover:bg-amber-900/30"
+            @click="openaiPassthroughEnabled = false"
+          >
+            {{ t('admin.accounts.openai.disablePassthroughForModelRestriction') }}
+          </button>
         </div>
 
         <template v-else-if="account.platform === 'kiro'">
@@ -1549,7 +1563,7 @@
       >
         <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div class="flex items-center gap-2">
-            <Icon name="calculator" size="sm" class="text-blue-600 dark:text-blue-300" />
+            <Icon name="link" size="sm" class="text-blue-600 dark:text-blue-300" />
             <span class="text-sm font-semibold text-gray-900 dark:text-white">
               {{ t('admin.accounts.openai.upstreamRate.title') }}
             </span>
@@ -1573,6 +1587,110 @@
             }}
           </button>
         </div>
+        <div class="mb-3 flex items-center justify-between gap-3 rounded-md border border-blue-200 bg-white/70 px-3 py-2 dark:border-blue-900/50 dark:bg-dark-800/50">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.openai.upstreamRate.siteMode') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.upstreamRate.siteModeHint') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            @click="upstreamSiteModeEnabled = !upstreamSiteModeEnabled"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              upstreamSiteModeEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                upstreamSiteModeEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
+        <div
+          v-if="showUpstreamGroupSwitch"
+          class="mb-3 grid gap-3 rounded-md border border-blue-200 bg-white/70 p-3 dark:border-blue-900/50 dark:bg-dark-800/50 md:grid-cols-[minmax(0,1fr)_auto]"
+        >
+          <div>
+            <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.targetGroup') }}</label>
+            <select
+              v-if="upstreamGroupOptions.length > 0"
+              v-model="upstreamTargetGroupName"
+              class="input"
+              :disabled="upstreamGroupsLoading || upstreamGroupSwitching"
+            >
+              <option value="" disabled hidden>{{ t('admin.accounts.openai.upstreamRate.targetGroupPlaceholder') }}</option>
+              <option
+                v-for="option in upstreamGroupOptions"
+                :key="option.name"
+                :value="option.name"
+              >
+                {{ formatUpstreamGroupOptionLabel(option) }}
+              </option>
+            </select>
+            <input
+              v-else
+              v-model="upstreamTargetGroupName"
+              type="text"
+              class="input"
+              :disabled="upstreamGroupsLoading || upstreamGroupSwitching"
+              :placeholder="upstreamGroupsLoading ? t('admin.accounts.openai.upstreamRate.loadingGroups') : t('admin.accounts.openai.upstreamRate.targetGroupPlaceholder')"
+            />
+            <p class="input-hint">
+              {{
+                selectedUpstreamGroupOption
+                  ? t('admin.accounts.openai.upstreamRate.groupSwitchSelectedHint', {
+                    group: selectedUpstreamGroupOption.name,
+                    rate: formatUpstreamGroupRate(selectedUpstreamGroupOption.rate_multiplier)
+                  })
+                  : upstreamGroupsLoaded && upstreamGroupOptions.length === 0
+                    ? t('admin.accounts.openai.upstreamRate.groupOptionsEmpty')
+                    : t('admin.accounts.openai.upstreamRate.groupSwitchHint')
+              }}
+            </p>
+          </div>
+          <div class="flex flex-wrap items-end gap-2">
+            <button
+              type="button"
+              class="btn btn-secondary whitespace-nowrap text-sm"
+              :disabled="upstreamGroupsLoading || upstreamGroupSwitching"
+              @click="loadUpstreamGroupOptions(true)"
+            >
+              <Icon
+                name="refresh"
+                size="sm"
+                class="mr-1.5"
+                :class="{ 'animate-spin': upstreamGroupsLoading }"
+              />
+              {{
+                upstreamGroupsLoading
+                  ? t('admin.accounts.openai.upstreamRate.loadingGroups')
+                  : t('admin.accounts.openai.upstreamRate.loadGroups')
+              }}
+            </button>
+            <button
+              type="button"
+              class="btn btn-primary whitespace-nowrap text-sm"
+              :disabled="upstreamGroupSwitching || upstreamGroupsLoading"
+              @click="handleSwitchUpstreamGroup"
+            >
+              <Icon
+                name="refresh"
+                size="sm"
+                class="mr-1.5"
+                :class="{ 'animate-spin': upstreamGroupSwitching }"
+              />
+              {{
+                upstreamGroupSwitching
+                  ? t('admin.accounts.openai.upstreamRate.groupSwitching')
+                  : t('admin.accounts.openai.upstreamRate.groupSwitch')
+              }}
+            </button>
+          </div>
+        </div>
         <div class="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
           <div>
             <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.consoleBaseUrl') }}</label>
@@ -1584,24 +1702,32 @@
             />
           </div>
           <div>
+            <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.siteType') }}</label>
+            <select v-model="upstreamKeyRateForm.siteType" class="input">
+              <option value="auto">{{ t('admin.accounts.openai.upstreamRate.siteTypeAuto') }}</option>
+              <option value="sub2api">{{ t('admin.accounts.openai.upstreamRate.siteTypeSub2API') }}</option>
+              <option value="new-api">{{ t('admin.accounts.openai.upstreamRate.siteTypeNewAPI') }}</option>
+            </select>
+          </div>
+          <div>
             <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.email') }}</label>
             <input
               v-model="upstreamKeyRateForm.email"
-              type="email"
+              type="text"
               class="input"
               autocomplete="username"
             />
           </div>
-          <div>
+          <div :class="upstreamSiteModeEnabled ? 'md:col-span-2 lg:col-span-3' : ''">
             <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.password') }}</label>
             <input
               v-model="upstreamKeyRateForm.password"
-              type="password"
+              type="text"
               class="input"
               autocomplete="current-password"
             />
           </div>
-          <div class="md:col-span-2 lg:col-span-3">
+          <div v-if="!upstreamSiteModeEnabled" class="md:col-span-2 lg:col-span-3">
             <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.targetApiKey') }}</label>
             <input
               v-model="upstreamKeyRateForm.apiKey"
@@ -1614,11 +1740,11 @@
               data-bwignore="true"
             />
           </div>
-          <div>
+          <div v-if="!upstreamSiteModeEnabled">
             <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.loginPath') }}</label>
             <input v-model="upstreamKeyRateForm.loginPath" type="text" class="input font-mono" />
           </div>
-          <div>
+          <div v-if="!upstreamSiteModeEnabled">
             <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.keysPath') }}</label>
             <input v-model="upstreamKeyRateForm.keysPath" type="text" class="input font-mono" />
           </div>
@@ -2701,6 +2827,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
+import type { UpstreamKeyGroupOption } from '@/api/admin/accounts'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
 import type {
   Account,
@@ -2732,7 +2859,7 @@ import {
 } from '@/utils/accountFormBulk'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import {
-  buildUpstreamRateSuccessParams,
+  buildUpstreamLoginSuccessParams,
   createUpstreamKeyRateForm,
   deriveUpstreamConsoleBaseUrl,
   getFirstUpstreamAPIKey,
@@ -2876,7 +3003,13 @@ const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
 const upstreamKeyRateForm = reactive(createUpstreamKeyRateForm())
+const upstreamSiteModeEnabled = ref(false)
 const upstreamKeyRateResolving = ref(false)
+const upstreamGroupSwitching = ref(false)
+const upstreamTargetGroupName = ref('')
+const upstreamGroupOptions = ref<UpstreamKeyGroupOption[]>([])
+const upstreamGroupsLoading = ref(false)
+const upstreamGroupsLoaded = ref(false)
 // Bedrock credentials
 const editBedrockAccessKeyId = ref('')
 const editBedrockSecretAccessKey = ref('')
@@ -3263,6 +3396,113 @@ const showUpstreamKeyRateTool = computed(() =>
   props.account?.platform === 'openai' && props.account?.type === 'apikey'
 )
 
+const showUpstreamGroupSwitch = computed(() => {
+  if (!showUpstreamKeyRateTool.value || !upstreamSiteModeEnabled.value) {
+    return false
+  }
+  if (
+    upstreamKeyRateForm.siteType === 'sub2api' ||
+    upstreamKeyRateForm.siteType === 'new-api' ||
+    upstreamKeyRateForm.siteType === 'auto'
+  ) {
+    return true
+  }
+  const extra = props.account?.extra as Record<string, unknown> | undefined
+  const resolvedSiteType = typeof extra?.upstream_site_type === 'string'
+    ? extra.upstream_site_type
+    : ''
+  return resolvedSiteType === 'sub2api' || resolvedSiteType === 'new-api'
+})
+
+const selectedUpstreamGroupOption = computed(() => {
+  const groupName = upstreamTargetGroupName.value.trim()
+  if (!groupName) {
+    return null
+  }
+  return upstreamGroupOptions.value.find(option => option.name === groupName) ?? null
+})
+
+function formatUpstreamGroupRate(value: number): string {
+  if (!Number.isFinite(value)) {
+    return '-'
+  }
+  return `${Number(value.toFixed(3)).toString()}x`
+}
+
+function formatUpstreamGroupOptionLabel(option: UpstreamKeyGroupOption): string {
+  return `${option.name} · ${formatUpstreamGroupRate(option.rate_multiplier)}`
+}
+
+const resetUpstreamGroupOptions = () => {
+  upstreamGroupOptions.value = []
+  upstreamGroupsLoaded.value = false
+  upstreamGroupsLoading.value = false
+}
+
+const loadUpstreamGroupOptions = async (force = false) => {
+  if (!props.account?.id || !showUpstreamGroupSwitch.value) {
+    return
+  }
+  if (upstreamGroupsLoading.value || (upstreamGroupsLoaded.value && !force)) {
+    return
+  }
+
+  const accountID = props.account.id
+  const isCurrentAccount = () => props.account?.id === accountID
+  upstreamGroupsLoading.value = true
+  try {
+    const groups = await adminAPI.accounts.listUpstreamKeyGroups(accountID)
+    if (!isCurrentAccount()) {
+      return
+    }
+    upstreamGroupOptions.value = groups
+    upstreamGroupsLoaded.value = true
+    if (!upstreamTargetGroupName.value.trim()) {
+      const extra = props.account?.extra as Record<string, unknown> | undefined
+      const currentGroup = typeof extra?.upstream_key_group_name === 'string'
+        ? extra.upstream_key_group_name.trim()
+        : ''
+      upstreamTargetGroupName.value = currentGroup
+    }
+  } catch (error: any) {
+    if (!isCurrentAccount()) {
+      return
+    }
+    upstreamGroupsLoaded.value = true
+    upstreamGroupOptions.value = []
+    appStore.showError(error?.message || t('admin.accounts.openai.upstreamRate.loadGroupsFailed'))
+  } finally {
+    if (isCurrentAccount()) {
+      upstreamGroupsLoading.value = false
+    }
+  }
+}
+
+const hasExistingCredential = (key: string): boolean => {
+  const statusKey = `has_${key}`
+  const status = props.account?.credentials_status?.[statusKey]
+  if (typeof status === 'boolean') {
+    return status
+  }
+  const credentials = props.account?.credentials as Record<string, unknown> | undefined
+  return Boolean(credentials?.[key])
+}
+
+const clearUpstreamSiteExtraFields = (extra: Record<string, unknown>) => {
+  delete extra.upstream_site_mode
+  delete extra.upstream_site_type
+  delete extra.upstream_key_rate_multiplier
+  delete extra.upstream_key_group_id
+  delete extra.upstream_key_group_name
+  delete extra.upstream_key_id
+  delete extra.upstream_key_name
+  delete extra.upstream_key_matched_field
+  delete extra.upstream_key_rate_checked_at
+  delete extra.upstream_key_rate_resolve_failed
+  delete extra.upstream_key_rate_resolve_error
+  delete extra.upstream_account_balance
+}
+
 const syncUpstreamKeyRateDefaults = () => {
   if (!upstreamKeyRateForm.baseUrl.trim()) {
     upstreamKeyRateForm.baseUrl = deriveUpstreamConsoleBaseUrl(editBaseUrl.value || selectedOpenAIVendorPreset.value.baseUrl)
@@ -3270,6 +3510,52 @@ const syncUpstreamKeyRateDefaults = () => {
   if (!upstreamKeyRateForm.apiKey.trim()) {
     upstreamKeyRateForm.apiKey = getFirstUpstreamAPIKey(editApiKey.value)
   }
+}
+
+const applyUpstreamSiteModeCredentials = (
+  credentials: Record<string, unknown>,
+  hasExistingApiKey: boolean
+): boolean => {
+  if (props.account?.platform !== 'openai' || props.account?.type !== 'apikey') {
+    return true
+  }
+  if (!upstreamSiteModeEnabled.value) {
+    credentials.upstream_site_mode = false
+    delete credentials.upstream_site_base_url
+    delete credentials.upstream_site_type
+    delete credentials.upstream_site_username
+    credentials.upstream_site_password = ''
+    return true
+  }
+
+  syncUpstreamKeyRateDefaults()
+  if (!upstreamKeyRateForm.baseUrl.trim()) {
+    appStore.showError(t('admin.accounts.openai.upstreamRate.baseUrlRequired'))
+    return false
+  }
+  if (!upstreamKeyRateForm.email.trim()) {
+    appStore.showError(t('admin.accounts.openai.upstreamRate.emailRequired'))
+    return false
+  }
+  if (!upstreamKeyRateForm.password.trim() && !hasExistingCredential('upstream_site_password')) {
+    appStore.showError(t('admin.accounts.openai.upstreamRate.passwordRequired'))
+    return false
+  }
+  if (!editApiKey.value.trim() && !hasExistingApiKey) {
+    appStore.showError(t('admin.accounts.openai.upstreamRate.apiKeyRequired'))
+    return false
+  }
+
+  credentials.upstream_site_mode = true
+  credentials.upstream_site_base_url = upstreamKeyRateForm.baseUrl.trim()
+  credentials.upstream_site_type = upstreamKeyRateForm.siteType || 'auto'
+  credentials.upstream_site_username = upstreamKeyRateForm.email.trim()
+  if (upstreamKeyRateForm.password.trim()) {
+    credentials.upstream_site_password = upstreamKeyRateForm.password
+  } else {
+    delete credentials.upstream_site_password
+  }
+  return true
 }
 
 const handleResolveUpstreamKeyRate = async () => {
@@ -3286,27 +3572,58 @@ const handleResolveUpstreamKeyRate = async () => {
     appStore.showError(t('admin.accounts.openai.upstreamRate.passwordRequired'))
     return
   }
-  if (!upstreamKeyRateForm.apiKey.trim()) {
-    appStore.showError(t('admin.accounts.openai.upstreamRate.apiKeyRequired'))
+  upstreamKeyRateResolving.value = true
+  try {
+    const result = await adminAPI.accounts.testUpstreamConsoleLogin({
+      base_url: upstreamKeyRateForm.baseUrl.trim(),
+      login_path: upstreamKeyRateForm.loginPath.trim() || undefined,
+      site_type: upstreamKeyRateForm.siteType || 'auto',
+      username: upstreamKeyRateForm.email.trim(),
+      email: upstreamKeyRateForm.email.trim(),
+      password: upstreamKeyRateForm.password
+    })
+    appStore.showSuccess(t('admin.accounts.openai.upstreamRate.loginSuccess', buildUpstreamLoginSuccessParams(result)))
+  } catch (error: any) {
+    appStore.showError(error?.message || t('admin.accounts.openai.upstreamRate.loginFailed'))
+  } finally {
+    upstreamKeyRateResolving.value = false
+  }
+}
+
+const handleSwitchUpstreamGroup = async () => {
+  if (!props.account?.id) {
+    return
+  }
+  if (!upstreamSiteModeEnabled.value) {
+    appStore.showError(t('admin.accounts.openai.upstreamRate.siteModeRequired'))
+    return
+  }
+  if (!showUpstreamGroupSwitch.value) {
+    appStore.showError(t('admin.accounts.openai.upstreamRate.groupSwitchNewAPIRequired'))
+    return
+  }
+  const groupName = upstreamTargetGroupName.value.trim()
+  if (!groupName) {
+    appStore.showError(t('admin.accounts.openai.upstreamRate.groupNameRequired'))
     return
   }
 
-  upstreamKeyRateResolving.value = true
+  upstreamGroupSwitching.value = true
   try {
-    const result = await adminAPI.accounts.resolveUpstreamKeyRate({
-      base_url: upstreamKeyRateForm.baseUrl.trim(),
-      login_path: upstreamKeyRateForm.loginPath.trim() || undefined,
-      keys_path: upstreamKeyRateForm.keysPath.trim() || undefined,
-      email: upstreamKeyRateForm.email.trim(),
-      password: upstreamKeyRateForm.password,
-      api_key: upstreamKeyRateForm.apiKey.trim()
+    const updatedAccount = await adminAPI.accounts.switchUpstreamKeyGroup(props.account.id, {
+      group_name: groupName
     })
-    form.rate_multiplier = result.rate_multiplier
-    appStore.showSuccess(t('admin.accounts.openai.upstreamRate.success', buildUpstreamRateSuccessParams(result)))
+    const extra = updatedAccount.extra as Record<string, unknown> | undefined
+    if (typeof extra?.upstream_key_group_name === 'string' && extra.upstream_key_group_name.trim()) {
+      upstreamTargetGroupName.value = extra.upstream_key_group_name
+    }
+    appStore.showSuccess(t('admin.accounts.openai.upstreamRate.groupSwitchSuccess', { group: upstreamTargetGroupName.value || groupName }))
+    emit('updated', updatedAccount)
+    void loadUpstreamGroupOptions(true)
   } catch (error: any) {
-    appStore.showError(error?.message || t('admin.accounts.openai.upstreamRate.failed'))
+    appStore.showError(error?.message || t('admin.accounts.openai.upstreamRate.groupSwitchFailed'))
   } finally {
-    upstreamKeyRateResolving.value = false
+    upstreamGroupSwitching.value = false
   }
 }
 
@@ -3437,6 +3754,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     return
   }
   upstreamKeyRateForm.baseUrl = ''
+  upstreamSiteModeEnabled.value = false
+  upstreamTargetGroupName.value = ''
   resetUpstreamKeyRateSecretFields(upstreamKeyRateForm)
   antigravityMixedChannelConfirmed.value = false
   showMixedChannelWarning.value = false
@@ -3756,8 +4075,34 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     selectedErrorCodes.value = []
   }
   editApiKey.value = ''
+  resetUpstreamGroupOptions()
   if (newAccount.platform === 'openai' && newAccount.type === 'apikey') {
-    upstreamKeyRateForm.baseUrl = deriveUpstreamConsoleBaseUrl(editBaseUrl.value || selectedOpenAIVendorPreset.value.baseUrl)
+    const upstreamSiteBaseURL = typeof credentials?.upstream_site_base_url === 'string'
+      ? credentials.upstream_site_base_url.trim()
+      : ''
+    const upstreamSiteType = typeof credentials?.upstream_site_type === 'string'
+      ? credentials.upstream_site_type.trim()
+      : typeof extra?.upstream_site_type === 'string'
+        ? extra.upstream_site_type.trim()
+        : ''
+    upstreamSiteModeEnabled.value = credentials?.upstream_site_mode === true || extra?.upstream_site_mode === true
+    upstreamKeyRateForm.baseUrl = upstreamSiteBaseURL || deriveUpstreamConsoleBaseUrl(editBaseUrl.value || selectedOpenAIVendorPreset.value.baseUrl)
+    upstreamKeyRateForm.siteType =
+      upstreamSiteType === 'sub2api' || upstreamSiteType === 'new-api'
+        ? upstreamSiteType
+        : 'auto'
+    upstreamKeyRateForm.email = typeof credentials?.upstream_site_username === 'string'
+      ? credentials.upstream_site_username
+      : ''
+    upstreamKeyRateForm.password = typeof credentials?.upstream_site_password === 'string'
+      ? credentials.upstream_site_password
+      : ''
+    upstreamTargetGroupName.value = typeof extra?.upstream_key_group_name === 'string'
+      ? extra.upstream_key_group_name
+      : ''
+    if (props.show && showUpstreamGroupSwitch.value) {
+      void loadUpstreamGroupOptions(true)
+    }
   }
 }
 
@@ -3782,6 +4127,15 @@ watch(
     }
   },
   { immediate: true }
+)
+
+watch(
+  [() => props.show, () => props.account?.id, () => showUpstreamGroupSwitch.value],
+  ([show]) => {
+    if (show && showUpstreamGroupSwitch.value) {
+      void loadUpstreamGroupOptions()
+    }
+  }
 )
 
 
@@ -4241,6 +4595,8 @@ const handleClose = () => {
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
   upstreamKeyRateForm.baseUrl = ''
+  upstreamSiteModeEnabled.value = false
+  upstreamTargetGroupName.value = ''
   resetUpstreamKeyRateSecretFields(upstreamKeyRateForm)
   emit('close')
 }
@@ -4330,6 +4686,10 @@ const handleSubmit = async () => {
         return
       } else {
         delete newCredentials.api_key
+      }
+
+      if (props.account.platform === 'openai' && !applyUpstreamSiteModeCredentials(newCredentials, Boolean(hasExistingApiKey))) {
+        return
       }
 
       // Add model mapping if configured（OpenAI 开启自动透传时保留现有映射，不再编辑）
@@ -4745,6 +5105,9 @@ const handleSubmit = async () => {
           delete newExtra.openai_responses_mode
         } else {
           newExtra.openai_responses_mode = openAIResponsesMode.value
+        }
+        if (!upstreamSiteModeEnabled.value) {
+          clearUpstreamSiteExtraFields(newExtra)
         }
 		}
 		if (autoPause5hThreshold.value != null && autoPause5hThreshold.value > 0) {

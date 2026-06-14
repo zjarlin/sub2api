@@ -178,6 +178,8 @@ export interface ResolveUpstreamKeyRateRequest {
   base_url: string
   login_path?: string
   keys_path?: string
+  site_type?: string
+  username?: string
   email: string
   password: string
   api_key: string
@@ -187,6 +189,8 @@ export interface ResolveUpstreamKeyRateRequest {
 
 export interface ResolveUpstreamKeyRateResponse {
   rate_multiplier: number
+  site_type?: string
+  account_balance?: number
   group_id?: number
   group_name?: string
   key_id?: number
@@ -199,6 +203,61 @@ export async function resolveUpstreamKeyRate(
 ): Promise<ResolveUpstreamKeyRateResponse> {
   const { data } = await apiClient.post<ResolveUpstreamKeyRateResponse>(
     '/admin/accounts/resolve-upstream-key-rate',
+    payload
+  )
+  return data
+}
+
+export interface TestUpstreamConsoleLoginRequest {
+  base_url: string
+  login_path?: string
+  site_type?: string
+  username?: string
+  email: string
+  password: string
+}
+
+export interface TestUpstreamConsoleLoginResponse {
+  site_type: string
+  user_id?: string
+  has_access_token: boolean
+  has_session_cookie: boolean
+  account_balance?: number
+}
+
+export async function testUpstreamConsoleLogin(
+  payload: TestUpstreamConsoleLoginRequest
+): Promise<TestUpstreamConsoleLoginResponse> {
+  const { data } = await apiClient.post<TestUpstreamConsoleLoginResponse>(
+    '/admin/accounts/test-upstream-console-login',
+    payload
+  )
+  return data
+}
+
+export interface SwitchUpstreamKeyGroupRequest {
+  group_name: string
+}
+
+export interface UpstreamKeyGroupOption {
+  name: string
+  rate_multiplier: number
+  description?: string
+}
+
+export async function listUpstreamKeyGroups(id: number): Promise<UpstreamKeyGroupOption[]> {
+  const { data } = await apiClient.get<UpstreamKeyGroupOption[]>(
+    `/admin/accounts/${id}/upstream-key-groups`
+  )
+  return data
+}
+
+export async function switchUpstreamKeyGroup(
+  id: number,
+  payload: SwitchUpstreamKeyGroupRequest
+): Promise<Account> {
+  const { data } = await apiClient.post<Account>(
+    `/admin/accounts/${id}/switch-upstream-key-group`,
     payload
   )
   return data
@@ -800,6 +859,9 @@ export const accountsAPI = {
   update,
   checkMixedChannelRisk,
   resolveUpstreamKeyRate,
+  testUpstreamConsoleLogin,
+  listUpstreamKeyGroups,
+  switchUpstreamKeyGroup,
   delete: deleteAccount,
   toggleStatus,
   testAccount,

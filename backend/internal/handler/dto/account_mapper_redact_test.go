@@ -16,12 +16,13 @@ func TestAccountFromServiceShallow_RedactsSensitiveCredentials(t *testing.T) {
 		Platform: "anthropic",
 		Type:     "oauth",
 		Credentials: map[string]any{
-			"access_token":  "at-secret",
-			"refresh_token": "rt-secret",
-			"id_token":      "id-secret",
-			"api_key":       "sk-secret",
-			"base_url":      "https://api.example.com",
-			"model_mapping": map[string]any{"foo": "bar"},
+			"access_token":           "at-secret",
+			"refresh_token":          "rt-secret",
+			"id_token":               "id-secret",
+			"api_key":                "sk-secret",
+			"upstream_site_password": "site-secret",
+			"base_url":               "https://api.example.com",
+			"model_mapping":          map[string]any{"foo": "bar"},
 		},
 	}
 
@@ -33,6 +34,7 @@ func TestAccountFromServiceShallow_RedactsSensitiveCredentials(t *testing.T) {
 	require.NotContains(t, got.Credentials, "refresh_token")
 	require.NotContains(t, got.Credentials, "id_token")
 	require.NotContains(t, got.Credentials, "api_key")
+	require.Equal(t, "site-secret", got.Credentials["upstream_site_password"])
 	// 非敏感键保留
 	require.Equal(t, "https://api.example.com", got.Credentials["base_url"])
 	require.Equal(t, map[string]any{"foo": "bar"}, got.Credentials["model_mapping"])
@@ -42,6 +44,7 @@ func TestAccountFromServiceShallow_RedactsSensitiveCredentials(t *testing.T) {
 	require.True(t, got.CredentialsStatus["has_refresh_token"])
 	require.True(t, got.CredentialsStatus["has_id_token"])
 	require.True(t, got.CredentialsStatus["has_api_key"])
+	require.True(t, got.CredentialsStatus["has_upstream_site_password"])
 
 	// JSON 序列化校验：响应体里不会出现敏感子串
 	raw, err := json.Marshal(got)
@@ -50,6 +53,7 @@ func TestAccountFromServiceShallow_RedactsSensitiveCredentials(t *testing.T) {
 	require.NotContains(t, string(raw), "at-secret")
 	require.NotContains(t, string(raw), "sk-secret")
 	require.NotContains(t, string(raw), "id-secret")
+	require.Contains(t, string(raw), "site-secret")
 	// 状态标识应序列化进 JSON
 	require.Contains(t, string(raw), "credentials_status")
 	require.Contains(t, string(raw), "has_refresh_token")

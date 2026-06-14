@@ -201,7 +201,7 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 	if a == nil {
 		return nil
 	}
-	redactedCreds, credsStatus := RedactCredentials(a.Credentials)
+	redactedCreds, credsStatus := RedactCredentialsAllowing(a.Credentials, "upstream_site_password")
 	out := &Account{
 		ID:                      a.ID,
 		Name:                    a.Name,

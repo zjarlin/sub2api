@@ -845,7 +845,11 @@ func normalizeOpenAIModelForUpstream(account *Account, model string) string {
 	if account == nil || account.Type == AccountTypeOAuth {
 		return normalizeCodexModel(model)
 	}
-	return strings.TrimSpace(model)
+	trimmed := strings.TrimSpace(model)
+	if account.ShouldUseOpenAIChatCompletionsUpstream() {
+		return normalizeOpenAICompatibleUpstreamModel(trimmed)
+	}
+	return trimmed
 }
 
 func SupportsVerbosity(model string) bool {

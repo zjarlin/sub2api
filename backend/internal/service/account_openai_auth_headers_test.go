@@ -116,7 +116,7 @@ func TestAccountOpenAILocalProxyDefaults(t *testing.T) {
 }
 
 func TestAccountOpenAIVendorChatCompletionsPreference(t *testing.T) {
-	for _, vendor := range []string{"gemini", "mimo", "ollama", "openrouter", "trae"} {
+	for _, vendor := range []string{"deepseek", "gemini", "mimo", "ollama", "openrouter", "trae"} {
 		account := &Account{
 			Platform: PlatformOpenAI,
 			Type:     AccountTypeAPIKey,
@@ -126,6 +126,43 @@ func TestAccountOpenAIVendorChatCompletionsPreference(t *testing.T) {
 		}
 		if !account.ShouldUseOpenAIChatCompletionsUpstream() {
 			t.Fatalf("vendor %q should prefer chat/completions upstream", vendor)
+		}
+	}
+}
+
+func TestAccountDeepSeekDefaults(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"vendor": "deepseek",
+		},
+	}
+
+	if got := account.GetOpenAIBaseURL(); got != "https://api.deepseek.com" {
+		t.Fatalf("base url = %q, want DeepSeek default base url", got)
+	}
+	if !account.ShouldUseOpenAIChatCompletionsUpstream() {
+		t.Fatal("DeepSeek should use chat/completions upstream")
+	}
+	if got := account.GetOpenAIAuthHeaderName(); got != "authorization" {
+		t.Fatalf("auth header name = %q, want %q", got, "authorization")
+	}
+	if got := account.GetOpenAIAuthScheme(); got != "bearer" {
+		t.Fatalf("auth scheme = %q, want %q", got, "bearer")
+	}
+	mapping := account.GetModelMapping()
+	expectedMappings := map[string]string{
+		"gpt-5.5":           "deepseek-v4-pro",
+		"gpt-5.4":           "deepseek-v4-flash",
+		"deepseek-v4-pro":   "deepseek-v4-pro",
+		"deepseek-v4-flash": "deepseek-v4-flash",
+		"deepseek-chat":     "deepseek-v4-flash",
+		"deepseek-reasoner": "deepseek-v4-flash",
+	}
+	for from, to := range expectedMappings {
+		if got := mapping[from]; got != to {
+			t.Fatalf("mapping[%q] = %q, want %q", from, got, to)
 		}
 	}
 }

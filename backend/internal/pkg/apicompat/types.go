@@ -435,6 +435,7 @@ type ChatCompletionsRequest struct {
 	StreamOptions       *ChatStreamOptions `json:"stream_options,omitempty"`
 	Tools               []ChatTool         `json:"tools,omitempty"`
 	ToolChoice          json.RawMessage    `json:"tool_choice,omitempty"`
+	Thinking            *ChatThinking      `json:"thinking,omitempty"`
 	ReasoningEffort     string             `json:"reasoning_effort,omitempty"` // "low" | "medium" | "high" | "xhigh"
 	ServiceTier         string             `json:"service_tier,omitempty"`
 	Stop                json.RawMessage    `json:"stop,omitempty"` // string or []string
@@ -447,6 +448,11 @@ type ChatCompletionsRequest struct {
 // ChatStreamOptions configures streaming behavior.
 type ChatStreamOptions struct {
 	IncludeUsage bool `json:"include_usage,omitempty"`
+}
+
+// ChatThinking configures DeepSeek V4's OpenAI-compatible thinking mode.
+type ChatThinking struct {
+	Type string `json:"type,omitempty"` // "enabled" | "disabled"
 }
 
 // ChatMessage is a single message in the Chat Completions conversation.

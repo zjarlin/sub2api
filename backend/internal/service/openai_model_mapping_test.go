@@ -279,6 +279,30 @@ func TestNormalizeOpenAIModelForUpstream(t *testing.T) {
 			model:   "gpt-4.1",
 			want:    "gpt-4.1",
 		},
+		{
+			name: "deepseek strips local billing suffix",
+			account: &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"vendor": "deepseek",
+				},
+			},
+			model: "deepseek-v4-pro[1m]",
+			want:  "deepseek-v4-pro",
+		},
+		{
+			name: "compatible upstream keeps descriptive bracket suffix",
+			account: &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"vendor": "deepseek",
+				},
+			},
+			model: "custom-model[beta]",
+			want:  "custom-model[beta]",
+		},
 	}
 
 	for _, tt := range tests {

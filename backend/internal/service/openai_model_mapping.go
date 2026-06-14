@@ -1,6 +1,11 @@
 package service
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
+
+var bracketedModelSuffixPattern = regexp.MustCompile(`\[\s*\d+(?:\.\d+)?\s*(?:[kKmMxX])?\s*\]\s*$`)
 
 // resolveOpenAIForwardModel 解析 OpenAI 兼容转发使用的模型。
 // defaultMappedModel 只服务于 /v1/messages 的 Claude 系列显式调度映射，
@@ -18,6 +23,10 @@ func resolveOpenAIForwardModel(account *Account, requestedModel, defaultMappedMo
 		return defaultMappedModel
 	}
 	return mappedModel
+}
+
+func normalizeOpenAICompatibleUpstreamModel(model string) string {
+	return strings.TrimSpace(bracketedModelSuffixPattern.ReplaceAllString(strings.TrimSpace(model), ""))
 }
 
 // resolveOpenAICompactForwardModel determines the compact-only upstream model

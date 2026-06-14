@@ -55,6 +55,22 @@ describe('useModelWhitelist', () => {
     expect(models.indexOf('gemini-2.5-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash'))
   })
 
+  it('deepseek 模型列表和预设映射支持 Codex 兼容入口', () => {
+    const models = getModelsByPlatform('deepseek')
+    const mappings = getPresetMappingsByPlatform('deepseek')
+
+    expect(models).toContain('deepseek-v4-pro')
+    expect(models).toContain('deepseek-v4-flash')
+    expect(models).toContain('deepseek-chat')
+    expect(models).toContain('deepseek-reasoner')
+    expect(mappings.map(({ from, to }) => ({ from, to }))).toEqual(expect.arrayContaining([
+      { from: 'gpt-5.4', to: 'deepseek-v4-pro' },
+      { from: 'gpt-5.4', to: 'deepseek-v4-flash' },
+      { from: 'deepseek-reasoner', to: 'deepseek-v4-flash' },
+      { from: 'deepseek-chat', to: 'deepseek-v4-flash' }
+    ]))
+  })
+
   it('antigravity 模型列表会把新的 Gemini 图片模型排在前面', () => {
     const models = getModelsByPlatform('antigravity')
 

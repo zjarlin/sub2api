@@ -19,6 +19,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const openAIDeepSeekImageInputUnsupportedCode = "deepseek_image_input_unsupported"
+
 // forwardResponsesViaRawChatCompletions serves /v1/responses clients through an
 // upstream that only supports /v1/chat/completions.
 func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
@@ -54,6 +56,10 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	reasoningEffort := extractOpenAIReasoningEffortFromBody(body, originalModel)
 	serviceTier := extractOpenAIServiceTierFromBody(body)
 
+	if accountUsesDeepSeekOpenAICompat(account) && openAIRequestBodyMayContainImageInput(body) {
+		return nil, newDeepSeekImageInputUnsupportedFailover()
+	}
+
 	chatReq, err := apicompat.ResponsesToChatCompletionsRequest(&responsesReq)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
@@ -70,6 +76,10 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	chatReq.Model = upstreamModel
 	if clientStream {
 		chatReq.StreamOptions = &apicompat.ChatStreamOptions{IncludeUsage: true}
+	}
+	if accountUsesDeepSeekOpenAICompat(account) {
+		chatReq.Thinking = &apicompat.ChatThinking{Type: "disabled"}
+		chatReq.ReasoningEffort = ""
 	}
 
 	chatBody, err := json.Marshal(chatReq)
@@ -118,7 +128,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	}
 	upstreamReq = upstreamReq.WithContext(WithHTTPUpstreamProfile(upstreamReq.Context(), HTTPUpstreamProfileOpenAI))
 	upstreamReq.Header.Set("Content-Type", "application/json")
-	upstreamReq.Header.Set("Authorization", "Bearer "+apiKey)
+	applyOpenAIUpstreamAuthHeaders(upstreamReq.Header, account, apiKey)
 	if clientStream {
 		upstreamReq.Header.Set("Accept", "text/event-stream")
 	} else {
@@ -189,6 +199,29 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 		return s.streamChatCompletionsAsResponses(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 	}
 	return s.bufferChatCompletionsAsResponses(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+}
+
+func accountUsesDeepSeekOpenAICompat(account *Account) bool {
+	if account == nil || !account.IsOpenAIApiKey() {
+		return false
+	}
+	if strings.EqualFold(account.GetOpenAIVendor(), "deepseek") {
+		return true
+	}
+	return openAIBaseURLPrefersChatCompletions(account.GetOpenAIBaseURL()) &&
+		strings.Contains(strings.ToLower(account.GetOpenAIBaseURL()), "deepseek")
+}
+
+func newDeepSeekImageInputUnsupportedFailover() *UpstreamFailoverError {
+	return &UpstreamFailoverError{
+		StatusCode: http.StatusBadRequest,
+		ResponseBody: []byte(`{"error":{"type":"invalid_request_error","code":"` + openAIDeepSeekImageInputUnsupportedCode +
+			`","message":"DeepSeek chat completions upstream does not support image input. Use a vision-capable OpenAI account or remove image_url/input_image content."}}`),
+	}
+}
+
+func IsDeepSeekImageInputUnsupportedFailover(body []byte) bool {
+	return extractUpstreamErrorCode(body) == openAIDeepSeekImageInputUnsupportedCode
 }
 
 func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(

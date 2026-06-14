@@ -432,6 +432,18 @@ func (s *stubAdminService) ResolveUpstreamKeyRate(ctx context.Context, input ser
 	return &service.ResolveUpstreamKeyRateResult{RateMultiplier: 1}, nil
 }
 
+func (s *stubAdminService) TestUpstreamConsoleLogin(ctx context.Context, input service.TestUpstreamConsoleLoginInput) (*service.TestUpstreamConsoleLoginResult, error) {
+	return &service.TestUpstreamConsoleLoginResult{SiteType: "new-api", HasSessionCookie: true}, nil
+}
+
+func (s *stubAdminService) ListUpstreamKeyGroups(ctx context.Context, accountID int64) ([]service.UpstreamKeyGroupOption, error) {
+	return []service.UpstreamKeyGroupOption{{Name: "default", RateMultiplier: 1}}, nil
+}
+
+func (s *stubAdminService) SwitchUpstreamKeyGroup(ctx context.Context, accountID int64, input service.SwitchUpstreamKeyGroupInput) (*service.Account, error) {
+	return s.GetAccount(ctx, accountID)
+}
+
 func (s *stubAdminService) ListProxies(ctx context.Context, page, pageSize int, protocol, status, search string, sortBy, sortOrder string) ([]service.Proxy, int64, error) {
 	s.lastListProxies.protocol = protocol
 	s.lastListProxies.status = status

@@ -232,7 +232,8 @@ const qwenModels = [
 
 // DeepSeek
 const deepseekModels = [
-  'deepseek-chat', 'deepseek-coder', 'deepseek-reasoner',
+  'deepseek-v4-pro', 'deepseek-v4-flash',
+  'deepseek-chat', 'deepseek-reasoner', 'deepseek-coder',
   'deepseek-v3', 'deepseek-v3-0324',
   'deepseek-r1', 'deepseek-r1-0528',
   'deepseek-r1-distill-qwen-32b', 'deepseek-r1-distill-qwen-14b', 'deepseek-r1-distill-qwen-7b',
@@ -404,6 +405,13 @@ const openrouterPresetMappings = [
   { label: 'Claude Sonnet', from: 'claude-sonnet-4.5', to: 'anthropic/claude-sonnet-4.5', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' }
 ]
 
+const deepseekPresetMappings = [
+  { label: 'V4 Pro', from: 'gpt-5.4', to: 'deepseek-v4-pro', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' },
+  { label: 'V4 Flash', from: 'gpt-5.4', to: 'deepseek-v4-flash', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' },
+  { label: 'Reasoner Compat', from: 'deepseek-reasoner', to: 'deepseek-v4-flash', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400' },
+  { label: 'Chat Compat', from: 'deepseek-chat', to: 'deepseek-v4-flash', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' }
+]
+
 const mimoPresetMappings = [
   { label: 'Mimo 2.5', from: 'mimo-v2.5', to: 'mimo-v2.5', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
   { label: 'Mimo 2.5 Pro', from: 'mimo-v2.5-pro', to: 'mimo-v2.5-pro', color: 'bg-pink-100 text-pink-700 hover:bg-pink-200 dark:bg-pink-900/30 dark:text-pink-400' },
@@ -553,6 +561,7 @@ export const commonErrorCodes = [
 export function getModelsByPlatform(platform: string): string[] {
   switch (platform) {
     case 'openai': return openaiModels
+    case 'deepseek': return deepseekModels
     case 'openrouter': return openrouterModels
     case 'anthropic':
     case 'claude': return claudeModels
@@ -565,7 +574,6 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'kiro': return kiroModels
     case 'zhipu': return zhipuModels
     case 'qwen': return qwenModels
-    case 'deepseek': return deepseekModels
     case 'mistral': return mistralModels
     case 'meta': return metaModels
     case 'xai': return xaiModels
@@ -592,6 +600,7 @@ export function getModelsByPlatforms(platforms: string[]): string[] {
 // 按平台获取预设映射
 export function getPresetMappingsByPlatform(platform: string) {
   if (platform === 'openai') return openaiPresetMappings
+  if (platform === 'deepseek') return deepseekPresetMappings
   if (platform === 'openrouter') return openrouterPresetMappings
   if (platform === 'gemini') return geminiPresetMappings
   if (platform === 'mimo') return mimoPresetMappings

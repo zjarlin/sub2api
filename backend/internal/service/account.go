@@ -111,6 +111,16 @@ func (a *Account) BillingRateMultiplier() float64 {
 	return *a.RateMultiplier
 }
 
+func (a *Account) UpstreamEffectiveRateMultiplier() float64 {
+	if a == nil {
+		return 1.0
+	}
+	if parsed, ok := upstreamKeyRateMultiplierFromExtra(a.Extra, time.Now()); ok {
+		return parsed
+	}
+	return a.BillingRateMultiplier()
+}
+
 func (a *Account) EffectiveLoadFactor() int {
 	if a == nil {
 		return 1
@@ -637,6 +647,15 @@ var openAILocalProxyDefaultModelMapping = map[string]string{
 	"opencode/ling-2.6-flash-free":   "opencode/ling-2.6-flash-free",
 }
 
+var openAIDeepSeekDefaultModelMapping = map[string]string{
+	"gpt-5.5":           "deepseek-v4-pro",
+	"gpt-5.4":           "deepseek-v4-flash",
+	"deepseek-v4-pro":   "deepseek-v4-pro",
+	"deepseek-v4-flash": "deepseek-v4-flash",
+	"deepseek-chat":     "deepseek-v4-flash",
+	"deepseek-reasoner": "deepseek-v4-flash",
+}
+
 func cloneStringMap(input map[string]string) map[string]string {
 	if len(input) == 0 {
 		return nil
@@ -650,6 +669,8 @@ func cloneStringMap(input map[string]string) map[string]string {
 
 func defaultOpenAIModelMappingForVendor(vendor string) map[string]string {
 	switch strings.ToLower(strings.TrimSpace(vendor)) {
+	case "deepseek":
+		return cloneStringMap(openAIDeepSeekDefaultModelMapping)
 	case "openai-local-proxy":
 		return cloneStringMap(openAILocalProxyDefaultModelMapping)
 	default:
@@ -659,6 +680,8 @@ func defaultOpenAIModelMappingForVendor(vendor string) map[string]string {
 
 func defaultOpenAIBaseURLForVendor(vendor string) string {
 	switch strings.ToLower(strings.TrimSpace(vendor)) {
+	case "deepseek":
+		return "https://api.deepseek.com"
 	case "openai-local-proxy":
 		return "http://127.0.0.1:18081/v1"
 	case "ollama":
@@ -672,7 +695,7 @@ func defaultOpenAIBaseURLForVendor(vendor string) string {
 
 func openAIVendorPrefersChatCompletions(vendor string) bool {
 	switch strings.ToLower(strings.TrimSpace(vendor)) {
-	case "gemini", "mimo", "ollama", "openrouter", "trae":
+	case "deepseek", "gemini", "mimo", "ollama", "openrouter", "trae":
 		return true
 	default:
 		return false
@@ -681,7 +704,9 @@ func openAIVendorPrefersChatCompletions(vendor string) bool {
 
 func openAIBaseURLPrefersChatCompletions(baseURL string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(baseURL))
-	return strings.Contains(normalized, "openrouter.ai")
+	return strings.Contains(normalized, "api.deepseek.com") ||
+		strings.Contains(normalized, "deepseek.com") ||
+		strings.Contains(normalized, "openrouter.ai")
 }
 
 func openAIVendorAllowsEmptyAPIKey(vendor string) bool {
@@ -2738,25 +2763,30 @@ func (a *Account) GetCurrentWindowStartTime() time.Time {
 
 // parseExtraFloat64 从 extra 字段解析 float64 值
 func parseExtraFloat64(value any) float64 {
+	parsed, _ := parseOptionalExtraFloat64(value)
+	return parsed
+}
+
+func parseOptionalExtraFloat64(value any) (float64, bool) {
 	switch v := value.(type) {
 	case float64:
-		return v
+		return v, true
 	case float32:
-		return float64(v)
+		return float64(v), true
 	case int:
-		return float64(v)
+		return float64(v), true
 	case int64:
-		return float64(v)
+		return float64(v), true
 	case json.Number:
 		if f, err := v.Float64(); err == nil {
-			return f
+			return f, true
 		}
 	case string:
 		if f, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
-			return f
+			return f, true
 		}
 	}
-	return 0
+	return 0, false
 }
 
 func parseExtraTime(value any) time.Time {

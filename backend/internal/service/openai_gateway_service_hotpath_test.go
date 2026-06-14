@@ -495,6 +495,12 @@ func TestOpenAIRequestBodyMayContainEmptyBase64InputImageSeesEscapedInputPrefix(
 	require.True(t, openAIRequestBodyMayContainEmptyBase64InputImage(body))
 }
 
+func TestOpenAIRequestBodyMayContainImageInputSeesChatCompletionsMessages(t *testing.T) {
+	body := []byte(`{"messages":[{"role":"user","content":[{"type":"text","text":"describe"},{"type":"image_url","image_url":{"url":"data:image/png;base64,aGVsbG8="}}]}]}`)
+
+	require.True(t, openAIRequestBodyMayContainImageInput(body))
+}
+
 func TestOpenAIGatewayService_Forward_ImageOnlyModelKeepsSupportedVerbosity(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstream := &httpUpstreamRecorder{

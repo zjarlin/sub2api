@@ -49,7 +49,10 @@
         </label>
         <label
           v-if="showDefaultSelector"
-          class="flex shrink-0 cursor-pointer items-center gap-1 rounded px-1.5 py-0.5 text-xs text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-dark-600"
+          class="flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md border px-1.5 text-[11px] font-medium transition-colors"
+          :class="defaultGroupId === group.id
+            ? 'border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-700/60 dark:bg-primary-900/20 dark:text-primary-300'
+            : 'border-transparent text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-dark-600'"
           :title="t('admin.accounts.quickOpenAI.defaultGroupHint')"
           @click.stop
         >
@@ -59,7 +62,7 @@
             class="h-3.5 w-3.5 rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
             @change="handleDefaultGroupChange(group.id, ($event.target as HTMLInputElement).checked)"
           />
-          <span>{{ t('common.default') }}</span>
+          <span class="leading-none">{{ t('common.default') }}</span>
         </label>
       </div>
       <div

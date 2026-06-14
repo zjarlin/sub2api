@@ -1608,11 +1608,18 @@
 
           <div
             v-if="isOpenAIModelRestrictionDisabled"
-            class="mb-3 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20"
+            class="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20"
           >
             <p class="text-xs text-amber-700 dark:text-amber-400">
               {{ t('admin.accounts.openai.modelRestrictionDisabledByPassthrough') }}
             </p>
+            <button
+              type="button"
+              class="rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-700 dark:bg-dark-800 dark:text-amber-300 dark:hover:bg-amber-900/30"
+              @click="openaiPassthroughEnabled = false"
+            >
+              {{ t('admin.accounts.openai.disablePassthroughForModelRestriction') }}
+            </button>
           </div>
 
           <template v-else>
@@ -2334,11 +2341,18 @@
 
         <div
           v-if="isOpenAIModelRestrictionDisabled"
-          class="mb-3 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20"
+          class="mb-3 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20"
         >
           <p class="text-xs text-amber-700 dark:text-amber-400">
             {{ t('admin.accounts.openai.modelRestrictionDisabledByPassthrough') }}
           </p>
+          <button
+            type="button"
+            class="rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-100 dark:border-amber-700 dark:bg-dark-800 dark:text-amber-300 dark:hover:bg-amber-900/30"
+            @click="openaiPassthroughEnabled = false"
+          >
+            {{ t('admin.accounts.openai.disablePassthroughForModelRestriction') }}
+          </button>
         </div>
 
         <template v-else>
@@ -3083,7 +3097,7 @@
       >
         <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
           <div class="flex items-center gap-2">
-            <Icon name="calculator" size="sm" class="text-blue-600 dark:text-blue-300" />
+            <Icon name="link" size="sm" class="text-blue-600 dark:text-blue-300" />
             <span class="text-sm font-semibold text-gray-900 dark:text-white">
               {{ t('admin.accounts.openai.upstreamRate.title') }}
             </span>
@@ -3107,6 +3121,29 @@
             }}
           </button>
         </div>
+        <div class="mb-3 flex items-center justify-between gap-3 rounded-md border border-blue-200 bg-white/70 px-3 py-2 dark:border-blue-900/50 dark:bg-dark-800/50">
+          <div>
+            <label class="input-label mb-0">{{ t('admin.accounts.openai.upstreamRate.siteMode') }}</label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.upstreamRate.siteModeHint') }}
+            </p>
+          </div>
+          <button
+            type="button"
+            @click="upstreamSiteModeEnabled = !upstreamSiteModeEnabled"
+            :class="[
+              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
+              upstreamSiteModeEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+            ]"
+          >
+            <span
+              :class="[
+                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                upstreamSiteModeEnabled ? 'translate-x-5' : 'translate-x-0'
+              ]"
+            />
+          </button>
+        </div>
         <div class="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
           <div>
             <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.consoleBaseUrl') }}</label>
@@ -3118,24 +3155,32 @@
             />
           </div>
           <div>
+            <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.siteType') }}</label>
+            <select v-model="upstreamKeyRateForm.siteType" class="input">
+              <option value="auto">{{ t('admin.accounts.openai.upstreamRate.siteTypeAuto') }}</option>
+              <option value="sub2api">{{ t('admin.accounts.openai.upstreamRate.siteTypeSub2API') }}</option>
+              <option value="new-api">{{ t('admin.accounts.openai.upstreamRate.siteTypeNewAPI') }}</option>
+            </select>
+          </div>
+          <div>
             <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.email') }}</label>
             <input
               v-model="upstreamKeyRateForm.email"
-              type="email"
+              type="text"
               class="input"
               autocomplete="username"
             />
           </div>
-          <div>
+          <div :class="upstreamSiteModeEnabled ? 'md:col-span-2 lg:col-span-3' : ''">
             <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.password') }}</label>
             <input
               v-model="upstreamKeyRateForm.password"
-              type="password"
+              type="text"
               class="input"
               autocomplete="current-password"
             />
           </div>
-          <div class="md:col-span-2 lg:col-span-3">
+          <div v-if="!upstreamSiteModeEnabled" class="md:col-span-2 lg:col-span-3">
             <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.targetApiKey') }}</label>
             <input
               v-model="upstreamKeyRateForm.apiKey"
@@ -3148,11 +3193,11 @@
               data-bwignore="true"
             />
           </div>
-          <div>
+          <div v-if="!upstreamSiteModeEnabled">
             <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.loginPath') }}</label>
             <input v-model="upstreamKeyRateForm.loginPath" type="text" class="input font-mono" />
           </div>
-          <div>
+          <div v-if="!upstreamSiteModeEnabled">
             <label class="input-label">{{ t('admin.accounts.openai.upstreamRate.keysPath') }}</label>
             <input v-model="upstreamKeyRateForm.keysPath" type="text" class="input font-mono" />
           </div>
@@ -3962,7 +4007,7 @@ import { formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/forma
 import { mergeModelMappings, serializeModelMappings, writeUIDisplayGroupsToExtra } from '@/utils/accountFormBulk'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import {
-  buildUpstreamRateSuccessParams,
+  buildUpstreamLoginSuccessParams,
   createUpstreamKeyRateForm,
   deriveUpstreamConsoleBaseUrl,
   getFirstUpstreamAPIKey,
@@ -4153,6 +4198,7 @@ const apiKeyValue = ref('')
 const quickOpenAIInput = ref('')
 const quickOpenAIDefaultGroupId = ref<number | null>(null)
 const upstreamKeyRateForm = reactive(createUpstreamKeyRateForm())
+const upstreamSiteModeEnabled = ref(false)
 const upstreamKeyRateResolving = ref(false)
 
 const syncPreviewCredentials = computed(() => {
@@ -4206,7 +4252,7 @@ const selectedErrorCodes = ref<number[]>([])
 const customErrorCodeInput = ref<number | null>(null)
 const interceptWarmupRequests = ref(false)
 const autoPauseOnExpired = ref(true)
-const openaiPassthroughEnabled = ref(false)
+const openaiPassthroughEnabled = ref(true)
 const openAICompactMode = ref<OpenAICompactMode>('auto')
 const openAIResponsesMode = ref<OpenAIResponsesMode>('auto')
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
@@ -4484,13 +4530,50 @@ const showUpstreamKeyRateTool = computed(() =>
   form.platform === 'openai' && accountCategory.value === 'apikey'
 )
 
-const syncUpstreamKeyRateDefaults = () => {
+const syncUpstreamKeyRateDefaults = (baseUrlCandidate?: string, apiKeyCandidate?: string) => {
   if (!upstreamKeyRateForm.baseUrl.trim()) {
-    upstreamKeyRateForm.baseUrl = deriveUpstreamConsoleBaseUrl(apiKeyBaseUrl.value || selectedOpenAIVendorPreset.value.baseUrl)
+    upstreamKeyRateForm.baseUrl = deriveUpstreamConsoleBaseUrl(
+      baseUrlCandidate || apiKeyBaseUrl.value || selectedOpenAIVendorPreset.value.baseUrl
+    )
   }
   if (!upstreamKeyRateForm.apiKey.trim()) {
-    upstreamKeyRateForm.apiKey = getFirstUpstreamAPIKey(apiKeyValue.value)
+    upstreamKeyRateForm.apiKey = getFirstUpstreamAPIKey(apiKeyCandidate || apiKeyValue.value)
   }
+}
+
+const applyUpstreamSiteModeCredentials = (
+  credentials: Record<string, unknown>,
+  apiKey?: string,
+  baseUrlCandidate?: string
+): boolean => {
+  if (!upstreamSiteModeEnabled.value) {
+    return true
+  }
+  syncUpstreamKeyRateDefaults(baseUrlCandidate, apiKey)
+  if (!upstreamKeyRateForm.baseUrl.trim()) {
+    appStore.showError(t('admin.accounts.openai.upstreamRate.baseUrlRequired'))
+    return false
+  }
+  if (!upstreamKeyRateForm.email.trim()) {
+    appStore.showError(t('admin.accounts.openai.upstreamRate.emailRequired'))
+    return false
+  }
+  if (!upstreamKeyRateForm.password.trim()) {
+    appStore.showError(t('admin.accounts.openai.upstreamRate.passwordRequired'))
+    return false
+  }
+  const resolvedAPIKey = (apiKey || upstreamKeyRateForm.apiKey).trim()
+  if (!resolvedAPIKey) {
+    appStore.showError(t('admin.accounts.openai.upstreamRate.apiKeyRequired'))
+    return false
+  }
+  credentials.api_key = resolvedAPIKey
+  credentials.upstream_site_mode = true
+  credentials.upstream_site_base_url = upstreamKeyRateForm.baseUrl.trim()
+  credentials.upstream_site_type = upstreamKeyRateForm.siteType || 'auto'
+  credentials.upstream_site_username = upstreamKeyRateForm.email.trim()
+  credentials.upstream_site_password = upstreamKeyRateForm.password
+  return true
 }
 
 const handleResolveUpstreamKeyRate = async () => {
@@ -4507,25 +4590,19 @@ const handleResolveUpstreamKeyRate = async () => {
     appStore.showError(t('admin.accounts.openai.upstreamRate.passwordRequired'))
     return
   }
-  if (!upstreamKeyRateForm.apiKey.trim()) {
-    appStore.showError(t('admin.accounts.openai.upstreamRate.apiKeyRequired'))
-    return
-  }
-
   upstreamKeyRateResolving.value = true
   try {
-    const result = await adminAPI.accounts.resolveUpstreamKeyRate({
+    const result = await adminAPI.accounts.testUpstreamConsoleLogin({
       base_url: upstreamKeyRateForm.baseUrl.trim(),
       login_path: upstreamKeyRateForm.loginPath.trim() || undefined,
-      keys_path: upstreamKeyRateForm.keysPath.trim() || undefined,
+      site_type: upstreamKeyRateForm.siteType || 'auto',
+      username: upstreamKeyRateForm.email.trim(),
       email: upstreamKeyRateForm.email.trim(),
-      password: upstreamKeyRateForm.password,
-      api_key: upstreamKeyRateForm.apiKey.trim()
+      password: upstreamKeyRateForm.password
     })
-    form.rate_multiplier = result.rate_multiplier
-    appStore.showSuccess(t('admin.accounts.openai.upstreamRate.success', buildUpstreamRateSuccessParams(result)))
+    appStore.showSuccess(t('admin.accounts.openai.upstreamRate.loginSuccess', buildUpstreamLoginSuccessParams(result)))
   } catch (error: any) {
-    appStore.showError(error?.message || t('admin.accounts.openai.upstreamRate.failed'))
+    appStore.showError(error?.message || t('admin.accounts.openai.upstreamRate.loginFailed'))
   } finally {
     upstreamKeyRateResolving.value = false
   }
@@ -4807,12 +4884,15 @@ watch(
     if (newPlatform !== 'anthropic' && newPlatform !== 'antigravity') {
       interceptWarmupRequests.value = false
     }
-    if (newPlatform !== 'openai') {
+    if (newPlatform === 'openai') {
+      openaiPassthroughEnabled.value = true
+    } else {
       openaiPassthroughEnabled.value = false
       openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
       openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
       codexCLIOnlyEnabled.value = false
+      upstreamSiteModeEnabled.value = false
       resetUpstreamKeyRateSecretFields(upstreamKeyRateForm)
       codexCLIOnlyAllowClaudeCodeEnabled.value = false
     }
@@ -4861,6 +4941,9 @@ watch(
   ([show]) => {
     if (show && showUpstreamKeyRateTool.value) {
       upstreamKeyRateForm.baseUrl = deriveUpstreamConsoleBaseUrl(apiKeyBaseUrl.value || selectedOpenAIVendorPreset.value.baseUrl)
+    }
+    if (show && !showUpstreamKeyRateTool.value) {
+      upstreamSiteModeEnabled.value = false
     }
   }
 )
@@ -5259,18 +5342,23 @@ const handleQuickOpenAIAdd = async () => {
     return
   }
 
+  const credentials: Record<string, unknown> = {
+    base_url: parsed.baseUrl,
+    api_key: parsed.apiKey,
+    vendor: 'custom',
+    auth_header: 'authorization',
+    auth_scheme: 'bearer'
+  }
+  if (!applyUpstreamSiteModeCredentials(credentials, parsed.apiKey, parsed.baseUrl)) {
+    return
+  }
+
   await submitCreateAccount({
     name: parsed.baseUrl,
     notes: '',
     platform: 'openai',
     type: 'apikey',
-    credentials: {
-      base_url: parsed.baseUrl,
-      api_key: parsed.apiKey,
-      vendor: 'custom',
-      auth_header: 'authorization',
-      auth_scheme: 'bearer'
-    },
+    credentials,
     proxy_id: null,
     concurrency: form.concurrency,
     load_factor: form.load_factor ?? undefined,
@@ -5278,7 +5366,8 @@ const handleQuickOpenAIAdd = async () => {
     rate_multiplier: form.rate_multiplier,
     group_ids: [group.id],
     expires_at: form.expires_at,
-    auto_pause_on_expired: autoPauseOnExpired.value
+    auto_pause_on_expired: autoPauseOnExpired.value,
+    extra: { openai_passthrough: true }
   })
 }
 
@@ -5356,6 +5445,7 @@ const resetForm = () => {
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
   quickOpenAIInput.value = ''
+  upstreamSiteModeEnabled.value = false
   upstreamKeyRateForm.baseUrl = ''
   resetUpstreamKeyRateSecretFields(upstreamKeyRateForm)
   openAIVendorPresetId.value = 'openai'
@@ -5398,7 +5488,7 @@ const resetForm = () => {
   customErrorCodeInput.value = null
   interceptWarmupRequests.value = false
   autoPauseOnExpired.value = true
-  openaiPassthroughEnabled.value = false
+  openaiPassthroughEnabled.value = true
   openAICompactMode.value = 'auto'
   openAIResponsesMode.value = 'auto'
   openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
@@ -5874,6 +5964,10 @@ const handleSubmit = async () => {
     credentials.custom_error_codes = [...selectedErrorCodes.value]
   }
 
+  if (form.platform === 'openai' && !applyUpstreamSiteModeCredentials(credentials)) {
+    return
+  }
+
   applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
   const extra = buildAnthropicExtra(buildOpenAIExtra())
 
@@ -6061,6 +6155,17 @@ const createApiKeyAccountsAndFinish = async (
       buildBulkApiKeyAccountName(form.name, index, keysOrEmpty.length)
     )
   })
+  if (platform === 'openai' && upstreamSiteModeEnabled.value) {
+    for (const payload of payloads) {
+      if (!applyUpstreamSiteModeCredentials(
+        payload.credentials,
+        typeof payload.credentials.api_key === 'string' ? payload.credentials.api_key : undefined,
+        typeof payload.credentials.base_url === 'string' ? payload.credentials.base_url : undefined
+      )) {
+        return
+      }
+    }
+  }
 
   await doCreateAccounts(payloads)
 }

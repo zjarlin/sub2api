@@ -599,6 +599,60 @@ func (h *AccountHandler) ResolveUpstreamKeyRate(c *gin.Context) {
 	response.Success(c, result)
 }
 
+func (h *AccountHandler) TestUpstreamConsoleLogin(c *gin.Context) {
+	var req service.TestUpstreamConsoleLoginInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	result, err := h.adminService.TestUpstreamConsoleLogin(c.Request.Context(), req)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, result)
+}
+
+func (h *AccountHandler) ListUpstreamKeyGroups(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || accountID <= 0 {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+
+	result, err := h.adminService.ListUpstreamKeyGroups(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, result)
+}
+
+func (h *AccountHandler) SwitchUpstreamKeyGroup(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || accountID <= 0 {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+
+	var req service.SwitchUpstreamKeyGroupInput
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	account, err := h.adminService.SwitchUpstreamKeyGroup(c.Request.Context(), accountID, req)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+}
+
 // Create handles creating a new account
 // POST /api/v1/admin/accounts
 func (h *AccountHandler) Create(c *gin.Context) {

@@ -82,6 +82,10 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
 
+	if accountUsesDeepSeekOpenAICompat(account) && openAIRequestBodyMayContainImageInput(body) {
+		return nil, newDeepSeekImageInputUnsupportedFailover()
+	}
+
 	// 3. Rewrite model in body (no protocol conversion)
 	upstreamBody := body
 	if upstreamModel != originalModel {
