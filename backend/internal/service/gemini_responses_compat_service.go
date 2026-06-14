@@ -54,10 +54,7 @@ func (s *GeminiMessagesCompatService) ForwardAsResponses(
 		return nil, fmt.Errorf("marshal responses compat request: %w", err)
 	}
 
-	mappedModel := originalModel
-	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
-		mappedModel = account.GetMappedModel(originalModel)
-	}
+	mappedModel := resolveGeminiForwardModel(account, originalModel)
 
 	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(claudeBody)
 	if err != nil {

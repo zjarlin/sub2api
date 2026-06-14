@@ -2008,6 +2008,12 @@ func modelRateLimitKeyForUpstreamModelNotFound(ctx context.Context, account *Acc
 		}
 		return modelKey
 	}
+	if account.Platform == PlatformGemini {
+		if resolved := strings.TrimSpace(resolveGeminiForwardModel(account, modelKey)); resolved != "" {
+			return resolved
+		}
+		return modelKey
+	}
 	if mapped := strings.TrimSpace(account.GetMappedModel(modelKey)); mapped != "" {
 		return mapped
 	}

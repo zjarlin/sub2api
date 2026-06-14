@@ -9640,6 +9640,9 @@ func resolveAccountUpstreamModel(account *Account, requestedModel string) string
 	if account.Platform == PlatformAntigravity {
 		return mapAntigravityModel(account, requestedModel)
 	}
+	if account.Platform == PlatformGemini {
+		return resolveGeminiForwardModel(account, requestedModel)
+	}
 	return account.GetMappedModel(requestedModel)
 }
 

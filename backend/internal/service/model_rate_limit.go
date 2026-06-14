@@ -66,6 +66,8 @@ func (a *Account) modelRateLimitKeysForRequest(ctx context.Context, requestedMod
 	modelKey := a.GetMappedModel(requestedModel)
 	if a.Platform == PlatformAntigravity {
 		modelKey = resolveFinalAntigravityModelKey(ctx, a, requestedModel)
+	} else if a.Platform == PlatformGemini {
+		modelKey = resolveGeminiForwardModel(a, requestedModel)
 	}
 	modelKey = strings.TrimSpace(modelKey)
 	if modelKey == "" {

@@ -307,7 +307,8 @@ func (s *GeminiMessagesCompatService) passesRateLimitPreCheckWithCache(ctx conte
 		}
 	}
 
-	ok, err := s.rateLimitService.PreCheckUsage(ctx, account, requestedModel)
+	precheckModel := resolveGeminiForwardModel(account, requestedModel)
+	ok, err := s.rateLimitService.PreCheckUsage(ctx, account, precheckModel)
 	if err != nil {
 		logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini PreCheck] Account %d precheck error: %v", account.ID, err)
 	}
@@ -362,16 +363,27 @@ func (s *GeminiMessagesCompatService) buildPreCheckUsageResultMap(ctx context.Co
 		return nil
 	}
 
-	candidates := make([]*Account, 0, len(accounts))
+	candidatesByModel := make(map[string][]*Account)
 	for i := range accounts {
-		candidates = append(candidates, &accounts[i])
+		account := &accounts[i]
+		precheckModel := resolveGeminiForwardModel(account, requestedModel)
+		if precheckModel == "" {
+			precheckModel = requestedModel
+		}
+		candidatesByModel[precheckModel] = append(candidatesByModel[precheckModel], account)
 	}
 
-	result, err := s.rateLimitService.PreCheckUsageBatch(ctx, candidates, requestedModel)
-	if err != nil {
-		logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini PreCheckBatch] failed: %v", err)
+	merged := make(map[int64]bool, len(accounts))
+	for precheckModel, candidates := range candidatesByModel {
+		result, err := s.rateLimitService.PreCheckUsageBatch(ctx, candidates, precheckModel)
+		if err != nil {
+			logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini PreCheckBatch] failed for model %s: %v", precheckModel, err)
+		}
+		for accountID, ok := range result {
+			merged[accountID] = ok
+		}
 	}
-	return result
+	return merged
 }
 
 // isBetterGeminiAccount 判断 candidate 是否比 current 更优。
@@ -412,6 +424,9 @@ func (s *GeminiMessagesCompatService) isModelSupportedByAccount(account *Account
 			return true
 		}
 		return mapAntigravityModel(account, requestedModel) != ""
+	}
+	if account.Platform == PlatformGemini {
+		return geminiAccountSupportsRequestedModel(account, requestedModel)
 	}
 	return account.IsModelSupported(requestedModel)
 }
@@ -594,10 +609,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	}
 
 	originalModel := req.Model
-	mappedModel := req.Model
-	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
-		mappedModel = account.GetMappedModel(req.Model)
-	}
+	mappedModel := resolveGeminiForwardModel(account, req.Model)
 
 	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(body)
 	if err != nil {
@@ -1135,10 +1147,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	// `thoughtSignature` to avoid frequent INVALID_ARGUMENT 400s.
 	body = ensureGeminiFunctionCallThoughtSignatures(body)
 
-	mappedModel := originalModel
-	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
-		mappedModel = account.GetMappedModel(originalModel)
-	}
+	mappedModel := resolveGeminiForwardModel(account, originalModel)
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
