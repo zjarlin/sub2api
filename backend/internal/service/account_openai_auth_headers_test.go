@@ -116,7 +116,7 @@ func TestAccountOpenAILocalProxyDefaults(t *testing.T) {
 }
 
 func TestAccountOpenAIVendorChatCompletionsPreference(t *testing.T) {
-	for _, vendor := range []string{"deepseek", "gemini", "mimo", "ollama", "openrouter", "trae"} {
+	for _, vendor := range []string{"deepseek", "gemini", "mimo", "ollama", "opencode", "openrouter", "trae"} {
 		account := &Account{
 			Platform: PlatformOpenAI,
 			Type:     AccountTypeAPIKey,
@@ -127,6 +127,20 @@ func TestAccountOpenAIVendorChatCompletionsPreference(t *testing.T) {
 		if !account.ShouldUseOpenAIChatCompletionsUpstream() {
 			t.Fatalf("vendor %q should prefer chat/completions upstream", vendor)
 		}
+	}
+}
+
+func TestAccountOpenCodeBaseURLUsesChatCompletionsWithoutVendor(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://api.opencode.ai/v1",
+		},
+	}
+
+	if !account.ShouldUseOpenAIChatCompletionsUpstream() {
+		t.Fatal("OpenCode base URL should use chat/completions upstream")
 	}
 }
 

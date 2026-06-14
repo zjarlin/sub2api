@@ -695,7 +695,7 @@ func defaultOpenAIBaseURLForVendor(vendor string) string {
 
 func openAIVendorPrefersChatCompletions(vendor string) bool {
 	switch strings.ToLower(strings.TrimSpace(vendor)) {
-	case "deepseek", "gemini", "mimo", "ollama", "openrouter", "trae":
+	case "deepseek", "gemini", "mimo", "ollama", "opencode", "openrouter", "trae":
 		return true
 	default:
 		return false
@@ -706,6 +706,7 @@ func openAIBaseURLPrefersChatCompletions(baseURL string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(baseURL))
 	return strings.Contains(normalized, "api.deepseek.com") ||
 		strings.Contains(normalized, "deepseek.com") ||
+		strings.Contains(normalized, "opencode.ai") ||
 		strings.Contains(normalized, "openrouter.ai")
 }
 
