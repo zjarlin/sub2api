@@ -713,6 +713,12 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeySiteName,
 		SettingKeySiteLogo,
 		SettingKeySiteSubtitle,
+		SettingKeyHomeFeature1Title,
+		SettingKeyHomeFeature1Description,
+		SettingKeyHomeFeature2Title,
+		SettingKeyHomeFeature2Description,
+		SettingKeyHomeFeature3Title,
+		SettingKeyHomeFeature3Description,
 		SettingKeyAPIBaseURL,
 		SettingKeyContactInfo,
 		SettingKeyDocURL,
@@ -835,9 +841,15 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		LoginAgreementDocuments:          loginAgreementDocuments,
 		TurnstileEnabled:                 settings[SettingKeyTurnstileEnabled] == "true",
 		TurnstileSiteKey:                 settings[SettingKeyTurnstileSiteKey],
-		SiteName:                         s.getStringOrDefault(settings, SettingKeySiteName, "Sub2API"),
+		SiteName:                         s.getStringOrDefault(settings, SettingKeySiteName, "++0 的 API"),
 		SiteLogo:                         settings[SettingKeySiteLogo],
-		SiteSubtitle:                     s.getStringOrDefault(settings, SettingKeySiteSubtitle, "Subscription to API Conversion Platform"),
+		SiteSubtitle:                     s.getStringOrDefault(settings, SettingKeySiteSubtitle, "一个接口，接上主流 AI 模型和上游账号池"),
+		HomeFeature1Title:                s.getStringOrDefault(settings, SettingKeyHomeFeature1Title, "一键接入"),
+		HomeFeature1Description:          s.getStringOrDefault(settings, SettingKeyHomeFeature1Description, "获取一个 API 密钥，即可调用所有已接入的 AI 模型，无需分别申请。"),
+		HomeFeature2Title:                s.getStringOrDefault(settings, SettingKeyHomeFeature2Title, "稳定可靠"),
+		HomeFeature2Description:          s.getStringOrDefault(settings, SettingKeyHomeFeature2Description, "智能调度多个上游账号，自动切换和负载均衡，告别频繁报错。"),
+		HomeFeature3Title:                s.getStringOrDefault(settings, SettingKeyHomeFeature3Title, "用多少付多少"),
+		HomeFeature3Description:          s.getStringOrDefault(settings, SettingKeyHomeFeature3Description, "按实际使用量计费，支持设置配额上限，团队用量一目了然。"),
 		APIBaseURL:                       settings[SettingKeyAPIBaseURL],
 		ContactInfo:                      settings[SettingKeyContactInfo],
 		DocURL:                           settings[SettingKeyDocURL],
@@ -1152,6 +1164,12 @@ type PublicSettingsInjectionPayload struct {
 	SiteName                         string                   `json:"site_name"`
 	SiteLogo                         string                   `json:"site_logo"`
 	SiteSubtitle                     string                   `json:"site_subtitle"`
+	HomeFeature1Title                string                   `json:"home_feature_1_title"`
+	HomeFeature1Description          string                   `json:"home_feature_1_description"`
+	HomeFeature2Title                string                   `json:"home_feature_2_title"`
+	HomeFeature2Description          string                   `json:"home_feature_2_description"`
+	HomeFeature3Title                string                   `json:"home_feature_3_title"`
+	HomeFeature3Description          string                   `json:"home_feature_3_description"`
 	APIBaseURL                       string                   `json:"api_base_url"`
 	ContactInfo                      string                   `json:"contact_info"`
 	DocURL                           string                   `json:"doc_url"`
@@ -1218,6 +1236,12 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		SiteName:                         settings.SiteName,
 		SiteLogo:                         settings.SiteLogo,
 		SiteSubtitle:                     settings.SiteSubtitle,
+		HomeFeature1Title:                settings.HomeFeature1Title,
+		HomeFeature1Description:          settings.HomeFeature1Description,
+		HomeFeature2Title:                settings.HomeFeature2Title,
+		HomeFeature2Description:          settings.HomeFeature2Description,
+		HomeFeature3Title:                settings.HomeFeature3Title,
+		HomeFeature3Description:          settings.HomeFeature3Description,
 		APIBaseURL:                       settings.APIBaseURL,
 		ContactInfo:                      settings.ContactInfo,
 		DocURL:                           settings.DocURL,
@@ -1811,6 +1835,12 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeySiteName] = settings.SiteName
 	updates[SettingKeySiteLogo] = settings.SiteLogo
 	updates[SettingKeySiteSubtitle] = settings.SiteSubtitle
+	updates[SettingKeyHomeFeature1Title] = settings.HomeFeature1Title
+	updates[SettingKeyHomeFeature1Description] = settings.HomeFeature1Description
+	updates[SettingKeyHomeFeature2Title] = settings.HomeFeature2Title
+	updates[SettingKeyHomeFeature2Description] = settings.HomeFeature2Description
+	updates[SettingKeyHomeFeature3Title] = settings.HomeFeature3Title
+	updates[SettingKeyHomeFeature3Description] = settings.HomeFeature3Description
 	updates[SettingKeyAPIBaseURL] = settings.APIBaseURL
 	updates[SettingKeyContactInfo] = settings.ContactInfo
 	updates[SettingKeyDocURL] = settings.DocURL
@@ -2688,8 +2718,15 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyLoginAgreementUpdatedAt:                   defaultLoginAgreementDate,
 		SettingKeyLoginAgreementDocuments:                   loginAgreementDocumentsJSON,
 		SettingKeyAPIKeyACLTrustForwardedIP:                 "false",
-		SettingKeySiteName:                                  "Sub2API",
+		SettingKeySiteName:                                  "++0 的 API",
 		SettingKeySiteLogo:                                  "",
+		SettingKeySiteSubtitle:                              "一个接口，接上主流 AI 模型和上游账号池",
+		SettingKeyHomeFeature1Title:                         "一键接入",
+		SettingKeyHomeFeature1Description:                   "获取一个 API 密钥，即可调用所有已接入的 AI 模型，无需分别申请。",
+		SettingKeyHomeFeature2Title:                         "稳定可靠",
+		SettingKeyHomeFeature2Description:                   "智能调度多个上游账号，自动切换和负载均衡，告别频繁报错。",
+		SettingKeyHomeFeature3Title:                         "用多少付多少",
+		SettingKeyHomeFeature3Description:                   "按实际使用量计费，支持设置配额上限，团队用量一目了然。",
 		SettingKeyPurchaseSubscriptionEnabled:               "false",
 		SettingKeyPurchaseSubscriptionURL:                   "",
 		SettingKeyTableDefaultPageSize:                      "20",
@@ -2878,9 +2915,15 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		TurnstileSiteKey:                 settings[SettingKeyTurnstileSiteKey],
 		TurnstileSecretKeyConfigured:     settings[SettingKeyTurnstileSecretKey] != "",
 		APIKeyACLTrustForwardedIP:        apiKeyACLTrustForwardedIP,
-		SiteName:                         s.getStringOrDefault(settings, SettingKeySiteName, "Sub2API"),
+		SiteName:                         s.getStringOrDefault(settings, SettingKeySiteName, "++0 的 API"),
 		SiteLogo:                         settings[SettingKeySiteLogo],
-		SiteSubtitle:                     s.getStringOrDefault(settings, SettingKeySiteSubtitle, "Subscription to API Conversion Platform"),
+		SiteSubtitle:                     s.getStringOrDefault(settings, SettingKeySiteSubtitle, "一个接口，接上主流 AI 模型和上游账号池"),
+		HomeFeature1Title:                s.getStringOrDefault(settings, SettingKeyHomeFeature1Title, "一键接入"),
+		HomeFeature1Description:          s.getStringOrDefault(settings, SettingKeyHomeFeature1Description, "获取一个 API 密钥，即可调用所有已接入的 AI 模型，无需分别申请。"),
+		HomeFeature2Title:                s.getStringOrDefault(settings, SettingKeyHomeFeature2Title, "稳定可靠"),
+		HomeFeature2Description:          s.getStringOrDefault(settings, SettingKeyHomeFeature2Description, "智能调度多个上游账号，自动切换和负载均衡，告别频繁报错。"),
+		HomeFeature3Title:                s.getStringOrDefault(settings, SettingKeyHomeFeature3Title, "用多少付多少"),
+		HomeFeature3Description:          s.getStringOrDefault(settings, SettingKeyHomeFeature3Description, "按实际使用量计费，支持设置配额上限，团队用量一目了然。"),
 		APIBaseURL:                       settings[SettingKeyAPIBaseURL],
 		ContactInfo:                      settings[SettingKeyContactInfo],
 		DocURL:                           settings[SettingKeyDocURL],

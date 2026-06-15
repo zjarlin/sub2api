@@ -214,6 +214,12 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		SiteName:                               settings.SiteName,
 		SiteLogo:                               settings.SiteLogo,
 		SiteSubtitle:                           settings.SiteSubtitle,
+		HomeFeature1Title:                      settings.HomeFeature1Title,
+		HomeFeature1Description:                settings.HomeFeature1Description,
+		HomeFeature2Title:                      settings.HomeFeature2Title,
+		HomeFeature2Description:                settings.HomeFeature2Description,
+		HomeFeature3Title:                      settings.HomeFeature3Title,
+		HomeFeature3Description:                settings.HomeFeature3Description,
 		APIBaseURL:                             settings.APIBaseURL,
 		ContactInfo:                            settings.ContactInfo,
 		DocURL:                                 settings.DocURL,
@@ -495,6 +501,12 @@ type UpdateSettingsRequest struct {
 	SiteName                    string                `json:"site_name"`
 	SiteLogo                    string                `json:"site_logo"`
 	SiteSubtitle                string                `json:"site_subtitle"`
+	HomeFeature1Title           string                `json:"home_feature_1_title"`
+	HomeFeature1Description     string                `json:"home_feature_1_description"`
+	HomeFeature2Title           string                `json:"home_feature_2_title"`
+	HomeFeature2Description     string                `json:"home_feature_2_description"`
+	HomeFeature3Title           string                `json:"home_feature_3_title"`
+	HomeFeature3Description     string                `json:"home_feature_3_description"`
 	APIBaseURL                  string                `json:"api_base_url"`
 	ContactInfo                 string                `json:"contact_info"`
 	DocURL                      string                `json:"doc_url"`
@@ -1565,6 +1577,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		SiteName:                               req.SiteName,
 		SiteLogo:                               req.SiteLogo,
 		SiteSubtitle:                           req.SiteSubtitle,
+		HomeFeature1Title:                      req.HomeFeature1Title,
+		HomeFeature1Description:                req.HomeFeature1Description,
+		HomeFeature2Title:                      req.HomeFeature2Title,
+		HomeFeature2Description:                req.HomeFeature2Description,
+		HomeFeature3Title:                      req.HomeFeature3Title,
+		HomeFeature3Description:                req.HomeFeature3Description,
 		APIBaseURL:                             req.APIBaseURL,
 		ContactInfo:                            req.ContactInfo,
 		DocURL:                                 req.DocURL,
@@ -2008,6 +2026,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		SiteName:                               updatedSettings.SiteName,
 		SiteLogo:                               updatedSettings.SiteLogo,
 		SiteSubtitle:                           updatedSettings.SiteSubtitle,
+		HomeFeature1Title:                      updatedSettings.HomeFeature1Title,
+		HomeFeature1Description:                updatedSettings.HomeFeature1Description,
+		HomeFeature2Title:                      updatedSettings.HomeFeature2Title,
+		HomeFeature2Description:                updatedSettings.HomeFeature2Description,
+		HomeFeature3Title:                      updatedSettings.HomeFeature3Title,
+		HomeFeature3Description:                updatedSettings.HomeFeature3Description,
 		APIBaseURL:                             updatedSettings.APIBaseURL,
 		ContactInfo:                            updatedSettings.ContactInfo,
 		DocURL:                                 updatedSettings.DocURL,
@@ -2399,6 +2423,24 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.SiteSubtitle != after.SiteSubtitle {
 		changed = append(changed, "site_subtitle")
+	}
+	if before.HomeFeature1Title != after.HomeFeature1Title {
+		changed = append(changed, "home_feature_1_title")
+	}
+	if before.HomeFeature1Description != after.HomeFeature1Description {
+		changed = append(changed, "home_feature_1_description")
+	}
+	if before.HomeFeature2Title != after.HomeFeature2Title {
+		changed = append(changed, "home_feature_2_title")
+	}
+	if before.HomeFeature2Description != after.HomeFeature2Description {
+		changed = append(changed, "home_feature_2_description")
+	}
+	if before.HomeFeature3Title != after.HomeFeature3Title {
+		changed = append(changed, "home_feature_3_title")
+	}
+	if before.HomeFeature3Description != after.HomeFeature3Description {
+		changed = append(changed, "home_feature_3_description")
 	}
 	if before.APIBaseURL != after.APIBaseURL {
 		changed = append(changed, "api_base_url")

@@ -23,7 +23,7 @@ let startedAt = 0
 const pointer = new THREE.Vector2(0, 0)
 const targetPointer = new THREE.Vector2(0, 0)
 const packetObjects: THREE.Object3D[] = []
-const pulseObjects: THREE.Mesh[] = []
+const pulseObjects: THREE.Object3D[] = []
 
 function canUseWebGL(): boolean {
   try {
@@ -34,56 +34,57 @@ function canUseWebGL(): boolean {
   }
 }
 
-function makeLine(points: THREE.Vector3[], color: number, opacity = 0.42): THREE.Line {
+function makeLine(points: THREE.Vector3[], color: number, opacity = 0.72): THREE.Line {
   const geometry = new THREE.BufferGeometry().setFromPoints(points)
   const material = new THREE.LineBasicMaterial({
     color,
     transparent: true,
-    opacity,
-    blending: THREE.AdditiveBlending
+    opacity
   })
   return new THREE.Line(geometry, material)
 }
 
 function buildScene(width: number, height: number): void {
   scene = new THREE.Scene()
-  scene.fog = new THREE.FogExp2(0x030507, 0.052)
+  scene.fog = new THREE.FogExp2(0xfff3bf, 0.032)
 
   camera = new THREE.PerspectiveCamera(48, width / height, 0.1, 120)
   camera.position.set(0, 8.5, 22)
   camera.lookAt(0, 0, 0)
 
-  const ambient = new THREE.AmbientLight(0x1f5d74, 1.3)
+  const ambient = new THREE.AmbientLight(0xffffff, 2.1)
   scene.add(ambient)
 
-  const coreLight = new THREE.PointLight(0xff6b24, 180, 42)
-  coreLight.position.set(0, 2, 0)
-  scene.add(coreLight)
+  const keyLight = new THREE.DirectionalLight(0xffffff, 2.4)
+  keyLight.position.set(-8, 10, 8)
+  scene.add(keyLight)
 
-  const cyanLight = new THREE.PointLight(0x00c8ff, 95, 46)
-  cyanLight.position.set(-8, 4, 6)
-  scene.add(cyanLight)
+  const rimLight = new THREE.PointLight(0xff5fa2, 80, 46)
+  rimLight.position.set(8, 5, 6)
+  scene.add(rimLight)
 
-  const grid = new THREE.GridHelper(56, 56, 0x24414c, 0x122128)
+  const grid = new THREE.GridHelper(56, 28, 0x000000, 0x555555)
   grid.position.y = -2.4
   const gridMaterial = grid.material as THREE.Material
   gridMaterial.transparent = true
-  gridMaterial.opacity = 0.48
+  gridMaterial.opacity = 0.24
   scene.add(grid)
 
   const coreGroup = new THREE.Group()
   coreGroup.name = 'gateway-core'
 
-  const ringMaterial = new THREE.MeshBasicMaterial({
-    color: 0xff7a18,
-    transparent: true,
-    opacity: 0.86,
-    blending: THREE.AdditiveBlending,
-    side: THREE.DoubleSide
-  })
+  const ringColors = [0xffdc58, 0xff5fa2, 0x35d9ff, 0x8fff6a, 0x7084ff]
 
   for (let index = 0; index < 5; index += 1) {
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(2.15 + index * 0.5, 0.018, 10, 160), ringMaterial.clone())
+    const ring = new THREE.Mesh(
+      new THREE.TorusGeometry(2.15 + index * 0.5, 0.055, 10, 160),
+      new THREE.MeshBasicMaterial({
+        color: ringColors[index],
+        transparent: true,
+        opacity: 0.92,
+        side: THREE.DoubleSide
+      })
+    )
     ring.rotation.x = Math.PI / 2
     ring.rotation.z = index * 0.42
     ring.userData.speed = 0.18 + index * 0.035
@@ -91,30 +92,29 @@ function buildScene(width: number, height: number): void {
     pulseObjects.push(ring)
   }
 
+  const coreGeometry = new THREE.IcosahedronGeometry(1.35, 2)
   const core = new THREE.Mesh(
-    new THREE.IcosahedronGeometry(1.35, 2),
+    coreGeometry,
     new THREE.MeshStandardMaterial({
-      color: 0xff8a00,
-      emissive: 0xff3b00,
-      emissiveIntensity: 1.5,
-      metalness: 0.24,
-      roughness: 0.32,
-      transparent: true,
-      opacity: 0.94
+      color: 0xffdc58,
+      emissive: 0xff5fa2,
+      emissiveIntensity: 0.12,
+      metalness: 0.04,
+      roughness: 0.58
     })
   )
   coreGroup.add(core)
   pulseObjects.push(core)
+
+  const coreOutline = new THREE.LineSegments(
+    new THREE.EdgesGeometry(coreGeometry),
+    new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.9 })
+  )
+  coreGroup.add(coreOutline)
   scene.add(coreGroup)
 
-  const nodeMaterial = new THREE.MeshStandardMaterial({
-    color: 0x071117,
-    emissive: 0x00c8ff,
-    emissiveIntensity: 1.05,
-    metalness: 0.4,
-    roughness: 0.28
-  })
   const nodeGeometry = new THREE.BoxGeometry(0.6, 0.6, 0.6)
+  const nodeOutlineGeometry = new THREE.EdgesGeometry(nodeGeometry)
   const nodePositions = [
     [-9.2, 0.8, -5.2],
     [-7.1, 2.8, 3.6],
@@ -125,30 +125,52 @@ function buildScene(width: number, height: number): void {
     [0, 4.8, -7.5]
   ]
 
-  const packetGeometry = new THREE.SphereGeometry(0.11, 12, 12)
-  const packetMaterial = new THREE.MeshBasicMaterial({
-    color: 0xb7ff00,
-    transparent: true,
-    opacity: 0.95,
-    blending: THREE.AdditiveBlending
-  })
+  const packetGeometry = new THREE.SphereGeometry(0.14, 12, 12)
+  const packetColors = [0x000000, 0xff5fa2, 0x35d9ff, 0x8fff6a]
+  const routeColors = [0x000000, 0xff5fa2, 0x236bff, 0x00a5cf, 0x2f9b00]
 
   for (const [index, position] of nodePositions.entries()) {
-    const node = new THREE.Mesh(nodeGeometry, nodeMaterial.clone())
+    const node = new THREE.Mesh(
+      nodeGeometry,
+      new THREE.MeshStandardMaterial({
+        color: ringColors[index % ringColors.length],
+        emissive: ringColors[index % ringColors.length],
+        emissiveIntensity: 0.06,
+        metalness: 0.02,
+        roughness: 0.52
+      })
+    )
     node.position.set(position[0], position[1], position[2])
     node.rotation.set(0.5, index * 0.7, 0.2)
     node.userData.floatOffset = index * 0.8
     scene.add(node)
     pulseObjects.push(node)
 
+    const nodeOutline = new THREE.LineSegments(
+      nodeOutlineGeometry,
+      new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.86 })
+    )
+    nodeOutline.position.copy(node.position)
+    nodeOutline.rotation.copy(node.rotation)
+    nodeOutline.userData.floatOffset = node.userData.floatOffset
+    scene.add(nodeOutline)
+    pulseObjects.push(nodeOutline)
+
     const start = node.position.clone()
     const end = new THREE.Vector3(0, 0, 0)
     const middle = start.clone().multiplyScalar(0.46)
     middle.y += 1.2 + (index % 3) * 0.4
-    const route = makeLine([start, middle, end], index % 2 === 0 ? 0x00c8ff : 0xff8a00, 0.32)
+    const route = makeLine([start, middle, end], routeColors[index % routeColors.length], 0.68)
     scene.add(route)
 
-    const packet = new THREE.Mesh(packetGeometry, packetMaterial.clone())
+    const packet = new THREE.Mesh(
+      packetGeometry,
+      new THREE.MeshBasicMaterial({
+        color: packetColors[index % packetColors.length],
+        transparent: true,
+        opacity: 0.95
+      })
+    )
     packet.userData.start = start
     packet.userData.middle = middle
     packet.userData.end = end
@@ -158,7 +180,7 @@ function buildScene(width: number, height: number): void {
     packetObjects.push(packet)
   }
 
-  const particleCount = window.innerWidth < 768 ? 90 : 180
+  const particleCount = window.innerWidth < 768 ? 50 : 120
   const particlePositions = new Float32Array(particleCount * 3)
   for (let index = 0; index < particleCount; index += 1) {
     particlePositions[index * 3] = (Math.random() - 0.5) * 42
@@ -170,11 +192,10 @@ function buildScene(width: number, height: number): void {
   const particles = new THREE.Points(
     particleGeometry,
     new THREE.PointsMaterial({
-      color: 0x5ee9ff,
-      size: 0.04,
+      color: 0x000000,
+      size: 0.055,
       transparent: true,
-      opacity: 0.62,
-      blending: THREE.AdditiveBlending
+      opacity: 0.22
     })
   )
   particles.name = 'field-particles'
@@ -296,9 +317,13 @@ onBeforeUnmount(dispose)
   inset: 0;
   overflow: hidden;
   background:
-    radial-gradient(circle at 52% 42%, rgba(255, 122, 24, 0.3), transparent 19rem),
-    radial-gradient(circle at 24% 34%, rgba(0, 200, 255, 0.19), transparent 22rem),
-    linear-gradient(180deg, rgba(1, 3, 5, 0.16), rgba(1, 3, 5, 0.98));
+    radial-gradient(circle at 54% 42%, rgba(255, 220, 88, 0.82), transparent 20rem),
+    radial-gradient(circle at 26% 34%, rgba(53, 217, 255, 0.58), transparent 21rem),
+    radial-gradient(circle at 74% 68%, rgba(255, 95, 162, 0.56), transparent 19rem),
+    linear-gradient(to right, rgba(0, 0, 0, 0.18) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.18) 1px, transparent 1px),
+    #fff3bf;
+  background-size: auto, auto, auto, 70px 70px, 70px 70px, auto;
 }
 
 .home-gateway-scene :deep(canvas) {
@@ -312,9 +337,9 @@ onBeforeUnmount(dispose)
   inset: 0;
   opacity: 0;
   background-image:
-    linear-gradient(rgba(0, 200, 255, 0.1) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 200, 255, 0.08) 1px, transparent 1px);
-  background-size: 42px 42px;
+    linear-gradient(rgba(0, 0, 0, 0.2) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.2) 1px, transparent 1px);
+  background-size: 70px 70px;
   transition: opacity 0.2s ease;
 }
 
@@ -324,11 +349,24 @@ onBeforeUnmount(dispose)
 
 .home-gateway-scene__fallback-node {
   position: absolute;
-  width: 9px;
-  height: 9px;
-  border: 1px solid rgba(183, 255, 0, 0.76);
-  background: rgba(183, 255, 0, 0.16);
-  box-shadow: 0 0 22px rgba(183, 255, 0, 0.38);
+  width: 14px;
+  height: 14px;
+  border: 2px solid #000;
+  border-radius: 3px;
+  background: #ffdc58;
+  box-shadow: 4px 4px 0 #000;
+}
+
+.home-gateway-scene__fallback-node:nth-child(2n) {
+  background: #35d9ff;
+}
+
+.home-gateway-scene__fallback-node:nth-child(3n) {
+  background: #ff5fa2;
+}
+
+.home-gateway-scene__fallback-node:nth-child(5n) {
+  background: #8fff6a;
 }
 
 .home-gateway-scene__fallback-node:nth-child(1) { left: 12%; top: 24%; }

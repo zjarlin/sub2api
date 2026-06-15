@@ -4497,6 +4497,79 @@
                 </div>
               </div>
 
+              <div class="border-t border-gray-100 pt-6 dark:border-dark-700">
+                <h3 class="text-sm font-medium text-gray-900 dark:text-white">
+                  {{ t("admin.settings.site.homeFeaturesTitle") }}
+                </h3>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t("admin.settings.site.homeFeaturesDescription") }}
+                </p>
+                <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+                  <div class="rounded-md border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-900">
+                    <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t("admin.settings.site.homeFeature1Title") }}
+                    </label>
+                    <input
+                      v-model="form.home_feature_1_title"
+                      type="text"
+                      class="input"
+                      :placeholder="t('admin.settings.site.homeFeature1TitlePlaceholder')"
+                    />
+                    <label class="mb-2 mt-4 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t("admin.settings.site.homeFeatureDescription") }}
+                    </label>
+                    <textarea
+                      v-model="form.home_feature_1_description"
+                      rows="3"
+                      class="input resize-y"
+                      :placeholder="t('admin.settings.site.homeFeature1DescriptionPlaceholder')"
+                    ></textarea>
+                  </div>
+
+                  <div class="rounded-md border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-900">
+                    <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t("admin.settings.site.homeFeature2Title") }}
+                    </label>
+                    <input
+                      v-model="form.home_feature_2_title"
+                      type="text"
+                      class="input"
+                      :placeholder="t('admin.settings.site.homeFeature2TitlePlaceholder')"
+                    />
+                    <label class="mb-2 mt-4 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t("admin.settings.site.homeFeatureDescription") }}
+                    </label>
+                    <textarea
+                      v-model="form.home_feature_2_description"
+                      rows="3"
+                      class="input resize-y"
+                      :placeholder="t('admin.settings.site.homeFeature2DescriptionPlaceholder')"
+                    ></textarea>
+                  </div>
+
+                  <div class="rounded-md border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-900">
+                    <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t("admin.settings.site.homeFeature3Title") }}
+                    </label>
+                    <input
+                      v-model="form.home_feature_3_title"
+                      type="text"
+                      class="input"
+                      :placeholder="t('admin.settings.site.homeFeature3TitlePlaceholder')"
+                    />
+                    <label class="mb-2 mt-4 block text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t("admin.settings.site.homeFeatureDescription") }}
+                    </label>
+                    <textarea
+                      v-model="form.home_feature_3_description"
+                      rows="3"
+                      class="input resize-y"
+                      :placeholder="t('admin.settings.site.homeFeature3DescriptionPlaceholder')"
+                    ></textarea>
+                  </div>
+                </div>
+              </div>
+
               <!-- API Base URL -->
               <div>
                 <label
@@ -7034,9 +7107,15 @@ const form = reactive<SettingsForm>({
   default_subscriptions: [],
   force_email_on_third_party_signup: false,
   default_user_rpm_limit: 0,
-  site_name: "Sub2API",
+  site_name: "++0 的 API",
   site_logo: "",
-  site_subtitle: "Subscription to API Conversion Platform",
+  site_subtitle: "一个接口，接上主流 AI 模型和上游账号池",
+  home_feature_1_title: "一键接入",
+  home_feature_1_description: "获取一个 API 密钥，即可调用所有已接入的 AI 模型，无需分别申请。",
+  home_feature_2_title: "稳定可靠",
+  home_feature_2_description: "智能调度多个上游账号，自动切换和负载均衡，告别频繁报错。",
+  home_feature_3_title: "用多少付多少",
+  home_feature_3_description: "按实际使用量计费，支持设置配额上限，团队用量一目了然。",
   api_base_url: "",
   contact_info: "",
   doc_url: "",
@@ -8183,6 +8262,12 @@ async function saveSettings() {
       site_name: form.site_name,
       site_logo: form.site_logo,
       site_subtitle: form.site_subtitle,
+      home_feature_1_title: form.home_feature_1_title,
+      home_feature_1_description: form.home_feature_1_description,
+      home_feature_2_title: form.home_feature_2_title,
+      home_feature_2_description: form.home_feature_2_description,
+      home_feature_3_title: form.home_feature_3_title,
+      home_feature_3_description: form.home_feature_3_description,
       api_base_url: form.api_base_url,
       contact_info: form.contact_info,
       doc_url: form.doc_url,

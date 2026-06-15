@@ -428,6 +428,12 @@ export interface SystemSettings {
   site_name: string;
   site_logo: string;
   site_subtitle: string;
+  home_feature_1_title: string;
+  home_feature_1_description: string;
+  home_feature_2_title: string;
+  home_feature_2_description: string;
+  home_feature_3_title: string;
+  home_feature_3_description: string;
   api_base_url: string;
   contact_info: string;
   doc_url: string;
@@ -686,6 +692,12 @@ export interface UpdateSettingsRequest {
   site_name?: string;
   site_logo?: string;
   site_subtitle?: string;
+  home_feature_1_title?: string;
+  home_feature_1_description?: string;
+  home_feature_2_title?: string;
+  home_feature_2_description?: string;
+  home_feature_3_title?: string;
+  home_feature_3_description?: string;
   api_base_url?: string;
   contact_info?: string;
   doc_url?: string;

@@ -130,6 +130,12 @@ type SystemSettings struct {
 	SiteName                    string           `json:"site_name"`
 	SiteLogo                    string           `json:"site_logo"`
 	SiteSubtitle                string           `json:"site_subtitle"`
+	HomeFeature1Title           string           `json:"home_feature_1_title"`
+	HomeFeature1Description     string           `json:"home_feature_1_description"`
+	HomeFeature2Title           string           `json:"home_feature_2_title"`
+	HomeFeature2Description     string           `json:"home_feature_2_description"`
+	HomeFeature3Title           string           `json:"home_feature_3_title"`
+	HomeFeature3Description     string           `json:"home_feature_3_description"`
 	APIBaseURL                  string           `json:"api_base_url"`
 	ContactInfo                 string           `json:"contact_info"`
 	DocURL                      string           `json:"doc_url"`
@@ -281,6 +287,12 @@ type PublicSettings struct {
 	SiteName                         string                   `json:"site_name"`
 	SiteLogo                         string                   `json:"site_logo"`
 	SiteSubtitle                     string                   `json:"site_subtitle"`
+	HomeFeature1Title                string                   `json:"home_feature_1_title"`
+	HomeFeature1Description          string                   `json:"home_feature_1_description"`
+	HomeFeature2Title                string                   `json:"home_feature_2_title"`
+	HomeFeature2Description          string                   `json:"home_feature_2_description"`
+	HomeFeature3Title                string                   `json:"home_feature_3_title"`
+	HomeFeature3Description          string                   `json:"home_feature_3_description"`
 	APIBaseURL                       string                   `json:"api_base_url"`
 	ContactInfo                      string                   `json:"contact_info"`
 	DocURL                           string                   `json:"doc_url"`

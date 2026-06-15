@@ -14,7 +14,7 @@
         <!-- Custom Logo or Default Logo -->
         <template v-if="settingsLoaded">
           <div
-            class="mb-4 inline-flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl shadow-lg shadow-primary-500/30"
+            class="mb-4 inline-flex h-16 w-16 items-center justify-center overflow-hidden rounded-md border-2 border-black bg-[#ffdc58] shadow-[6px_6px_0_#000] dark:border-white dark:shadow-[6px_6px_0_#fff]"
           >
             <img :src="siteLogo || '/logo.png'" alt="Logo" class="h-full w-full object-contain" />
           </div>
@@ -28,7 +28,7 @@
       </div>
 
       <!-- Card Container -->
-      <div class="card-glass rounded-2xl p-8">
+      <div class="card-glass rounded-md p-8">
         <slot />
       </div>
 
@@ -52,9 +52,9 @@ import { sanitizeUrl } from '@/utils/url'
 
 const appStore = useAppStore()
 
-const siteName = computed(() => appStore.siteName || 'Sub2API')
+const siteName = computed(() => appStore.siteName || '++0 的 API')
 const siteLogo = computed(() => sanitizeUrl(appStore.siteLogo || '', { allowRelative: true, allowDataUrl: true }))
-const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle || 'Subscription to API Conversion Platform')
+const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle || '一个接口，接上主流 AI 模型和上游账号池')
 const settingsLoaded = computed(() => appStore.publicSettingsLoaded)
 
 const currentYear = computed(() => new Date().getFullYear())
@@ -66,7 +66,7 @@ onMounted(() => {
 
 <style scoped>
 .text-gradient {
-  background: linear-gradient(100deg, var(--product-blue), var(--product-magenta) 52%, var(--product-orange));
+  background: linear-gradient(100deg, var(--neo-pink), var(--neo-main) 52%, var(--neo-cyan));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -74,16 +74,17 @@ onMounted(() => {
 
 .auth-refraction {
   background:
-    linear-gradient(120deg, transparent 0 16%, rgba(0, 95, 255, 0.13) 18%, transparent 30%),
-    linear-gradient(250deg, transparent 0 50%, rgba(255, 51, 102, 0.11) 54%, transparent 66%),
-    radial-gradient(90% 70% at 50% 50%, rgba(255, 138, 0, 0.12), transparent 64%);
+    linear-gradient(to right, rgba(0, 0, 0, 0.16) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(0, 0, 0, 0.16) 1px, transparent 1px),
+    radial-gradient(90% 70% at 50% 50%, rgba(255, 220, 88, 0.24), transparent 64%);
+  background-size: 70px 70px, 70px 70px, auto;
 }
 
 .glass-sheet {
   position: absolute;
-  border: 1px solid rgba(255, 255, 255, 0.18);
-  background: linear-gradient(135deg, rgba(0, 95, 255, 0.92), rgba(255, 51, 102, 0.86) 56%, rgba(255, 138, 0, 0.84));
-  box-shadow: 0 26px 70px rgba(17, 19, 24, 0.18);
+  border: 3px solid var(--liquid-border);
+  background: var(--neo-main);
+  box-shadow: 12px 12px 0 var(--liquid-border);
   clip-path: polygon(8% 0, 100% 0, 92% 100%, 0 100%);
   transform: rotate(-12deg);
 }
@@ -103,6 +104,7 @@ onMounted(() => {
   height: 36rem;
   border-radius: 0;
   transform: rotate(17deg);
+  background: var(--neo-cyan);
 }
 
 .glass-sheet-c {
@@ -113,17 +115,18 @@ onMounted(() => {
   border-radius: 0;
   transform: translate(-50%, -50%) rotate(28deg);
   opacity: 0.5;
-  background: linear-gradient(135deg, rgba(0, 200, 255, 0.88), rgba(183, 255, 0, 0.62));
+  background: var(--neo-pink);
 }
 
 :global(.dark) .auth-refraction {
   background:
-    linear-gradient(120deg, transparent 0 16%, rgba(0, 95, 255, 0.16) 18%, transparent 30%),
-    linear-gradient(250deg, transparent 0 50%, rgba(255, 51, 102, 0.13) 54%, transparent 66%),
-    radial-gradient(90% 70% at 50% 50%, rgba(255, 138, 0, 0.12), transparent 64%);
+    linear-gradient(to right, rgba(255, 255, 255, 0.14) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.14) 1px, transparent 1px),
+    radial-gradient(90% 70% at 50% 50%, rgba(255, 220, 88, 0.16), transparent 64%);
+  background-size: 70px 70px, 70px 70px, auto;
 }
 
 :global(.dark) .glass-sheet {
-  background: linear-gradient(135deg, rgba(0, 95, 255, 0.92), rgba(255, 51, 102, 0.86) 56%, rgba(255, 138, 0, 0.84));
+  background: var(--neo-main);
 }
 </style>

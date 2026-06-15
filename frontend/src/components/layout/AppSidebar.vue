@@ -9,7 +9,7 @@
     <!-- Logo/Brand -->
     <div class="sidebar-header" :class="{ 'sidebar-header-collapsed': sidebarCollapsed }">
       <!-- Custom Logo or Default Logo -->
-      <div class="sidebar-logo flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl shadow-glow">
+      <div class="sidebar-logo flex h-9 w-9 items-center justify-center overflow-hidden">
         <img v-if="settingsLoaded" :src="siteLogo || '/logo.png'" alt="Logo" class="h-full w-full object-contain" />
       </div>
       <div class="sidebar-brand" :class="{ 'sidebar-brand-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">
@@ -867,7 +867,7 @@ function handleGroupClick(item: NavItem) {
 
 // Initialize theme
 const savedTheme = localStorage.getItem('theme')
-const shouldUseDark = savedTheme === 'light' ? false : true
+const shouldUseDark = savedTheme === 'dark'
 isDark.value = shouldUseDark
 document.documentElement.classList.toggle('dark', shouldUseDark)
 
@@ -893,10 +893,10 @@ onMounted(() => {
 .sidebar-logo {
   flex: 0 0 2.25rem;
   min-width: 2.25rem;
-  border-radius: 3px !important;
-  border: 1px solid var(--product-orange);
-  background: rgba(255, 138, 0, 0.1);
-  box-shadow: none !important;
+  border-radius: var(--neo-radius) !important;
+  border: 2px solid var(--liquid-border);
+  background: var(--neo-main);
+  box-shadow: var(--neo-shadow-sm) !important;
 }
 
 .sidebar-header-collapsed {

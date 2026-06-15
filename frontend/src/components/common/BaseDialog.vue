@@ -19,7 +19,7 @@
             </h3>
             <button
               @click="emit('close')"
-              class="-mr-2 rounded-xl p-2 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 dark:text-dark-500 dark:hover:bg-dark-700 dark:hover:text-dark-300"
+              class="-mr-2 rounded-md border-2 border-transparent p-2 text-gray-500 transition-all hover:border-black hover:bg-[#ffdc58] hover:text-black hover:shadow-[3px_3px_0_#000] dark:text-dark-300 dark:hover:border-white dark:hover:bg-[#7084ff]"
               aria-label="Close modal"
             >
               <Icon name="x" size="md" />

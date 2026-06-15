@@ -46,12 +46,12 @@ export default {
       subtitle: 'Three simple steps to stress-free AI access'
     },
     features: {
-      unifiedGateway: 'One-Click Access',
-      unifiedGatewayDesc: 'Get a single API key to call all connected AI models. No separate applications needed.',
-      multiAccount: 'Always Reliable',
-      multiAccountDesc: 'Smart routing across multiple upstream accounts with automatic failover. Say goodbye to errors.',
-      balanceQuota: 'Pay What You Use',
-      balanceQuotaDesc: 'Usage-based billing with quota limits. Full visibility into team consumption.'
+      unifiedGateway: 'One-Step Access',
+      unifiedGatewayDesc: 'Get one API key and call every connected AI model without separate applications.',
+      multiAccount: 'Stable Routing',
+      multiAccountDesc: 'Schedule multiple upstream accounts with automatic failover and load balancing.',
+      balanceQuota: 'Pay As You Go',
+      balanceQuotaDesc: 'Meter actual usage, set quota limits, and keep team spend visible.'
     },
     // Comparison section
     comparison: {
@@ -6034,11 +6034,23 @@ export default {
         backendModeDescription:
           'Disables user registration, public site, and self-service features. Only admin can log in and manage the platform.',
         siteName: 'Site Name',
-        siteNamePlaceholder: 'Sub2API',
-        siteNameHint: 'Displayed in emails and page titles',
+        siteNamePlaceholder: '++0 API',
+        siteNameHint: 'Displayed on the public home page, emails, and page titles',
         siteSubtitle: 'Site Subtitle',
-        siteSubtitlePlaceholder: 'Subscription to API Conversion Platform',
-        siteSubtitleHint: 'Displayed on login and register pages',
+        siteSubtitlePlaceholder: 'One endpoint for mainstream AI models and upstream account pools',
+        siteSubtitleHint: 'Displayed on the public home page, login page, and register page',
+        homeFeaturesTitle: 'Home Feature Copy',
+        homeFeaturesDescription: 'Configure the three capability strips below the default Three.js home page',
+        homeFeature1Title: 'Feature 1 Title',
+        homeFeature2Title: 'Feature 2 Title',
+        homeFeature3Title: 'Feature 3 Title',
+        homeFeatureDescription: 'Description',
+        homeFeature1TitlePlaceholder: 'One-Step Access',
+        homeFeature1DescriptionPlaceholder: 'Get one API key and call every connected AI model without separate applications.',
+        homeFeature2TitlePlaceholder: 'Stable Routing',
+        homeFeature2DescriptionPlaceholder: 'Schedule multiple upstream accounts with automatic failover and load balancing.',
+        homeFeature3TitlePlaceholder: 'Pay As You Go',
+        homeFeature3DescriptionPlaceholder: 'Meter actual usage, set quota limits, and keep team spend visible.',
         apiBaseUrl: 'API Base URL',
         apiBaseUrlPlaceholder: 'https://api.example.com',
         apiBaseUrlHint:

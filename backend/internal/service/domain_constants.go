@@ -244,6 +244,12 @@ const (
 	SettingKeySiteName                    = "site_name"                     // 网站名称
 	SettingKeySiteLogo                    = "site_logo"                     // 网站Logo (base64)
 	SettingKeySiteSubtitle                = "site_subtitle"                 // 网站副标题
+	SettingKeyHomeFeature1Title           = "home_feature_1_title"          // 默认首页能力条 1 标题
+	SettingKeyHomeFeature1Description     = "home_feature_1_description"    // 默认首页能力条 1 描述
+	SettingKeyHomeFeature2Title           = "home_feature_2_title"          // 默认首页能力条 2 标题
+	SettingKeyHomeFeature2Description     = "home_feature_2_description"    // 默认首页能力条 2 描述
+	SettingKeyHomeFeature3Title           = "home_feature_3_title"          // 默认首页能力条 3 标题
+	SettingKeyHomeFeature3Description     = "home_feature_3_description"    // 默认首页能力条 3 描述
 	SettingKeyAPIBaseURL                  = "api_base_url"                  // API端点地址（用于客户端配置和导入）
 	SettingKeyContactInfo                 = "contact_info"                  // 客服联系方式
 	SettingKeyDocURL                      = "doc_url"                       // 文档链接

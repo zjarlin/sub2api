@@ -4484,6 +4484,10 @@ const quickOpenAIDefaultGroup = computed(() =>
   openAIGroups.value.find(group => group.id === quickOpenAIDefaultGroupId.value) || null
 )
 
+const selectedOpenAIGroup = computed(() =>
+  openAIGroups.value.find(group => form.group_ids.includes(group.id)) || null
+)
+
 const loadQuickOpenAIDefaultGroup = () => {
   let raw: string | null = null
   try {
@@ -4524,6 +4528,20 @@ const persistQuickOpenAIDefaultGroup = (groupId: number | null) => {
 const handleQuickOpenAIDefaultGroupChange = (groupId: number | null) => {
   quickOpenAIDefaultGroupId.value = groupId
   persistQuickOpenAIDefaultGroup(groupId)
+}
+
+const syncQuickOpenAIDefaultGroupFromSelection = () => {
+  if (quickOpenAIDefaultGroup.value) {
+    return quickOpenAIDefaultGroup.value
+  }
+
+  const group = selectedOpenAIGroup.value
+  if (!group) {
+    return null
+  }
+
+  handleQuickOpenAIDefaultGroupChange(group.id)
+  return group
 }
 
 const showUpstreamKeyRateTool = computed(() =>
@@ -4790,6 +4808,17 @@ watch(
     }
   },
   { immediate: true }
+)
+
+watch(
+  [() => form.group_ids, openAIGroups, quickOpenAIDefaultGroupId],
+  () => {
+    if (form.platform !== 'openai' || accountCategory.value !== 'apikey') {
+      return
+    }
+    syncQuickOpenAIDefaultGroupFromSelection()
+  },
+  { deep: true }
 )
 
 // Sync form.type based on accountCategory, addMethod, and platform-specific type
@@ -5336,7 +5365,7 @@ const handleQuickOpenAIAdd = async () => {
     return
   }
 
-  const group = quickOpenAIDefaultGroup.value
+  const group = syncQuickOpenAIDefaultGroupFromSelection()
   if (!group) {
     appStore.showError(t('admin.accounts.quickOpenAI.defaultGroupRequired'))
     return

@@ -130,6 +130,12 @@ type SystemSettings struct {
 	SiteName                    string
 	SiteLogo                    string
 	SiteSubtitle                string
+	HomeFeature1Title           string
+	HomeFeature1Description     string
+	HomeFeature2Title           string
+	HomeFeature2Description     string
+	HomeFeature3Title           string
+	HomeFeature3Description     string
 	APIBaseURL                  string
 	ContactInfo                 string
 	DocURL                      string
@@ -252,6 +258,12 @@ type PublicSettings struct {
 	SiteName                         string
 	SiteLogo                         string
 	SiteSubtitle                     string
+	HomeFeature1Title                string
+	HomeFeature1Description          string
+	HomeFeature2Title                string
+	HomeFeature2Description          string
+	HomeFeature3Title                string
+	HomeFeature3Description          string
 	APIBaseURL                       string
 	ContactInfo                      string
 	DocURL                           string
