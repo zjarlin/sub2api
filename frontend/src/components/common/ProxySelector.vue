@@ -321,18 +321,20 @@ onUnmounted(() => {
 <style scoped>
 .select-trigger {
   @apply flex w-full items-center justify-between gap-2;
-  @apply rounded-xl px-4 py-2.5 text-sm;
-  @apply bg-white dark:bg-dark-800;
-  @apply border border-gray-200 dark:border-dark-600;
+  @apply px-4 py-2.5 text-sm;
+  @apply border;
   @apply text-gray-900 dark:text-gray-100;
-  @apply transition-all duration-200;
-  @apply focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30;
-  @apply hover:border-gray-300 dark:hover:border-dark-500;
+  @apply transition-all duration-150;
+  @apply focus:outline-none focus:ring-2 focus:ring-orange-500/30;
   @apply cursor-pointer;
+  border-radius: 3px;
+  background: var(--liquid-panel-strong);
+  border-color: var(--liquid-border);
 }
 
 .select-trigger-open {
-  @apply border-primary-500 ring-2 ring-primary-500/30;
+  border-color: var(--product-orange);
+  box-shadow: 0 0 0 2px rgba(255, 138, 0, 0.18);
 }
 
 .select-trigger-disabled {
@@ -349,16 +351,18 @@ onUnmounted(() => {
 
 .select-dropdown {
   @apply absolute z-[100] mt-2 w-full;
-  @apply bg-white dark:bg-dark-800;
-  @apply rounded-xl;
-  @apply border border-gray-200 dark:border-dark-700;
-  @apply shadow-lg shadow-black/10 dark:shadow-black/30;
+  @apply border;
   @apply overflow-hidden;
+  border-radius: 3px;
+  background: var(--liquid-panel-strong);
+  border-color: var(--liquid-border);
+  box-shadow: var(--liquid-shadow-hover);
 }
 
 .select-header {
   @apply flex items-center gap-2 px-3 py-2;
-  @apply border-b border-gray-100 dark:border-dark-700;
+  @apply border-b;
+  border-color: var(--liquid-border-soft);
 }
 
 .select-search {
@@ -373,10 +377,11 @@ onUnmounted(() => {
 }
 
 .batch-test-btn {
-  @apply flex-shrink-0 rounded-lg p-1.5;
+  @apply flex-shrink-0 p-1.5;
   @apply text-gray-500 hover:text-emerald-600 dark:hover:text-emerald-400;
   @apply hover:bg-emerald-50 dark:hover:bg-emerald-900/20;
   @apply transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  border-radius: 3px;
 }
 
 .select-options {
@@ -388,12 +393,15 @@ onUnmounted(() => {
   @apply px-4 py-2.5 text-sm;
   @apply text-gray-700 dark:text-gray-300;
   @apply cursor-pointer transition-colors duration-150;
-  @apply hover:bg-gray-50 dark:hover:bg-dark-700;
+}
+
+.select-option:hover {
+  background: rgba(255, 138, 0, 0.08);
 }
 
 .select-option-selected {
-  @apply bg-primary-50 dark:bg-primary-900/20;
-  @apply text-primary-700 dark:text-primary-300;
+  background: rgba(255, 138, 0, 0.12);
+  color: var(--product-orange);
 }
 
 .select-option-label {
