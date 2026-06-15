@@ -542,9 +542,9 @@
 
       </div>
 
-      <!-- OpenAI / Kiro OAuth Model Restriction (OAuth 类型没有 apikey 容器，需要独立区域) -->
+      <!-- OpenAI / Gemini / Kiro OAuth Model Restriction (OAuth 类型没有 apikey 容器，需要独立区域) -->
       <div
-        v-if="(account.platform === 'openai' || account.platform === 'kiro') && account.type === 'oauth'"
+        v-if="(account.platform === 'openai' || account.platform === 'gemini' || account.platform === 'kiro') && account.type === 'oauth'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
@@ -4051,7 +4051,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
           : 'https://api.anthropic.com'
     editBaseUrl.value = platformDefaultUrl
 
-    // Load model mappings for OpenAI/Kiro OAuth accounts
+    // Load model mappings for OpenAI/Gemini/Kiro OAuth accounts
     if (newAccount.platform === 'kiro' && newAccount.credentials) {
       const oauthCredentials = newAccount.credentials as Record<string, unknown>
       const existingMappings = oauthCredentials.model_mapping as Record<string, string> | undefined
@@ -4060,7 +4060,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       } else {
         loadDefaultKiroModelMappings()
       }
-    } else if (newAccount.platform === 'openai' && newAccount.credentials) {
+    } else if ((newAccount.platform === 'openai' || newAccount.platform === 'gemini') && newAccount.credentials) {
       const oauthCredentials = newAccount.credentials as Record<string, unknown>
       loadModelRestrictionFromMapping(oauthCredentials.model_mapping as Record<string, unknown> | undefined)
     } else {
@@ -4684,7 +4684,7 @@ const handleSubmit = async () => {
       } else if (!hasExistingApiKey && !isOpenAIOptionalApiKeyVendor.value) {
         appStore.showError(t('admin.accounts.apiKeyIsRequired'))
         return
-      } else {
+      } else if (props.account.credentials_status?.has_api_key === true || !currentCredentials.api_key) {
         delete newCredentials.api_key
       }
 
@@ -4918,6 +4918,22 @@ const handleSubmit = async () => {
       const newCredentials: Record<string, unknown> = { ...currentCredentials }
 
       const modelMapping = buildModelMappingObject('mapping', [], modelMappings.value)
+      if (modelMapping) {
+        newCredentials.model_mapping = modelMapping
+      } else {
+        delete newCredentials.model_mapping
+      }
+
+      updatePayload.credentials = newCredentials
+    }
+
+    // Gemini OAuth: persist model mapping to credentials
+    if (props.account.platform === 'gemini' && props.account.type === 'oauth') {
+      const currentCredentials = (updatePayload.credentials as Record<string, unknown>) ||
+        ((props.account.credentials as Record<string, unknown>) || {})
+      const newCredentials: Record<string, unknown> = { ...currentCredentials }
+
+      const modelMapping = buildModelRestrictionMapping()
       if (modelMapping) {
         newCredentials.model_mapping = modelMapping
       } else {

@@ -185,6 +185,32 @@ function buildVertexAccount() {
   } as any
 }
 
+function buildGeminiOAuthAccount() {
+  return {
+    id: 3,
+    name: 'Gemini OAuth',
+    notes: '',
+    platform: 'gemini',
+    type: 'oauth',
+    credentials: {
+      refresh_token: 'refresh-token',
+      model_mapping: {
+        'gemini-3.0-pro': 'gemini-2.5-pro',
+        'gemini-3.0-flash': 'gemini-2.5-flash'
+      }
+    },
+    extra: {},
+    proxy_id: null,
+    concurrency: 1,
+    priority: 1,
+    rate_multiplier: 1,
+    status: 'active',
+    group_ids: [],
+    expires_at: null,
+    auto_pause_on_expired: false
+  } as any
+}
+
 function mountModal(account = buildAccount()) {
   return mount(EditAccountModal, {
     props: {
@@ -536,6 +562,33 @@ describe('EditAccountModal', () => {
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 
     expect(updateAccountMock).not.toHaveBeenCalled()
+  })
+
+  it('loads and saves Gemini OAuth model mapping', async () => {
+    const account = buildGeminiOAuthAccount()
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+
+    expect(wrapper.text()).toContain('admin.accounts.modelMapping')
+    expect(
+      wrapper.findAll('input').some(input => (input.element as HTMLInputElement).value === 'gemini-3.0-pro')
+    ).toBe(true)
+    expect(
+      wrapper.findAll('input').some(input => (input.element as HTMLInputElement).value === 'gemini-2.5-pro')
+    ).toBe(true)
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.refresh_token).toBe('refresh-token')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.model_mapping).toEqual({
+      'gemini-3.0-pro': 'gemini-2.5-pro',
+      'gemini-3.0-flash': 'gemini-2.5-flash'
+    })
   })
 
   it('allows saving Vertex SA account when backend redacted service_account_json but credentials_status reports it exists', async () => {
