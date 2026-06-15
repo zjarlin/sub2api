@@ -109,12 +109,25 @@ func (s *SchedulerSnapshotService) ListSchedulableAccounts(ctx context.Context, 
 	mode := s.resolveMode(platform, hasForcePlatform)
 	bucket := s.bucketFor(groupID, platform, mode)
 
+	if AccountOwnerUserIDFromContext(ctx) > 0 {
+		if err := s.guardFallback(ctx); err != nil {
+			return nil, useMixed, err
+		}
+		fallbackCtx, cancel := s.withFallbackTimeout(ctx)
+		defer cancel()
+		accounts, err := s.loadAccountsFromDB(fallbackCtx, bucket, useMixed)
+		if err != nil {
+			return nil, useMixed, err
+		}
+		return FilterAccountsVisibleToContext(ctx, accounts), useMixed, nil
+	}
+
 	if s.cache != nil {
 		cached, hit, err := s.cache.GetSnapshot(ctx, bucket)
 		if err != nil {
 			logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] cache read failed: bucket=%s err=%v", bucket.String(), err)
 		} else if hit {
-			return derefAccounts(cached), useMixed, nil
+			return FilterAccountsVisibleToContext(ctx, derefAccounts(cached)), useMixed, nil
 		}
 	}
 
@@ -136,7 +149,7 @@ func (s *SchedulerSnapshotService) ListSchedulableAccounts(ctx context.Context, 
 		}
 	}
 
-	return accounts, useMixed, nil
+	return FilterAccountsVisibleToContext(ctx, accounts), useMixed, nil
 }
 
 func (s *SchedulerSnapshotService) GetAccount(ctx context.Context, accountID int64) (*Account, error) {
@@ -148,7 +161,10 @@ func (s *SchedulerSnapshotService) GetAccount(ctx context.Context, accountID int
 		if err != nil {
 			logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] account cache read failed: id=%d err=%v", accountID, err)
 		} else if account != nil {
-			return account, nil
+			if IsAccountVisibleToContext(ctx, account) {
+				return account, nil
+			}
+			return nil, ErrAccountNotFound
 		}
 	}
 
@@ -157,7 +173,14 @@ func (s *SchedulerSnapshotService) GetAccount(ctx context.Context, accountID int
 	}
 	fallbackCtx, cancel := s.withFallbackTimeout(ctx)
 	defer cancel()
-	return s.accountRepo.GetByID(fallbackCtx, accountID)
+	account, err := s.accountRepo.GetByID(fallbackCtx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if !IsAccountVisibleToContext(ctx, account) {
+		return nil, ErrAccountNotFound
+	}
+	return account, nil
 }
 
 // GetGroupByID 获取分组信息（供调度器使用）

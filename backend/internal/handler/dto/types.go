@@ -49,20 +49,21 @@ type AdminUser struct {
 }
 
 type APIKey struct {
-	ID          int64      `json:"id"`
-	UserID      int64      `json:"user_id"`
-	Key         string     `json:"key"`
-	Name        string     `json:"name"`
-	GroupID     *int64     `json:"group_id"`
-	Status      string     `json:"status"`
-	IPWhitelist []string   `json:"ip_whitelist"`
-	IPBlacklist []string   `json:"ip_blacklist"`
-	LastUsedAt  *time.Time `json:"last_used_at"`
-	Quota       float64    `json:"quota"`      // Quota limit in USD (0 = unlimited)
-	QuotaUsed   float64    `json:"quota_used"` // Used quota amount in USD
-	ExpiresAt   *time.Time `json:"expires_at"` // Expiration time (nil = never expires)
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
+	ID                   int64      `json:"id"`
+	UserID               int64      `json:"user_id"`
+	Key                  string     `json:"key"`
+	Name                 string     `json:"name"`
+	GroupID              *int64     `json:"group_id"`
+	PersonalAccountScope bool       `json:"personal_account_scope"`
+	Status               string     `json:"status"`
+	IPWhitelist          []string   `json:"ip_whitelist"`
+	IPBlacklist          []string   `json:"ip_blacklist"`
+	LastUsedAt           *time.Time `json:"last_used_at"`
+	Quota                float64    `json:"quota"`      // Quota limit in USD (0 = unlimited)
+	QuotaUsed            float64    `json:"quota_used"` // Used quota amount in USD
+	ExpiresAt            *time.Time `json:"expires_at"` // Expiration time (nil = never expires)
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
 
 	// Rate limit fields
 	RateLimit5h   float64    `json:"rate_limit_5h"`
@@ -155,11 +156,12 @@ type AdminGroup struct {
 }
 
 type Account struct {
-	ID       int64   `json:"id"`
-	Name     string  `json:"name"`
-	Notes    *string `json:"notes"`
-	Platform string  `json:"platform"`
-	Type     string  `json:"type"`
+	ID          int64   `json:"id"`
+	Name        string  `json:"name"`
+	Notes       *string `json:"notes"`
+	OwnerUserID *int64  `json:"owner_user_id,omitempty"`
+	Platform    string  `json:"platform"`
+	Type        string  `json:"type"`
 	// Credentials 经 RedactCredentials 处理后只含非敏感子键；敏感 token / api_key / 私钥
 	// 的存在性通过 CredentialsStatus（has_<key>）暴露，原始值不返回前端。
 	Credentials             map[string]any  `json:"credentials"`

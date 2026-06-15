@@ -116,6 +116,9 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			AbortWithError(c, 401, "USER_INACTIVE", "User account is not active")
 			return
 		}
+		if apiKey.PersonalAccountScope {
+			setAccountOwnerContext(c, apiKey.User.ID)
+		}
 		if abortIfAPIKeyGroupUnavailable(c, apiKey) {
 			return
 		}
@@ -282,6 +285,17 @@ func setGroupContext(c *gin.Context, group *service.Group) {
 		return
 	}
 	ctx := context.WithValue(c.Request.Context(), ctxkey.Group, group)
+	c.Request = c.Request.WithContext(ctx)
+}
+
+func setAccountOwnerContext(c *gin.Context, userID int64) {
+	if userID <= 0 {
+		return
+	}
+	if existing, ok := c.Request.Context().Value(ctxkey.AccountOwnerUserID).(int64); ok && existing == userID {
+		return
+	}
+	ctx := context.WithValue(c.Request.Context(), ctxkey.AccountOwnerUserID, userID)
 	c.Request = c.Request.WithContext(ctx)
 }
 

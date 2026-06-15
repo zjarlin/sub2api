@@ -454,13 +454,16 @@ func (s *GeminiMessagesCompatService) hydrateSelectedAccount(ctx context.Context
 	if hydrated == nil {
 		return nil, fmt.Errorf("selected gemini account %d not found during hydration", account.ID)
 	}
+	if !IsAccountVisibleToContext(ctx, hydrated) {
+		return nil, fmt.Errorf("selected gemini account %d is not visible to current user", account.ID)
+	}
 	return hydrated, nil
 }
 
 func (s *GeminiMessagesCompatService) listSchedulableAccountsOnce(ctx context.Context, groupID *int64, platform string, hasForcePlatform bool) ([]Account, error) {
 	if s.schedulerSnapshot != nil {
 		accounts, _, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, hasForcePlatform)
-		return accounts, err
+		return FilterAccountsVisibleToContext(ctx, accounts), err
 	}
 
 	useMixedScheduling := platform == PlatformGemini && !hasForcePlatform

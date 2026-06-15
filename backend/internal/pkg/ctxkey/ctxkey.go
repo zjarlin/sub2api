@@ -23,6 +23,9 @@ const (
 	// AccountID 当前请求最终命中的账号 ID（用于统一请求链路日志字段）。
 	AccountID Key = "ctx_account_id"
 
+	// AccountOwnerUserID 当前 API Key 所属用户，用于调度时同时允许全局账号和该用户私有账号。
+	AccountOwnerUserID Key = "ctx_account_owner_user_id"
+
 	// RetryCount 表示当前请求在网关层的重试次数（用于 Ops 记录与排障）。
 	RetryCount Key = "ctx_retry_count"
 

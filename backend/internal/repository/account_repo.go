@@ -96,6 +96,9 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 		SetSchedulable(account.Schedulable).
 		SetAutoPauseOnExpired(account.AutoPauseOnExpired)
 
+	if account.OwnerUserID != nil {
+		builder.SetOwnerUserID(*account.OwnerUserID)
+	}
 	if account.RateMultiplier != nil {
 		builder.SetRateMultiplier(*account.RateMultiplier)
 	}
@@ -147,6 +150,27 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 
 func (r *accountRepository) GetByID(ctx context.Context, id int64) (*service.Account, error) {
 	m, err := r.client.Account.Query().Where(dbaccount.IDEQ(id)).Only(ctx)
+	if err != nil {
+		return nil, translatePersistenceError(err, service.ErrAccountNotFound, nil)
+	}
+
+	accounts, err := r.accountsToService(ctx, []*dbent.Account{m})
+	if err != nil {
+		return nil, err
+	}
+	if len(accounts) == 0 {
+		return nil, service.ErrAccountNotFound
+	}
+	return &accounts[0], nil
+}
+
+func (r *accountRepository) GetByIDAndOwner(ctx context.Context, id, ownerUserID int64) (*service.Account, error) {
+	m, err := r.client.Account.Query().
+		Where(
+			dbaccount.IDEQ(id),
+			dbaccount.OwnerUserIDEQ(ownerUserID),
+		).
+		Only(ctx)
 	if err != nil {
 		return nil, translatePersistenceError(err, service.ErrAccountNotFound, nil)
 	}
@@ -337,6 +361,11 @@ func (r *accountRepository) Update(ctx context.Context, account *service.Account
 		SetSchedulable(schedulable).
 		SetAutoPauseOnExpired(account.AutoPauseOnExpired)
 
+	if account.OwnerUserID != nil {
+		builder.SetOwnerUserID(*account.OwnerUserID)
+	} else {
+		builder.ClearOwnerUserID()
+	}
 	if account.RateMultiplier != nil {
 		builder.SetRateMultiplier(*account.RateMultiplier)
 	}
@@ -469,6 +498,47 @@ func (r *accountRepository) List(ctx context.Context, params pagination.Paginati
 
 func (r *accountRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, *pagination.PaginationResult, error) {
 	return r.ListWithAdminFilters(ctx, params, platform, accountType, status, "", search, groupID, privacyMode, "", "", "")
+}
+
+func (r *accountRepository) ListByOwner(ctx context.Context, ownerUserID int64, params pagination.PaginationParams, platform, accountType, status, search string) ([]service.Account, *pagination.PaginationResult, error) {
+	q := r.client.Account.Query().
+		Where(dbaccount.OwnerUserIDEQ(ownerUserID))
+
+	if platform != "" {
+		q = q.Where(dbaccount.PlatformEQ(platform))
+	}
+	if accountType != "" {
+		q = q.Where(dbaccount.TypeEQ(accountType))
+	}
+	if status != "" {
+		q = q.Where(dbaccount.StatusEQ(status))
+	}
+	if search != "" {
+		q = q.Where(dbaccount.NameContainsFold(search))
+	}
+
+	total, err := q.Count(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	accountsQuery := q.
+		Offset(params.Offset()).
+		Limit(params.Limit())
+	for _, order := range accountListOrder(params) {
+		accountsQuery = accountsQuery.Order(order)
+	}
+
+	accounts, err := accountsQuery.All(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	outAccounts, err := r.accountsToService(ctx, accounts)
+	if err != nil {
+		return nil, nil, err
+	}
+	return outAccounts, paginationResultFromTotal(int64(total), params), nil
 }
 
 func (r *accountRepository) ListWithAdminFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, schedulable, search string, groupID int64, privacyMode, displayGroup, namePrefix, searchRegex string) ([]service.Account, *pagination.PaginationResult, error) {
@@ -982,6 +1052,7 @@ func (r *accountRepository) ListSchedulable(ctx context.Context) ([]service.Acco
 		Where(
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
+			accountSchedulingVisibilityPredicate(ctx),
 			tempUnschedulablePredicate(),
 			notExpiredPredicate(now),
 			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
@@ -1009,6 +1080,7 @@ func (r *accountRepository) ListSchedulableByPlatform(ctx context.Context, platf
 			dbaccount.PlatformEQ(platform),
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
+			accountSchedulingVisibilityPredicate(ctx),
 			tempUnschedulablePredicate(),
 			notExpiredPredicate(now),
 			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
@@ -1043,6 +1115,7 @@ func (r *accountRepository) ListSchedulableByPlatforms(ctx context.Context, plat
 			dbaccount.PlatformIn(platforms...),
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
+			accountSchedulingVisibilityPredicate(ctx),
 			tempUnschedulablePredicate(),
 			notExpiredPredicate(now),
 			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
@@ -1063,6 +1136,7 @@ func (r *accountRepository) ListSchedulableUngroupedByPlatform(ctx context.Conte
 			dbaccount.PlatformEQ(platform),
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
+			accountSchedulingVisibilityPredicate(ctx),
 			dbaccount.Not(dbaccount.HasAccountGroups()),
 			tempUnschedulablePredicate(),
 			notExpiredPredicate(now),
@@ -1087,6 +1161,7 @@ func (r *accountRepository) ListSchedulableUngroupedByPlatforms(ctx context.Cont
 			dbaccount.PlatformIn(platforms...),
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
+			accountSchedulingVisibilityPredicate(ctx),
 			dbaccount.Not(dbaccount.HasAccountGroups()),
 			tempUnschedulablePredicate(),
 			notExpiredPredicate(now),
@@ -1579,8 +1654,9 @@ func (r *accountRepository) queryAccountsByGroup(ctx context.Context, groupID in
 		Where(dbaccountgroup.GroupIDEQ(groupID))
 
 	// 通过 account_groups 中间表查询账号，并按需叠加状态/平台/调度能力过滤。
-	preds := make([]dbpredicate.Account, 0, 6)
+	preds := make([]dbpredicate.Account, 0, 7)
 	preds = append(preds, dbaccount.DeletedAtIsNil())
+	preds = append(preds, accountSchedulingVisibilityPredicate(ctx))
 	if opts.status != "" {
 		preds = append(preds, dbaccount.StatusEQ(opts.status))
 	}
@@ -1632,8 +1708,58 @@ func (r *accountRepository) queryAccountsByGroup(ctx context.Context, groupID in
 			accounts = append(accounts, acc)
 		}
 	}
+	if err := r.appendOwnerAccountsForContext(ctx, opts, accountMap, &accounts); err != nil {
+		return nil, err
+	}
 
 	return r.accountsToService(ctx, accounts)
+}
+
+func (r *accountRepository) appendOwnerAccountsForContext(ctx context.Context, opts accountGroupQueryOptions, seen map[int64]*dbent.Account, accounts *[]*dbent.Account) error {
+	ownerUserID := service.AccountOwnerUserIDFromContext(ctx)
+	if ownerUserID <= 0 {
+		return nil
+	}
+
+	preds := []dbpredicate.Account{
+		dbaccount.DeletedAtIsNil(),
+		dbaccount.OwnerUserIDEQ(ownerUserID),
+	}
+	if opts.status != "" {
+		preds = append(preds, dbaccount.StatusEQ(opts.status))
+	}
+	if len(opts.platforms) > 0 {
+		preds = append(preds, dbaccount.PlatformIn(opts.platforms...))
+	}
+	if opts.schedulable {
+		now := time.Now()
+		preds = append(preds,
+			dbaccount.SchedulableEQ(true),
+			tempUnschedulablePredicate(),
+			notExpiredPredicate(now),
+			dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
+			dbaccount.Or(dbaccount.RateLimitResetAtIsNil(), dbaccount.RateLimitResetAtLTE(now)),
+		)
+	}
+
+	ownedAccounts, err := r.client.Account.Query().
+		Where(preds...).
+		Order(dbent.Asc(dbaccount.FieldPriority)).
+		All(ctx)
+	if err != nil {
+		return err
+	}
+	for _, account := range ownedAccounts {
+		if account == nil {
+			continue
+		}
+		if _, ok := seen[account.ID]; ok {
+			continue
+		}
+		seen[account.ID] = account
+		*accounts = append(*accounts, account)
+	}
+	return nil
 }
 
 func (r *accountRepository) accountsToService(ctx context.Context, accounts []*dbent.Account) ([]service.Account, error) {
@@ -1711,6 +1837,14 @@ func notExpiredPredicate(now time.Time) dbpredicate.Account {
 		dbaccount.ExpiresAtGT(now),
 		dbaccount.AutoPauseOnExpiredEQ(false),
 	)
+}
+
+func accountSchedulingVisibilityPredicate(ctx context.Context) dbpredicate.Account {
+	ownerUserID := service.AccountOwnerUserIDFromContext(ctx)
+	if ownerUserID <= 0 {
+		return dbaccount.OwnerUserIDIsNil()
+	}
+	return dbaccount.OwnerUserIDEQ(ownerUserID)
 }
 
 func (r *accountRepository) loadProxies(ctx context.Context, proxyIDs []int64) (map[int64]*service.Proxy, error) {
@@ -1830,6 +1964,7 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 		Type:                    m.Type,
 		Credentials:             copyJSONMap(m.Credentials),
 		Extra:                   copyJSONMap(m.Extra),
+		OwnerUserID:             m.OwnerUserID,
 		ProxyID:                 m.ProxyID,
 		ProxyFallbackOriginID:   m.ProxyFallbackOriginID,
 		Concurrency:             m.Concurrency,

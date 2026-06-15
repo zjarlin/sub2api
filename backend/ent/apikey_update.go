@@ -120,6 +120,20 @@ func (_u *APIKeyUpdate) ClearGroupID() *APIKeyUpdate {
 	return _u
 }
 
+// SetPersonalAccountScope sets the "personal_account_scope" field.
+func (_u *APIKeyUpdate) SetPersonalAccountScope(v bool) *APIKeyUpdate {
+	_u.mutation.SetPersonalAccountScope(v)
+	return _u
+}
+
+// SetNillablePersonalAccountScope sets the "personal_account_scope" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillablePersonalAccountScope(v *bool) *APIKeyUpdate {
+	if v != nil {
+		_u.SetPersonalAccountScope(*v)
+	}
+	return _u
+}
+
 // SetStatus sets the "status" field.
 func (_u *APIKeyUpdate) SetStatus(v string) *APIKeyUpdate {
 	_u.mutation.SetStatus(v)
@@ -593,6 +607,9 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(apikey.FieldName, field.TypeString, value)
 	}
+	if value, ok := _u.mutation.PersonalAccountScope(); ok {
+		_spec.SetField(apikey.FieldPersonalAccountScope, field.TypeBool, value)
+	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
 	}
@@ -904,6 +921,20 @@ func (_u *APIKeyUpdateOne) SetNillableGroupID(v *int64) *APIKeyUpdateOne {
 // ClearGroupID clears the value of the "group_id" field.
 func (_u *APIKeyUpdateOne) ClearGroupID() *APIKeyUpdateOne {
 	_u.mutation.ClearGroupID()
+	return _u
+}
+
+// SetPersonalAccountScope sets the "personal_account_scope" field.
+func (_u *APIKeyUpdateOne) SetPersonalAccountScope(v bool) *APIKeyUpdateOne {
+	_u.mutation.SetPersonalAccountScope(v)
+	return _u
+}
+
+// SetNillablePersonalAccountScope sets the "personal_account_scope" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillablePersonalAccountScope(v *bool) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetPersonalAccountScope(*v)
+	}
 	return _u
 }
 
@@ -1409,6 +1440,9 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 	}
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(apikey.FieldName, field.TypeString, value)
+	}
+	if value, ok := _u.mutation.PersonalAccountScope(); ok {
+		_spec.SetField(apikey.FieldPersonalAccountScope, field.TypeBool, value)
 	}
 	if value, ok := _u.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)

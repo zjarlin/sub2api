@@ -291,6 +291,7 @@ type UpdateGroupInput struct {
 type CreateAccountInput struct {
 	Name               string
 	Notes              *string
+	OwnerUserID        *int64
 	Platform           string
 	Type               string
 	Credentials        map[string]any
@@ -313,6 +314,7 @@ type CreateAccountInput struct {
 type UpdateAccountInput struct {
 	Name                  string
 	Notes                 *string
+	OwnerUserID           *int64
 	Type                  string // Account type: oauth, setup-token, apikey
 	Credentials           map[string]any
 	Extra                 map[string]any
@@ -2849,6 +2851,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	account := &Account{
 		Name:        input.Name,
 		Notes:       normalizeAccountNotes(input.Notes),
+		OwnerUserID: input.OwnerUserID,
 		Platform:    input.Platform,
 		Type:        input.Type,
 		Credentials: input.Credentials,
@@ -2945,6 +2948,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	}
 	if input.Notes != nil {
 		account.Notes = normalizeAccountNotes(input.Notes)
+	}
+	if input.OwnerUserID != nil {
+		account.OwnerUserID = input.OwnerUserID
 	}
 	if len(input.Credentials) > 0 {
 		// 敏感子键采用"incoming 没提供就保留"的合并语义：前端响应已脱敏，

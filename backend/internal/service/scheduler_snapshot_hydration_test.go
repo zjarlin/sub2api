@@ -8,18 +8,23 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 )
 
 type snapshotHydrationCache struct {
-	snapshot []*Account
-	accounts map[int64]*Account
+	snapshot         []*Account
+	accounts         map[int64]*Account
+	getSnapshotCalls int
+	setSnapshotCalls int
 }
 
 func (c *snapshotHydrationCache) GetSnapshot(ctx context.Context, bucket SchedulerBucket) ([]*Account, bool, error) {
+	c.getSnapshotCalls++
 	return c.snapshot, true, nil
 }
 
 func (c *snapshotHydrationCache) SetSnapshot(ctx context.Context, bucket SchedulerBucket, accounts []Account) error {
+	c.setSnapshotCalls++
 	return nil
 }
 
@@ -60,6 +65,45 @@ func (c *snapshotHydrationCache) GetOutboxWatermark(ctx context.Context) (int64,
 
 func (c *snapshotHydrationCache) SetOutboxWatermark(ctx context.Context, id int64) error {
 	return nil
+}
+
+func TestSchedulerSnapshotListSchedulableAccountsBypassesSharedSnapshotForOwnerContext(t *testing.T) {
+	ownerID := int64(42)
+	otherOwnerID := int64(84)
+	cache := &snapshotHydrationCache{
+		snapshot: []*Account{
+			{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1},
+		},
+	}
+	repo := stubOpenAIAccountRepo{accounts: []Account{
+		{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1},
+		{ID: 2, OwnerUserID: &ownerID, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1},
+		{ID: 3, OwnerUserID: &otherOwnerID, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1},
+	}}
+	schedulerSnapshot := NewSchedulerSnapshotService(cache, nil, repo, nil, nil)
+
+	ctx := context.WithValue(context.Background(), ctxkey.AccountOwnerUserID, ownerID)
+	accounts, _, err := schedulerSnapshot.ListSchedulableAccounts(ctx, nil, PlatformOpenAI, false)
+	if err != nil {
+		t.Fatalf("ListSchedulableAccounts error: %v", err)
+	}
+
+	ids := make(map[int64]bool, len(accounts))
+	for _, account := range accounts {
+		ids[account.ID] = true
+	}
+	if ids[1] || !ids[2] {
+		t.Fatalf("expected only owner account, got ids=%v", ids)
+	}
+	if ids[3] {
+		t.Fatalf("did not expect other owner's account, got ids=%v", ids)
+	}
+	if cache.getSnapshotCalls != 0 {
+		t.Fatalf("expected owner context to bypass shared snapshot reads, got %d", cache.getSnapshotCalls)
+	}
+	if cache.setSnapshotCalls != 0 {
+		t.Fatalf("expected owner context to bypass shared snapshot writes, got %d", cache.setSnapshotCalls)
+	}
 }
 
 func TestOpenAISelectAccountWithLoadAwareness_HydratesSelectedAccountFromSchedulerSnapshot(t *testing.T) {

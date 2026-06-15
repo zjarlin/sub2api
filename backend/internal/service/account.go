@@ -21,6 +21,7 @@ type Account struct {
 	ID                      int64
 	Name                    string
 	Notes                   *string
+	OwnerUserID             *int64
 	Platform                string
 	Type                    string
 	Credentials             map[string]any

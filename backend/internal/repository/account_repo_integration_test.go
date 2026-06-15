@@ -9,6 +9,7 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/accountgroup"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/suite"
@@ -613,6 +614,88 @@ func (s *AccountRepoSuite) TestListSchedulableByGroupID_TimeBoundaries_And_Statu
 	sched2, err := s.repo.ListSchedulableByGroupID(s.ctx, group.ID)
 	s.Require().NoError(err, "ListSchedulableByGroupID after ClearRateLimit")
 	s.Require().Len(sched2, 2, "expected 2 schedulable accounts after ClearRateLimit")
+}
+
+func (s *AccountRepoSuite) TestListSchedulableFiltersUserOwnedAccountsByContext() {
+	ownerOne, err := s.client.User.Create().
+		SetEmail("account-owner-one@example.com").
+		SetPasswordHash("hash").
+		SetUsername("account-owner-one").
+		Save(s.ctx)
+	s.Require().NoError(err)
+	ownerTwo, err := s.client.User.Create().
+		SetEmail("account-owner-two@example.com").
+		SetPasswordHash("hash").
+		SetUsername("account-owner-two").
+		Save(s.ctx)
+	s.Require().NoError(err)
+	ownerOneID := ownerOne.ID
+	ownerTwoID := ownerTwo.ID
+
+	global := &service.Account{Name: "global", Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Status: service.StatusActive, Credentials: map[string]any{}, Extra: map[string]any{}, Concurrency: 3, Priority: 50, Schedulable: true}
+	ownedByOne := &service.Account{Name: "owned-1", OwnerUserID: &ownerOneID, Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Status: service.StatusActive, Credentials: map[string]any{}, Extra: map[string]any{}, Concurrency: 3, Priority: 50, Schedulable: true}
+	ownedByTwo := &service.Account{Name: "owned-2", OwnerUserID: &ownerTwoID, Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Status: service.StatusActive, Credentials: map[string]any{}, Extra: map[string]any{}, Concurrency: 3, Priority: 50, Schedulable: true}
+	s.Require().NoError(s.repo.Create(s.ctx, global))
+	s.Require().NoError(s.repo.Create(s.ctx, ownedByOne))
+	s.Require().NoError(s.repo.Create(s.ctx, ownedByTwo))
+
+	withoutOwner, err := s.repo.ListSchedulable(s.ctx)
+	s.Require().NoError(err)
+	ids := idsOfAccounts(withoutOwner)
+	s.Require().Contains(ids, global.ID)
+	s.Require().NotContains(ids, ownedByOne.ID)
+	s.Require().NotContains(ids, ownedByTwo.ID)
+
+	ownerOneCtx := context.WithValue(s.ctx, ctxkey.AccountOwnerUserID, ownerOneID)
+	withOwner, err := s.repo.ListSchedulable(ownerOneCtx)
+	s.Require().NoError(err)
+	ids = idsOfAccounts(withOwner)
+	s.Require().NotContains(ids, global.ID)
+	s.Require().Contains(ids, ownedByOne.ID)
+	s.Require().NotContains(ids, ownedByTwo.ID)
+}
+
+func (s *AccountRepoSuite) TestListSchedulableByGroupIncludesOwnerAccountsFromContext() {
+	ownerOne, err := s.client.User.Create().
+		SetEmail("group-owner-one@example.com").
+		SetPasswordHash("hash").
+		SetUsername("group-owner-one").
+		Save(s.ctx)
+	s.Require().NoError(err)
+	ownerTwo, err := s.client.User.Create().
+		SetEmail("group-owner-two@example.com").
+		SetPasswordHash("hash").
+		SetUsername("group-owner-two").
+		Save(s.ctx)
+	s.Require().NoError(err)
+	ownerOneID := ownerOne.ID
+	ownerTwoID := ownerTwo.ID
+	group := mustCreateGroup(s.T(), s.client, &service.Group{Name: "g-owned-private"})
+
+	global := &service.Account{Name: "group-global", Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Status: service.StatusActive, Credentials: map[string]any{}, Extra: map[string]any{}, Concurrency: 3, Priority: 50, Schedulable: true}
+	ownedByOne := &service.Account{Name: "group-owned-1", OwnerUserID: &ownerOneID, Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Status: service.StatusActive, Credentials: map[string]any{}, Extra: map[string]any{}, Concurrency: 3, Priority: 50, Schedulable: true}
+	ownedByTwo := &service.Account{Name: "group-owned-2", OwnerUserID: &ownerTwoID, Platform: service.PlatformAnthropic, Type: service.AccountTypeOAuth, Status: service.StatusActive, Credentials: map[string]any{}, Extra: map[string]any{}, Concurrency: 3, Priority: 50, Schedulable: true}
+	ownedByOneOpenAI := &service.Account{Name: "group-owned-openai", OwnerUserID: &ownerOneID, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Status: service.StatusActive, Credentials: map[string]any{}, Extra: map[string]any{}, Concurrency: 3, Priority: 50, Schedulable: true}
+	s.Require().NoError(s.repo.Create(s.ctx, global))
+	s.Require().NoError(s.repo.Create(s.ctx, ownedByOne))
+	s.Require().NoError(s.repo.Create(s.ctx, ownedByTwo))
+	s.Require().NoError(s.repo.Create(s.ctx, ownedByOneOpenAI))
+	mustBindAccountToGroup(s.T(), s.client, global.ID, group.ID, 1)
+
+	withoutOwner, err := s.repo.ListSchedulableByGroupIDAndPlatform(s.ctx, group.ID, service.PlatformAnthropic)
+	s.Require().NoError(err)
+	ids := idsOfAccounts(withoutOwner)
+	s.Require().Contains(ids, global.ID)
+	s.Require().NotContains(ids, ownedByOne.ID)
+
+	ownerOneCtx := context.WithValue(s.ctx, ctxkey.AccountOwnerUserID, ownerOneID)
+	withOwner, err := s.repo.ListSchedulableByGroupIDAndPlatform(ownerOneCtx, group.ID, service.PlatformAnthropic)
+	s.Require().NoError(err)
+	ids = idsOfAccounts(withOwner)
+	s.Require().NotContains(ids, global.ID)
+	s.Require().Contains(ids, ownedByOne.ID)
+	s.Require().NotContains(ids, ownedByTwo.ID)
+	s.Require().NotContains(ids, ownedByOneOpenAI.ID)
 }
 
 func (s *AccountRepoSuite) TestListSchedulableByPlatform() {

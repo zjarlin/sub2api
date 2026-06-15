@@ -21,6 +21,7 @@ export async function list(
     search?: string
     status?: string
     group_id?: number | string
+    personal_account_scope?: boolean
     sort_by?: string
     sort_order?: 'asc' | 'desc'
   },
@@ -60,6 +61,7 @@ export async function getById(id: number): Promise<ApiKey> {
 export async function create(
   name: string,
   groupId?: number | null,
+  personalAccountScope: boolean = false,
   customKey?: string,
   ipWhitelist?: string[],
   ipBlacklist?: string[],
@@ -70,6 +72,9 @@ export async function create(
   const payload: CreateApiKeyRequest = { name }
   if (groupId !== undefined) {
     payload.group_id = groupId
+  }
+  if (personalAccountScope) {
+    payload.personal_account_scope = true
   }
   if (customKey) {
     payload.custom_key = customKey

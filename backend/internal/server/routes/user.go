@@ -55,6 +55,17 @@ func RegisterUserRoutes(
 			}
 		}
 
+		// 用户个人账号：仅可见、编辑和调度本人贡献的账号。
+		accounts := authenticated.Group("/user/accounts")
+		{
+			accounts.GET("", h.UserAccount.List)
+			accounts.GET("/:id", h.UserAccount.GetByID)
+			accounts.POST("", h.UserAccount.Create)
+			accounts.PUT("/:id", h.UserAccount.Update)
+			accounts.DELETE("/:id", h.UserAccount.Delete)
+			accounts.POST("/:id/test", h.UserAccount.Test)
+		}
+
 		// API Key管理
 		keys := authenticated.Group("/keys")
 		{

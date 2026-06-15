@@ -2512,6 +2512,7 @@ func (s *GatewayService) resolvePlatform(ctx context.Context, groupID *int64, gr
 func (s *GatewayService) listSchedulableAccounts(ctx context.Context, groupID *int64, platform string, hasForcePlatform bool) ([]Account, bool, error) {
 	if s.schedulerSnapshot != nil {
 		accounts, useMixed, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, hasForcePlatform)
+		accounts = FilterAccountsVisibleToContext(ctx, accounts)
 		if err == nil {
 			slog.Debug("account_scheduling_list_snapshot",
 				"group_id", derefGroupID(groupID),
@@ -3051,10 +3052,20 @@ func (s *GatewayService) checkAndRegisterSession(ctx context.Context, account *A
 }
 
 func (s *GatewayService) getSchedulableAccount(ctx context.Context, accountID int64) (*Account, error) {
+	var account *Account
+	var err error
 	if s.schedulerSnapshot != nil {
-		return s.schedulerSnapshot.GetAccount(ctx, accountID)
+		account, err = s.schedulerSnapshot.GetAccount(ctx, accountID)
+	} else {
+		account, err = s.accountRepo.GetByID(ctx, accountID)
 	}
-	return s.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if !IsAccountVisibleToContext(ctx, account) {
+		return nil, ErrAccountNotFound
+	}
+	return account, nil
 }
 
 func (s *GatewayService) hydrateSelectedAccount(ctx context.Context, account *Account) (*Account, error) {
@@ -3067,6 +3078,9 @@ func (s *GatewayService) hydrateSelectedAccount(ctx context.Context, account *Ac
 	}
 	if hydrated == nil {
 		return nil, fmt.Errorf("selected gateway account %d not found during hydration", account.ID)
+	}
+	if !IsAccountVisibleToContext(ctx, hydrated) {
+		return nil, fmt.Errorf("selected gateway account %d is not visible to current user", account.ID)
 	}
 	return hydrated, nil
 }
@@ -10313,6 +10327,10 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	}
 
 	if err != nil || len(accounts) == 0 {
+		return nil
+	}
+	accounts = FilterAccountsVisibleToContext(ctx, accounts)
+	if len(accounts) == 0 {
 		return nil
 	}
 

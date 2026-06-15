@@ -90,6 +90,11 @@ func GroupID(v int64) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldGroupID, v))
 }
 
+// PersonalAccountScope applies equality check predicate on the "personal_account_scope" field. It's identical to PersonalAccountScopeEQ.
+func PersonalAccountScope(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldPersonalAccountScope, v))
+}
+
 // Status applies equality check predicate on the "status" field. It's identical to StatusEQ.
 func Status(v string) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldStatus, v))
@@ -468,6 +473,16 @@ func GroupIDIsNil() predicate.APIKey {
 // GroupIDNotNil applies the NotNil predicate on the "group_id" field.
 func GroupIDNotNil() predicate.APIKey {
 	return predicate.APIKey(sql.FieldNotNull(FieldGroupID))
+}
+
+// PersonalAccountScopeEQ applies the EQ predicate on the "personal_account_scope" field.
+func PersonalAccountScopeEQ(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldPersonalAccountScope, v))
+}
+
+// PersonalAccountScopeNEQ applies the NEQ predicate on the "personal_account_scope" field.
+func PersonalAccountScopeNEQ(v bool) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldPersonalAccountScope, v))
 }
 
 // StatusEQ applies the EQ predicate on the "status" field.

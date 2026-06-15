@@ -60,6 +60,12 @@ func (Account) Fields() []ent.Field {
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "text"}),
 
+		// owner_user_id: 普通用户贡献的私有账号归属。
+		// NULL 表示管理员维护的全局账号；非 NULL 表示仅归属用户本人调度使用。
+		field.Int64("owner_user_id").
+			Optional().
+			Nillable(),
+
 		// platform: 所属平台，如 "claude", "gemini", "openai" 等
 		field.String("platform").
 			MaxLen(50).
@@ -212,6 +218,11 @@ func (Account) Edges() []ent.Edge {
 		edge.To("proxy", Proxy.Type).
 			Field("proxy_id").
 			Unique(),
+		// owner: 普通用户贡献账号的拥有者；全局账号无拥有者。
+		edge.From("owner", User.Type).
+			Ref("owned_accounts").
+			Field("owner_user_id").
+			Unique(),
 		// usage_logs: 该账户的使用日志
 		edge.To("usage_logs", UsageLog.Type),
 	}
@@ -222,6 +233,7 @@ func (Account) Edges() []ent.Edge {
 func (Account) Indexes() []ent.Index {
 	return []ent.Index{
 		index.Fields("platform"),            // 按平台筛选
+		index.Fields("owner_user_id"),       // 按账号归属筛选
 		index.Fields("type"),                // 按认证类型筛选
 		index.Fields("status"),              // 按状态筛选
 		index.Fields("proxy_id"),            // 按代理筛选

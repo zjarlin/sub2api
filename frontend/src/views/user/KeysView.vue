@@ -105,8 +105,15 @@
                 class="-mx-2 -my-1 flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 transition-all duration-200 hover:bg-gray-100 dark:hover:bg-dark-700"
                 :title="t('keys.clickToChangeGroup')"
               >
+                <span
+                  v-if="row.personal_account_scope"
+                  class="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300"
+                >
+                  <Icon name="user" size="sm" />
+                  <span>{{ t('keys.personalAccountScope') }}</span>
+                </span>
                 <GroupBadge
-                  v-if="row.group"
+                  v-else-if="row.group"
                   :name="row.group.name"
                   :platform="row.group.platform"
                   :subscription-type="row.group.subscription_type"
@@ -407,7 +414,7 @@
         <div>
           <label class="input-label">{{ t('keys.groupLabel') }}</label>
           <Select
-            v-model="formData.group_id"
+            v-model="selectedGroupScope"
             :options="groupOptions"
             :placeholder="t('keys.selectGroup')"
             :searchable="true"
@@ -415,10 +422,17 @@
             data-tour="key-form-group"
           >
             <template #selected="{ option }">
+              <span
+                v-if="(option as unknown as GroupOption)?.personal"
+                class="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300"
+              >
+                <Icon name="user" size="sm" />
+                <span>{{ (option as unknown as GroupOption).label }}</span>
+              </span>
               <GroupBadge
-                v-if="option"
+                v-else-if="option"
                 :name="(option as unknown as GroupOption).label"
-                :platform="(option as unknown as GroupOption).platform"
+                :platform="(option as unknown as GroupOption).platform!"
                 :subscription-type="(option as unknown as GroupOption).subscriptionType"
                 :rate-multiplier="(option as unknown as GroupOption).rate"
                 :user-rate-multiplier="(option as unknown as GroupOption).userRate"
@@ -426,9 +440,25 @@
               <span v-else class="text-gray-400">{{ t('keys.selectGroup') }}</span>
             </template>
             <template #option="{ option, selected }">
+              <div
+                v-if="(option as unknown as GroupOption).personal"
+                class="flex min-w-0 flex-1 items-center justify-between gap-3"
+              >
+                <div class="flex min-w-0 flex-1 items-start gap-2">
+                  <span class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-300">
+                    <Icon name="user" size="sm" />
+                  </span>
+                  <div class="min-w-0 text-left">
+                    <div class="text-sm font-semibold text-gray-900 dark:text-white">{{ (option as unknown as GroupOption).label }}</div>
+                    <div class="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">{{ (option as unknown as GroupOption).description }}</div>
+                  </div>
+                </div>
+                <Icon v-if="selected" name="check" size="sm" class="text-primary-600 dark:text-primary-400" />
+              </div>
               <GroupOptionItem
+                v-else
                 :name="(option as unknown as GroupOption).label"
-                :platform="(option as unknown as GroupOption).platform"
+                :platform="(option as unknown as GroupOption).platform!"
                 :subscription-type="(option as unknown as GroupOption).subscriptionType"
                 :rate-multiplier="(option as unknown as GroupOption).rate"
                 :user-rate-multiplier="(option as unknown as GroupOption).userRate"
@@ -1014,24 +1044,36 @@
             :class="[
               'flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm transition-colors',
               'border-b border-gray-100 last:border-0 dark:border-dark-700',
-              selectedKeyForGroup?.group_id === option.value ||
-              (!selectedKeyForGroup?.group_id && option.value === null)
+              isGroupOptionSelected(selectedKeyForGroup, option)
                 ? 'bg-primary-50 dark:bg-primary-900/20'
                 : 'hover:bg-gray-100 dark:hover:bg-dark-700'
             ]"
             :title="option.description || undefined"
           >
+            <div
+              v-if="option.personal"
+              class="flex min-w-0 flex-1 items-center justify-between gap-3"
+            >
+              <div class="flex min-w-0 flex-1 items-start gap-2">
+                <span class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-300">
+                  <Icon name="user" size="sm" />
+                </span>
+                <div class="min-w-0 text-left">
+                  <div class="text-sm font-semibold text-gray-900 dark:text-white">{{ option.label }}</div>
+                  <div class="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">{{ option.description }}</div>
+                </div>
+              </div>
+              <Icon v-if="isGroupOptionSelected(selectedKeyForGroup, option)" name="check" size="sm" class="text-primary-600 dark:text-primary-400" />
+            </div>
             <GroupOptionItem
+              v-else
               :name="option.label"
-              :platform="option.platform"
+              :platform="option.platform!"
               :subscription-type="option.subscriptionType"
               :rate-multiplier="option.rate"
               :user-rate-multiplier="option.userRate"
               :description="option.description"
-              :selected="
-                selectedKeyForGroup?.group_id === option.value ||
-                (!selectedKeyForGroup?.group_id && option.value === null)
-              "
+              :selected="isGroupOptionSelected(selectedKeyForGroup, option)"
             />
           </button>
           <!-- Empty state when search has no results -->
@@ -1061,7 +1103,7 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import BaseDialog from '@/components/common/BaseDialog.vue'
 	import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 	import EmptyState from '@/components/common/EmptyState.vue'
-	import Select from '@/components/common/Select.vue'
+	import Select, { type SelectOption } from '@/components/common/Select.vue'
 	import SearchInput from '@/components/common/SearchInput.vue'
 	import Icon from '@/components/icons/Icon.vue'
 	import UseKeyModal from '@/components/keys/UseKeyModal.vue'
@@ -1078,6 +1120,9 @@ import {
   type CcSwitchClientType
 } from '@/utils/ccswitchImport'
 
+const PERSONAL_ACCOUNT_SCOPE_VALUE = 'personal_accounts' as const
+type PersonalAccountScopeValue = typeof PERSONAL_ACCOUNT_SCOPE_VALUE
+
 // Helper to format date for datetime-local input
 const formatDateTimeLocal = (isoDate: string): string => {
   const date = new Date(isoDate)
@@ -1085,14 +1130,15 @@ const formatDateTimeLocal = (isoDate: string): string => {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-interface GroupOption {
-  value: number
+interface GroupOption extends SelectOption {
+  value: number | PersonalAccountScopeValue
   label: string
   description: string | null
-  rate: number
+  rate?: number
   userRate: number | null
   subscriptionType: SubscriptionType
-  platform: GroupPlatform
+  platform?: GroupPlatform
+  personal?: boolean
 }
 
 const appStore = useAppStore()
@@ -1171,6 +1217,7 @@ const setGroupButtonRef = (keyId: number, el: Element | ComponentPublicInstance 
 const formData = ref({
   name: '',
   group_id: null as number | null,
+  personal_account_scope: false,
   status: 'active' as 'active' | 'inactive',
   use_custom_key: false,
   custom_key: '',
@@ -1214,6 +1261,7 @@ const statusOptions = computed(() => [
 // Filter dropdown options
 const groupFilterOptions = computed(() => [
   { value: '', label: t('keys.allGroups') },
+  { value: PERSONAL_ACCOUNT_SCOPE_VALUE, label: t('keys.personalAccountScope') },
   { value: 0, label: t('keys.noGroup') },
   ...groups.value.map((g) => ({ value: g.id, label: g.name }))
 ])
@@ -1242,8 +1290,16 @@ const onStatusFilterChange = (value: string | number | boolean | null) => {
 }
 
 // Convert groups to Select options format with rate multiplier and subscription type
-const groupOptions = computed(() =>
-  groups.value.map((group) => ({
+const groupOptions = computed<GroupOption[]>(() => [
+  {
+    value: PERSONAL_ACCOUNT_SCOPE_VALUE,
+    label: t('keys.personalAccountScope'),
+    description: t('keys.personalAccountScopeHint'),
+    userRate: null,
+    subscriptionType: 'standard',
+    personal: true
+  },
+  ...groups.value.map((group) => ({
     value: group.id,
     label: group.name,
     description: group.description,
@@ -1252,7 +1308,24 @@ const groupOptions = computed(() =>
     subscriptionType: group.subscription_type,
     platform: group.platform
   }))
-)
+])
+
+const selectedGroupScope = computed<number | PersonalAccountScopeValue | null>({
+  get() {
+    return formData.value.personal_account_scope
+      ? PERSONAL_ACCOUNT_SCOPE_VALUE
+      : formData.value.group_id
+  },
+  set(value) {
+    if (value === PERSONAL_ACCOUNT_SCOPE_VALUE) {
+      formData.value.personal_account_scope = true
+      formData.value.group_id = null
+      return
+    }
+    formData.value.personal_account_scope = false
+    formData.value.group_id = typeof value === 'number' ? value : null
+  }
+})
 
 // Group dropdown search
 const groupSearchQuery = ref('')
@@ -1293,12 +1366,17 @@ const loadApiKeys = async () => {
       search?: string
       status?: string
       group_id?: number | string
+      personal_account_scope?: boolean
       sort_by?: string
       sort_order?: 'asc' | 'desc'
     } = {}
     if (filterSearch.value) filters.search = filterSearch.value
     if (filterStatus.value) filters.status = filterStatus.value
-    if (filterGroupId.value !== '') filters.group_id = filterGroupId.value
+    if (filterGroupId.value === PERSONAL_ACCOUNT_SCOPE_VALUE) {
+      filters.personal_account_scope = true
+    } else if (filterGroupId.value !== '') {
+      filters.group_id = filterGroupId.value
+    }
     filters.sort_by = sortState.value.sort_by
     filters.sort_order = sortState.value.sort_order
 
@@ -1394,6 +1472,7 @@ const editKey = (key: ApiKey) => {
   formData.value = {
     name: key.name,
     group_id: key.group_id,
+    personal_account_scope: key.personal_account_scope,
     status: key.status === 'quota_exhausted' || key.status === 'expired' ? 'inactive' : key.status,
     use_custom_key: false,
     custom_key: '',
@@ -1457,13 +1536,27 @@ const openGroupSelector = (key: ApiKey) => {
   }
 }
 
-const changeGroup = async (key: ApiKey, newGroupId: number | null) => {
+const isGroupOptionSelected = (key: ApiKey | null, option: GroupOption) => {
+  if (!key) return false
+  if (option.personal) return key.personal_account_scope
+  return !key.personal_account_scope && key.group_id === option.value
+}
+
+const changeGroup = async (key: ApiKey, newGroupId: number | PersonalAccountScopeValue | null) => {
   groupSelectorKeyId.value = null
   dropdownPosition.value = null
-  if (key.group_id === newGroupId) return
+  if (newGroupId === PERSONAL_ACCOUNT_SCOPE_VALUE) {
+    if (key.personal_account_scope) return
+  } else if (!key.personal_account_scope && key.group_id === newGroupId) {
+    return
+  }
 
   try {
-    await keysAPI.update(key.id, { group_id: newGroupId })
+    if (newGroupId === PERSONAL_ACCOUNT_SCOPE_VALUE) {
+      await keysAPI.update(key.id, { group_id: null, personal_account_scope: true })
+    } else {
+      await keysAPI.update(key.id, { group_id: newGroupId, personal_account_scope: false })
+    }
     appStore.showSuccess(t('keys.groupChangedSuccess'))
     loadApiKeys()
   } catch (error) {
@@ -1487,7 +1580,7 @@ const confirmDelete = (key: ApiKey) => {
 
 const handleSubmit = async () => {
   // Validate group_id is required
-  if (formData.value.group_id === null) {
+  if (!formData.value.personal_account_scope && formData.value.group_id === null) {
     appStore.showError(t('keys.groupRequired'))
     return
   }
@@ -1545,6 +1638,7 @@ const handleSubmit = async () => {
       await keysAPI.update(selectedKey.value.id, {
         name: formData.value.name,
         group_id: formData.value.group_id,
+        personal_account_scope: formData.value.personal_account_scope,
         status: formData.value.status,
         ip_whitelist: ipWhitelist,
         ip_blacklist: ipBlacklist,
@@ -1560,6 +1654,7 @@ const handleSubmit = async () => {
       await keysAPI.create(
         formData.value.name,
         formData.value.group_id,
+        formData.value.personal_account_scope,
         customKey,
         ipWhitelist,
         ipBlacklist,
@@ -1611,6 +1706,7 @@ const closeModals = () => {
   formData.value = {
     name: '',
     group_id: null,
+    personal_account_scope: false,
     status: 'active',
     use_custom_key: false,
     custom_key: '',

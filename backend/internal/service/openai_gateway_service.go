@@ -2391,7 +2391,7 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 				err,
 			)
 		}
-		return accounts, nil
+		return FilterAccountsVisibleToContext(ctx, accounts), nil
 	}
 	var accounts []Account
 	var err error
@@ -2480,6 +2480,9 @@ func (s *OpenAIGatewayService) getSchedulableAccount(ctx context.Context, accoun
 	if err != nil || account == nil {
 		return account, err
 	}
+	if !IsAccountVisibleToContext(ctx, account) {
+		return nil, ErrAccountNotFound
+	}
 	return account, nil
 }
 
@@ -2493,6 +2496,9 @@ func (s *OpenAIGatewayService) hydrateSelectedAccount(ctx context.Context, accou
 	}
 	if hydrated == nil {
 		return nil, fmt.Errorf("selected openai account %d not found during hydration", account.ID)
+	}
+	if !IsAccountVisibleToContext(ctx, hydrated) {
+		return nil, fmt.Errorf("selected openai account %d is not visible to current user", account.ID)
 	}
 	return hydrated, nil
 }
