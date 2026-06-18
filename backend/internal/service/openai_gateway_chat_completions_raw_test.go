@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -585,6 +586,444 @@ func TestBufferRawChatCompletions_RejectsOversizedResponse(t *testing.T) {
 	require.Equal(t, http.StatusBadGateway, rec.Code)
 }
 
+func TestForwardAsOpenCodeLocalChatCompletions_NonStreaming(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"opencode-go/minimax-m3","messages":[{"role":"system","content":"short"},{"role":"user","content":"只回复 OK"}],"stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"ses_test","model":{"id":"minimax-m3","providerID":"opencode-go"}}`)),
+		},
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(
+				`{"info":{"id":"msg_test","modelID":"minimax-m3","providerID":"opencode-go","finish":"stop","tokens":{"input":11,"output":2,"reasoning":0,"cache":{"read":3,"write":0}},"time":{"created":1781610521583,"completed":1781610526394}},"parts":[{"type":"reasoning","text":"ignore"},{"type":"text","text":"OK"}]}`,
+			)),
+		},
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+	account := openCodeLocalTestAccount()
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "opencode-go/minimax-m3", result.Model)
+	require.Equal(t, "minimax-m3", result.BillingModel)
+	require.Equal(t, "minimax-m3", result.UpstreamModel)
+	require.Equal(t, 11, result.Usage.InputTokens)
+	require.Equal(t, 2, result.Usage.OutputTokens)
+	require.Equal(t, 3, result.Usage.CacheReadInputTokens)
+	require.False(t, result.Stream)
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, "http://host.docker.internal:4096/session", upstream.requests[0].URL.String())
+	require.Equal(t, "http://host.docker.internal:4096/session/ses_test/message", upstream.requests[1].URL.String())
+	require.Equal(t, "allow", openCodeLocalPermissionActionForTest(upstream.bodies[0], "read"))
+	require.Equal(t, "allow", openCodeLocalPermissionActionForTest(upstream.bodies[0], "glob"))
+	require.Equal(t, "allow", openCodeLocalPermissionActionForTest(upstream.bodies[0], "grep"))
+	require.Equal(t, "deny", openCodeLocalPermissionActionForTest(upstream.bodies[0], "bash"))
+	require.Equal(t, "deny", openCodeLocalPermissionActionForTest(upstream.bodies[0], "write"))
+	require.Equal(t, "opencode-go", gjson.GetBytes(upstream.bodies[1], "model.providerID").String())
+	require.Equal(t, "minimax-m3", gjson.GetBytes(upstream.bodies[1], "model.modelID").String())
+	require.True(t, gjson.GetBytes(upstream.bodies[1], "tools.read").Bool())
+	require.True(t, gjson.GetBytes(upstream.bodies[1], "tools.glob").Bool())
+	require.True(t, gjson.GetBytes(upstream.bodies[1], "tools.grep").Bool())
+	require.False(t, gjson.GetBytes(upstream.bodies[1], "tools.bash").Bool())
+	require.False(t, gjson.GetBytes(upstream.bodies[1], "tools.write").Bool())
+	require.Contains(t, gjson.GetBytes(upstream.bodies[1], "parts.0.text").String(), "只回复 OK")
+	require.Equal(t, "chat.completion", gjson.Get(rec.Body.String(), "object").String())
+	require.Equal(t, "OK", gjson.Get(rec.Body.String(), "choices.0.message.content").String())
+	require.Equal(t, int64(11), gjson.Get(rec.Body.String(), "usage.prompt_tokens").Int())
+}
+
+func TestOpenCodeLocalTools_DefaultReadonlyAndCredentialOverrides(t *testing.T) {
+	t.Parallel()
+
+	account := openCodeLocalTestAccount()
+	defaultTools := openCodeLocalTools(account)
+	require.True(t, defaultTools["read"])
+	require.True(t, defaultTools["glob"])
+	require.True(t, defaultTools["grep"])
+	require.False(t, defaultTools["bash"])
+	require.False(t, defaultTools["write"])
+	require.False(t, defaultTools["apply_patch"])
+
+	account.Credentials["opencode_tools"] = map[string]any{
+		"bash":        true,
+		"write":       "true",
+		"apply_patch": "1",
+		"grep":        false,
+	}
+	overridden := openCodeLocalTools(account)
+	require.True(t, overridden["bash"])
+	require.True(t, overridden["write"])
+	require.True(t, overridden["apply_patch"])
+	require.False(t, overridden["grep"])
+	require.True(t, overridden["read"])
+}
+
+func TestOpenCodeLocalTools_DisabledCredentialClosesAllTools(t *testing.T) {
+	t.Parallel()
+
+	account := openCodeLocalTestAccount()
+	account.Credentials["opencode_tools_enabled"] = false
+	account.Credentials["opencode_tools"] = map[string]any{"read": true, "bash": true}
+
+	tools := openCodeLocalTools(account)
+	for name, enabled := range tools {
+		require.False(t, enabled, "tool %s should be disabled", name)
+	}
+}
+
+func TestOpenCodeLocalTools_PresetAllEnablesKnownTools(t *testing.T) {
+	t.Parallel()
+
+	account := openCodeLocalTestAccount()
+	account.Credentials["opencode_tool_preset"] = "all"
+
+	tools := openCodeLocalTools(account)
+	require.True(t, tools["bash"])
+	require.True(t, tools["read"])
+	require.True(t, tools["edit"])
+	require.True(t, tools["write"])
+	require.True(t, tools["apply_patch"])
+}
+
+func TestOpenCodeLocalPermissions_MirrorTools(t *testing.T) {
+	t.Parallel()
+
+	account := openCodeLocalTestAccount()
+	account.Credentials["opencode_tools_enabled"] = false
+	account.Credentials["opencode_tools"] = map[string]any{"read": true}
+
+	permissions := openCodeLocalPermissions(account)
+	require.NotEmpty(t, permissions)
+	for _, permission := range permissions {
+		require.Equal(t, "deny", permission["action"], "permission %s", permission["permission"])
+		require.Equal(t, "*", permission["pattern"])
+	}
+}
+
+func openCodeLocalPermissionActionForTest(body []byte, permission string) string {
+	items := gjson.GetBytes(body, "permission").Array()
+	for _, item := range items {
+		if item.Get("permission").String() == permission {
+			return item.Get("action").String()
+		}
+	}
+	return ""
+}
+
+func TestForwardAsOpenCodeLocalChatCompletions_Streaming(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"opencode-go/minimax-m3","messages":[{"role":"user","content":"hi"}],"stream":true}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"ses_stream"}`)),
+		},
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader(openCodeLocalEventStreamForTest("ses_stream", "msg_stream", "OK", 5, 1))),
+		},
+		{
+			StatusCode: http.StatusNoContent,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader("")),
+		},
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+	account := openCodeLocalTestAccount()
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.Stream)
+	require.NotNil(t, result.FirstTokenMs)
+	require.Len(t, upstream.requests, 3)
+	require.Equal(t, "http://host.docker.internal:4096/session", upstream.requests[0].URL.String())
+	require.Equal(t, "http://host.docker.internal:4096/event", upstream.requests[1].URL.String())
+	require.Equal(t, http.MethodGet, upstream.requests[1].Method)
+	require.Equal(t, "text/event-stream", upstream.requests[1].Header.Get("Accept"))
+	require.Equal(t, "http://host.docker.internal:4096/session/ses_stream/prompt_async", upstream.requests[2].URL.String())
+	require.Len(t, upstream.bodies, 2)
+	require.Contains(t, gjson.GetBytes(upstream.bodies[1], "parts.0.text").String(), "hi")
+	require.Contains(t, rec.Body.String(), `"object":"chat.completion.chunk"`)
+	require.Contains(t, rec.Body.String(), `"content":"OK"`)
+	require.Contains(t, rec.Body.String(), `"usage":{"prompt_tokens":5,"completion_tokens":1`)
+	require.Contains(t, rec.Body.String(), "data: [DONE]")
+}
+
+func TestForwardOpenCodeLocalResponsesViaChatCompletions_StreamingUsesEventPromptAsync(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"opencode-go/minimax-m3","input":"只回复 OK","stream":true}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"ses_resp_stream"}`)),
+		},
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader(openCodeLocalEventStreamForTest("ses_resp_stream", "msg_resp_stream", "OK", 7, 1))),
+		},
+		{
+			StatusCode: http.StatusNoContent,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader("")),
+		},
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+	account := openCodeLocalTestAccount()
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.Stream)
+	require.NotNil(t, result.FirstTokenMs)
+	require.Equal(t, 7, result.Usage.InputTokens)
+	require.Equal(t, 1, result.Usage.OutputTokens)
+	require.Len(t, upstream.requests, 3)
+	require.Equal(t, "http://host.docker.internal:4096/session", upstream.requests[0].URL.String())
+	require.Equal(t, "http://host.docker.internal:4096/event", upstream.requests[1].URL.String())
+	require.Equal(t, "http://host.docker.internal:4096/session/ses_resp_stream/prompt_async", upstream.requests[2].URL.String())
+	require.Len(t, upstream.bodies, 2)
+	require.Contains(t, gjson.GetBytes(upstream.bodies[1], "parts.0.text").String(), "只回复 OK")
+	require.Contains(t, rec.Body.String(), `"type":"response.output_text.delta"`)
+	require.Contains(t, rec.Body.String(), `"delta":"OK"`)
+	require.Contains(t, rec.Body.String(), `"type":"response.completed"`)
+	require.Contains(t, rec.Body.String(), "data: [DONE]")
+}
+
+func openCodeLocalEventStreamForTest(sessionID, messageID, text string, inputTokens, outputTokens int) string {
+	return fmt.Sprintf(
+		"data: {\"type\":\"message.part.updated\",\"properties\":{\"sessionID\":%q,\"part\":{\"id\":\"prt_text\",\"messageID\":%q,\"sessionID\":%q,\"type\":\"text\",\"text\":\"\"},\"time\":1}}\n\n"+
+			"data: {\"type\":\"message.part.delta\",\"properties\":{\"sessionID\":%q,\"messageID\":%q,\"partID\":\"prt_text\",\"field\":\"text\",\"delta\":%q}}\n\n"+
+			"data: {\"type\":\"message.part.updated\",\"properties\":{\"sessionID\":%q,\"part\":{\"id\":\"prt_reason\",\"messageID\":%q,\"sessionID\":%q,\"type\":\"reasoning\",\"text\":\"\"},\"time\":1}}\n\n"+
+			"data: {\"type\":\"message.part.delta\",\"properties\":{\"sessionID\":%q,\"messageID\":%q,\"partID\":\"prt_reason\",\"field\":\"text\",\"delta\":\"ignore\"}}\n\n"+
+			"data: {\"type\":\"message.part.updated\",\"properties\":{\"sessionID\":%q,\"part\":{\"id\":\"prt_finish\",\"type\":\"step-finish\",\"reason\":\"stop\",\"tokens\":{\"input\":%d,\"output\":%d,\"reasoning\":0,\"cache\":{\"read\":0,\"write\":0}}},\"time\":2}}\n\n"+
+			"data: {\"type\":\"message.updated\",\"properties\":{\"sessionID\":%q,\"info\":{\"id\":%q,\"role\":\"assistant\",\"modelID\":\"minimax-m3\",\"providerID\":\"opencode-go\",\"finish\":\"stop\",\"tokens\":{\"input\":%d,\"output\":%d,\"reasoning\":0,\"cache\":{\"read\":0,\"write\":0}},\"time\":{\"created\":1781610521583,\"completed\":1781610526394}}}}\n\n"+
+			"data: {\"type\":\"session.idle\",\"properties\":{\"sessionID\":%q}}\n\n",
+		sessionID, messageID, sessionID,
+		sessionID, messageID, text,
+		sessionID, messageID, sessionID,
+		sessionID, messageID,
+		sessionID, inputTokens, outputTokens,
+		sessionID, messageID, inputTokens, outputTokens,
+		sessionID,
+	)
+}
+
+func TestForwardOpenCodeLocalResponsesViaChatCompletions_NonStreaming(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"opencode-go/minimax-m3","input":"只回复 OK","stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"ses_resp"}`)),
+		},
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(
+				`{"info":{"id":"msg_resp","modelID":"minimax-m3","providerID":"opencode-go","finish":"stop","tokens":{"input":7,"output":1,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1781610521583,"completed":1781610526394}},"parts":[{"type":"text","text":"OK"}]}`,
+			)),
+		},
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+	account := openCodeLocalTestAccount()
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "response", gjson.Get(rec.Body.String(), "object").String())
+	require.Equal(t, "OK", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
+	require.Equal(t, int64(7), gjson.Get(rec.Body.String(), "usage.input_tokens").Int())
+	require.Contains(t, gjson.GetBytes(upstream.bodies[1], "parts.0.text").String(), "只回复 OK")
+}
+
+func TestForwardOpenCodeLocalAnthropicMessages_NonStreaming(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"claude-sonnet-4-5","system":"short","messages":[{"role":"user","content":[{"type":"text","text":"只回复 OK"}]}],"max_tokens":64,"stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"ses_anth"}`)),
+		},
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(
+				`{"info":{"id":"msg_anth","modelID":"minimax-m3","providerID":"opencode-go","finish":"stop","tokens":{"input":9,"output":2,"reasoning":0,"cache":{"read":1,"write":0}},"time":{"created":1781610521583,"completed":1781610526394}},"parts":[{"type":"text","text":"OK"}]}`,
+			)),
+		},
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+	account := openCodeLocalTestAccount()
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "claude-sonnet-4-5", result.Model)
+	require.Equal(t, "minimax-m3", result.BillingModel)
+	require.Equal(t, "minimax-m3", result.UpstreamModel)
+	require.Equal(t, 9, result.Usage.InputTokens)
+	require.Equal(t, 2, result.Usage.OutputTokens)
+	require.Equal(t, 1, result.Usage.CacheReadInputTokens)
+	require.False(t, result.Stream)
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, "http://host.docker.internal:4096/session", upstream.requests[0].URL.String())
+	require.Equal(t, "http://host.docker.internal:4096/session/ses_anth/message", upstream.requests[1].URL.String())
+	require.Equal(t, "opencode-go", gjson.GetBytes(upstream.bodies[1], "model.providerID").String())
+	require.Equal(t, "minimax-m3", gjson.GetBytes(upstream.bodies[1], "model.modelID").String())
+	require.Contains(t, gjson.GetBytes(upstream.bodies[1], "parts.0.text").String(), "System:\nshort")
+	require.Contains(t, gjson.GetBytes(upstream.bodies[1], "parts.0.text").String(), "只回复 OK")
+	require.Equal(t, "message", gjson.Get(rec.Body.String(), "type").String())
+	require.Equal(t, "assistant", gjson.Get(rec.Body.String(), "role").String())
+	require.Equal(t, "claude-sonnet-4-5", gjson.Get(rec.Body.String(), "model").String())
+	require.Equal(t, "OK", gjson.Get(rec.Body.String(), "content.0.text").String())
+	require.Equal(t, int64(9), gjson.Get(rec.Body.String(), "usage.input_tokens").Int())
+	require.Equal(t, int64(1), gjson.Get(rec.Body.String(), "usage.cache_read_input_tokens").Int())
+}
+
+func TestForwardOpenCodeGoOfficialChatCompletions_MinimaxUsesMessagesEndpoint(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"opencode-go/minimax-m3","messages":[{"role":"user","content":"只回复 OK"}],"stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{
+			StatusCode: http.StatusOK,
+			Header: http.Header{
+				"Content-Type": []string{"text/event-stream"},
+				"X-Request-Id": []string{"req_opencode_go_messages"},
+			},
+			Body: io.NopCloser(strings.NewReader(openCodeGoAnthropicSSE("msg_opencode_go", "minimax-m3", "OK", 10, 2, 3))),
+		},
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+	account := openCodeGoOfficialTestAccount()
+
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "req_opencode_go_messages", result.RequestID)
+	require.Equal(t, "opencode-go/minimax-m3", result.Model)
+	require.Equal(t, "minimax-m3", result.BillingModel)
+	require.Equal(t, "minimax-m3", result.UpstreamModel)
+	require.Equal(t, 13, result.Usage.InputTokens)
+	require.Equal(t, 2, result.Usage.OutputTokens)
+	require.Equal(t, 3, result.Usage.CacheReadInputTokens)
+	require.False(t, result.Stream)
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, "https://opencode.ai/zen/go/v1/messages", upstream.requests[0].URL.String())
+	require.Equal(t, "sk-test", upstream.requests[0].Header.Get("x-api-key"))
+	require.Empty(t, upstream.requests[0].Header.Get("authorization"))
+	require.Equal(t, "2023-06-01", upstream.requests[0].Header.Get("anthropic-version"))
+	require.Equal(t, "minimax-m3", gjson.GetBytes(upstream.bodies[0], "model").String())
+	require.True(t, gjson.GetBytes(upstream.bodies[0], "stream").Bool())
+	require.Equal(t, "chat.completion", gjson.Get(rec.Body.String(), "object").String())
+	require.Equal(t, "opencode-go/minimax-m3", gjson.Get(rec.Body.String(), "model").String())
+	require.Equal(t, "OK", gjson.Get(rec.Body.String(), "choices.0.message.content").String())
+	require.Equal(t, int64(13), gjson.Get(rec.Body.String(), "usage.prompt_tokens").Int())
+}
+
+func TestForwardOpenCodeGoOfficialResponses_KimiUsesChatCompletionsEndpoint(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"opencode-go/kimi-k2.7-code","input":"只回复 OK","stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}, "X-Request-Id": []string{"req_opencode_go_chat"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"chatcmpl_kimi","object":"chat.completion","created":1781610521,"model":"kimi-k2.7","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":4,"completion_tokens":2,"total_tokens":6}}`)),
+		},
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+	account := openCodeGoOfficialTestAccount()
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "opencode-go/kimi-k2.7-code", result.Model)
+	require.Equal(t, "kimi-k2.7", result.BillingModel)
+	require.Equal(t, "kimi-k2.7", result.UpstreamModel)
+	require.Equal(t, 4, result.Usage.InputTokens)
+	require.Equal(t, 2, result.Usage.OutputTokens)
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, "https://opencode.ai/zen/go/v1/chat/completions", upstream.requests[0].URL.String())
+	require.Equal(t, "Bearer sk-test", upstream.requests[0].Header.Get("authorization"))
+	require.Equal(t, "kimi-k2.7", gjson.GetBytes(upstream.bodies[0], "model").String())
+	require.Equal(t, "response", gjson.Get(rec.Body.String(), "object").String())
+	require.Equal(t, "OK", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
+}
+
 func rawChatCompletionsTestConfig() *config.Config {
 	return &config.Config{
 		Security: config.SecurityConfig{
@@ -608,6 +1047,62 @@ func rawChatCompletionsTestAccount() *Account {
 			"base_url": "http://upstream.example",
 		},
 	}
+}
+
+func openCodeGoOfficialTestAccount() *Account {
+	return &Account{
+		ID:          293,
+		Name:        "opencode-go-official-test",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "sk-test",
+			"vendor":   "opencode-go",
+			"base_url": "https://opencode.ai/zen/go/v1",
+		},
+	}
+}
+
+func openCodeLocalTestAccount() *Account {
+	return &Account{
+		ID:          292,
+		Name:        "opencode-go-local-test",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "sk-test",
+			"vendor":   "opencode-go",
+			"base_url": "http://host.docker.internal:4096",
+			"model_mapping": map[string]any{
+				"opencode-go/minimax-m3": "minimax-m3",
+				"minimax-m3":             "minimax-m3",
+				"gpt-*":                  "minimax-m3",
+				"claude-*":               "minimax-m3",
+			},
+		},
+	}
+}
+
+func openCodeGoAnthropicSSE(id string, model string, text string, inputTokens int, outputTokens int, cacheReadTokens int) string {
+	return strings.Join([]string{
+		`event: message_start`,
+		fmt.Sprintf(`data: {"type":"message_start","message":{"id":%q,"type":"message","role":"assistant","content":[],"model":%q,"stop_reason":"","usage":{"input_tokens":%d,"cache_read_input_tokens":%d}}}`, id, model, inputTokens, cacheReadTokens),
+		``,
+		`event: content_block_start`,
+		`data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}`,
+		``,
+		`event: content_block_delta`,
+		fmt.Sprintf(`data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":%q}}`, text),
+		``,
+		`event: message_delta`,
+		fmt.Sprintf(`data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":%d}}`, outputTokens),
+		``,
+		`event: message_stop`,
+		`data: {"type":"message_stop"}`,
+		``,
+	}, "\n")
 }
 
 func largeRawChatCompletionsBody() []byte {

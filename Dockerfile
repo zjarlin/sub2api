@@ -106,6 +106,7 @@ RUN apk add --no-cache \
     ca-certificates \
     tzdata \
     su-exec \
+    chromium \
     libpq \
     zstd-libs \
     lz4-libs \
@@ -113,6 +114,9 @@ RUN apk add --no-cache \
     libldap \
     libedit \
     && rm -rf /var/cache/apk/*
+
+ENV CHROME_BIN=/usr/bin/chromium-browser
+ENV CHROMEDP_NO_SANDBOX=true
 
 # Copy pg_dump and psql from the same postgres image used in docker-compose
 # This ensures version consistency between backup tools and the database server

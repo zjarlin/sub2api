@@ -184,6 +184,15 @@ func TestOpenAICompactSupportTier(t *testing.T) {
 		{name: "openai unsupported", account: &Account{Platform: PlatformOpenAI, Extra: map[string]any{"openai_compact_supported": false}}, want: 0},
 		{name: "force on", account: &Account{Platform: PlatformOpenAI, Extra: map[string]any{"openai_compact_mode": OpenAICompactModeForceOn}}, want: 2},
 		{name: "force off overrides probe true", account: &Account{Platform: PlatformOpenAI, Extra: map[string]any{"openai_compact_mode": OpenAICompactModeForceOff, "openai_compact_supported": true}}, want: 0},
+		{name: "local opencode ignores stale force off", account: &Account{
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeAPIKey,
+			Credentials: map[string]any{
+				"vendor":   "opencode-go",
+				"base_url": "http://host.docker.internal:4096",
+			},
+			Extra: map[string]any{"openai_compact_mode": OpenAICompactModeForceOff},
+		}, want: 2},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

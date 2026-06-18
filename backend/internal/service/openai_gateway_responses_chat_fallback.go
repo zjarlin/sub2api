@@ -75,6 +75,9 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 		chatReq.Thinking = &apicompat.ChatThinking{Type: "disabled"}
 		chatReq.ReasoningEffort = ""
 	}
+	if accountUsesNvidiaSGLangOpenAICompat(account) && strings.EqualFold(chatReq.ReasoningEffort, "xhigh") {
+		chatReq.ReasoningEffort = "max"
+	}
 
 	chatBody, err := json.Marshal(chatReq)
 	if err != nil {
@@ -211,6 +214,14 @@ func accountUsesDeepSeekOpenAICompat(account *Account) bool {
 	}
 	return openAIBaseURLPrefersChatCompletions(account.GetOpenAIBaseURL()) &&
 		strings.Contains(strings.ToLower(account.GetOpenAIBaseURL()), "deepseek")
+}
+
+func accountUsesNvidiaSGLangOpenAICompat(account *Account) bool {
+	if account == nil || !account.IsOpenAIApiKey() {
+		return false
+	}
+	baseURL := strings.ToLower(strings.TrimSpace(account.GetOpenAIBaseURL()))
+	return strings.Contains(baseURL, "integrate.api.nvidia.com")
 }
 
 func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(

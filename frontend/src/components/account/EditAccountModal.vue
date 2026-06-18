@@ -2147,8 +2147,17 @@
             <Select v-model="openAICompactMode" :options="openAICompactModeOptions" />
           </div>
         </div>
-        <div class="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:bg-dark-700 dark:text-gray-300">
-          <span class="font-medium">{{ t(openAICompactStatusKey) }}</span>
+        <div
+          data-testid="openai-compact-status"
+          class="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:bg-dark-700 dark:text-gray-300"
+        >
+          <span v-if="openAICompactStatusKey" class="font-medium">{{ t(openAICompactStatusKey) }}</span>
+          <span
+            v-if="openAICompactProbeStatusKey"
+            class="ml-2 text-gray-500 dark:text-gray-400"
+          >
+            {{ t(openAICompactProbeStatusKey) }}
+          </span>
           <span
             v-if="account?.extra?.openai_compact_checked_at"
             class="ml-2 text-gray-500 dark:text-gray-400"
@@ -3355,17 +3364,19 @@ const openAIResponsesStatusKey = computed(() => {
   return 'admin.accounts.openai.responsesStatusAutoUnknown'
 })
 const openAICompactStatusKey = computed(() => {
-  const extra = props.account?.extra as Record<string, unknown> | undefined
   if (!props.account || props.account.platform !== 'openai') return ''
-  const mode = typeof extra?.openai_compact_mode === 'string' ? extra.openai_compact_mode : 'auto'
+  const mode = openAICompactMode.value
   if (mode === 'force_on') return 'admin.accounts.openai.compactSupported'
   if (mode === 'force_off') return 'admin.accounts.openai.compactUnsupported'
-  if (typeof extra?.openai_compact_supported === 'boolean') {
-    return extra.openai_compact_supported
-      ? 'admin.accounts.openai.compactSupported'
-      : 'admin.accounts.openai.compactUnsupported'
-  }
   return 'admin.accounts.openai.compactAuto'
+})
+
+const openAICompactProbeStatusKey = computed(() => {
+  if (!props.account || props.account.platform !== 'openai' || openAICompactMode.value !== 'auto') return ''
+  const extra = props.account.extra as Record<string, unknown> | undefined
+  if (extra?.openai_compact_supported === true) return 'admin.accounts.openai.compactProbeSupported'
+  if (extra?.openai_compact_supported === false) return 'admin.accounts.openai.compactProbeUnsupported'
+  return 'admin.accounts.openai.compactProbeUnknown'
 })
 
 const getCurrentWhitelistModels = () => getModelsByPlatforms(currentModelWhitelistPlatforms.value)

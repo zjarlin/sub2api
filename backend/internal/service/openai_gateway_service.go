@@ -1344,7 +1344,7 @@ func isOpenAIAccountEligibleForRequest(ctx context.Context, account *Account, re
 		)
 		return false
 	}
-	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
+	if requestedModel != "" && !isOpenAIAccountModelSupportedForScheduling(account, requestedModel) {
 		return false
 	}
 	if !account.SupportsOpenAIEndpointCapability(requiredCapability) {
@@ -1352,6 +1352,26 @@ func isOpenAIAccountEligibleForRequest(ctx context.Context, account *Account, re
 	}
 	if requireCompact && openAICompactSupportTier(account) == 0 {
 		return false
+	}
+	return true
+}
+
+func isOpenAIAccountModelSupportedForScheduling(account *Account, requestedModel string) bool {
+	if strings.TrimSpace(requestedModel) == "" {
+		return true
+	}
+	if account == nil || !account.IsOpenAI() {
+		return false
+	}
+	if !account.IsModelSupported(requestedModel) {
+		return false
+	}
+	if account.IsOpenAIOAuth() {
+		mapping := account.GetModelMapping()
+		if len(mapping) > 0 {
+			return mappingSupportsRequestedModel(mapping, requestedModel)
+		}
+		return isLikelyOpenAINativeModel(requestedModel)
 	}
 	return true
 }
@@ -2644,8 +2664,21 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	reqModel, reqStream, promptCacheKey := requestView.Model, requestView.Stream, requestView.PromptCacheKey
 	originalModel := reqModel
 
+	if account.Type == AccountTypeAPIKey && accountUsesOpenCodeGoOfficialAPI(account) {
+		return s.forwardOpenCodeGoResponsesViaMessages(ctx, c, account, body)
+	}
+
 	if account.Type == AccountTypeAPIKey &&
 		(account.ShouldUseOpenAIChatCompletionsUpstream() || !openai_compat.ShouldUseResponsesAPI(account.Extra)) {
+		if accountUsesDoubaoWebReverse(account) {
+			return s.forwardDoubaoWebResponsesViaChatCompletions(ctx, c, account, body)
+		}
+		if accountUsesLocalOpenCodeServer(account) {
+			return s.forwardOpenCodeLocalResponsesViaChatCompletions(ctx, c, account, body)
+		}
+		if accountUsesOpenCodeGoOfficialAPI(account) {
+			return s.forwardOpenCodeGoResponsesViaMessages(ctx, c, account, body)
+		}
 		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
 	}
 

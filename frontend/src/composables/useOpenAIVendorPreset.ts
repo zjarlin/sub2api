@@ -2,6 +2,9 @@ export type OpenAIVendorPresetId =
   | 'openai'
   | 'deepseek'
   | 'openrouter'
+  | 'opencode'
+  | 'opencode-go'
+  | 'doubao-web'
   | 'gemini'
   | 'mimo'
   | 'ollama'
@@ -58,6 +61,42 @@ const OPENAI_VENDOR_PRESETS: Record<OpenAIVendorPresetId, OpenAIVendorPreset> = 
     presetPlatform: 'openrouter',
     baseUrlHintKey: 'admin.accounts.openai.openrouterBaseUrlHint',
     apiKeyHintKey: 'admin.accounts.openai.openrouterApiKeyHint'
+  },
+  opencode: {
+    id: 'opencode',
+    labelKey: 'admin.accounts.openai.vendorOptions.opencode',
+    baseUrl: 'https://opencode.ai/zen/v1',
+    authHeader: 'authorization',
+    authScheme: 'bearer',
+    apiKeyPlaceholder: 'sk-...',
+    modelPlatforms: ['opencode'],
+    presetPlatform: 'opencode',
+    baseUrlHintKey: 'admin.accounts.openai.opencodeBaseUrlHint',
+    apiKeyHintKey: 'admin.accounts.openai.opencodeApiKeyHint'
+  },
+  'opencode-go': {
+    id: 'opencode-go',
+    labelKey: 'admin.accounts.openai.vendorOptions.opencodeGo',
+    baseUrl: 'https://opencode.ai/zen/go/v1',
+    authHeader: 'authorization',
+    authScheme: 'bearer',
+    apiKeyPlaceholder: 'sk-...',
+    modelPlatforms: ['opencode-go'],
+    presetPlatform: 'opencode-go',
+    baseUrlHintKey: 'admin.accounts.openai.opencodeGoBaseUrlHint',
+    apiKeyHintKey: 'admin.accounts.openai.opencodeGoApiKeyHint'
+  },
+  'doubao-web': {
+    id: 'doubao-web',
+    labelKey: 'admin.accounts.openai.vendorOptions.doubaoWeb',
+    baseUrl: 'https://www.doubao.com',
+    authHeader: 'authorization',
+    authScheme: 'bearer',
+    apiKeyPlaceholder: 'sessionid',
+    modelPlatforms: ['doubao-web'],
+    presetPlatform: 'doubao-web',
+    baseUrlHintKey: 'admin.accounts.openai.doubaoWebBaseUrlHint',
+    apiKeyHintKey: 'admin.accounts.openai.doubaoWebApiKeyHint'
   },
   gemini: {
     id: 'gemini',
@@ -137,6 +176,9 @@ const PRESET_ORDER: OpenAIVendorPresetId[] = [
   'openai',
   'deepseek',
   'openrouter',
+  'opencode',
+  'opencode-go',
+  'doubao-web',
   'gemini',
   'mimo',
   'ollama',
@@ -199,6 +241,18 @@ export function inferOpenAIVendorPreset(input: {
   }
   if (baseUrl.includes('openrouter.ai')) {
     return 'openrouter'
+  }
+  if (baseUrl.includes('opencode.ai/zen/go')) {
+    return 'opencode-go'
+  }
+  if (baseUrl.includes('host.docker.internal:4096') || baseUrl.includes('127.0.0.1:4096') || baseUrl.includes('localhost:4096')) {
+    return 'opencode-go'
+  }
+  if (baseUrl.includes('opencode.ai')) {
+    return 'opencode'
+  }
+  if (baseUrl.includes('doubao.com')) {
+    return 'doubao-web'
   }
   if (baseUrl.includes('xiaomimimo.com')) {
     return 'mimo'

@@ -49,6 +49,76 @@ describe('UseKeyModal', () => {
     expect(configToml).toContain('[features]\ngoals = true')
   })
 
+  it('renders a macOS/Linux Codex setup script', () => {
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-test',
+        baseUrl: 'https://example.com/v1',
+        platform: 'openai'
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            template: '<div><slot /><slot name="footer" /></div>'
+          },
+          Icon: {
+            template: '<span />'
+          }
+        }
+      }
+    })
+
+    const codeBlocks = wrapper.findAll('pre code').map((code) => code.text())
+    const setupScript = codeBlocks.find((content) => content.includes('#!/usr/bin/env bash'))
+
+    expect(setupScript).toBeDefined()
+    expect(setupScript).toContain('mkdir -p "$config_dir"')
+    expect(setupScript).toContain('cat > "$config_dir/config.toml"')
+    expect(setupScript).toContain('cat > "$config_dir/auth.json"')
+    expect(setupScript).toContain('model_provider = "OpenAI"')
+    expect(setupScript).toContain('"OPENAI_API_KEY": "sk-test"')
+  })
+
+  it('renders a Windows PowerShell Codex setup script', async () => {
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-test',
+        baseUrl: 'https://example.com/v1',
+        platform: 'openai'
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            template: '<div><slot /><slot name="footer" /></div>'
+          },
+          Icon: {
+            template: '<span />'
+          }
+        }
+      }
+    })
+
+    const windowsTab = wrapper.findAll('button').find((button) =>
+      button.text().includes('Windows')
+    )
+
+    expect(windowsTab).toBeDefined()
+    await windowsTab!.trigger('click')
+    await nextTick()
+
+    const codeBlocks = wrapper.findAll('pre code').map((code) => code.text())
+    const setupScript = codeBlocks.find((content) => content.includes('$ErrorActionPreference = "Stop"'))
+
+    expect(setupScript).toBeDefined()
+    expect(setupScript).toContain('Join-Path $env:USERPROFILE ".codex"')
+    expect(setupScript).toContain('[System.IO.File]::WriteAllText((Join-Path $configDir "config.toml")')
+    expect(setupScript).toContain('[System.IO.File]::WriteAllText((Join-Path $configDir "auth.json")')
+    expect(setupScript).toContain('model_provider = "OpenAI"')
+    expect(setupScript).toContain('"OPENAI_API_KEY": "sk-test"')
+  })
+
   it('renders OpenAI Responses Codex config for Gemini groups', () => {
     const wrapper = mount(UseKeyModal, {
       props: {

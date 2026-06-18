@@ -185,6 +185,97 @@ export default {
     noDailyUsage: 'No daily usage data',
   },
 
+  docs: {
+    title: 'Documentation',
+    subtitle: 'The complete flow from creating an API key to configuring local clients. Start from the Use Key dialog on the API Keys page; it generates copy-ready config files and one-click setup scripts for the selected group type.',
+    quickStart: {
+      title: 'Quick Start',
+      description: 'Complete these three steps to start using the gateway.',
+      items: {
+        createKey: {
+          title: '1. Create an API key',
+          body: 'After signing in, open API Keys and create a key. Use a clear name so usage records can be traced back to the client or project later.'
+        },
+        assignGroup: {
+          title: '2. Assign a group',
+          body: 'A key must be assigned to a group before client configuration can be generated. If the key list says no group is assigned, click the group column and choose an available group.'
+        },
+        useKey: {
+          title: '3. Open Use Key',
+          body: 'Click Use Key on the right side of the key row, select Codex CLI, Claude Code, Gemini CLI, or OpenCode, then copy the generated config or one-click script.'
+        }
+      }
+    },
+    codex: {
+      title: 'Codex CLI Configuration',
+      description: 'Codex CLI reads the gateway endpoint and API key from config files and auth.json.',
+      items: {
+        files: {
+          title: 'Config file locations',
+          body: 'macOS/Linux writes to ~/.codex. Windows writes to .codex under the user profile. The dialog shows the full config.toml and auth.json content.'
+        },
+        script: {
+          title: 'One-click setup script',
+          body: 'Choose macOS/Linux or Windows in the Use API Key dialog, then copy the One-click setup script. It creates the directory and writes both files. Windows uses PowerShell; macOS/Linux uses Bash.'
+        },
+        windows: {
+          title: 'Windows paths',
+          body: 'Windows users should prefer the PowerShell script to avoid hidden-directory and backslash path mistakes.'
+        }
+      }
+    },
+    clients: {
+      title: 'Other Clients',
+      description: 'Different groups show client configuration for the protocol they support.',
+      items: {
+        claude: {
+          title: 'Claude Code',
+          body: 'Claude Code usually points to the gateway with ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN. For persistent use, save them in a shell profile or Claude settings.'
+        },
+        gemini: {
+          title: 'Gemini CLI',
+          body: 'Gemini CLI uses GOOGLE_GEMINI_BASE_URL, GEMINI_API_KEY, and GEMINI_MODEL. Use model names supported by the selected group.'
+        },
+        opencode: {
+          title: 'OpenCode',
+          body: 'OpenCode uses opencode.json. The dialog example includes provider, baseURL, apiKey, and common model settings, which can be adjusted as needed.'
+        }
+      }
+    },
+    usage: {
+      title: 'Usage Query',
+      description: 'Keys can be checked on the public usage page for status, quota, and daily spend.',
+      items: {
+        query: {
+          title: 'Query entry',
+          body: 'Open API Key Usage, enter the API key, and inspect today, 7-day, 30-day, or custom-range usage details.'
+        },
+        quota: {
+          title: 'Quota and limits',
+          body: 'If the key has quota, RPM, TPM, or period limits, the query page shows remaining quota, reset time, and model-level consumption.'
+        }
+      }
+    },
+    troubleshooting: {
+      title: 'Troubleshooting',
+      description: 'Check the key, group, and client config path first.',
+      items: {
+        noGroup: {
+          title: 'The dialog says to assign a group first',
+          body: 'The key has not been bound to an upstream group. Return to the API Keys list, assign a group, then open the Use Key dialog again.'
+        },
+        baseUrl: {
+          title: 'Client cannot connect',
+          body: 'Confirm the base_url or environment variable endpoint comes from the current site, and keep the generated /v1, /v1beta, or /antigravity path.'
+        },
+        secret: {
+          title: 'Key safety',
+          body: 'Do not commit auth.json, opencode.json, or scripts containing API keys to public repositories. If a key may be exposed, disable or delete it and create a replacement.'
+        }
+      }
+    }
+  },
+
   // Setup Wizard
   setup: {
     title: 'Sub2API Setup',
@@ -799,6 +890,8 @@ export default {
       openai: {
         description: 'Add the following configuration files to your Codex CLI config directory.',
         configTomlHint: 'Make sure the following content is at the beginning of the config.toml file',
+        setupScriptHintUnix: 'macOS / Linux one-click setup script. Copy and run it in a terminal to create ~/.codex and write config.toml plus auth.json.',
+        setupScriptHintWindows: 'Windows PowerShell one-click setup script. Copy and run it in PowerShell to create %USERPROFILE%\\.codex and write config.toml plus auth.json.',
         note: 'Make sure the config directory exists. macOS/Linux users can run mkdir -p ~/.codex to create it.',
         noteWindows: 'Press Win+R and enter %userprofile%\\.codex to open the config directory. Create it manually if it does not exist.',
       },
@@ -3477,6 +3570,10 @@ export default {
       apiKeyRequired: 'API Key *',
       apiKeyPlaceholder: 'sk-ant-api03-...',
       apiKeyHint: 'Your Claude Console API Key',
+      opencodeGoAnthropicHint: 'Use the official OpenCode Go Anthropic Messages API. This is for MiniMax/Qwen models; keep using the OpenAI-compatible OpenCode Go account for GLM/Kimi/DeepSeek/MiMo.',
+      opencodeGoAnthropicBaseUrlHint: 'OpenCode Go Anthropic Messages root URL. The backend appends /v1/messages automatically. Defaults to https://opencode.ai/zen/go.',
+      opencodeGoAnthropicApiKeyHint: 'Your OpenCode Go API key, sent to the official /v1/messages endpoint as x-api-key.',
+      opencodeGoAnthropicForwardHint: 'This account forwards Anthropic Messages format directly, replaces only the upstream x-api-key, and maps opencode-go/minimax-m3 to minimax-m3 by default.',
       apiKeyMultiHint: 'Separate multiple API keys by line, comma, space, or semicolon. Multiple keys create names with _1, _2 suffixes.',
       quickOpenAI: {
         title: 'Quick Add OpenAI-Compatible Account',
@@ -3498,6 +3595,12 @@ export default {
         deepseekApiKeyHint: 'Your DeepSeek API key, sent as Bearer auth.',
         openrouterBaseUrlHint: 'OpenRouter uses the OpenAI-compatible chat/completions endpoint at https://openrouter.ai/api/v1.',
         openrouterApiKeyHint: 'Your OpenRouter API key, usually starting with sk-or-v1-.',
+        opencodeBaseUrlHint: 'OpenCode Zen uses the OpenAI-compatible chat/completions endpoint at https://opencode.ai/zen/v1. Defaults map to currently available free models.',
+        opencodeApiKeyHint: 'Your OpenCode API key, sent as Bearer Authorization.',
+        opencodeGoBaseUrlHint: 'OpenCode Go official API defaults to https://opencode.ai/zen/go/v1. This OpenAI-compatible preset is for the GLM/Kimi/DeepSeek/MiMo /chat/completions path. Use the Anthropic platform OpenCode Go account for MiniMax/Qwen.',
+        opencodeGoApiKeyHint: 'Enter your OpenCode Go API key. MiniMax/Qwen over Anthropic Messages is handled separately under the Anthropic platform.',
+        doubaoWebBaseUrlHint: 'Doubao Web uses the logged-in web reverse path, opens https://www.doubao.com by default, and calls /chat/completion through browser fetch.',
+        doubaoWebApiKeyHint: 'Enter the sessionid cookie from doubao.com. Use one per line to create multiple accounts.',
         geminiBaseUrlHint: 'Gemini direct mode defaults to the official OpenAI compatibility base URL and uses the chat/completions-compatible path.',
         geminiApiKeyHint: 'Gemini API Key, usually starting with AIza.',
         mimoBaseUrlHint: 'Mimo uses a raw api-key header like openai-local-proxy, not Bearer auth.',
@@ -3562,6 +3665,9 @@ export default {
           openai: 'Official OpenAI',
           deepseek: 'DeepSeek',
           openrouter: 'OpenRouter',
+          opencode: 'OpenCode Zen',
+          opencodeGo: 'OpenCode Go',
+          doubaoWeb: 'Doubao Web',
           gemini: 'Gemini OpenAI',
           mimo: 'Mimo',
           ollama: 'Ollama',
@@ -3646,6 +3752,9 @@ export default {
         compactUnsupported: 'Compact unsupported',
         compactAuto: 'Compact Auto',
         compactUnknown: 'Compact Auto',
+        compactProbeSupported: 'Probe: Compact supported',
+        compactProbeUnsupported: 'Probe: Compact unsupported',
+        compactProbeUnknown: 'Probe: not checked',
         compactLastChecked: 'Last compact probe',
         testMode: 'Test mode',
         testModeDefault: 'Default request',
@@ -6081,7 +6190,7 @@ export default {
         contactInfoHint: 'Customer support contact info, displayed on redeem page, profile, etc.',
         docUrl: 'Documentation URL',
         docUrlPlaceholder: 'https://docs.example.com',
-        docUrlHint: 'Link to your documentation site. Leave empty to hide the documentation link.',
+        docUrlHint: 'Link to your documentation site. Leave empty to use the built-in /docs page.',
         siteLogo: 'Site Logo',
         uploadImage: 'Upload Image',
         remove: 'Remove',

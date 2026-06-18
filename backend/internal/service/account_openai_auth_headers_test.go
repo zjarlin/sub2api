@@ -142,6 +142,80 @@ func TestAccountOpenCodeVendorUsesChatCompletions(t *testing.T) {
 	if !account.ShouldUseOpenAIChatCompletionsUpstream() {
 		t.Fatal("OpenCode vendor should use chat/completions upstream")
 	}
+	if got := account.GetOpenAIBaseURL(); got != "https://opencode.ai/zen/v1" {
+		t.Fatalf("base url = %q, want OpenCode Zen default base url", got)
+	}
+	mapping := account.GetModelMapping()
+	expectedMappings := map[string]string{
+		"deepseek-v4-flash-free": "deepseek-v4-flash-free",
+		"big-pickle":             "big-pickle",
+		"gpt-*":                  "deepseek-v4-flash-free",
+		"claude-*":               "deepseek-v4-flash-free",
+	}
+	for from, to := range expectedMappings {
+		if got := mapping[from]; got != to {
+			t.Fatalf("mapping[%q] = %q, want %q", from, got, to)
+		}
+	}
+	if got := account.GetMappedModel("gpt-5.4"); got != "deepseek-v4-flash-free" {
+		t.Fatalf("mapped gpt-5.4 = %q, want deepseek-v4-flash-free", got)
+	}
+	if account.IsModelSupported("deepseek-v4-pro") {
+		t.Fatal("OpenCode Zen default mapping should only support free models and mapped GPT/Claude aliases")
+	}
+}
+
+func TestAccountOpenCodeGoVendorUsesMiniMaxMapping(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"vendor": "opencode-go",
+		},
+	}
+
+	if account.ShouldUseOpenAIChatCompletionsUpstream() {
+		t.Fatal("official OpenCode Go vendor should use its protocol-specific endpoint mapping")
+	}
+	if got := account.GetOpenAIBaseURL(); got != "https://opencode.ai/zen/go/v1" {
+		t.Fatalf("base url = %q, want official OpenCode Go default base url", got)
+	}
+	mapping := account.GetModelMapping()
+	expectedMappings := map[string]string{
+		"opencode-go/minimax-m3":      "minimax-m3",
+		"minimax-m3":                  "minimax-m3",
+		"opencode-go/kimi-k2.7-code":  "kimi-k2.7",
+		"opencode-go/deepseek-v4-pro": "deepseek-v4-pro",
+		"opencode-go/qwen3.7-max":     "qwen3.7-max",
+		"gpt-*":                       "minimax-m3",
+		"claude-*":                    "minimax-m3",
+	}
+	for from, to := range expectedMappings {
+		if got := mapping[from]; got != to {
+			t.Fatalf("mapping[%q] = %q, want %q", from, got, to)
+		}
+	}
+	if got := account.GetMappedModel("gpt-5.4"); got != "minimax-m3" {
+		t.Fatalf("mapped gpt-5.4 = %q, want minimax-m3", got)
+	}
+	if got := account.GetMappedModel("opencode-go/minimax-m3"); got != "minimax-m3" {
+		t.Fatalf("mapped opencode-go/minimax-m3 = %q, want minimax-m3", got)
+	}
+}
+
+func TestAccountOpenCodeGoLocalServerUsesLocalChatPreference(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"vendor":   "opencode-go",
+			"base_url": "http://host.docker.internal:4096",
+		},
+	}
+
+	if !account.ShouldUseOpenAIChatCompletionsUpstream() {
+		t.Fatal("local OpenCode serve account should use local server routing")
+	}
 }
 
 func TestAccountChatCompletionsBaseURLPreferencesWithoutVendor(t *testing.T) {
@@ -149,7 +223,10 @@ func TestAccountChatCompletionsBaseURLPreferencesWithoutVendor(t *testing.T) {
 		name    string
 		baseURL string
 	}{
-		{name: "opencode", baseURL: "https://api.opencode.ai/v1"},
+		{name: "opencode zen", baseURL: "https://opencode.ai/zen/v1"},
+		{name: "opencode go", baseURL: "https://opencode.ai/zen/go/v1"},
+		{name: "opencode legacy", baseURL: "https://api.opencode.ai/v1"},
+		{name: "opencode local serve", baseURL: "http://host.docker.internal:4096"},
 		{name: "openrouter", baseURL: "https://openrouter.ai/api/v1"},
 		{name: "gemini openai compat", baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/"},
 		{name: "mimo", baseURL: "https://api.xiaomimimo.com/v1"},

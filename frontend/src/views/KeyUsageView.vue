@@ -11,16 +11,17 @@
         </router-link>
         <div class="flex items-center gap-3">
           <LocaleSwitcher />
-          <a
-            v-if="docUrl"
-            :href="docUrl"
-            target="_blank"
-            rel="noopener noreferrer"
+          <component
+            :is="docsLinkComponent"
+            :to="isInternalDocsLink ? docsUrl : undefined"
+            :href="isInternalDocsLink ? undefined : docsUrl"
+            :target="isInternalDocsLink ? undefined : '_blank'"
+            :rel="isInternalDocsLink ? undefined : 'noopener noreferrer'"
             class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white"
             :title="t('home.viewDocs')"
           >
             <Icon name="book" size="md" />
-          </a>
+          </component>
           <button
             @click="toggleTheme"
             class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white"
@@ -397,13 +398,14 @@
           &copy; {{ currentYear }} {{ siteName }}. {{ t('home.footer.allRightsReserved') }}
         </p>
         <div class="flex items-center gap-4">
-          <a
-            v-if="docUrl"
-            :href="docUrl"
-            target="_blank"
-            rel="noopener noreferrer"
+          <component
+            :is="docsLinkComponent"
+            :to="isInternalDocsLink ? docsUrl : undefined"
+            :href="isInternalDocsLink ? undefined : docsUrl"
+            :target="isInternalDocsLink ? undefined : '_blank'"
+            :rel="isInternalDocsLink ? undefined : 'noopener noreferrer'"
             class="text-sm text-gray-500 transition-colors hover:text-gray-700 dark:text-dark-400 dark:hover:text-white"
-          >{{ t('home.docs') }}</a>
+          >{{ t('home.docs') }}</component>
           <a
             :href="githubUrl"
             target="_blank"
@@ -422,6 +424,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { resolveDocsUrl } from '@/utils/docs'
 
 const { t, locale } = useI18n()
 const appStore = useAppStore()
@@ -430,7 +433,9 @@ const appStore = useAppStore()
 
 const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || '++0 的 API')
 const siteLogo = computed(() => appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '')
-const docUrl = computed(() => appStore.cachedPublicSettings?.doc_url || appStore.docUrl || '')
+const docsUrl = computed(() => resolveDocsUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl))
+const isInternalDocsLink = computed(() => docsUrl.value.startsWith('/'))
+const docsLinkComponent = computed(() => isInternalDocsLink.value ? 'router-link' : 'a')
 const githubUrl = 'https://github.com/Wei-Shaw/sub2api'
 
 // ==================== Theme (same as HomeView) ====================

@@ -598,7 +598,7 @@ goals = true`
   "OPENAI_API_KEY": "${apiKey}"
 }`
 
-  return [
+  const files = [
     {
       path: `${configDir}/config.toml`,
       content: configContent,
@@ -609,6 +609,7 @@ goals = true`
       content: authContent
     }
   ]
+  return [...files, generateCodexSetupScript(configContent, authContent, isWindows)]
 }
 
 function generateOpenAIWsFiles(baseUrl: string, apiKey: string): FileConfig[] {
@@ -640,7 +641,7 @@ goals = true`
   "OPENAI_API_KEY": "${apiKey}"
 }`
 
-  return [
+  const files = [
     {
       path: `${configDir}/config.toml`,
       content: configContent,
@@ -651,6 +652,57 @@ goals = true`
       content: authContent
     }
   ]
+  return [...files, generateCodexSetupScript(configContent, authContent, isWindows)]
+}
+
+function generateCodexSetupScript(configContent: string, authContent: string, isWindows: boolean): FileConfig {
+  if (isWindows) {
+    const content = `$ErrorActionPreference = "Stop"
+$configDir = Join-Path $env:USERPROFILE ".codex"
+New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+
+$configToml = @'
+${configContent}
+'@
+
+$authJson = @'
+${authContent}
+'@
+
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText((Join-Path $configDir "config.toml"), $configToml, $utf8NoBom)
+[System.IO.File]::WriteAllText((Join-Path $configDir "auth.json"), $authJson, $utf8NoBom)
+Write-Host "Codex CLI configuration written to $configDir"`
+
+    return {
+      path: 'setup-codex.ps1',
+      content,
+      hint: t('keys.useKeyModal.openai.setupScriptHintWindows')
+    }
+  }
+
+  const content = `#!/usr/bin/env bash
+set -euo pipefail
+
+config_dir="\${HOME}/.codex"
+mkdir -p "$config_dir"
+
+cat > "$config_dir/config.toml" <<'EOF'
+${configContent}
+EOF
+
+cat > "$config_dir/auth.json" <<'EOF'
+${authContent}
+EOF
+
+chmod 600 "$config_dir/auth.json"
+echo "Codex CLI configuration written to $config_dir"`
+
+  return {
+    path: 'setup-codex.sh',
+    content,
+    hint: t('keys.useKeyModal.openai.setupScriptHintUnix')
+  }
 }
 
 interface OpenCodeProviderOptions {

@@ -61,11 +61,24 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 	promptCacheKey string,
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
+	if account.Type == AccountTypeAPIKey && accountUsesOpenCodeGoOfficialAPI(account) {
+		return s.forwardOpenCodeGoChatCompletionsViaMessages(ctx, c, account, body, defaultMappedModel)
+	}
+
 	// 入口分流：APIKey 账号 + vendor 已知只走 Chat Completions，或探测确认
 	// 上游不支持 Responses，走 CC 直转。
 	// 标记缺失（未探测）按"现状即证据"原则继续走下方原 Responses 转换路径。
 	if account.Type == AccountTypeAPIKey &&
 		(account.ShouldUseOpenAIChatCompletionsUpstream() || !openai_compat.ShouldUseResponsesAPI(account.Extra)) {
+		if accountUsesDoubaoWebReverse(account) {
+			return s.forwardAsDoubaoWebChatCompletions(ctx, c, account, body, defaultMappedModel)
+		}
+		if accountUsesLocalOpenCodeServer(account) {
+			return s.forwardAsOpenCodeLocalChatCompletions(ctx, c, account, body, defaultMappedModel)
+		}
+		if accountUsesOpenCodeGoOfficialAPI(account) {
+			return s.forwardOpenCodeGoChatCompletionsViaMessages(ctx, c, account, body, defaultMappedModel)
+		}
 		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
 	}
 

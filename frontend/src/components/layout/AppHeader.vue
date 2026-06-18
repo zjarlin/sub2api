@@ -27,16 +27,17 @@
         <AnnouncementBell v-if="user" />
 
         <!-- Docs Link -->
-        <a
-          v-if="docUrl"
-          :href="docUrl"
-          target="_blank"
-          rel="noopener noreferrer"
+        <component
+          :is="docsLinkComponent"
+          :to="isInternalDocsLink ? docsUrl : undefined"
+          :href="isInternalDocsLink ? undefined : docsUrl"
+          :target="isInternalDocsLink ? undefined : '_blank'"
+          :rel="isInternalDocsLink ? undefined : 'noopener noreferrer'"
           class="flex items-center gap-1.5 rounded-md border-2 border-black bg-white px-2.5 py-1.5 text-sm font-bold text-gray-900 shadow-[3px_3px_0_#000] transition-all hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-none dark:border-white dark:bg-dark-900 dark:text-white"
         >
           <Icon name="book" size="sm" />
           <span class="hidden sm:inline">{{ t('nav.docs') }}</span>
-        </a>
+        </component>
 
         <!-- Language Switcher -->
         <LocaleSwitcher />
@@ -222,6 +223,7 @@ import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import SubscriptionProgressMini from '@/components/common/SubscriptionProgressMini.vue'
 import AnnouncementBell from '@/components/common/AnnouncementBell.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { resolveDocsUrl } from '@/utils/docs'
 
 const router = useRouter()
 const route = useRoute()
@@ -235,7 +237,9 @@ const user = computed(() => authStore.user)
 const dropdownOpen = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)
 const contactInfo = computed(() => appStore.contactInfo)
-const docUrl = computed(() => appStore.docUrl)
+const docsUrl = computed(() => resolveDocsUrl(appStore.docUrl))
+const isInternalDocsLink = computed(() => docsUrl.value.startsWith('/'))
+const docsLinkComponent = computed(() => isInternalDocsLink.value ? 'router-link' : 'a')
 const avatarUrl = computed(() => user.value?.avatar_url?.trim() || '')
 
 // 只在标准模式的管理员下显示新手引导按钮

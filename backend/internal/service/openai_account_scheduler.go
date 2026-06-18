@@ -1165,7 +1165,7 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatible(ctx context.C
 	if paused, _ := shouldAutoPauseOpenAIAccountByQuota(ctx, account); paused {
 		return false
 	}
-	if req.RequestedModel != "" && !account.IsModelSupported(req.RequestedModel) {
+	if req.RequestedModel != "" && !isOpenAIAccountModelSupportedForScheduling(account, req.RequestedModel) {
 		return false
 	}
 	if req.GroupID != nil && s != nil && s.service != nil &&

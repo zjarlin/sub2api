@@ -657,6 +657,54 @@ var openAIDeepSeekDefaultModelMapping = map[string]string{
 	"deepseek-reasoner": "deepseek-v4-flash",
 }
 
+var openAIOpenCodeDefaultModelMapping = map[string]string{
+	"deepseek-v4-flash-free": "deepseek-v4-flash-free",
+	"big-pickle":             "big-pickle",
+	"gpt-*":                  "deepseek-v4-flash-free",
+	"claude-*":               "deepseek-v4-flash-free",
+}
+
+var openAIOpenCodeGoDefaultModelMapping = map[string]string{
+	"opencode-go/glm-5.1":           "glm-5.1",
+	"glm-5.1":                       "glm-5.1",
+	"opencode-go/glm-5":             "glm-5",
+	"glm-5":                         "glm-5",
+	"opencode-go/kimi-k2.7":         "kimi-k2.7",
+	"opencode-go/kimi-k2.7-code":    "kimi-k2.7",
+	"kimi-k2.7":                     "kimi-k2.7",
+	"kimi-k2.6":                     "kimi-k2.6",
+	"opencode-go/kimi-k2.6":         "kimi-k2.6",
+	"opencode-go/deepseek-v4-pro":   "deepseek-v4-pro",
+	"deepseek-v4-pro":               "deepseek-v4-pro",
+	"opencode-go/deepseek-v4-flash": "deepseek-v4-flash",
+	"deepseek-v4-flash":             "deepseek-v4-flash",
+	"opencode-go/mimo-v2.5":         "mimo-v2.5",
+	"mimo-v2.5":                     "mimo-v2.5",
+	"opencode-go/mimo-v2.5-pro":     "mimo-v2.5-pro",
+	"mimo-v2.5-pro":                 "mimo-v2.5-pro",
+	"opencode-go/minimax-m3":        "minimax-m3",
+	"minimax-m3":                    "minimax-m3",
+	"opencode-go/minimax-m2.7":      "minimax-m2.7",
+	"minimax-m2.7":                  "minimax-m2.7",
+	"opencode-go/minimax-m2.5":      "minimax-m2.5",
+	"minimax-m2.5":                  "minimax-m2.5",
+	"opencode-go/qwen3.7-max":       "qwen3.7-max",
+	"qwen3.7-max":                   "qwen3.7-max",
+	"opencode-go/qwen3.7-plus":      "qwen3.7-plus",
+	"qwen3.7-plus":                  "qwen3.7-plus",
+	"opencode-go/qwen3.6-plus":      "qwen3.6-plus",
+	"qwen3.6-plus":                  "qwen3.6-plus",
+	"gpt-*":                         "minimax-m3",
+	"claude-*":                      "minimax-m3",
+}
+
+var openAIDoubaoWebDefaultModelMapping = map[string]string{
+	"doubao":            "doubao",
+	"doubao:doubao":     "doubao",
+	"doubao-pro":        "doubao-pro",
+	"doubao:doubao-pro": "doubao-pro",
+}
+
 func cloneStringMap(input map[string]string) map[string]string {
 	if len(input) == 0 {
 		return nil
@@ -672,8 +720,14 @@ func defaultOpenAIModelMappingForVendor(vendor string) map[string]string {
 	switch strings.ToLower(strings.TrimSpace(vendor)) {
 	case "deepseek":
 		return cloneStringMap(openAIDeepSeekDefaultModelMapping)
+	case "opencode":
+		return cloneStringMap(openAIOpenCodeDefaultModelMapping)
+	case "opencode-go":
+		return cloneStringMap(openAIOpenCodeGoDefaultModelMapping)
 	case "openai-local-proxy":
 		return cloneStringMap(openAILocalProxyDefaultModelMapping)
+	case "doubao", "doubao-web":
+		return cloneStringMap(openAIDoubaoWebDefaultModelMapping)
 	default:
 		return nil
 	}
@@ -687,8 +741,14 @@ func defaultOpenAIBaseURLForVendor(vendor string) string {
 		return "https://generativelanguage.googleapis.com/v1beta/openai"
 	case "mimo":
 		return "https://api.xiaomimimo.com/v1"
+	case "opencode":
+		return "https://opencode.ai/zen/v1"
+	case "opencode-go":
+		return "https://opencode.ai/zen/go/v1"
 	case "openai-local-proxy":
 		return "http://127.0.0.1:18081/v1"
+	case "doubao", "doubao-web":
+		return "https://www.doubao.com"
 	case "ollama":
 		return "http://127.0.0.1:11434/v1"
 	case "openrouter":
@@ -700,7 +760,7 @@ func defaultOpenAIBaseURLForVendor(vendor string) string {
 
 func openAIVendorPrefersChatCompletions(vendor string) bool {
 	switch strings.ToLower(strings.TrimSpace(vendor)) {
-	case "deepseek", "gemini", "mimo", "ollama", "opencode", "openrouter", "trae":
+	case "deepseek", "doubao", "doubao-web", "gemini", "mimo", "ollama", "opencode", "openrouter", "trae":
 		return true
 	default:
 		return false
@@ -722,7 +782,10 @@ func openAIBaseURLLooksLikeDeepSeek(normalized string) bool {
 }
 
 func openAIBaseURLLooksLikeOpenCode(normalized string) bool {
-	return strings.Contains(normalized, "opencode.ai")
+	return strings.Contains(normalized, "opencode.ai") ||
+		strings.Contains(normalized, "host.docker.internal:4096") ||
+		strings.Contains(normalized, "127.0.0.1:4096") ||
+		strings.Contains(normalized, "localhost:4096")
 }
 
 func openAIBaseURLLooksLikeGeminiOpenAICompat(normalized string) bool {
@@ -740,7 +803,7 @@ func openAIBaseURLLooksLikeOpenRouter(normalized string) bool {
 
 func openAIVendorAllowsEmptyAPIKey(vendor string) bool {
 	switch strings.ToLower(strings.TrimSpace(vendor)) {
-	case "ollama", "openai-local-proxy":
+	case "doubao", "doubao-web", "ollama", "openai-local-proxy":
 		return true
 	default:
 		return false
@@ -855,6 +918,67 @@ func accountHasExplicitModelMappingSupport(account *Account, requestedModel stri
 	return false
 }
 
+func (a *Account) requiresExplicitModelMappingForOpenAIPassthroughModel(requestedModel string) bool {
+	if a == nil || !a.IsOpenAIApiKey() || !a.IsOpenAIPassthroughEnabled() {
+		return false
+	}
+	return !isLikelyOpenAINativeModel(requestedModel)
+}
+
+func isLikelyOpenAINativeModel(model string) bool {
+	trimmed := strings.ToLower(strings.TrimSpace(model))
+	if trimmed == "" {
+		return false
+	}
+	if strings.HasPrefix(trimmed, "openai/") {
+		trimmed = strings.TrimPrefix(trimmed, "openai/")
+	}
+	switch {
+	case strings.HasPrefix(trimmed, "gpt-"),
+		strings.HasPrefix(trimmed, "chatgpt-"),
+		strings.HasPrefix(trimmed, "codex-"),
+		strings.HasPrefix(trimmed, "o1"),
+		strings.HasPrefix(trimmed, "o3"),
+		strings.HasPrefix(trimmed, "o4"),
+		strings.HasPrefix(trimmed, "text-embedding-"),
+		strings.HasPrefix(trimmed, "text-moderation-"),
+		strings.HasPrefix(trimmed, "omni-moderation-"),
+		strings.HasPrefix(trimmed, "whisper-"),
+		strings.HasPrefix(trimmed, "tts-"),
+		strings.HasPrefix(trimmed, "dall-e-"):
+		return true
+	default:
+		return false
+	}
+}
+
+func requestedModelHasVendorPrefix(requestedModel string) bool {
+	trimmed := strings.TrimSpace(requestedModel)
+	if trimmed == "" {
+		return false
+	}
+	slash := strings.Index(trimmed, "/")
+	return slash > 0 && slash < len(trimmed)-1
+}
+
+func openAIAccountVendorMatchesRequestedModelPrefix(account *Account, requestedModel string) bool {
+	if !requestedModelHasVendorPrefix(requestedModel) {
+		return true
+	}
+	prefix := strings.ToLower(strings.TrimSpace(requestedModel[:strings.Index(requestedModel, "/")]))
+	if prefix == "" {
+		return true
+	}
+	if account == nil || !account.IsOpenAIApiKey() {
+		return false
+	}
+	vendor := strings.TrimSpace(account.GetOpenAIVendor())
+	if prefix == "openai" {
+		return vendor == "" || strings.EqualFold(vendor, "openai")
+	}
+	return strings.EqualFold(vendor, prefix)
+}
+
 func resolveRequestedModelInMapping(mapping map[string]string, requestedModel string) (mappedModel string, matched bool) {
 	if requestedModel == "" {
 		return "", false
@@ -913,8 +1037,17 @@ func ResolveOpenAIRequestedModelFallbackCandidates(account *Account, requestedMo
 // IsModelSupported 检查模型是否在 model_mapping 中（支持通配符）。
 // 对带默认映射的平台（如 Antigravity/Kiro），未显式配置时也会先回退到默认映射。
 func (a *Account) IsModelSupported(requestedModel string) bool {
+	if a == nil {
+		return false
+	}
+	if a.Platform == PlatformOpenAI && !openAIAccountVendorMatchesRequestedModelPrefix(a, requestedModel) {
+		return false
+	}
 	mapping := a.GetModelMapping()
 	if len(mapping) == 0 {
+		if a.requiresExplicitModelMappingForOpenAIPassthroughModel(requestedModel) {
+			return false
+		}
 		return true // 无映射 = 允许所有
 	}
 	if mappingSupportsRequestedModel(mapping, requestedModel) {
@@ -988,6 +1121,9 @@ func (a *Account) GetOpenAICompactMode() string {
 func (a *Account) OpenAICompactSupportKnown() (supported bool, known bool) {
 	if a == nil || !a.IsOpenAI() {
 		return false, false
+	}
+	if accountUsesLocalOpenCodeServer(a) {
+		return true, true
 	}
 
 	switch a.GetOpenAICompactMode() {
@@ -1433,6 +1569,9 @@ func (a *Account) GetOpenAIVendor() string {
 }
 
 func (a *Account) ShouldUseOpenAIChatCompletionsUpstream() bool {
+	if accountUsesOpenCodeGoOfficialAPI(a) {
+		return false
+	}
 	return a.IsOpenAIApiKey() &&
 		(openAIVendorPrefersChatCompletions(a.GetOpenAIVendor()) ||
 			openAIBaseURLPrefersChatCompletions(a.GetOpenAIBaseURL()))

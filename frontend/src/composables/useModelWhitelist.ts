@@ -33,6 +33,38 @@ const openrouterModels = [
   'qwen/qwen3-coder'
 ]
 
+const opencodeModels = [
+  'deepseek-v4-flash-free',
+  'big-pickle'
+]
+
+const opencodeGoModels = [
+  'opencode-go/glm-5.1',
+  'opencode-go/glm-5',
+  'opencode-go/kimi-k2.7-code',
+  'opencode-go/kimi-k2.6',
+  'opencode-go/deepseek-v4-pro',
+  'opencode-go/deepseek-v4-flash',
+  'opencode-go/mimo-v2.5',
+  'opencode-go/mimo-v2.5-pro'
+]
+
+const opencodeGoAnthropicModels = [
+  'opencode-go/minimax-m3',
+  'opencode-go/minimax-m2.7',
+  'opencode-go/minimax-m2.5',
+  'opencode-go/qwen3.7-max',
+  'opencode-go/qwen3.7-plus',
+  'opencode-go/qwen3.6-plus'
+]
+
+const doubaoWebModels = [
+  'doubao',
+  'doubao:doubao',
+  'doubao-pro',
+  'doubao:doubao-pro'
+]
+
 // Anthropic Claude
 export const claudeModels = [
   'claude-3-5-sonnet-20241022', 'claude-3-5-sonnet-20240620',
@@ -339,6 +371,9 @@ const perplexityModels = [
 const allModelsList = Array.from(new Set<string>([
   ...openaiModels,
   ...openrouterModels,
+  ...opencodeModels,
+  ...opencodeGoModels,
+  ...doubaoWebModels,
   ...claudeModels,
   ...geminiModels,
   ...mimoModels,
@@ -403,6 +438,41 @@ const openrouterPresetMappings = [
   { label: 'GPT-4o', from: 'gpt-4o', to: 'openai/gpt-4o', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' },
   { label: 'Gemini Flash', from: 'gemini-2.5-flash', to: 'google/gemini-2.5-flash', color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400' },
   { label: 'Claude Sonnet', from: 'claude-sonnet-4.5', to: 'anthropic/claude-sonnet-4.5', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' }
+]
+
+const opencodePresetMappings = [
+  { label: 'DeepSeek V4 Flash Free', from: 'deepseek-v4-flash-free', to: 'deepseek-v4-flash-free', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  { label: 'Big Pickle', from: 'big-pickle', to: 'big-pickle', color: 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800/60 dark:text-slate-300' },
+  { label: 'Codex→DeepSeek Free', from: 'gpt-*', to: 'deepseek-v4-flash-free', color: 'bg-teal-100 text-teal-700 hover:bg-teal-200 dark:bg-teal-900/30 dark:text-teal-400' },
+  { label: 'Claude→DeepSeek Free', from: 'claude-*', to: 'deepseek-v4-flash-free', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' }
+]
+
+const opencodeGoPresetMappings = [
+  { label: 'GLM-5.1', from: 'opencode-go/glm-5.1', to: 'glm-5.1', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' },
+  { label: 'GLM-5', from: 'opencode-go/glm-5', to: 'glm-5', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400' },
+  { label: 'Kimi K2.7 Code', from: 'opencode-go/kimi-k2.7-code', to: 'kimi-k2.7', color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400' },
+  { label: 'Kimi K2.6', from: 'opencode-go/kimi-k2.6', to: 'kimi-k2.6', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' },
+  { label: 'DeepSeek V4 Pro', from: 'opencode-go/deepseek-v4-pro', to: 'deepseek-v4-pro', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' },
+  { label: 'DeepSeek V4 Flash', from: 'opencode-go/deepseek-v4-flash', to: 'deepseek-v4-flash', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  { label: 'MiMo-V2.5', from: 'opencode-go/mimo-v2.5', to: 'mimo-v2.5', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400' },
+  { label: 'MiMo-V2.5-Pro', from: 'opencode-go/mimo-v2.5-pro', to: 'mimo-v2.5-pro', color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400' }
+]
+
+const opencodeGoAnthropicPresetMappings = [
+  { label: 'MiniMax M3', from: 'opencode-go/minimax-m3', to: 'minimax-m3', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
+  { label: 'MiniMax M2.7', from: 'opencode-go/minimax-m2.7', to: 'minimax-m2.7', color: 'bg-pink-100 text-pink-700 hover:bg-pink-200 dark:bg-pink-900/30 dark:text-pink-400' },
+  { label: 'MiniMax M2.5', from: 'opencode-go/minimax-m2.5', to: 'minimax-m2.5', color: 'bg-fuchsia-100 text-fuchsia-700 hover:bg-fuchsia-200 dark:bg-fuchsia-900/30 dark:text-fuchsia-400' },
+  { label: 'Qwen3.7 Max', from: 'opencode-go/qwen3.7-max', to: 'qwen3.7-max', color: 'bg-teal-100 text-teal-700 hover:bg-teal-200 dark:bg-teal-900/30 dark:text-teal-400' },
+  { label: 'Qwen3.7 Plus', from: 'opencode-go/qwen3.7-plus', to: 'qwen3.7-plus', color: 'bg-lime-100 text-lime-700 hover:bg-lime-200 dark:bg-lime-900/30 dark:text-lime-400' },
+  { label: 'Qwen3.6 Plus', from: 'opencode-go/qwen3.6-plus', to: 'qwen3.6-plus', color: 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400' },
+  { label: 'Claude→MiniMax M3', from: 'claude-*', to: 'minimax-m3', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' }
+]
+
+const doubaoWebPresetMappings = [
+  { label: 'Doubao', from: 'doubao', to: 'doubao', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' },
+  { label: 'Doubao Prefix', from: 'doubao:doubao', to: 'doubao', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400' },
+  { label: 'Doubao Pro', from: 'doubao-pro', to: 'doubao-pro', color: 'bg-cyan-100 text-cyan-700 hover:bg-cyan-200 dark:bg-cyan-900/30 dark:text-cyan-400' },
+  { label: 'Doubao Pro Prefix', from: 'doubao:doubao-pro', to: 'doubao-pro', color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400' }
 ]
 
 const deepseekPresetMappings = [
@@ -563,6 +633,10 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'openai': return openaiModels
     case 'deepseek': return deepseekModels
     case 'openrouter': return openrouterModels
+    case 'opencode': return opencodeModels
+    case 'opencode-go': return opencodeGoModels
+    case 'opencode-go-anthropic': return opencodeGoAnthropicModels
+    case 'doubao-web': return doubaoWebModels
     case 'anthropic':
     case 'claude': return claudeModels
     case 'gemini': return geminiModels
@@ -602,6 +676,10 @@ export function getPresetMappingsByPlatform(platform: string) {
   if (platform === 'openai') return openaiPresetMappings
   if (platform === 'deepseek') return deepseekPresetMappings
   if (platform === 'openrouter') return openrouterPresetMappings
+  if (platform === 'opencode') return opencodePresetMappings
+  if (platform === 'opencode-go') return opencodeGoPresetMappings
+  if (platform === 'opencode-go-anthropic') return opencodeGoAnthropicPresetMappings
+  if (platform === 'doubao-web') return doubaoWebPresetMappings
   if (platform === 'gemini') return geminiPresetMappings
   if (platform === 'mimo') return mimoPresetMappings
   if (platform === 'ollama') return ollamaPresetMappings

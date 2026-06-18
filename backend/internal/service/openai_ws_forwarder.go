@@ -4264,7 +4264,7 @@ func (s *OpenAIGatewayService) selectAccountByPreviousResponseIDForCapability(
 		_ = store.DeleteResponseAccount(ctx, derefGroupID(groupID), responseID)
 		return nil, nil
 	}
-	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
+	if requestedModel != "" && !isOpenAIAccountModelSupportedForScheduling(account, requestedModel) {
 		return nil, nil
 	}
 	if !openAIAccountAllowedByExplicitModelScope(account, requestedModel, explicitModelScope) {

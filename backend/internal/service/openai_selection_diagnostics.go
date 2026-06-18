@@ -167,7 +167,7 @@ func (s *OpenAIGatewayService) collectOpenAISelectionFilterStats(
 			stats.Unschedulable++
 			continue
 		}
-		if requestedModel != "" && !acc.IsModelSupported(requestedModel) {
+		if requestedModel != "" && !isOpenAIAccountModelSupportedForScheduling(acc, requestedModel) {
 			stats.ModelUnsupported++
 			continue
 		}

@@ -140,10 +140,59 @@ func TestForwardResponses_DeepSeekImageInputStripsImageAndForwardsText(t *testin
 	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
 }
 
+func TestForwardResponses_NvidiaSGLangMapsXHighReasoningEffortToMax(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"deepseek-v4-pro","reasoning":{"effort":"xhigh"},"input":"hello","stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_nvidia_sglang_reasoning"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"chatcmpl_nvidia","object":"chat.completion","model":"deepseek-ai/deepseek-v4-pro","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`,
+		)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:          198,
+		Name:        "zjarlin_nvidia_zhuronghui",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "sk-nvidia",
+			"vendor":   "openai",
+			"base_url": "https://integrate.api.nvidia.com",
+			"model_mapping": map[string]any{
+				"deepseek-v4-pro": "deepseek-ai/deepseek-v4-pro",
+			},
+		},
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesSupported: false,
+		},
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "https://integrate.api.nvidia.com/v1/chat/completions", upstream.lastReq.URL.String())
+	require.Equal(t, "deepseek-ai/deepseek-v4-pro", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "max", gjson.GetBytes(upstream.lastBody, "reasoning_effort").String())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "reasoning.effort").Exists())
+	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
+}
+
 func TestForwardResponses_OpenCodeVendorRoutesToChatCompletions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	body := []byte(`{"model":"opencode/big-pickle","input":"hello","stream":false}`)
+	body := []byte(`{"model":"nemotron-3-ultra-free","input":"hello","stream":false}`)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
@@ -153,7 +202,7 @@ func TestForwardResponses_OpenCodeVendorRoutesToChatCompletions(t *testing.T) {
 		StatusCode: http.StatusOK,
 		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_opencode_vendor_json"}},
 		Body: io.NopCloser(strings.NewReader(
-			`{"id":"chatcmpl_opencode","object":"chat.completion","model":"opencode/big-pickle","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`,
+			`{"id":"chatcmpl_opencode","object":"chat.completion","model":"nemotron-3-ultra-free","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`,
 		)),
 	}}
 	svc := &OpenAIGatewayService{
@@ -169,16 +218,16 @@ func TestForwardResponses_OpenCodeVendorRoutesToChatCompletions(t *testing.T) {
 		Credentials: map[string]any{
 			"api_key":  "sk-opencode",
 			"vendor":   "opencode",
-			"base_url": "https://api.opencode.ai/v1",
+			"base_url": "https://opencode.ai/zen/v1",
 		},
 	}
 
 	result, err := svc.Forward(context.Background(), c, account, body)
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, "https://api.opencode.ai/v1/chat/completions", upstream.lastReq.URL.String())
+	require.Equal(t, "https://opencode.ai/zen/v1/chat/completions", upstream.lastReq.URL.String())
 	require.Equal(t, "Bearer sk-opencode", upstream.lastReq.Header.Get("Authorization"))
-	require.Equal(t, "opencode/big-pickle", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "nemotron-3-ultra-free", gjson.GetBytes(upstream.lastBody, "model").String())
 	require.Equal(t, "hello", gjson.GetBytes(upstream.lastBody, "messages.0.content").String())
 	require.False(t, gjson.GetBytes(upstream.lastBody, "input").Exists())
 	require.Equal(t, "response", gjson.Get(rec.Body.String(), "object").String())
@@ -188,7 +237,7 @@ func TestForwardResponses_OpenCodeVendorRoutesToChatCompletions(t *testing.T) {
 func TestForwardResponses_OpenCodeBaseURLRoutesToChatCompletionsWithoutVendor(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	body := []byte(`{"model":"opencode/big-pickle","input":"hello","stream":false}`)
+	body := []byte(`{"model":"nemotron-3-ultra-free","input":"hello","stream":false}`)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
@@ -198,7 +247,7 @@ func TestForwardResponses_OpenCodeBaseURLRoutesToChatCompletionsWithoutVendor(t 
 		StatusCode: http.StatusOK,
 		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_opencode_base_url_json"}},
 		Body: io.NopCloser(strings.NewReader(
-			`{"id":"chatcmpl_opencode","object":"chat.completion","model":"opencode/big-pickle","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`,
+			`{"id":"chatcmpl_opencode","object":"chat.completion","model":"nemotron-3-ultra-free","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5}}`,
 		)),
 	}}
 	svc := &OpenAIGatewayService{
@@ -213,15 +262,15 @@ func TestForwardResponses_OpenCodeBaseURLRoutesToChatCompletionsWithoutVendor(t 
 		Concurrency: 1,
 		Credentials: map[string]any{
 			"api_key":  "sk-opencode",
-			"base_url": "https://api.opencode.ai/v1",
+			"base_url": "https://opencode.ai/zen/v1",
 		},
 	}
 
 	result, err := svc.Forward(context.Background(), c, account, body)
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, "https://api.opencode.ai/v1/chat/completions", upstream.lastReq.URL.String())
-	require.Equal(t, "opencode/big-pickle", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "https://opencode.ai/zen/v1/chat/completions", upstream.lastReq.URL.String())
+	require.Equal(t, "nemotron-3-ultra-free", gjson.GetBytes(upstream.lastBody, "model").String())
 	require.Equal(t, "hello", gjson.GetBytes(upstream.lastBody, "messages.0.content").String())
 	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
 }

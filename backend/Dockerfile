@@ -3,7 +3,10 @@ FROM golang:1.26.4-alpine
 WORKDIR /app
 
 # 安装必要的工具
-RUN apk add --no-cache git
+RUN apk add --no-cache git chromium
+
+ENV CHROME_BIN=/usr/bin/chromium-browser
+ENV CHROMEDP_NO_SANDBOX=true
 
 # 复制go.mod和go.sum
 COPY go.mod go.sum ./

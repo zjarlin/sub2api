@@ -40,6 +40,12 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	if err := json.Unmarshal(body, &anthropicReq); err != nil {
 		return nil, fmt.Errorf("parse anthropic request: %w", err)
 	}
+	if accountUsesLocalOpenCodeServer(account) {
+		return s.forwardOpenCodeLocalAnthropicMessages(ctx, c, account, body, defaultMappedModel)
+	}
+	if accountUsesOpenCodeGoOfficialAPI(account) {
+		return s.forwardOpenCodeGoAnthropicMessages(ctx, c, account, body, defaultMappedModel)
+	}
 	anthropicDigestReq := cloneAnthropicRequestForDigest(&anthropicReq)
 	originalModel := anthropicReq.Model
 	applyOpenAICompatModelNormalization(&anthropicReq)

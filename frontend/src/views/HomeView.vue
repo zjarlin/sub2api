@@ -27,16 +27,17 @@
 
         <div class="terminal-home__actions">
           <LocaleSwitcher />
-          <a
-            v-if="docUrl"
-            :href="docUrl"
-            target="_blank"
-            rel="noopener noreferrer"
+          <component
+            :is="docsLinkComponent"
+            :to="isInternalDocsLink ? docsUrl : undefined"
+            :href="isInternalDocsLink ? undefined : docsUrl"
+            :target="isInternalDocsLink ? undefined : '_blank'"
+            :rel="isInternalDocsLink ? undefined : 'noopener noreferrer'"
             class="terminal-home__icon-button"
             :title="t('home.viewDocs')"
           >
             <Icon name="book" size="md" />
-          </a>
+          </component>
           <button
             type="button"
             class="terminal-home__icon-button"
@@ -64,15 +65,16 @@
             {{ isAuthenticated ? t('home.goToDashboard') : t('home.getStarted') }}
             <Icon name="arrowRight" size="md" />
           </router-link>
-          <a
-            v-if="docUrl"
-            :href="docUrl"
-            target="_blank"
-            rel="noopener noreferrer"
+          <component
+            :is="docsLinkComponent"
+            :to="isInternalDocsLink ? docsUrl : undefined"
+            :href="isInternalDocsLink ? undefined : docsUrl"
+            :target="isInternalDocsLink ? undefined : '_blank'"
+            :rel="isInternalDocsLink ? undefined : 'noopener noreferrer'"
             class="terminal-home__secondary-cta"
           >
             {{ t('home.docs') }}
-          </a>
+          </component>
         </div>
       </main>
 
@@ -111,7 +113,15 @@
     <footer class="terminal-home__footer">
       <span>&copy; {{ currentYear }} {{ siteName }}</span>
       <div>
-        <a v-if="docUrl" :href="docUrl" target="_blank" rel="noopener noreferrer">{{ t('home.docs') }}</a>
+        <component
+          :is="docsLinkComponent"
+          :to="isInternalDocsLink ? docsUrl : undefined"
+          :href="isInternalDocsLink ? undefined : docsUrl"
+          :target="isInternalDocsLink ? undefined : '_blank'"
+          :rel="isInternalDocsLink ? undefined : 'noopener noreferrer'"
+        >
+          {{ t('home.docs') }}
+        </component>
         <a :href="githubUrl" target="_blank" rel="noopener noreferrer">GitHub</a>
       </div>
     </footer>
@@ -125,6 +135,7 @@ import { useAppStore, useAuthStore } from '@/stores'
 import HomeGatewayScene from '@/components/home/HomeGatewayScene.vue'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { resolveDocsUrl } from '@/utils/docs'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
@@ -133,7 +144,9 @@ const appStore = useAppStore()
 const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || '++0 的 API')
 const siteLogo = computed(() => appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '')
 const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle || '一个接口，接上主流 AI 模型和上游账号池')
-const docUrl = computed(() => appStore.cachedPublicSettings?.doc_url || appStore.docUrl || '')
+const docsUrl = computed(() => resolveDocsUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl))
+const isInternalDocsLink = computed(() => docsUrl.value.startsWith('/'))
+const docsLinkComponent = computed(() => isInternalDocsLink.value ? 'router-link' : 'a')
 const homeContent = computed(() => appStore.cachedPublicSettings?.home_content || '')
 const homeFeatureText = (key: keyof NonNullable<typeof appStore.cachedPublicSettings>, fallback: string) => {
   const value = appStore.cachedPublicSettings?.[key]

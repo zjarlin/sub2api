@@ -71,6 +71,89 @@ describe('useModelWhitelist', () => {
     ]))
   })
 
+  it('opencode 模型列表暴露 OpenCode Zen 免费模型并默认映射到免费模型', () => {
+    const models = getModelsByPlatform('opencode')
+    const mappings = getPresetMappingsByPlatform('opencode')
+
+    expect(models).toEqual(expect.arrayContaining([
+      'deepseek-v4-flash-free',
+      'big-pickle'
+    ]))
+    expect(mappings.map(({ from, to }) => ({ from, to }))).toEqual([
+      { from: 'deepseek-v4-flash-free', to: 'deepseek-v4-flash-free' },
+      { from: 'big-pickle', to: 'big-pickle' },
+      { from: 'gpt-*', to: 'deepseek-v4-flash-free' },
+      { from: 'claude-*', to: 'deepseek-v4-flash-free' }
+    ])
+  })
+
+  it('opencode-go 模型列表只覆盖官方 OpenAI 兼容端点模型', () => {
+    const models = getModelsByPlatform('opencode-go')
+    const mappings = getPresetMappingsByPlatform('opencode-go')
+
+    expect(models).toEqual([
+      'opencode-go/glm-5.1',
+      'opencode-go/glm-5',
+      'opencode-go/kimi-k2.7-code',
+      'opencode-go/kimi-k2.6',
+      'opencode-go/deepseek-v4-pro',
+      'opencode-go/deepseek-v4-flash',
+      'opencode-go/mimo-v2.5',
+      'opencode-go/mimo-v2.5-pro'
+    ])
+    expect(mappings.map(({ from, to }) => ({ from, to }))).toEqual([
+      { from: 'opencode-go/glm-5.1', to: 'glm-5.1' },
+      { from: 'opencode-go/glm-5', to: 'glm-5' },
+      { from: 'opencode-go/kimi-k2.7-code', to: 'kimi-k2.7' },
+      { from: 'opencode-go/kimi-k2.6', to: 'kimi-k2.6' },
+      { from: 'opencode-go/deepseek-v4-pro', to: 'deepseek-v4-pro' },
+      { from: 'opencode-go/deepseek-v4-flash', to: 'deepseek-v4-flash' },
+      { from: 'opencode-go/mimo-v2.5', to: 'mimo-v2.5' },
+      { from: 'opencode-go/mimo-v2.5-pro', to: 'mimo-v2.5-pro' }
+    ])
+  })
+
+  it('opencode-go-anthropic 只暴露官方 Anthropic Messages 端点模型', () => {
+    const models = getModelsByPlatform('opencode-go-anthropic')
+    const mappings = getPresetMappingsByPlatform('opencode-go-anthropic')
+
+    expect(models).toEqual([
+      'opencode-go/minimax-m3',
+      'opencode-go/minimax-m2.7',
+      'opencode-go/minimax-m2.5',
+      'opencode-go/qwen3.7-max',
+      'opencode-go/qwen3.7-plus',
+      'opencode-go/qwen3.6-plus'
+    ])
+    expect(mappings.map(({ from, to }) => ({ from, to }))).toEqual([
+      { from: 'opencode-go/minimax-m3', to: 'minimax-m3' },
+      { from: 'opencode-go/minimax-m2.7', to: 'minimax-m2.7' },
+      { from: 'opencode-go/minimax-m2.5', to: 'minimax-m2.5' },
+      { from: 'opencode-go/qwen3.7-max', to: 'qwen3.7-max' },
+      { from: 'opencode-go/qwen3.7-plus', to: 'qwen3.7-plus' },
+      { from: 'opencode-go/qwen3.6-plus', to: 'qwen3.6-plus' },
+      { from: 'claude-*', to: 'minimax-m3' }
+    ])
+  })
+
+  it('doubao-web 模型列表和预设映射匹配网页逆向后端', () => {
+    const models = getModelsByPlatform('doubao-web')
+    const mappings = getPresetMappingsByPlatform('doubao-web')
+
+    expect(models).toEqual([
+      'doubao',
+      'doubao:doubao',
+      'doubao-pro',
+      'doubao:doubao-pro'
+    ])
+    expect(mappings.map(({ from, to }) => ({ from, to }))).toEqual([
+      { from: 'doubao', to: 'doubao' },
+      { from: 'doubao:doubao', to: 'doubao' },
+      { from: 'doubao-pro', to: 'doubao-pro' },
+      { from: 'doubao:doubao-pro', to: 'doubao-pro' }
+    ])
+  })
+
   it('antigravity 模型列表会把新的 Gemini 图片模型排在前面', () => {
     const models = getModelsByPlatform('antigravity')
 

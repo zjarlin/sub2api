@@ -185,6 +185,97 @@ export default {
     noDailyUsage: '暂无按日用量数据',
   },
 
+  docs: {
+    title: '使用文档',
+    subtitle: '从创建 API 密钥到配置本地客户端的完整流程。优先使用密钥页里的“使用密钥”弹窗，它会根据分组类型生成可直接复制的配置文件和一键配置脚本。',
+    quickStart: {
+      title: '快速开始',
+      description: '完成这三步即可开始调用网关。',
+      items: {
+        createKey: {
+          title: '1. 创建 API 密钥',
+          body: '登录后进入“API 密钥”页面，点击创建密钥。建议给密钥设置清晰名称，便于后续在用量记录中识别来源。'
+        },
+        assignGroup: {
+          title: '2. 分配可用分组',
+          body: '密钥必须绑定分组后才能生成客户端配置。若密钥列表提示未分配分组，请点击分组列选择可用分组。'
+        },
+        useKey: {
+          title: '3. 打开“使用密钥”',
+          body: '点击密钥右侧的“使用密钥”，按客户端类型选择 Codex CLI、Claude Code、Gemini CLI 或 OpenCode，再复制对应配置或一键脚本。'
+        }
+      }
+    },
+    codex: {
+      title: 'Codex CLI 配置',
+      description: 'Codex CLI 使用配置文件和 auth.json 读取网关地址与 API 密钥。',
+      items: {
+        files: {
+          title: '配置文件位置',
+          body: 'macOS/Linux 写入 ~/.codex；Windows 写入用户目录下的 .codex。弹窗会同时展示 config.toml 和 auth.json 的完整内容。'
+        },
+        script: {
+          title: '一键配置脚本',
+          body: '在“使用 API 密钥”弹窗中选择 macOS/Linux 或 Windows 后，复制“一键配置脚本”运行即可自动创建目录并写入两个文件。Windows 使用 PowerShell，macOS/Linux 使用 Bash。'
+        },
+        windows: {
+          title: 'Windows 路径',
+          body: 'Windows 用户推荐直接复制 PowerShell 脚本执行，避免手动创建隐藏目录或写错反斜杠路径。'
+        }
+      }
+    },
+    clients: {
+      title: '其他客户端',
+      description: '不同分组会展示适配当前协议的客户端配置。',
+      items: {
+        claude: {
+          title: 'Claude Code',
+          body: 'Claude Code 主要通过 ANTHROPIC_BASE_URL 和 ANTHROPIC_AUTH_TOKEN 指向网关。需要长期生效时可写入 shell profile 或 Claude settings。'
+        },
+        gemini: {
+          title: 'Gemini CLI',
+          body: 'Gemini CLI 使用 GOOGLE_GEMINI_BASE_URL、GEMINI_API_KEY 和 GEMINI_MODEL。模型名称请以分组支持范围为准。'
+        },
+        opencode: {
+          title: 'OpenCode',
+          body: 'OpenCode 使用 opencode.json。弹窗中的示例已包含 provider、baseURL、apiKey 和常用模型配置，可按需调整。'
+        }
+      }
+    },
+    usage: {
+      title: '用量查询',
+      description: '密钥可在公开用量页查询状态、配额和每日消费。',
+      items: {
+        query: {
+          title: '查询入口',
+          body: '打开“API Key 用量查询”页面，输入 API Key 后即可查看今日、近 7 天、近 30 天或自定义时间范围的使用明细。'
+        },
+        quota: {
+          title: '额度与限制',
+          body: '若密钥设置了额度、RPM、TPM 或周期限制，查询页会展示剩余额度、重置时间和模型维度消耗。'
+        }
+      }
+    },
+    troubleshooting: {
+      title: '常见问题',
+      description: '优先检查密钥、分组和客户端配置路径。',
+      items: {
+        noGroup: {
+          title: '弹窗提示请先分配分组',
+          body: '这表示密钥还没有绑定上游分组。回到 API 密钥列表，点击分组列完成绑定后再打开使用弹窗。'
+        },
+        baseUrl: {
+          title: '客户端无法连接',
+          body: '确认 base_url 或环境变量中的网关地址来自当前站点，并保留弹窗生成的 /v1、/v1beta 或 /antigravity 路径。'
+        },
+        secret: {
+          title: '密钥安全',
+          body: '不要把 auth.json、opencode.json 或包含 API Key 的脚本提交到公开仓库。怀疑泄露时请立即禁用或删除该密钥并重新创建。'
+        }
+      }
+    }
+  },
+
   // Setup Wizard
   setup: {
     title: 'Sub2API 安装向导',
@@ -798,6 +889,8 @@ export default {
       openai: {
         description: '将以下配置文件添加到 Codex CLI 配置目录中。',
         configTomlHint: '请确保以下内容位于 config.toml 文件的开头部分',
+        setupScriptHintUnix: 'macOS / Linux 一键配置脚本。复制后在终端中运行，会自动创建 ~/.codex 并写入 config.toml 与 auth.json。',
+        setupScriptHintWindows: 'Windows PowerShell 一键配置脚本。复制后在 PowerShell 中运行，会自动创建 %USERPROFILE%\\.codex 并写入 config.toml 与 auth.json。',
         note: '请确保配置目录存在。macOS/Linux 用户可运行 mkdir -p ~/.codex 创建目录。',
         noteWindows:
           '按 Win+R，输入 %userprofile%\\.codex 打开配置目录。如目录不存在，请先手动创建。'
@@ -3636,6 +3729,10 @@ export default {
       apiKeyRequired: 'API Key *',
       apiKeyPlaceholder: 'sk-ant-api03-...',
       apiKeyHint: '您的 Claude Console API Key',
+      opencodeGoAnthropicHint: '使用 OpenCode Go 官方 Anthropic Messages API。适用于 MiniMax/Qwen 模型；GLM/Kimi/DeepSeek/MiMo 请继续使用 OpenAI 兼容 OpenCode Go 账号。',
+      opencodeGoAnthropicBaseUrlHint: 'OpenCode Go Anthropic Messages 根地址，后端会自动拼接 /v1/messages。默认使用 https://opencode.ai/zen/go。',
+      opencodeGoAnthropicApiKeyHint: 'OpenCode Go API Key，将通过 x-api-key 发送到官方 /v1/messages。',
+      opencodeGoAnthropicForwardHint: '该账号会按 Anthropic Messages 格式透传，仅替换上游 x-api-key，并默认映射 opencode-go/minimax-m3 到 minimax-m3。',
       apiKeyMultiHint: '可每行、逗号、空格或分号分隔多个 API Key；多个时账号名会自动加 _1、_2 后缀。',
       quickOpenAI: {
         title: '快速添加 OpenAI 兼容账号',
@@ -3657,6 +3754,12 @@ export default {
         deepseekApiKeyHint: 'DeepSeek API Key，通过 Bearer 鉴权发送。',
         openrouterBaseUrlHint: 'OpenRouter 使用 https://openrouter.ai/api/v1 的 OpenAI 兼容 chat/completions 接口。',
         openrouterApiKeyHint: 'OpenRouter API Key，通常以 sk-or-v1- 开头。',
+        opencodeBaseUrlHint: 'OpenCode Zen 使用 https://opencode.ai/zen/v1 的 OpenAI 兼容 chat/completions 接口；默认映射到当前可用的免费模型。',
+        opencodeApiKeyHint: 'OpenCode API Key，通过 Bearer Authorization 发送。',
+        opencodeGoBaseUrlHint: 'OpenCode Go 官方 API 默认使用 https://opencode.ai/zen/go/v1；此 OpenAI 兼容预设适用于 GLM/Kimi/DeepSeek/MiMo 的 /chat/completions 路径。MiniMax/Qwen 请使用 Anthropic 平台下的 OpenCode Go 账号。',
+        opencodeGoApiKeyHint: '填写 OpenCode Go API Key。MiniMax/Qwen 的 Anthropic Messages 路径会在 Anthropic 平台下单独处理。',
+        doubaoWebBaseUrlHint: 'Doubao Web 使用网页登录态逆向路径，默认访问 https://www.doubao.com 并通过浏览器内 fetch 调用 /chat/completion。',
+        doubaoWebApiKeyHint: '填写 doubao.com 登录态 Cookie 中的 sessionid；每行一个可创建多个账号。',
         geminiBaseUrlHint: 'Gemini 直连默认填写官方 OpenAI compatibility base URL；该厂商会走 chat/completions 兼容路径。',
         geminiApiKeyHint: 'Gemini API Key，通常以 AIza 开头。',
         mimoBaseUrlHint: 'Mimo 使用 openai-local-proxy 同款 api-key 原样鉴权，不走 Bearer。',
@@ -3721,6 +3824,9 @@ export default {
           openai: 'OpenAI 官方',
           deepseek: 'DeepSeek',
           openrouter: 'OpenRouter',
+          opencode: 'OpenCode Zen',
+          opencodeGo: 'OpenCode Go',
+          doubaoWeb: 'Doubao Web',
           gemini: 'Gemini OpenAI',
           mimo: 'Mimo',
           ollama: 'Ollama',
@@ -3800,6 +3906,9 @@ export default {
         compactUnsupported: '不支持 Compact',
         compactAuto: 'Compact Auto',
         compactUnknown: 'Compact Auto',
+        compactProbeSupported: '探测结果：支持 Compact',
+        compactProbeUnsupported: '探测结果：不支持 Compact',
+        compactProbeUnknown: '探测结果：未探测',
         compactLastChecked: '最近探测',
         testMode: '测试模式',
         testModeDefault: '常规请求',
@@ -6230,7 +6339,7 @@ export default {
         contactInfoPlaceholder: '例如：QQ: 123456789',
         contactInfoHint: '填写客服联系方式，将展示在兑换页面、个人资料等位置',
         docUrl: '文档链接',
-        docUrlHint: '文档网站的链接。留空则隐藏文档链接。',
+        docUrlHint: '文档网站的链接。留空则使用内置 /docs 文档页。',
         docUrlPlaceholder: 'https://docs.example.com',
         siteLogo: '站点Logo',
         uploadImage: '上传图片',

@@ -170,6 +170,21 @@ func TestResolveOpenAICompactForwardModel(t *testing.T) {
 			expectedModel: "gpt-5.4",
 		},
 		{
+			name: "missing compact mapping falls back to normal model mapping",
+			account: &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"vendor": "opencode-go",
+					"model_mapping": map[string]any{
+						"gpt-5.4-mini": "minimax-m3",
+					},
+				},
+			},
+			model:         "gpt-5.4-mini",
+			expectedModel: "minimax-m3",
+		},
+		{
 			name: "exact compact mapping overrides model",
 			account: &Account{
 				Credentials: map[string]any{

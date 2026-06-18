@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
@@ -657,7 +658,12 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	}
 
 	// 测试入口与网关行为对齐：先应用账号模型映射，compact 模式再叠加专用映射。
-	testModelID = account.GetMappedModel(testModelID)
+	mappedTestModelID, mappingMatched := account.ResolveMappedModel(testModelID)
+	testModelID = mappedTestModelID
+	if accountUsesDoubaoWebReverse(account) {
+		testModelID = resolveDoubaoWebAccountTestModel(account, testModelID, mappingMatched)
+		return s.testDoubaoWebAccountConnection(c, account, testModelID, prompt)
+	}
 	if mode == AccountTestModeCompact {
 		testModelID = resolveOpenAICompactForwardModel(account, testModelID)
 		return s.testOpenAICompactConnection(c, account, testModelID)
@@ -706,6 +712,9 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
 		if err != nil {
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid base URL: %s", err.Error()))
+		}
+		if accountUsesLocalOpenCodeServer(account) {
+			return s.testOpenCodeLocalAccountConnection(c, account, testModelID, prompt, normalizedBaseURL)
 		}
 		if account.ShouldUseOpenAIChatCompletionsUpstream() || !openai_compat.ShouldUseResponsesAPI(account.Extra) {
 			return s.testOpenAIChatCompletionsConnection(c, account, testModelID, prompt, normalizedBaseURL, authToken)
@@ -789,6 +798,8 @@ func defaultOpenAITestModel(account *Account) string {
 		return openai.DefaultTestModel
 	}
 	switch strings.ToLower(strings.TrimSpace(account.GetOpenAIVendor())) {
+	case "doubao", "doubao-web":
+		return doubaoWebDefaultModel(account)
 	case "gemini":
 		return "gemini-2.5-flash"
 	case "mimo":
@@ -811,6 +822,254 @@ func defaultOpenAITestModel(account *Account) string {
 		}
 		return openai.DefaultTestModel
 	}
+}
+
+func resolveDoubaoWebAccountTestModel(account *Account, mappedModel string, mappingMatched bool) string {
+	model := doubaoWebNormalizeModel(normalizeOpenAIModelForUpstream(account, mappedModel))
+	if model == "" {
+		return doubaoWebDefaultModel(account)
+	}
+	if mappingMatched || doubaoWebAccountTestModelAllowed(model) {
+		return model
+	}
+	return doubaoWebDefaultModel(account)
+}
+
+func doubaoWebAccountTestModelAllowed(model string) bool {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return false
+	}
+	switch model {
+	case "doubao", "doubao-pro":
+		return true
+	}
+	for _, r := range model {
+		if !unicode.IsDigit(r) {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *AccountTestService) testDoubaoWebAccountConnection(c *gin.Context, account *Account, testModelID string, prompt string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), doubaoWebBrowserTimeout)
+	defer cancel()
+
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+	c.Writer.Flush()
+
+	testPrompt := strings.TrimSpace(prompt)
+	if testPrompt == "" {
+		testPrompt = "hi"
+	}
+
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
+	s.sendEvent(c, TestEvent{Type: "status", Text: "正在通过 Doubao Web 逆向测试连接"})
+
+	sessionIDs := doubaoWebSessionIDs(account)
+	if len(sessionIDs) == 0 {
+		return s.sendErrorAndEnd(c, "Doubao Web requires sessionid credential")
+	}
+
+	baseURL := account.GetOpenAIBaseURL()
+	if strings.TrimSpace(baseURL) == "" {
+		baseURL = doubaoWebDefaultBaseURL
+	}
+	validatedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid Doubao Web base URL: %s", err.Error()))
+	}
+
+	executor := globalDoubaoWebExecutor
+	if executor == nil {
+		return s.sendErrorAndEnd(c, "Doubao Web executor is not initialized")
+	}
+
+	var lastErr error
+	for _, sessionID := range sessionIDs {
+		result, err := executor.Complete(ctx, doubaoWebRequest{
+			BaseURL:      validatedBaseURL,
+			SessionID:    sessionID,
+			Model:        testModelID,
+			DefaultBotID: doubaoWebDefaultBotIDForAccount(account),
+			Prompt:       testPrompt,
+			AccountID:    account.ID,
+		})
+		if err != nil {
+			lastErr = err
+			var upstreamErr *doubaoWebUpstreamError
+			if errors.As(err, &upstreamErr) && upstreamErr.RetryableNextSession {
+				continue
+			}
+			break
+		}
+
+		text := strings.TrimSpace(result.Content)
+		if text == "" {
+			text = "(empty response)"
+		}
+		s.sendEvent(c, TestEvent{Type: "content", Text: text})
+		s.sendEvent(c, TestEvent{Type: "status", Text: "已通过 Doubao Web 逆向验证"})
+		s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+		return nil
+	}
+
+	if lastErr == nil {
+		lastErr = fmt.Errorf("no Doubao Web sessionid available")
+	}
+	return s.sendErrorAndEnd(c, fmt.Sprintf("Doubao Web test failed: %s", doubaoWebNormalizeTestErrorMessage(lastErr.Error())))
+}
+
+func (s *AccountTestService) testOpenCodeLocalAccountConnection(
+	c *gin.Context,
+	account *Account,
+	testModelID string,
+	prompt string,
+	normalizedBaseURL string,
+) error {
+	ctx := c.Request.Context()
+	testPrompt := strings.TrimSpace(prompt)
+	if testPrompt == "" {
+		testPrompt = "hi"
+	}
+
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+	c.Writer.Flush()
+
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
+	s.sendEvent(c, TestEvent{Type: "status", Text: "正在通过 OpenCode 本地 session API 测试连接"})
+
+	sessionURL, err := openCodeLocalURL(normalizedBaseURL, "/session", account.GetCredential("opencode_directory"))
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to build OpenCode session URL: %s", err.Error()))
+	}
+	sessionBody := map[string]any{
+		"agent": openCodeLocalAgent(account),
+		"model": map[string]any{
+			"providerID": openCodeLocalProviderID(account),
+			"id":         testModelID,
+		},
+	}
+	var sessionResp *http.Response
+	if err := s.withAccountTestHeartbeat(c, ctx, "仍在等待 OpenCode 本地 session API 响应", func() error {
+		var requestErr error
+		sessionResp, requestErr = s.doOpenCodeLocalTestJSON(ctx, account, http.MethodPost, sessionURL, sessionBody)
+		return requestErr
+	}); err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("OpenCode session request failed: %s", err.Error()))
+	}
+	defer func() { _ = sessionResp.Body.Close() }()
+	sessionBytes, err := ReadUpstreamResponseBody(sessionResp.Body, s.cfg, c, openAITooLargeError)
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to read OpenCode session response: %s", err.Error()))
+	}
+	if sessionResp.StatusCode >= 400 {
+		return s.sendErrorAndEnd(c, formatOpenCodeLocalTestHTTPError("session", sessionResp.StatusCode, sessionBytes))
+	}
+	var session openCodeLocalSessionResponse
+	if err := json.Unmarshal(sessionBytes, &session); err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to parse OpenCode session response: %s", err))
+	}
+	if strings.TrimSpace(session.ID) == "" {
+		return s.sendErrorAndEnd(c, "Failed to parse OpenCode session response: missing session id")
+	}
+
+	messageURL, err := openCodeLocalURL(normalizedBaseURL, "/session/"+session.ID+"/message", account.GetCredential("opencode_directory"))
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to build OpenCode message URL: %s", err.Error()))
+	}
+	messageBody := map[string]any{
+		"agent": openCodeLocalAgent(account),
+		"model": map[string]any{
+			"providerID": openCodeLocalProviderID(account),
+			"modelID":    testModelID,
+		},
+		"tools": openCodeLocalTools(account),
+		"parts": []map[string]any{{
+			"type": "text",
+			"text": testPrompt,
+		}},
+	}
+	s.sendEvent(c, TestEvent{Type: "status", Text: "正在等待 OpenCode 模型响应"})
+	var messageResp *http.Response
+	if err := s.withAccountTestHeartbeat(c, ctx, "仍在等待 OpenCode 模型响应", func() error {
+		var requestErr error
+		messageResp, requestErr = s.doOpenCodeLocalTestJSON(ctx, account, http.MethodPost, messageURL, messageBody)
+		return requestErr
+	}); err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("OpenCode message request failed: %s", err.Error()))
+	}
+	defer func() { _ = messageResp.Body.Close() }()
+	messageBytes, err := ReadUpstreamResponseBody(messageResp.Body, s.cfg, c, openAITooLargeError)
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to read OpenCode message response: %s", err.Error()))
+	}
+	if messageResp.StatusCode >= 400 {
+		return s.sendErrorAndEnd(c, formatOpenCodeLocalTestHTTPError("message", messageResp.StatusCode, messageBytes))
+	}
+	var message openCodeLocalMessageResponse
+	if err := json.Unmarshal(messageBytes, &message); err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to parse OpenCode message response: %s", err.Error()))
+	}
+	if len(message.Info.Error) > 0 && strings.TrimSpace(string(message.Info.Error)) != "null" {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("OpenCode local model error: %s", strings.TrimSpace(string(message.Info.Error))))
+	}
+	if text := strings.TrimSpace(openCodeLocalTextFromParts(message.Parts)); text != "" {
+		s.sendEvent(c, TestEvent{Type: "content", Text: text})
+	}
+	s.sendEvent(c, TestEvent{Type: "status", Text: "已通过 OpenCode 本地 session API 验证"})
+	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+	return nil
+}
+
+func (s *AccountTestService) doOpenCodeLocalTestJSON(
+	ctx context.Context,
+	account *Account,
+	method string,
+	targetURL string,
+	payload any,
+) (*http.Response, error) {
+	body, err := marshalOpenAIUpstreamJSON(payload)
+	if err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, method, targetURL, bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI))
+	req.Close = true
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Connection", "close")
+	if customUA := account.GetOpenAIUserAgent(); customUA != "" {
+		req.Header.Set("user-agent", customUA)
+	}
+
+	proxyURL := ""
+	if account.ProxyID != nil && account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
+	return s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
+}
+
+func formatOpenCodeLocalTestHTTPError(stage string, statusCode int, body []byte) string {
+	message := strings.TrimSpace(extractUpstreamErrorMessage(body))
+	if message == "" {
+		message = strings.TrimSpace(string(body))
+	}
+	message = sanitizeUpstreamErrorMessage(message)
+	if message == "" {
+		message = http.StatusText(statusCode)
+	}
+	return fmt.Sprintf("OpenCode local %s API returned %d: %s", stage, statusCode, message)
 }
 
 // testOpenAIChatCompletionsConnection tests an OpenAI-compatible APIKey account
@@ -914,6 +1173,17 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 		normalizedBaseURL, err := s.validateUpstreamBaseURL(baseURL)
 		if err != nil {
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid base URL: %s", err.Error()))
+		}
+		if accountUsesLocalOpenCodeServer(account) {
+			if err := s.testOpenCodeLocalAccountConnection(c, account, testModelID, "Respond with OK.", normalizedBaseURL); err != nil {
+				return err
+			}
+			if s.accountRepo != nil {
+				updates := buildOpenAICompactProbeExtraUpdates(&http.Response{StatusCode: http.StatusOK}, nil, nil, time.Now())
+				_ = s.accountRepo.UpdateExtra(ctx, account.ID, updates)
+				mergeAccountExtra(account, updates)
+			}
+			return nil
 		}
 		apiURL = appendOpenAIResponsesRequestPathSuffix(buildOpenAIResponsesURL(normalizedBaseURL), "/compact")
 	default:
@@ -1917,6 +2187,27 @@ func (s *AccountTestService) sendEvent(c *gin.Context, event TestEvent) {
 		return
 	}
 	c.Writer.Flush()
+}
+
+func (s *AccountTestService) withAccountTestHeartbeat(c *gin.Context, ctx context.Context, message string, fn func() error) error {
+	done := make(chan error, 1)
+	go func() {
+		done <- fn()
+	}()
+
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case err := <-done:
+			return err
+		case <-ticker.C:
+			s.sendEvent(c, TestEvent{Type: "status", Text: message})
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
 }
 
 // sendErrorAndEnd sends an error event and ends the stream

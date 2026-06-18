@@ -1671,6 +1671,7 @@ function getAntigravityTierLabel(row: any): string | null {
 }
 
 type OpenAICompactBadgeState = 'active' | 'blocked' | 'auto'
+type OpenAICompactProbeState = 'supported' | 'unsupported' | 'unknown'
 
 function getOpenAICompactState(row: any): OpenAICompactBadgeState | null {
   if (row.platform !== 'openai' || (row.type !== 'oauth' && row.type !== 'apikey')) return null
@@ -1678,10 +1679,21 @@ function getOpenAICompactState(row: any): OpenAICompactBadgeState | null {
   const mode = typeof extra?.openai_compact_mode === 'string' ? extra.openai_compact_mode : 'auto'
   if (mode === 'force_on') return 'active'
   if (mode === 'force_off') return 'blocked'
-  if (typeof extra?.openai_compact_supported === 'boolean') {
-    return extra.openai_compact_supported ? 'active' : 'blocked'
-  }
   return 'auto'
+}
+
+function getOpenAICompactProbeState(row: any): OpenAICompactProbeState {
+  const extra = row.extra as Record<string, unknown> | undefined
+  if (extra?.openai_compact_supported === true) return 'supported'
+  if (extra?.openai_compact_supported === false) return 'unsupported'
+  return 'unknown'
+}
+
+function getOpenAICompactProbeLabel(row: any): string {
+  const probeState = getOpenAICompactProbeState(row)
+  if (probeState === 'supported') return t('admin.accounts.openai.compactProbeSupported')
+  if (probeState === 'unsupported') return t('admin.accounts.openai.compactProbeUnsupported')
+  return t('admin.accounts.openai.compactProbeUnknown')
 }
 
 function getOpenAICompactMeta(row: any): { label: string; className: string; dotClass: string } | null {
@@ -1713,8 +1725,14 @@ function getOpenAICompactTitle(row: any): string {
   const extra = row.extra as Record<string, unknown> | undefined
   const checkedAt = typeof extra?.openai_compact_checked_at === 'string' ? extra.openai_compact_checked_at : ''
   const label = getOpenAICompactMeta(row)?.label || ''
-  if (!checkedAt) return label
-  return `${label} | ${t('admin.accounts.openai.compactLastChecked')}: ${formatDateTime(new Date(checkedAt))}`
+  const parts = [label]
+  if (getOpenAICompactState(row) === 'auto') {
+    parts.push(getOpenAICompactProbeLabel(row))
+  }
+  if (checkedAt) {
+    parts.push(`${t('admin.accounts.openai.compactLastChecked')}: ${formatDateTime(new Date(checkedAt))}`)
+  }
+  return parts.filter(Boolean).join(' | ')
 }
 
 function numberFromExtra(value: unknown): number | null {

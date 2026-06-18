@@ -40,7 +40,10 @@ func resolveOpenAICompactForwardModel(account *Account, model string) string {
 
 	mappedModel, matched := account.ResolveCompactMappedModel(trimmedModel)
 	if !matched {
-		return trimmedModel
+		mappedModel, matched = account.ResolveMappedModel(trimmedModel)
+		if !matched {
+			return trimmedModel
+		}
 	}
 	if trimmedMapped := strings.TrimSpace(mappedModel); trimmedMapped != "" {
 		return trimmedMapped

@@ -218,7 +218,7 @@
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
-        <div class="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4" data-tour="account-form-type">
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5" data-tour="account-form-type">
           <button
             type="button"
             @click="accountCategory = 'oauth-based'"
@@ -251,7 +251,7 @@
 
           <button
             type="button"
-            @click="accountCategory = 'apikey'"
+            @click="handleSelectAnthropicAPIKeyCategory"
             :class="[
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               accountCategory === 'apikey'
@@ -276,6 +276,36 @@
               <span class="text-xs text-gray-500 dark:text-gray-400">{{
                 t('admin.accounts.apiKey')
               }}</span>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            @click="handleSelectAnthropicOpenCodeGoCategory"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'opencode-go'
+                ? 'border-rose-500 bg-rose-50 dark:bg-rose-900/20'
+                : 'border-gray-200 hover:border-rose-300 dark:border-dark-600 dark:hover:border-rose-700'
+            ]"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'opencode-go'
+                  ? 'bg-rose-500 text-white'
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="sparkles" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">
+                OpenCode Go
+              </span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">
+                Anthropic Messages
+              </span>
             </div>
           </button>
 
@@ -342,6 +372,12 @@
           class="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:border-sky-800/40 dark:bg-sky-900/20 dark:text-sky-200"
         >
           <p>{{ t('admin.accounts.vertexAnthropicHint') }}</p>
+        </div>
+        <div
+          v-if="accountCategory === 'opencode-go'"
+          class="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 dark:border-rose-800/40 dark:bg-rose-900/20 dark:text-rose-200"
+        >
+          <p>{{ t('admin.accounts.opencodeGoAnthropicHint') }}</p>
         </div>
       </div>
 
@@ -1591,6 +1627,12 @@
           ></textarea>
           <p class="input-hint">{{ apiKeyHint }} {{ t('admin.accounts.apiKeyMultiHint') }}</p>
         </div>
+        <div
+          v-if="isAnthropicOpenCodeGoAccount"
+          class="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800 dark:border-rose-800/40 dark:bg-rose-900/20 dark:text-rose-200"
+        >
+          {{ t('admin.accounts.opencodeGoAnthropicForwardHint') }}
+        </div>
 
         <!-- Gemini API Key tier selection -->
         <div v-if="form.platform === 'gemini'">
@@ -1624,7 +1666,7 @@
 
           <template v-else>
             <!-- Mode Toggle -->
-            <div class="mb-4 flex gap-2">
+            <div v-if="!isAnthropicOpenCodeGoAccount" class="mb-4 flex gap-2">
               <button
                 type="button"
                 @click="modelRestrictionMode = 'whitelist'"
@@ -1678,7 +1720,7 @@
             </div>
 
             <!-- Whitelist Mode -->
-            <div v-if="modelRestrictionMode === 'whitelist'">
+            <div v-if="modelRestrictionMode === 'whitelist' && !isAnthropicOpenCodeGoAccount">
               <ModelWhitelistSelector
                 v-model="allowedModels"
                 :platforms="currentModelWhitelistPlatforms"
@@ -4058,6 +4100,8 @@ const oauthStepTitle = computed(() => {
 const openAIVendorPresetId = ref<OpenAIVendorPresetId>('openai')
 const openAIAuthHeader = ref('authorization')
 const openAIAuthScheme = ref('bearer')
+const OPENCODE_GO_ANTHROPIC_BASE_URL = 'https://opencode.ai/zen/go'
+const OPENCODE_GO_ANTHROPIC_MODEL_PLATFORM = 'opencode-go-anthropic'
 const selectedOpenAIVendorPreset = computed(() => getOpenAIVendorPreset(openAIVendorPresetId.value))
 const openAIVendorOptions = computed(() =>
   listOpenAIVendorPresets().map(preset => ({
@@ -4070,12 +4114,18 @@ const currentModelWhitelistPlatforms = computed(() => {
   if (form.platform === 'openai' && accountCategory.value === 'apikey') {
     return getOpenAIVendorModelPlatforms(openAIVendorPresetId.value)
   }
+  if (isAnthropicOpenCodeGoAccount.value) {
+    return [OPENCODE_GO_ANTHROPIC_MODEL_PLATFORM]
+  }
   return [form.platform]
 })
 
 const currentPresetMappingPlatform = computed(() => {
   if (form.platform === 'openai' && accountCategory.value === 'apikey') {
     return getOpenAIVendorPresetPlatform(openAIVendorPresetId.value)
+  }
+  if (isAnthropicOpenCodeGoAccount.value) {
+    return OPENCODE_GO_ANTHROPIC_MODEL_PLATFORM
   }
   return form.platform
 })
@@ -4085,6 +4135,7 @@ const currentApiKeyBaseUrlPlaceholder = computed(() => {
     return selectedOpenAIVendorPreset.value.baseUrl
   }
   if (form.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
+  if (isAnthropicOpenCodeGoAccount.value) return OPENCODE_GO_ANTHROPIC_BASE_URL
   return 'https://api.anthropic.com'
 })
 
@@ -4093,6 +4144,7 @@ const currentApiKeyPlaceholder = computed(() => {
     return selectedOpenAIVendorPreset.value.apiKeyPlaceholder
   }
   if (form.platform === 'gemini') return 'AIza...'
+  if (isAnthropicOpenCodeGoAccount.value) return 'sk-...'
   return 'sk-ant-...'
 })
 
@@ -4104,6 +4156,7 @@ const baseUrlHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
   if (form.platform === 'kiro') return t('admin.accounts.kiro.baseUrlHint')
+  if (isAnthropicOpenCodeGoAccount.value) return t('admin.accounts.opencodeGoAnthropicBaseUrlHint')
   return t('admin.accounts.baseUrlHint')
 })
 
@@ -4114,6 +4167,7 @@ const apiKeyHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
   if (form.platform === 'kiro') return t('admin.accounts.kiro.apiKeyHint')
+  if (isAnthropicOpenCodeGoAccount.value) return t('admin.accounts.opencodeGoAnthropicApiKeyHint')
   return t('admin.accounts.apiKeyHint')
 })
 
@@ -4191,7 +4245,9 @@ interface TempUnschedRuleForm {
 // State
 const step = ref(1)
 const submitting = ref(false)
-const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_account'>('oauth-based') // UI selection for account category
+type AccountCategory = 'oauth-based' | 'apikey' | 'opencode-go' | 'bedrock' | 'service_account'
+
+const accountCategory = ref<AccountCategory>('oauth-based') // UI selection for account category
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
@@ -4650,6 +4706,27 @@ const geminiHelpLinks = {
 
 const getCurrentWhitelistModels = () => getModelsByPlatforms(currentModelWhitelistPlatforms.value)
 
+const buildOpenCodeGoAnthropicDefaultMappings = () =>
+  getPresetMappingsByPlatform(OPENCODE_GO_ANTHROPIC_MODEL_PLATFORM).map(({ from, to }) => ({ from, to }))
+
+const handleSelectAnthropicAPIKeyCategory = () => {
+  accountCategory.value = 'apikey'
+  apiKeyBaseUrl.value = 'https://api.anthropic.com'
+  if (modelRestrictionMode.value === 'mapping') {
+    modelRestrictionMode.value = 'whitelist'
+  }
+  allowedModels.value = [...getCurrentWhitelistModels()]
+  modelMappings.value = []
+}
+
+const handleSelectAnthropicOpenCodeGoCategory = () => {
+  accountCategory.value = 'opencode-go'
+  apiKeyBaseUrl.value = OPENCODE_GO_ANTHROPIC_BASE_URL
+  modelRestrictionMode.value = 'mapping'
+  allowedModels.value = []
+  modelMappings.value = buildOpenCodeGoAnthropicDefaultMappings()
+}
+
 const applyOpenAIVendorPresetToForm = (vendor: OpenAIVendorPresetId) => {
   const preset = getOpenAIVendorPreset(vendor)
   apiKeyBaseUrl.value = preset.baseUrl
@@ -4721,6 +4798,10 @@ const form = reactive({
   group_ids: [] as number[],
   expires_at: null as number | null
 })
+
+const isAnthropicOpenCodeGoAccount = computed(() =>
+  form.platform === 'anthropic' && accountCategory.value === 'opencode-go'
+)
 
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {
@@ -4895,6 +4976,9 @@ watch(
       accountCategory.value = 'oauth-based'
     }
     if (newPlatform !== 'anthropic' && accountCategory.value === 'bedrock') {
+      accountCategory.value = 'oauth-based'
+    }
+    if (newPlatform !== 'anthropic' && accountCategory.value === 'opencode-go') {
       accountCategory.value = 'oauth-based'
     }
     // Reset Bedrock fields when switching platforms
@@ -5633,12 +5717,12 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
 }
 
 const buildAnthropicExtra = (base?: Record<string, unknown>): Record<string, unknown> | undefined => {
-  if (form.platform !== 'anthropic' || accountCategory.value !== 'apikey') {
+  if (form.platform !== 'anthropic' || (accountCategory.value !== 'apikey' && accountCategory.value !== 'opencode-go')) {
     return base
   }
 
   const extra: Record<string, unknown> = { ...(base || {}) }
-  if (anthropicPassthroughEnabled.value) {
+  if (anthropicPassthroughEnabled.value || isAnthropicOpenCodeGoAccount.value) {
     extra.anthropic_passthrough = true
   } else {
     delete extra.anthropic_passthrough
@@ -5949,7 +6033,9 @@ const handleSubmit = async () => {
       ? selectedOpenAIVendorPreset.value.baseUrl
       : form.platform === 'gemini'
         ? 'https://generativelanguage.googleapis.com'
-        : 'https://api.anthropic.com'
+        : isAnthropicOpenCodeGoAccount.value
+          ? OPENCODE_GO_ANTHROPIC_BASE_URL
+          : 'https://api.anthropic.com'
 
   // Build credentials with optional model mapping
   const credentials: Record<string, unknown> = {
@@ -5964,7 +6050,11 @@ const handleSubmit = async () => {
 
   // Add model mapping if configured（OpenAI 开启自动透传时不应用）
   if (!isOpenAIModelRestrictionDisabled.value) {
-    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    const mappingMode = isAnthropicOpenCodeGoAccount.value ? 'mapping' : modelRestrictionMode.value
+    const mappingItems = isAnthropicOpenCodeGoAccount.value && modelMappings.value.length === 0
+      ? buildOpenCodeGoAnthropicDefaultMappings()
+      : modelMappings.value
+    const modelMapping = buildModelMappingObject(mappingMode, allowedModels.value, mappingItems)
     if (modelMapping) {
       credentials.model_mapping = modelMapping
     }

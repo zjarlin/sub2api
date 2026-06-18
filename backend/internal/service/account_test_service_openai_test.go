@@ -5,6 +5,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -454,6 +455,18 @@ func TestDefaultOpenAITestModel_OpenRouter(t *testing.T) {
 	}
 }
 
+func TestDefaultOpenAITestModel_DoubaoWeb(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"vendor": "doubao-web",
+		},
+	}
+
+	require.Equal(t, "doubao", defaultOpenAITestModel(account))
+}
+
 func TestDefaultOpenAITestModel_CompatibleBaseURL(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -491,6 +504,183 @@ func TestDefaultOpenAITestModel_CompatibleBaseURL(t *testing.T) {
 	}
 }
 
+func TestAccountTestService_DoubaoWebUsesReverseAdapterForAccountTest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, recorder := newTestContext()
+
+	fake := &fakeDoubaoWebExecutor{result: &doubaoWebResult{
+		ID:            "chatcmpl_doubao_test",
+		SessionID:     "resp_doubao_test",
+		Content:       "OK",
+		FinishReason:  "stop",
+		InputTokens:   2,
+		OutputTokens:  1,
+		Created:       1781610521,
+		UpstreamModel: "doubao",
+	}}
+	restore := swapDoubaoWebExecutor(fake)
+	defer restore()
+
+	upstream := &queuedHTTPUpstream{}
+	svc := &AccountTestService{
+		httpUpstream: upstream,
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled: false,
+		}}},
+	}
+	account := &Account{
+		ID:          99,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"vendor":  "doubao-web",
+			"api_key": "sid-api-key",
+		},
+	}
+
+	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.5", "", "")
+	require.NoError(t, err)
+	require.Empty(t, upstream.requests)
+	require.Len(t, fake.requests, 1)
+	require.Equal(t, doubaoWebDefaultBaseURL, fake.requests[0].BaseURL)
+	require.Equal(t, "sid-api-key", fake.requests[0].SessionID)
+	require.Equal(t, "doubao", fake.requests[0].Model)
+	require.Equal(t, "hi", fake.requests[0].Prompt)
+	require.Contains(t, recorder.Body.String(), `"model":"doubao"`)
+	require.Contains(t, recorder.Body.String(), `"text":"OK"`)
+	require.Contains(t, recorder.Body.String(), `"success":true`)
+	require.NotContains(t, recorder.Body.String(), "/v1/chat/completions")
+}
+
+func TestAccountTestService_DoubaoWebAccountTestKeepsExplicitModelMapping(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := newTestContext()
+
+	fake := &fakeDoubaoWebExecutor{result: &doubaoWebResult{
+		ID:            "chatcmpl_doubao_test",
+		SessionID:     "resp_doubao_test",
+		Content:       "OK",
+		FinishReason:  "stop",
+		UpstreamModel: "1234567890",
+	}}
+	restore := swapDoubaoWebExecutor(fake)
+	defer restore()
+
+	svc := &AccountTestService{
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled: false,
+		}}},
+	}
+	account := &Account{
+		ID:          100,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"vendor":  "doubao-web",
+			"api_key": "sid-api-key",
+			"model_mapping": map[string]any{
+				"gpt-5.5": "1234567890",
+			},
+		},
+	}
+
+	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.5", "hello", "")
+	require.NoError(t, err)
+	require.Len(t, fake.requests, 1)
+	require.Equal(t, "1234567890", fake.requests[0].Model)
+	require.Equal(t, "hello", fake.requests[0].Prompt)
+}
+
+func TestAccountTestService_DoubaoWebAccountTestIgnoresCanceledClientContext(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := newTestContext()
+	requestCtx, cancel := context.WithCancel(c.Request.Context())
+	cancel()
+	c.Request = c.Request.WithContext(requestCtx)
+
+	fake := &fakeDoubaoWebExecutor{result: &doubaoWebResult{
+		ID:            "chatcmpl_doubao_test",
+		SessionID:     "resp_doubao_test",
+		Content:       "OK",
+		FinishReason:  "stop",
+		UpstreamModel: "doubao",
+	}}
+	restore := swapDoubaoWebExecutor(fake)
+	defer restore()
+
+	svc := &AccountTestService{
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled: false,
+		}}},
+	}
+	account := &Account{
+		ID:          101,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"vendor":  "doubao-web",
+			"api_key": "sid-api-key",
+		},
+	}
+
+	err := svc.testOpenAIAccountConnection(c, account, "gpt-5.5", "", "")
+	require.NoError(t, err)
+	require.Len(t, fake.requests, 1)
+}
+
+type contextProbeDoubaoWebExecutor struct {
+	err error
+}
+
+func (f *contextProbeDoubaoWebExecutor) Complete(ctx context.Context, req doubaoWebRequest) (*doubaoWebResult, error) {
+	if ctx.Err() != nil {
+		f.err = ctx.Err()
+		return nil, ctx.Err()
+	}
+	return &doubaoWebResult{
+		ID:            "chatcmpl_doubao_test",
+		SessionID:     "resp_doubao_test",
+		Content:       "OK",
+		FinishReason:  "stop",
+		UpstreamModel: req.Model,
+	}, nil
+}
+
+func TestAccountTestService_DoubaoWebExecutorReceivesLiveContext(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := newTestContext()
+	requestCtx, cancel := context.WithCancel(c.Request.Context())
+	cancel()
+	c.Request = c.Request.WithContext(requestCtx)
+
+	fake := &contextProbeDoubaoWebExecutor{}
+	restore := swapDoubaoWebExecutor(fake)
+	defer restore()
+
+	svc := &AccountTestService{
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled: false,
+		}}},
+	}
+	account := &Account{
+		ID:          102,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"vendor":  "doubao-web",
+			"api_key": "sid-api-key",
+		},
+	}
+
+	err := svc.testOpenAIAccountConnection(c, account, "gpt-5.5", "", "")
+	require.NoError(t, err)
+	require.False(t, errors.Is(fake.err, context.Canceled))
+}
+
 func TestAccountTestService_OllamaUsesChatCompletionsPath(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, recorder := newTestContext()
@@ -520,6 +710,58 @@ func TestAccountTestService_OllamaUsesChatCompletionsPath(t *testing.T) {
 	require.Contains(t, upstream.requests[0].URL.String(), "/v1/chat/completions")
 	require.NotContains(t, upstream.requests[0].URL.String(), "/v1/responses")
 	require.Contains(t, recorder.Body.String(), "test_complete")
+}
+
+func TestAccountTestService_OpenCodeGoLocalUsesSessionAPI(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, recorder := newTestContext()
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		newJSONResponse(http.StatusOK, `{"id":"ses_test","model":{"id":"minimax-m3","providerID":"opencode-go"}}`),
+		newJSONResponse(http.StatusOK, `{"info":{"id":"msg_test","modelID":"minimax-m3","providerID":"opencode-go","finish":"stop","tokens":{"input":5,"output":1,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1781610521583,"completed":1781610526394},"error":null},"parts":[{"type":"text","text":"pong"}]}`),
+	}}
+	svc := &AccountTestService{
+		httpUpstream: upstream,
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled:           false,
+			AllowInsecureHTTP: true,
+		}}},
+	}
+	account := &Account{
+		ID:          99,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "local-opencode",
+			"vendor":   "opencode-go",
+			"base_url": "http://host.docker.internal:4096",
+			"model_mapping": map[string]any{
+				"opencode-go/minimax-m3": "minimax-m3",
+				"minimax-m3":             "minimax-m3",
+			},
+		},
+	}
+
+	err := svc.testOpenAIAccountConnection(ctx, account, "opencode-go/minimax-m3", "只回复 pong", "")
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, "http://host.docker.internal:4096/session", upstream.requests[0].URL.String())
+	require.Equal(t, "http://host.docker.internal:4096/session/ses_test/message", upstream.requests[1].URL.String())
+	require.Equal(t, "opencode-go", gjson.GetBytes(upstream.bodies[0], "model.providerID").String())
+	require.Equal(t, "minimax-m3", gjson.GetBytes(upstream.bodies[0], "model.id").String())
+	require.Equal(t, "opencode-go", gjson.GetBytes(upstream.bodies[1], "model.providerID").String())
+	require.Equal(t, "minimax-m3", gjson.GetBytes(upstream.bodies[1], "model.modelID").String())
+	require.True(t, gjson.GetBytes(upstream.bodies[1], "tools.read").Bool())
+	require.True(t, gjson.GetBytes(upstream.bodies[1], "tools.glob").Bool())
+	require.True(t, gjson.GetBytes(upstream.bodies[1], "tools.grep").Bool())
+	require.False(t, gjson.GetBytes(upstream.bodies[1], "tools.bash").Bool())
+	require.False(t, gjson.GetBytes(upstream.bodies[1], "tools.write").Bool())
+	require.Equal(t, "只回复 pong", gjson.GetBytes(upstream.bodies[1], "parts.0.text").String())
+	body := recorder.Body.String()
+	require.Contains(t, body, "pong")
+	require.Contains(t, body, "已通过 OpenCode 本地 session API 验证")
+	require.Contains(t, body, `"success":true`)
 }
 
 func TestAccountTestService_OpenRouterUsesChatCompletionsPath(t *testing.T) {

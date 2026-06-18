@@ -745,6 +745,50 @@ func TestOpenAISelectAccountForModelWithExclusions_NoModelSupport(t *testing.T) 
 	}
 }
 
+func TestOpenAISelectAccountWithLoadAwareness_PassthroughEmptyMappingRejected(t *testing.T) {
+	groupID := int64(1)
+	repo := stubOpenAIAccountRepo{
+		accounts: []Account{
+			{
+				ID:          291,
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeAPIKey,
+				Status:      StatusActive,
+				Schedulable: true,
+				Concurrency: 1,
+				Priority:    0,
+				Credentials: map[string]any{
+					"base_url": "https://bmapi.020212.xyz/",
+					"vendor":   "custom",
+				},
+				Extra: map[string]any{
+					"openai_passthrough": true,
+				},
+			},
+		},
+	}
+
+	svc := &OpenAIGatewayService{
+		accountRepo:        repo,
+		cache:              &stubGatewayCache{},
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+	}
+
+	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, "", "minimax-m3", nil)
+	if err == nil {
+		t.Fatalf("expected error for passthrough account without model_mapping")
+	}
+	if selection != nil {
+		t.Fatalf("expected nil selection")
+	}
+	if !errors.Is(err, ErrNoAvailableAccounts) {
+		t.Fatalf("expected no available accounts error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "model_unsupported=1") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestOpenAISelectAccountWithLoadAwareness_LoadBatchErrorFallback(t *testing.T) {
 	groupID := int64(1)
 	repo := stubOpenAIAccountRepo{
@@ -826,6 +870,103 @@ func TestOpenAISelectAccountWithLoadAwareness_PrefersExplicitModelMapping(t *tes
 	}
 	if selection.ReleaseFunc != nil {
 		selection.ReleaseFunc()
+	}
+}
+
+func TestOpenAISelectAccountWithLoadAwareness_DeepSeekSkipsChatGPTOAuth(t *testing.T) {
+	groupID := int64(1)
+	repo := stubOpenAIAccountRepo{
+		accounts: []Account{
+			{
+				ID:          1,
+				Name:        "zjarlin_apple",
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeOAuth,
+				Status:      StatusActive,
+				Schedulable: true,
+				Concurrency: 1,
+				Priority:    0,
+			},
+			{
+				ID:          2,
+				Name:        "deepseek-openai-apikey",
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeAPIKey,
+				Status:      StatusActive,
+				Schedulable: true,
+				Concurrency: 1,
+				Priority:    9,
+				Credentials: map[string]any{
+					"vendor":  "deepseek",
+					"api_key": "sk-deepseek",
+				},
+			},
+		},
+	}
+	cache := &stubGatewayCache{}
+	concurrencyCache := stubConcurrencyCache{
+		loadMap: map[int64]*AccountLoadInfo{
+			1: {AccountID: 1, LoadRate: 0},
+			2: {AccountID: 2, LoadRate: 90},
+		},
+	}
+
+	svc := &OpenAIGatewayService{
+		accountRepo:        repo,
+		cache:              cache,
+		concurrencyService: NewConcurrencyService(concurrencyCache),
+	}
+
+	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, "deepseek", "deepseek-v4-pro", nil)
+	if err != nil {
+		t.Fatalf("SelectAccountWithLoadAwareness error: %v", err)
+	}
+	if selection == nil || selection.Account == nil {
+		t.Fatalf("expected selection")
+	}
+	if selection.Account.ID != 2 {
+		t.Fatalf("expected DeepSeek API key account 2, got %d", selection.Account.ID)
+	}
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+}
+
+func TestOpenAISelectAccountWithLoadAwareness_DeepSeekOAuthOnlyUnsupported(t *testing.T) {
+	groupID := int64(1)
+	repo := stubOpenAIAccountRepo{
+		accounts: []Account{
+			{
+				ID:          1,
+				Name:        "zjarlin_apple",
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeOAuth,
+				Status:      StatusActive,
+				Schedulable: true,
+				Concurrency: 1,
+				Priority:    0,
+			},
+		},
+	}
+
+	svc := &OpenAIGatewayService{
+		accountRepo:        repo,
+		cache:              &stubGatewayCache{},
+		concurrencyService: NewConcurrencyService(stubConcurrencyCache{}),
+	}
+
+	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, "", "deepseek-v4-pro", nil)
+	if err == nil {
+		t.Fatalf("expected error for ChatGPT OAuth unsupported DeepSeek model")
+	}
+	if selection != nil {
+		t.Fatalf("expected nil selection")
+	}
+	if !errors.Is(err, ErrNoAvailableAccounts) {
+		t.Fatalf("expected no available accounts error, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "model_unsupported=1") {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }
 

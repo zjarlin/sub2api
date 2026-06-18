@@ -83,7 +83,11 @@ RUN apk add --no-cache \
     tzdata \
     curl \
     su-exec \
+    chromium \
     && rm -rf /var/cache/apk/*
+
+ENV CHROME_BIN=/usr/bin/chromium-browser
+ENV CHROMEDP_NO_SANDBOX=true
 
 # Create non-root user
 RUN addgroup -g 1000 sub2api && \

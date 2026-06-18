@@ -51,6 +51,15 @@ vi.mock('@/stores/auth', () => ({
   })
 }))
 
+vi.mock('vue-router', () => ({
+  useRoute: () => ({
+    query: {}
+  }),
+  useRouter: () => ({
+    replace: vi.fn()
+  })
+}))
+
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
   return {
@@ -67,6 +76,8 @@ const DataTableStub = {
     <div data-test="data-table">
       <span v-for="column in columns" :key="column.key" data-test="column-key">{{ column.key }}</span>
       <div v-for="row in data" :key="row.id">
+        <slot name="cell-name" :value="row.name" :row="row" />
+        <slot name="cell-platform_type" :value="row.platform" :row="row" />
         <slot name="cell-created_at" :value="row.created_at" :row="row" />
       </div>
     </div>
@@ -223,5 +234,74 @@ describe('admin AccountsView bulk edit scope', () => {
       label: 'admin.accounts.columns.createdAt',
       sortable: true
     })
+  })
+
+  it('shows Compact Auto for OpenAI accounts in auto mode even after a successful compact probe', async () => {
+    listAccounts.mockResolvedValue({
+      items: [
+        {
+          id: 300,
+          name: 'opencode-local-minimax-m3',
+          platform: 'openai',
+          type: 'apikey',
+          status: 'active',
+          schedulable: true,
+          credentials: {},
+          extra: {
+            openai_compact_mode: 'auto',
+            openai_compact_supported: true,
+            openai_compact_checked_at: '2026-06-17T08:03:19Z'
+          },
+          created_at: '2026-06-17T08:00:00Z',
+          updated_at: '2026-06-17T08:03:19Z'
+        }
+      ],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1
+    })
+
+    const wrapper = mount(AccountsView, {
+      global: {
+        stubs: {
+          AppLayout: { template: '<div><slot /></div>' },
+          TablePageLayout: {
+            template: '<div><slot name="filters" /><slot name="table" /><slot name="pagination" /></div>'
+          },
+          DataTable: DataTableStub,
+          Pagination: true,
+          ConfirmDialog: true,
+          AccountTableActions: { template: '<div><slot name="beforeCreate" /><slot name="after" /></div>' },
+          AccountTableFilters: { template: '<div></div>' },
+          AccountBulkActionsBar: AccountBulkActionsBarStub,
+          AccountActionMenu: true,
+          ImportDataModal: true,
+          ReAuthAccountModal: true,
+          AccountTestModal: true,
+          AccountStatsModal: true,
+          ScheduledTestsPanel: true,
+          SyncFromCrsModal: true,
+          TempUnschedStatusModal: true,
+          ErrorPassthroughRulesModal: true,
+          TLSFingerprintProfilesModal: true,
+          CreateAccountModal: true,
+          EditAccountModal: true,
+          BulkEditAccountModal: BulkEditAccountModalStub,
+          PlatformTypeBadge: true,
+          AccountCapacityCell: true,
+          AccountStatusIndicator: true,
+          AccountTodayStatsCell: true,
+          AccountGroupsCell: true,
+          AccountUsageCell: true,
+          Icon: true
+        }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('admin.accounts.openai.compactAuto')
+    expect(wrapper.text()).not.toContain('admin.accounts.openai.compactSupported')
   })
 })

@@ -312,6 +312,22 @@ describe('EditAccountModal', () => {
     })
   })
 
+  it('shows Compact Auto as the primary compact status when auto mode probe is supported', () => {
+    const account = buildAccount()
+    account.extra = {
+      openai_compact_mode: 'auto',
+      openai_compact_supported: true,
+      openai_compact_checked_at: '2026-06-17T08:03:19Z'
+    }
+
+    const wrapper = mountModal(account)
+    const status = wrapper.get('[data-testid="openai-compact-status"]').text()
+
+    expect(status).toContain('admin.accounts.openai.compactAuto')
+    expect(status).toContain('admin.accounts.openai.compactProbeSupported')
+    expect(status).not.toContain('admin.accounts.openai.compactSupported')
+  })
+
   it('submits OpenAI APIKey Responses support override mode', async () => {
     const account = buildAccount()
     account.extra = {
