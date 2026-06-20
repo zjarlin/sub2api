@@ -72,6 +72,70 @@
           </nav>
         </div>
 
+        <div
+          v-if="showCodexModelEditor"
+          class="rounded-lg border border-gray-200 dark:border-dark-700 bg-gray-50 dark:bg-dark-800/40 p-3 space-y-3"
+        >
+          <div class="flex items-center justify-between gap-3">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-gray-900 dark:text-gray-100">Codex models</p>
+              <p class="text-xs text-gray-500 dark:text-gray-400">
+                {{ normalizedCodexModelCatalogModels.length }} models -> {{ CODEX_MODEL_CATALOG_FILENAME }}
+              </p>
+            </div>
+            <button
+              type="button"
+              class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-300 dark:border-dark-600 text-gray-600 dark:text-gray-300 hover:bg-white dark:hover:bg-dark-700 transition-colors"
+              aria-label="Add Codex model"
+              title="Add Codex model"
+              @click="addCodexModel"
+            >
+              <Icon name="plus" size="sm" :stroke-width="2" />
+            </button>
+          </div>
+
+          <div v-if="codexModelRows.length" class="space-y-2 max-h-56 overflow-y-auto pr-1">
+            <div
+              v-for="(row, index) in codexModelRows"
+              :key="row.id"
+              class="grid grid-cols-12 gap-2 items-center"
+            >
+              <input
+                v-model="row.slug"
+                type="text"
+                class="col-span-5 h-9 rounded-md border border-gray-300 dark:border-dark-600 bg-white dark:bg-dark-900 px-2 text-sm text-gray-900 dark:text-gray-100 font-mono focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="model id"
+              />
+              <input
+                v-model="row.displayName"
+                type="text"
+                class="col-span-4 h-9 rounded-md border border-gray-300 dark:border-dark-600 bg-white dark:bg-dark-900 px-2 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="display name"
+              />
+              <input
+                v-model.number="row.contextWindow"
+                type="number"
+                min="1"
+                class="col-span-2 h-9 rounded-md border border-gray-300 dark:border-dark-600 bg-white dark:bg-dark-900 px-2 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500"
+                placeholder="context"
+              />
+              <button
+                type="button"
+                class="col-span-1 inline-flex h-9 w-9 items-center justify-center rounded-md text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                aria-label="Delete Codex model"
+                title="Delete Codex model"
+                @click="removeCodexModel(index)"
+              >
+                <Icon name="trash" size="sm" :stroke-width="2" />
+              </button>
+            </div>
+          </div>
+
+          <div v-else class="text-sm text-gray-500 dark:text-gray-400">
+            No models
+          </div>
+        </div>
+
         <!-- Code Blocks (Stacked for multi-file platforms) -->
         <div class="space-y-4">
           <div
@@ -179,6 +243,23 @@ const activeTab = ref<string>('unix')
 const activeClientTab = ref<string>('claude')
 const codexModelCatalog = ref<CodexModelCatalog | null>(null)
 const codexModelCatalogKeyId = ref<number | null>(null)
+interface CodexModelRow {
+  id: number
+  slug: string
+  displayName: string
+  contextWindow: number
+}
+
+const CODEX_MODEL_CATALOG_FILENAME = 'model-catalog.json'
+const CODEX_CONTEXT_WINDOW_DEFAULT = 128000
+const CODEX_REASONING_LEVELS = [
+  { effort: 'low', description: 'Fast responses with lighter reasoning' },
+  { effort: 'medium', description: 'Balances speed and reasoning depth for everyday tasks' },
+  { effort: 'high', description: 'Greater reasoning depth for complex problems' },
+  { effort: 'xhigh', description: 'Extra high reasoning depth for complex problems' }
+]
+let codexModelRowId = 0
+const codexModelRows = ref<CodexModelRow[]>([])
 
 // Reset tabs when platform changes
 const defaultClientTab = computed(() => {
@@ -226,6 +307,15 @@ watch(
   },
   { immediate: true }
 )
+
+watch(codexModelCatalog, (catalog) => {
+  codexModelRows.value = (catalog?.models ?? []).map((model) => ({
+    id: ++codexModelRowId,
+    slug: model.slug,
+    displayName: model.display_name || model.slug,
+    contextWindow: model.context_window || CODEX_CONTEXT_WINDOW_DEFAULT
+  }))
+})
 
 // Icon components
 const AppleIcon = {
@@ -594,10 +684,72 @@ interface CodexResponsesConfigOptions {
   reviewModel?: string
 }
 
-const CODEX_MODEL_CATALOG_FILENAME = 'sub2api-codex-model-catalog.json'
+const showCodexModelEditor = computed(() =>
+  activeClientTab.value === 'codex' || activeClientTab.value === 'codex-ws'
+)
+
+const normalizedCodexModelCatalogModels = computed(() => {
+  const seen = new Set<string>()
+  return codexModelRows.value
+    .map((row) => {
+      const slug = row.slug.trim()
+      if (!slug || seen.has(slug)) {
+        return null
+      }
+      seen.add(slug)
+      const displayName = row.displayName.trim() || codexCatalogDisplayName(slug)
+      const contextWindow = Number.isFinite(row.contextWindow) && row.contextWindow > 0
+        ? Math.trunc(row.contextWindow)
+        : CODEX_CONTEXT_WINDOW_DEFAULT
+      return {
+        slug,
+        display_name: displayName,
+        description: displayName,
+        default_reasoning_level: 'medium',
+        supported_reasoning_levels: CODEX_REASONING_LEVELS,
+        shell_type: 'shell_command',
+        context_window: contextWindow,
+        max_context_window: contextWindow,
+        visibility: 'list',
+        supported_in_api: true,
+        priority: 1000 + seen.size - 1,
+        additional_speed_tiers: ['fast'],
+        availability_nux: null,
+        upgrade: null
+      }
+    })
+    .filter((model): model is NonNullable<typeof model> => model !== null)
+})
+
+function codexCatalogDisplayName(slug: string): string {
+  return slug
+    .split(/[-_:/]+/)
+    .filter(Boolean)
+    .map((part) => {
+      const lower = part.toLowerCase()
+      if (lower === 'gpt' || lower === 'api' || lower === 'ai') {
+        return lower.toUpperCase()
+      }
+      return `${lower.charAt(0).toUpperCase()}${lower.slice(1)}`
+    })
+    .join(' ') || slug
+}
+
+function addCodexModel(): void {
+  codexModelRows.value.push({
+    id: ++codexModelRowId,
+    slug: '',
+    displayName: '',
+    contextWindow: CODEX_CONTEXT_WINDOW_DEFAULT
+  })
+}
+
+function removeCodexModel(index: number): void {
+  codexModelRows.value.splice(index, 1)
+}
 
 function currentCodexModelCatalogContent(): string | null {
-  const models = codexModelCatalog.value?.models
+  const models = normalizedCodexModelCatalogModels.value
   if (!models?.length) {
     return null
   }

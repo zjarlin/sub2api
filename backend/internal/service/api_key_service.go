@@ -482,14 +482,25 @@ func (s *APIKeyService) GetByID(ctx context.Context, id int64) (*APIKey, error) 
 }
 
 type CodexModelCatalogModel struct {
-	Slug             string `json:"slug"`
-	DisplayName      string `json:"display_name"`
-	Description      string `json:"description"`
-	ContextWindow    int    `json:"context_window"`
-	MaxContextWindow int    `json:"max_context_window"`
-	Visibility       string `json:"visibility"`
-	SupportedInAPI   bool   `json:"supported_in_api"`
-	Priority         int    `json:"priority"`
+	Slug                     string                            `json:"slug"`
+	DisplayName              string                            `json:"display_name"`
+	Description              string                            `json:"description"`
+	DefaultReasoningLevel    string                            `json:"default_reasoning_level"`
+	SupportedReasoningLevels []CodexModelCatalogReasoningLevel `json:"supported_reasoning_levels"`
+	ShellType                string                            `json:"shell_type"`
+	ContextWindow            int                               `json:"context_window"`
+	MaxContextWindow         int                               `json:"max_context_window"`
+	Visibility               string                            `json:"visibility"`
+	SupportedInAPI           bool                              `json:"supported_in_api"`
+	Priority                 int                               `json:"priority"`
+	AdditionalSpeedTiers     []string                          `json:"additional_speed_tiers,omitempty"`
+	AvailabilityNUX          any                               `json:"availability_nux"`
+	Upgrade                  any                               `json:"upgrade"`
+}
+
+type CodexModelCatalogReasoningLevel struct {
+	Effort      string `json:"effort"`
+	Description string `json:"description"`
 }
 
 type CodexModelCatalog struct {
@@ -567,17 +578,32 @@ func codexCatalogModelsFromAccounts(accounts []Account) []CodexModelCatalogModel
 	models := make([]CodexModelCatalogModel, 0, len(slugs))
 	for i, slug := range slugs {
 		models = append(models, CodexModelCatalogModel{
-			Slug:             slug,
-			DisplayName:      codexCatalogDisplayName(slug),
-			Description:      codexCatalogDisplayName(slug),
-			ContextWindow:    contextWindow,
-			MaxContextWindow: contextWindow,
-			Visibility:       "list",
-			SupportedInAPI:   true,
-			Priority:         1000 + i,
+			Slug:                     slug,
+			DisplayName:              codexCatalogDisplayName(slug),
+			Description:              codexCatalogDisplayName(slug),
+			DefaultReasoningLevel:    "medium",
+			SupportedReasoningLevels: codexCatalogSupportedReasoningLevels(),
+			ShellType:                "shell_command",
+			ContextWindow:            contextWindow,
+			MaxContextWindow:         contextWindow,
+			Visibility:               "list",
+			SupportedInAPI:           true,
+			Priority:                 1000 + i,
+			AdditionalSpeedTiers:     []string{"fast"},
+			AvailabilityNUX:          nil,
+			Upgrade:                  nil,
 		})
 	}
 	return models
+}
+
+func codexCatalogSupportedReasoningLevels() []CodexModelCatalogReasoningLevel {
+	return []CodexModelCatalogReasoningLevel{
+		{Effort: "low", Description: "Fast responses with lighter reasoning"},
+		{Effort: "medium", Description: "Balances speed and reasoning depth for everyday tasks"},
+		{Effort: "high", Description: "Greater reasoning depth for complex problems"},
+		{Effort: "xhigh", Description: "Extra high reasoning depth for complex problems"},
+	}
 }
 
 func codexCatalogCandidateModelsForAccount(account *Account) []string {

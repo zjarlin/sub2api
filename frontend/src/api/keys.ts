@@ -10,11 +10,20 @@ export interface CodexModelCatalogModel {
   slug: string
   display_name: string
   description: string
+  default_reasoning_level: string
+  supported_reasoning_levels: Array<{
+    effort: string
+    description: string
+  }>
+  shell_type: string
   context_window: number
   max_context_window: number
   visibility: string
   supported_in_api: boolean
   priority: number
+  additional_speed_tiers?: string[]
+  availability_nux?: unknown
+  upgrade?: unknown
 }
 
 export interface CodexModelCatalog {

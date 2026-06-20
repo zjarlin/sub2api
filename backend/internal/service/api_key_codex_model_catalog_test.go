@@ -82,6 +82,10 @@ func TestAPIKeyService_GetCodexModelCatalog_UsesKeyGroupSchedulableAccounts(t *t
 	for _, model := range catalog.Models {
 		slugs = append(slugs, model.Slug)
 		require.Equal(t, model.Slug != "", model.SupportedInAPI)
+		require.Equal(t, "medium", model.DefaultReasoningLevel)
+		require.Equal(t, "shell_command", model.ShellType)
+		require.NotEmpty(t, model.SupportedReasoningLevels)
+		require.Contains(t, codexReasoningEfforts(model.SupportedReasoningLevels), "xhigh")
 		require.Equal(t, "list", model.Visibility)
 		require.Equal(t, 128000, model.ContextWindow)
 		require.Equal(t, 128000, model.MaxContextWindow)
@@ -149,4 +153,12 @@ func uniqueStrings(values []string) map[string]struct{} {
 		seen[value] = struct{}{}
 	}
 	return seen
+}
+
+func codexReasoningEfforts(levels []CodexModelCatalogReasoningLevel) []string {
+	efforts := make([]string, 0, len(levels))
+	for _, level := range levels {
+		efforts = append(efforts, level.Effort)
+	}
+	return efforts
 }

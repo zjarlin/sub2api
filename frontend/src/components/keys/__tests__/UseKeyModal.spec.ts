@@ -94,21 +94,43 @@ describe('UseKeyModal', () => {
           slug: 'deepseek-v4-pro',
           display_name: 'DeepSeek V4 Pro',
           description: 'DeepSeek V4 Pro',
+          default_reasoning_level: 'medium',
+          supported_reasoning_levels: [
+            { effort: 'low', description: 'Fast responses with lighter reasoning' },
+            { effort: 'medium', description: 'Balances speed and reasoning depth for everyday tasks' },
+            { effort: 'high', description: 'Greater reasoning depth for complex problems' },
+            { effort: 'xhigh', description: 'Extra high reasoning depth for complex problems' }
+          ],
+          shell_type: 'shell_command',
           context_window: 128000,
           max_context_window: 128000,
           visibility: 'list',
           supported_in_api: true,
-          priority: 1000
+          priority: 1000,
+          additional_speed_tiers: ['fast'],
+          availability_nux: null,
+          upgrade: null
         },
         {
           slug: 'minimax-m3',
           display_name: 'Minimax M3',
           description: 'Minimax M3',
+          default_reasoning_level: 'medium',
+          supported_reasoning_levels: [
+            { effort: 'low', description: 'Fast responses with lighter reasoning' },
+            { effort: 'medium', description: 'Balances speed and reasoning depth for everyday tasks' },
+            { effort: 'high', description: 'Greater reasoning depth for complex problems' },
+            { effort: 'xhigh', description: 'Extra high reasoning depth for complex problems' }
+          ],
+          shell_type: 'shell_command',
           context_window: 128000,
           max_context_window: 128000,
           visibility: 'list',
           supported_in_api: true,
-          priority: 1001
+          priority: 1001,
+          additional_speed_tiers: ['fast'],
+          availability_nux: null,
+          upgrade: null
         }
       ]
     })
@@ -134,7 +156,7 @@ describe('UseKeyModal', () => {
 
     await vi.waitFor(() => {
       const codeBlocks = wrapper.findAll('pre code').map((code) => code.text())
-      expect(codeBlocks.some((content) => content.includes('model_catalog_json = "sub2api-codex-model-catalog.json"'))).toBe(true)
+      expect(codeBlocks.some((content) => content.includes('model_catalog_json = "model-catalog.json"'))).toBe(true)
     })
 
     const codeBlocks = wrapper.findAll('pre code').map((code) => code.text())
@@ -143,8 +165,79 @@ describe('UseKeyModal', () => {
 
     expect(keysAPI.getCodexModelCatalog).toHaveBeenCalledWith(123)
     expect(catalogFile).toContain('"slug": "minimax-m3"')
-    expect(setupScript).toContain('cat > "$config_dir/sub2api-codex-model-catalog.json"')
+    expect(catalogFile).toContain('"supported_reasoning_levels"')
+    expect(catalogFile).toContain('"effort": "xhigh"')
+    expect(setupScript).toContain('cat > "$config_dir/model-catalog.json"')
     expect(setupScript).toContain('"slug": "deepseek-v4-pro"')
+  })
+
+  it('allows editing the Codex model catalog before generating setup scripts', async () => {
+    vi.mocked(keysAPI.getCodexModelCatalog).mockResolvedValueOnce({
+      models: [
+        {
+          slug: 'deepseek-v4-pro',
+          display_name: 'DeepSeek V4 Pro',
+          description: 'DeepSeek V4 Pro',
+          default_reasoning_level: 'medium',
+          supported_reasoning_levels: [
+            { effort: 'low', description: 'Fast responses with lighter reasoning' },
+            { effort: 'medium', description: 'Balances speed and reasoning depth for everyday tasks' },
+            { effort: 'high', description: 'Greater reasoning depth for complex problems' },
+            { effort: 'xhigh', description: 'Extra high reasoning depth for complex problems' }
+          ],
+          shell_type: 'shell_command',
+          context_window: 128000,
+          max_context_window: 128000,
+          visibility: 'list',
+          supported_in_api: true,
+          priority: 1000,
+          additional_speed_tiers: ['fast'],
+          availability_nux: null,
+          upgrade: null
+        }
+      ]
+    })
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKeyId: 123,
+        apiKey: 'sk-test',
+        baseUrl: 'https://example.com/v1',
+        platform: 'openai'
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            template: '<div><slot /><slot name="footer" /></div>'
+          },
+          Icon: {
+            template: '<span />'
+          }
+        }
+      }
+    })
+
+    await vi.waitFor(() => {
+      const values = wrapper.findAll('input[placeholder="model id"]').map((input) =>
+        (input.element as HTMLInputElement).value
+      )
+      expect(values).toContain('deepseek-v4-pro')
+    })
+
+    await wrapper.find('button[aria-label="Add Codex model"]').trigger('click')
+    const modelInputs = wrapper.findAll('input[placeholder="model id"]')
+    await modelInputs.at(-1)!.setValue('qwen3-coder-plus')
+    const displayInputs = wrapper.findAll('input[placeholder="display name"]')
+    await displayInputs.at(-1)!.setValue('Qwen3 Coder Plus')
+
+    const codeBlocksAfterAdd = wrapper.findAll('pre code').map((code) => code.text())
+    const catalogAfterAdd = codeBlocksAfterAdd.find((content) => content.includes('"slug": "qwen3-coder-plus"'))
+    expect(catalogAfterAdd).toContain('"display_name": "Qwen3 Coder Plus"')
+
+    await wrapper.findAll('button[aria-label="Delete Codex model"]').at(0)!.trigger('click')
+    const codeBlocksAfterRemove = wrapper.findAll('pre code').map((code) => code.text())
+    const catalogAfterRemove = codeBlocksAfterRemove.find((content) => content.includes('"slug": "qwen3-coder-plus"'))
+    expect(catalogAfterRemove).not.toContain('"slug": "deepseek-v4-pro"')
   })
 
   it('renders a Windows PowerShell Codex setup script', async () => {
