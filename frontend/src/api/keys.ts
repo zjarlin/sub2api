@@ -24,6 +24,24 @@ export interface CodexModelCatalogModel {
   additional_speed_tiers?: string[]
   availability_nux?: unknown
   upgrade?: unknown
+  default_reasoning_summary?: string
+  support_verbosity?: boolean
+  default_verbosity?: string
+  apply_patch_tool_type?: string
+  web_search_tool_type?: string
+  truncation_policy?: {
+    mode: string
+    limit: number
+  }
+  supports_parallel_tool_calls?: boolean
+  supports_image_detail_original?: boolean
+  effective_context_window_percent?: number
+  experimental_supported_tools?: unknown[]
+  input_modalities?: string[]
+  supports_search_tool?: boolean
+  supports_reasoning_summaries?: boolean
+  base_instructions?: string
+  model_messages?: Record<string, unknown>
 }
 
 export interface CodexModelCatalog {

@@ -482,25 +482,45 @@ func (s *APIKeyService) GetByID(ctx context.Context, id int64) (*APIKey, error) 
 }
 
 type CodexModelCatalogModel struct {
-	Slug                     string                            `json:"slug"`
-	DisplayName              string                            `json:"display_name"`
-	Description              string                            `json:"description"`
-	DefaultReasoningLevel    string                            `json:"default_reasoning_level"`
-	SupportedReasoningLevels []CodexModelCatalogReasoningLevel `json:"supported_reasoning_levels"`
-	ShellType                string                            `json:"shell_type"`
-	ContextWindow            int                               `json:"context_window"`
-	MaxContextWindow         int                               `json:"max_context_window"`
-	Visibility               string                            `json:"visibility"`
-	SupportedInAPI           bool                              `json:"supported_in_api"`
-	Priority                 int                               `json:"priority"`
-	AdditionalSpeedTiers     []string                          `json:"additional_speed_tiers,omitempty"`
-	AvailabilityNUX          any                               `json:"availability_nux"`
-	Upgrade                  any                               `json:"upgrade"`
+	Slug                          string                            `json:"slug"`
+	DisplayName                   string                            `json:"display_name"`
+	Description                   string                            `json:"description"`
+	DefaultReasoningLevel         string                            `json:"default_reasoning_level"`
+	SupportedReasoningLevels      []CodexModelCatalogReasoningLevel `json:"supported_reasoning_levels"`
+	ShellType                     string                            `json:"shell_type"`
+	Visibility                    string                            `json:"visibility"`
+	SupportedInAPI                bool                              `json:"supported_in_api"`
+	Priority                      int                               `json:"priority"`
+	AdditionalSpeedTiers          []string                          `json:"additional_speed_tiers,omitempty"`
+	AvailabilityNUX               any                               `json:"availability_nux"`
+	Upgrade                       any                               `json:"upgrade"`
+	DefaultReasoningSummary       string                            `json:"default_reasoning_summary"`
+	SupportVerbosity              bool                              `json:"support_verbosity"`
+	DefaultVerbosity              string                            `json:"default_verbosity"`
+	ApplyPatchToolType            string                            `json:"apply_patch_tool_type"`
+	WebSearchToolType             string                            `json:"web_search_tool_type"`
+	TruncationPolicy              CodexModelCatalogTruncationPolicy `json:"truncation_policy"`
+	SupportsParallelToolCalls     bool                              `json:"supports_parallel_tool_calls"`
+	SupportsImageDetailOriginal   bool                              `json:"supports_image_detail_original"`
+	ContextWindow                 int                               `json:"context_window"`
+	MaxContextWindow              int                               `json:"max_context_window"`
+	EffectiveContextWindowPercent int                               `json:"effective_context_window_percent"`
+	ExperimentalSupportedTools    []any                             `json:"experimental_supported_tools"`
+	InputModalities               []string                          `json:"input_modalities"`
+	SupportsSearchTool            bool                              `json:"supports_search_tool"`
+	SupportsReasoningSummaries    bool                              `json:"supports_reasoning_summaries"`
+	BaseInstructions              string                            `json:"base_instructions,omitempty"`
+	ModelMessages                 map[string]any                    `json:"model_messages,omitempty"`
 }
 
 type CodexModelCatalogReasoningLevel struct {
 	Effort      string `json:"effort"`
 	Description string `json:"description"`
+}
+
+type CodexModelCatalogTruncationPolicy struct {
+	Mode  string `json:"mode"`
+	Limit int    `json:"limit"`
 }
 
 type CodexModelCatalog struct {
@@ -574,24 +594,38 @@ func codexCatalogModelsFromAccounts(accounts []Account) []CodexModelCatalogModel
 	}
 	sort.Strings(slugs)
 
-	const contextWindow = 128000
+	const contextWindow = 272000
 	models := make([]CodexModelCatalogModel, 0, len(slugs))
 	for i, slug := range slugs {
+		displayName := codexCatalogDisplayName(slug)
 		models = append(models, CodexModelCatalogModel{
-			Slug:                     slug,
-			DisplayName:              codexCatalogDisplayName(slug),
-			Description:              codexCatalogDisplayName(slug),
-			DefaultReasoningLevel:    "medium",
-			SupportedReasoningLevels: codexCatalogSupportedReasoningLevels(),
-			ShellType:                "shell_command",
-			ContextWindow:            contextWindow,
-			MaxContextWindow:         contextWindow,
-			Visibility:               "list",
-			SupportedInAPI:           true,
-			Priority:                 1000 + i,
-			AdditionalSpeedTiers:     []string{"fast"},
-			AvailabilityNUX:          nil,
-			Upgrade:                  nil,
+			Slug:                          slug,
+			DisplayName:                   displayName,
+			Description:                   fmt.Sprintf("Custom %s model routed through the configured Codex provider.", displayName),
+			DefaultReasoningLevel:         "medium",
+			SupportedReasoningLevels:      codexCatalogSupportedReasoningLevels(),
+			ShellType:                     "shell_command",
+			Visibility:                    "list",
+			SupportedInAPI:                true,
+			Priority:                      1000 + i,
+			AdditionalSpeedTiers:          []string{"fast"},
+			AvailabilityNUX:               nil,
+			Upgrade:                       nil,
+			DefaultReasoningSummary:       "none",
+			SupportVerbosity:              true,
+			DefaultVerbosity:              "low",
+			ApplyPatchToolType:            "freeform",
+			WebSearchToolType:             "text_and_image",
+			TruncationPolicy:              CodexModelCatalogTruncationPolicy{Mode: "tokens", Limit: 10000},
+			SupportsParallelToolCalls:     true,
+			SupportsImageDetailOriginal:   true,
+			ContextWindow:                 contextWindow,
+			MaxContextWindow:              contextWindow,
+			EffectiveContextWindowPercent: 95,
+			ExperimentalSupportedTools:    []any{},
+			InputModalities:               []string{"text", "image"},
+			SupportsSearchTool:            true,
+			SupportsReasoningSummaries:    true,
 		})
 	}
 	return models

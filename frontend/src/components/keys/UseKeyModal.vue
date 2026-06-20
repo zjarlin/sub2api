@@ -150,14 +150,33 @@
             </p>
             <div class="bg-gray-900 dark:bg-dark-900 rounded-xl overflow-hidden">
               <!-- Code Header -->
-              <div class="flex items-center justify-between px-4 py-2 bg-gray-800 dark:bg-dark-800 border-b border-gray-700 dark:border-dark-700">
-                <span class="text-xs text-gray-400 font-mono">{{ file.path }}</span>
+              <div
+                class="flex items-center justify-between gap-3 px-4 py-2 bg-gray-800 dark:bg-dark-800"
+                :class="isFileExpanded(index) ? 'border-b border-gray-700 dark:border-dark-700' : ''"
+              >
                 <button
-                  @click="copyContent(file.content, index)"
+                  type="button"
+                  class="min-w-0 flex flex-1 items-center gap-2 text-left text-xs text-gray-400 hover:text-gray-200 font-mono transition-colors"
+                  :aria-expanded="isFileExpanded(index)"
+                  :aria-controls="`use-key-code-${index}`"
+                  :aria-label="isFileExpanded(index) ? 'Collapse command' : 'Expand command'"
+                  @click="toggleFileExpanded(index)"
+                >
+                  <Icon
+                    :name="isFileExpanded(index) ? 'chevronDown' : 'chevronRight'"
+                    size="xs"
+                    :stroke-width="2"
+                    class="flex-shrink-0"
+                  />
+                  <span class="truncate">{{ file.path }}</span>
+                </button>
+                <button
+                  type="button"
                   class="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-lg transition-colors"
                   :class="copiedIndex === index
                     ? 'bg-green-500/20 text-green-400'
                     : 'bg-gray-700 hover:bg-gray-600 text-gray-300 hover:text-white'"
+                  @click.stop="copyContent(file.content, index)"
                 >
                   <svg v-if="copiedIndex === index" class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
@@ -169,7 +188,11 @@
                 </button>
               </div>
               <!-- Code Content -->
-              <pre class="p-4 text-sm font-mono text-gray-100 overflow-x-auto"><code v-if="file.highlighted" v-html="file.highlighted"></code><code v-else v-text="file.content"></code></pre>
+              <pre
+                v-show="isFileExpanded(index)"
+                :id="`use-key-code-${index}`"
+                class="p-4 text-sm font-mono text-gray-100 overflow-x-auto"
+              ><code v-if="file.highlighted" v-html="file.highlighted"></code><code v-else v-text="file.content"></code></pre>
             </div>
           </div>
         </div>
@@ -204,7 +227,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useClipboard } from '@/composables/useClipboard'
 import type { GroupPlatform } from '@/types'
-import { keysAPI, type CodexModelCatalog } from '@/api/keys'
+import { keysAPI, type CodexModelCatalogModel } from '@/api/keys'
 
 interface Props {
   show: boolean
@@ -241,7 +264,7 @@ const { copyToClipboard: clipboardCopy } = useClipboard()
 const copiedIndex = ref<number | null>(null)
 const activeTab = ref<string>('unix')
 const activeClientTab = ref<string>('claude')
-const codexModelCatalog = ref<CodexModelCatalog | null>(null)
+const expandedFileIndexes = ref<Set<number>>(new Set())
 const codexModelCatalogKeyId = ref<number | null>(null)
 interface CodexModelRow {
   id: number
@@ -250,8 +273,17 @@ interface CodexModelRow {
   contextWindow: number
 }
 
+type PersistedCodexModelRow = Omit<CodexModelRow, 'id'>
+
+interface PersistedCodexModelCatalog {
+  version: 1
+  models: PersistedCodexModelRow[]
+  blacklistedSlugs: string[]
+}
+
 const CODEX_MODEL_CATALOG_FILENAME = 'model-catalog.json'
-const CODEX_CONTEXT_WINDOW_DEFAULT = 128000
+const CODEX_MODEL_CATALOG_STORAGE_PREFIX = 'sub2api:codex-model-catalog'
+const CODEX_CONTEXT_WINDOW_DEFAULT = 272000
 const CODEX_REASONING_LEVELS = [
   { effort: 'low', description: 'Fast responses with lighter reasoning' },
   { effort: 'medium', description: 'Balances speed and reasoning depth for everyday tasks' },
@@ -260,6 +292,8 @@ const CODEX_REASONING_LEVELS = [
 ]
 let codexModelRowId = 0
 const codexModelRows = ref<CodexModelRow[]>([])
+const codexModelCatalogStorageState = ref<PersistedCodexModelCatalog>(emptyCodexModelCatalogStorageState())
+let hydratingCodexModelRows = false
 
 // Reset tabs when platform changes
 const defaultClientTab = computed(() => {
@@ -286,35 +320,44 @@ watch(activeClientTab, () => {
 })
 
 watch(
+  () => [props.show, props.apiKeyId, props.apiKey, props.baseUrl, props.platform, activeClientTab.value, activeTab.value] as const,
+  () => {
+    expandedFileIndexes.value = new Set()
+  }
+)
+
+watch(
   () => [props.show, props.apiKeyId, props.platform] as const,
   async ([show, apiKeyId, platform]) => {
     if (!show || !apiKeyId || (platform !== 'openai' && platform !== 'gemini')) {
-      codexModelCatalog.value = null
       codexModelCatalogKeyId.value = null
+      resetCodexModelRows()
       return
     }
+    hydrateCodexModelRows([])
     codexModelCatalogKeyId.value = apiKeyId
     try {
+      const requestedPlatform = platform
       const catalog = await keysAPI.getCodexModelCatalog(apiKeyId)
-      if (codexModelCatalogKeyId.value === apiKeyId) {
-        codexModelCatalog.value = catalog
+      if (codexModelCatalogKeyId.value === apiKeyId && props.platform === requestedPlatform) {
+        hydrateCodexModelRows(catalog.models)
       }
     } catch (error) {
-      if (codexModelCatalogKeyId.value === apiKeyId) {
-        codexModelCatalog.value = null
+      if (codexModelCatalogKeyId.value === apiKeyId && props.platform === platform) {
+        hydrateCodexModelRows([])
       }
     }
   },
   { immediate: true }
 )
 
-watch(codexModelCatalog, (catalog) => {
-  codexModelRows.value = (catalog?.models ?? []).map((model) => ({
-    id: ++codexModelRowId,
-    slug: model.slug,
-    displayName: model.display_name || model.slug,
-    contextWindow: model.context_window || CODEX_CONTEXT_WINDOW_DEFAULT
-  }))
+watch(codexModelRows, () => {
+  if (!hydratingCodexModelRows) {
+    persistCodexModelRows()
+  }
+}, {
+  deep: true,
+  flush: 'sync'
 })
 
 // Icon components
@@ -585,6 +628,20 @@ const currentFiles = computed((): FileConfig[] => {
   }
 })
 
+function isFileExpanded(index: number): boolean {
+  return expandedFileIndexes.value.has(index)
+}
+
+function toggleFileExpanded(index: number): void {
+  const nextExpandedIndexes = new Set(expandedFileIndexes.value)
+  if (nextExpandedIndexes.has(index)) {
+    nextExpandedIndexes.delete(index)
+  } else {
+    nextExpandedIndexes.add(index)
+  }
+  expandedFileIndexes.value = nextExpandedIndexes
+}
+
 function generateAnthropicFiles(baseUrl: string, apiKey: string): FileConfig[] {
   let path: string
   let content: string
@@ -704,18 +761,34 @@ const normalizedCodexModelCatalogModels = computed(() => {
       return {
         slug,
         display_name: displayName,
-        description: displayName,
+        description: `Custom ${displayName} model routed through the configured Codex provider.`,
         default_reasoning_level: 'medium',
         supported_reasoning_levels: CODEX_REASONING_LEVELS,
         shell_type: 'shell_command',
-        context_window: contextWindow,
-        max_context_window: contextWindow,
         visibility: 'list',
         supported_in_api: true,
         priority: 1000 + seen.size - 1,
         additional_speed_tiers: ['fast'],
         availability_nux: null,
-        upgrade: null
+        upgrade: null,
+        default_reasoning_summary: 'none',
+        support_verbosity: true,
+        default_verbosity: 'low',
+        apply_patch_tool_type: 'freeform',
+        web_search_tool_type: 'text_and_image',
+        truncation_policy: {
+          mode: 'tokens',
+          limit: 10000
+        },
+        supports_parallel_tool_calls: true,
+        supports_image_detail_original: true,
+        context_window: contextWindow,
+        max_context_window: contextWindow,
+        effective_context_window_percent: 95,
+        experimental_supported_tools: [],
+        input_modalities: ['text', 'image'],
+        supports_search_tool: true,
+        supports_reasoning_summaries: true
       }
     })
     .filter((model): model is NonNullable<typeof model> => model !== null)
@@ -745,7 +818,18 @@ function addCodexModel(): void {
 }
 
 function removeCodexModel(index: number): void {
+  const slug = codexModelRows.value[index]?.slug.trim()
+  if (slug) {
+    codexModelCatalogStorageState.value = {
+      ...codexModelCatalogStorageState.value,
+      blacklistedSlugs: uniqueStrings([
+        ...codexModelCatalogStorageState.value.blacklistedSlugs,
+        slug
+      ])
+    }
+  }
   codexModelRows.value.splice(index, 1)
+  persistCodexModelRows()
 }
 
 function currentCodexModelCatalogContent(): string | null {
@@ -754,6 +838,169 @@ function currentCodexModelCatalogContent(): string | null {
     return null
   }
   return JSON.stringify({ models }, null, 2)
+}
+
+function resetCodexModelRows(): void {
+  codexModelCatalogStorageState.value = emptyCodexModelCatalogStorageState()
+  hydratingCodexModelRows = true
+  try {
+    codexModelRows.value = []
+  } finally {
+    hydratingCodexModelRows = false
+  }
+}
+
+function hydrateCodexModelRows(serverModels: CodexModelCatalogModel[]): void {
+  const persisted = readCodexModelCatalogStorage()
+  const blacklist = new Set(persisted.blacklistedSlugs)
+  const mergedRows = mergeCodexModelRows(
+    serverModels.map(codexModelToPersistedRow),
+    persisted.models
+  ).filter((row) => {
+    const slug = row.slug.trim()
+    return slug && !blacklist.has(slug)
+  })
+
+  codexModelCatalogStorageState.value = {
+    version: 1,
+    models: mergedRows,
+    blacklistedSlugs: persisted.blacklistedSlugs
+  }
+
+  hydratingCodexModelRows = true
+  try {
+    codexModelRows.value = mergedRows.map((row) => ({
+      id: ++codexModelRowId,
+      ...row
+    }))
+  } finally {
+    hydratingCodexModelRows = false
+  }
+  writeCodexModelCatalogStorage(codexModelCatalogStorageState.value)
+}
+
+function persistCodexModelRows(): void {
+  const rows = mergeCodexModelRows(codexModelRows.value.map(rowToPersistedCodexModelRow))
+    .filter((row) => row.slug.trim())
+  const rowSlugs = new Set(rows.map((row) => row.slug))
+  codexModelCatalogStorageState.value = {
+    version: 1,
+    models: rows,
+    blacklistedSlugs: codexModelCatalogStorageState.value.blacklistedSlugs.filter((slug) => !rowSlugs.has(slug))
+  }
+  writeCodexModelCatalogStorage(codexModelCatalogStorageState.value)
+}
+
+function codexModelToPersistedRow(model: CodexModelCatalogModel): PersistedCodexModelRow {
+  return {
+    slug: model.slug,
+    displayName: model.display_name || model.slug,
+    contextWindow: model.context_window || CODEX_CONTEXT_WINDOW_DEFAULT
+  }
+}
+
+function rowToPersistedCodexModelRow(row: CodexModelRow): PersistedCodexModelRow {
+  return {
+    slug: row.slug,
+    displayName: row.displayName,
+    contextWindow: row.contextWindow
+  }
+}
+
+function mergeCodexModelRows(...rowGroups: PersistedCodexModelRow[][]): PersistedCodexModelRow[] {
+  const merged = new Map<string, PersistedCodexModelRow>()
+  for (const rows of rowGroups) {
+    for (const row of rows) {
+      const slug = row.slug.trim()
+      if (!slug) continue
+      merged.set(slug, normalizePersistedCodexModelRow(row))
+    }
+  }
+  return Array.from(merged.values())
+}
+
+function normalizePersistedCodexModelRow(row: PersistedCodexModelRow): PersistedCodexModelRow {
+  const slug = row.slug.trim()
+  const displayName = row.displayName.trim() || codexCatalogDisplayName(slug)
+  const contextWindow = Number.isFinite(row.contextWindow) && row.contextWindow > 0
+    ? Math.trunc(row.contextWindow)
+    : CODEX_CONTEXT_WINDOW_DEFAULT
+  return {
+    slug,
+    displayName,
+    contextWindow
+  }
+}
+
+function readCodexModelCatalogStorage(): PersistedCodexModelCatalog {
+  const storageKey = codexModelCatalogStorageKey()
+  if (!storageKey || typeof window === 'undefined') {
+    return emptyCodexModelCatalogStorageState()
+  }
+  try {
+    const raw = window.localStorage.getItem(storageKey)
+    if (!raw) {
+      return emptyCodexModelCatalogStorageState()
+    }
+    return normalizeCodexModelCatalogStorage(JSON.parse(raw))
+  } catch {
+    return emptyCodexModelCatalogStorageState()
+  }
+}
+
+function writeCodexModelCatalogStorage(state: PersistedCodexModelCatalog): void {
+  const storageKey = codexModelCatalogStorageKey()
+  if (!storageKey || typeof window === 'undefined') {
+    return
+  }
+  try {
+    window.localStorage.setItem(storageKey, JSON.stringify(normalizeCodexModelCatalogStorage(state)))
+  } catch {
+    // localStorage may be disabled; the generated script still uses the current in-memory rows.
+  }
+}
+
+function codexModelCatalogStorageKey(): string | null {
+  if (!props.apiKeyId || (props.platform !== 'openai' && props.platform !== 'gemini')) {
+    return null
+  }
+  return `${CODEX_MODEL_CATALOG_STORAGE_PREFIX}:${props.apiKeyId}:${props.platform}`
+}
+
+function normalizeCodexModelCatalogStorage(value: unknown): PersistedCodexModelCatalog {
+  const candidate = value as Partial<PersistedCodexModelCatalog> | null
+  const models = Array.isArray(candidate?.models)
+    ? candidate.models
+        .filter(isPersistedCodexModelRow)
+        .map(normalizePersistedCodexModelRow)
+    : []
+  const blacklistedSlugs = Array.isArray(candidate?.blacklistedSlugs)
+    ? uniqueStrings(candidate.blacklistedSlugs.filter((slug): slug is string => typeof slug === 'string').map((slug) => slug.trim()).filter(Boolean))
+    : []
+  return {
+    version: 1,
+    models: mergeCodexModelRows(models),
+    blacklistedSlugs
+  }
+}
+
+function isPersistedCodexModelRow(value: unknown): value is PersistedCodexModelRow {
+  const candidate = value as Partial<PersistedCodexModelRow> | null
+  return typeof candidate?.slug === 'string'
+    && typeof candidate.displayName === 'string'
+    && typeof candidate.contextWindow === 'number'
+}
+
+function emptyCodexModelCatalogStorageState(): PersistedCodexModelCatalog {
+  return {
+    version: 1,
+    models: [],
+    blacklistedSlugs: []
+  }
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)))
 }
 
 function generateOpenAIFiles(baseUrl: string, apiKey: string, options: CodexResponsesConfigOptions = {}): FileConfig[] {
