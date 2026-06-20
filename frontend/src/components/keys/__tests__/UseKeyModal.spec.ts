@@ -14,7 +14,14 @@ vi.mock('@/composables/useClipboard', () => ({
   })
 }))
 
+vi.mock('@/api/keys', () => ({
+  keysAPI: {
+    getCodexModelCatalog: vi.fn().mockResolvedValue({ models: [] })
+  }
+}))
+
 import UseKeyModal from '../UseKeyModal.vue'
+import { keysAPI } from '@/api/keys'
 
 describe('UseKeyModal', () => {
   it('renders GPT-5.5 and goals feature in OpenAI Codex config', () => {
@@ -78,6 +85,66 @@ describe('UseKeyModal', () => {
     expect(setupScript).toContain('cat > "$config_dir/auth.json"')
     expect(setupScript).toContain('model_provider = "OpenAI"')
     expect(setupScript).toContain('"OPENAI_API_KEY": "sk-test"')
+  })
+
+  it('writes Codex model catalog into the one-click setup script', async () => {
+    vi.mocked(keysAPI.getCodexModelCatalog).mockResolvedValueOnce({
+      models: [
+        {
+          slug: 'deepseek-v4-pro',
+          display_name: 'DeepSeek V4 Pro',
+          description: 'DeepSeek V4 Pro',
+          context_window: 128000,
+          max_context_window: 128000,
+          visibility: 'list',
+          supported_in_api: true,
+          priority: 1000
+        },
+        {
+          slug: 'minimax-m3',
+          display_name: 'Minimax M3',
+          description: 'Minimax M3',
+          context_window: 128000,
+          max_context_window: 128000,
+          visibility: 'list',
+          supported_in_api: true,
+          priority: 1001
+        }
+      ]
+    })
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKeyId: 123,
+        apiKey: 'sk-test',
+        baseUrl: 'https://example.com/v1',
+        platform: 'openai'
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            template: '<div><slot /><slot name="footer" /></div>'
+          },
+          Icon: {
+            template: '<span />'
+          }
+        }
+      }
+    })
+
+    await vi.waitFor(() => {
+      const codeBlocks = wrapper.findAll('pre code').map((code) => code.text())
+      expect(codeBlocks.some((content) => content.includes('model_catalog_json = "sub2api-codex-model-catalog.json"'))).toBe(true)
+    })
+
+    const codeBlocks = wrapper.findAll('pre code').map((code) => code.text())
+    const setupScript = codeBlocks.find((content) => content.includes('#!/usr/bin/env bash'))
+    const catalogFile = codeBlocks.find((content) => content.includes('"slug": "deepseek-v4-pro"'))
+
+    expect(keysAPI.getCodexModelCatalog).toHaveBeenCalledWith(123)
+    expect(catalogFile).toContain('"slug": "minimax-m3"')
+    expect(setupScript).toContain('cat > "$config_dir/sub2api-codex-model-catalog.json"')
+    expect(setupScript).toContain('"slug": "deepseek-v4-pro"')
   })
 
   it('renders a Windows PowerShell Codex setup script', async () => {

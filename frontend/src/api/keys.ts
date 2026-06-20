@@ -6,6 +6,21 @@
 import { apiClient } from './client'
 import type { ApiKey, CreateApiKeyRequest, UpdateApiKeyRequest, PaginatedResponse } from '@/types'
 
+export interface CodexModelCatalogModel {
+  slug: string
+  display_name: string
+  description: string
+  context_window: number
+  max_context_window: number
+  visibility: string
+  supported_in_api: boolean
+  priority: number
+}
+
+export interface CodexModelCatalog {
+  models: CodexModelCatalogModel[]
+}
+
 /**
  * List all API keys for current user
  * @param page - Page number (default: 1)
@@ -43,6 +58,16 @@ export async function list(
  */
 export async function getById(id: number): Promise<ApiKey> {
   const { data } = await apiClient.get<ApiKey>(`/keys/${id}`)
+  return data
+}
+
+/**
+ * Get Codex model catalog generated from the API key's schedulable account group.
+ * @param id - API key ID
+ * @returns Codex model catalog payload
+ */
+export async function getCodexModelCatalog(id: number): Promise<CodexModelCatalog> {
+  const { data } = await apiClient.get<CodexModelCatalog>(`/keys/${id}/codex-model-catalog`)
   return data
 }
 
@@ -139,6 +164,7 @@ export async function toggleStatus(id: number, status: 'active' | 'inactive'): P
 export const keysAPI = {
   list,
   getById,
+  getCodexModelCatalog,
   create,
   update,
   delete: deleteKey,

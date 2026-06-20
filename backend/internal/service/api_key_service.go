@@ -6,14 +6,20 @@ import (
 	"encoding/hex"
 	"fmt"
 	"html"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/kiro"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/dgraph-io/ristretto"
@@ -200,6 +206,7 @@ type RateLimitCacheInvalidator interface {
 
 type APIKeyService struct {
 	apiKeyRepo            APIKeyRepository
+	accountRepo           AccountRepository
 	userRepo              UserRepository
 	groupRepo             GroupRepository
 	userSubRepo           UserSubscriptionRepository
@@ -241,6 +248,11 @@ func NewAPIKeyService(
 // Called after construction (e.g. in wire) to avoid circular dependencies.
 func (s *APIKeyService) SetRateLimitCacheInvalidator(inv RateLimitCacheInvalidator) {
 	s.rateLimitCacheInvalid = inv
+}
+
+// SetAccountRepository connects account lookups used by user-facing setup helpers.
+func (s *APIKeyService) SetAccountRepository(repo AccountRepository) {
+	s.accountRepo = repo
 }
 
 func (s *APIKeyService) compileAPIKeyIPRules(apiKey *APIKey) {
@@ -467,6 +479,174 @@ func (s *APIKeyService) GetByID(ctx context.Context, id int64) (*APIKey, error) 
 	}
 	s.compileAPIKeyIPRules(apiKey)
 	return apiKey, nil
+}
+
+type CodexModelCatalogModel struct {
+	Slug             string `json:"slug"`
+	DisplayName      string `json:"display_name"`
+	Description      string `json:"description"`
+	ContextWindow    int    `json:"context_window"`
+	MaxContextWindow int    `json:"max_context_window"`
+	Visibility       string `json:"visibility"`
+	SupportedInAPI   bool   `json:"supported_in_api"`
+	Priority         int    `json:"priority"`
+}
+
+type CodexModelCatalog struct {
+	Models []CodexModelCatalogModel `json:"models"`
+}
+
+// GetCodexModelCatalog returns a Codex model catalog derived from the
+// schedulable accounts visible through the API key's bound group.
+func (s *APIKeyService) GetCodexModelCatalog(ctx context.Context, id int64, userID int64) (*CodexModelCatalog, error) {
+	apiKey, err := s.apiKeyRepo.GetByID(ctx, id)
+	if err != nil {
+		return nil, fmt.Errorf("get api key: %w", err)
+	}
+	if apiKey.UserID != userID {
+		return nil, ErrInsufficientPerms
+	}
+	if apiKey.GroupID == nil || apiKey.Group == nil {
+		return &CodexModelCatalog{Models: []CodexModelCatalogModel{}}, nil
+	}
+	if s.accountRepo == nil {
+		return &CodexModelCatalog{Models: []CodexModelCatalogModel{}}, nil
+	}
+
+	platform := strings.TrimSpace(apiKey.Group.Platform)
+	if platform == "" {
+		return &CodexModelCatalog{Models: []CodexModelCatalogModel{}}, nil
+	}
+
+	var accounts []Account
+	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+		accounts, err = s.accountRepo.ListSchedulableByPlatform(ctx, platform)
+	} else {
+		accounts, err = s.accountRepo.ListSchedulableByGroupIDAndPlatform(ctx, *apiKey.GroupID, platform)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("list schedulable accounts: %w", err)
+	}
+
+	models := codexCatalogModelsFromAccounts(accounts)
+	return &CodexModelCatalog{Models: models}, nil
+}
+
+func codexCatalogModelsFromAccounts(accounts []Account) []CodexModelCatalogModel {
+	seen := make(map[string]struct{})
+	slugs := make([]string, 0)
+	for i := range accounts {
+		for _, model := range codexCatalogCandidateModelsForAccount(&accounts[i]) {
+			model = strings.TrimSpace(model)
+			if !codexCatalogModelSlugAllowed(model) || !accounts[i].IsModelSupported(model) {
+				continue
+			}
+			if _, ok := seen[model]; ok {
+				continue
+			}
+			seen[model] = struct{}{}
+			slugs = append(slugs, model)
+		}
+
+		mapping := accounts[i].GetModelMapping()
+		for model := range mapping {
+			model = strings.TrimSpace(model)
+			if !codexCatalogModelSlugAllowed(model) {
+				continue
+			}
+			if _, ok := seen[model]; ok {
+				continue
+			}
+			seen[model] = struct{}{}
+			slugs = append(slugs, model)
+		}
+	}
+	sort.Strings(slugs)
+
+	const contextWindow = 128000
+	models := make([]CodexModelCatalogModel, 0, len(slugs))
+	for i, slug := range slugs {
+		models = append(models, CodexModelCatalogModel{
+			Slug:             slug,
+			DisplayName:      codexCatalogDisplayName(slug),
+			Description:      codexCatalogDisplayName(slug),
+			ContextWindow:    contextWindow,
+			MaxContextWindow: contextWindow,
+			Visibility:       "list",
+			SupportedInAPI:   true,
+			Priority:         1000 + i,
+		})
+	}
+	return models
+}
+
+func codexCatalogCandidateModelsForAccount(account *Account) []string {
+	if account == nil {
+		return nil
+	}
+	switch account.Platform {
+	case PlatformOpenAI:
+		return openai.DefaultModelIDs()
+	case PlatformGemini:
+		models := make([]string, 0, len(geminicli.DefaultModels))
+		for _, model := range geminicli.DefaultModels {
+			models = append(models, model.ID)
+		}
+		return models
+	case PlatformAntigravity:
+		models := antigravity.DefaultModels()
+		ids := make([]string, 0, len(models))
+		for _, model := range models {
+			ids = append(ids, model.ID)
+		}
+		return ids
+	case PlatformKiro:
+		models := make([]string, 0, len(kiro.DefaultModels))
+		for _, model := range kiro.DefaultModels {
+			models = append(models, model.ID)
+		}
+		return models
+	case PlatformAnthropic:
+		return claude.DefaultModelIDs()
+	default:
+		return nil
+	}
+}
+
+func codexCatalogModelSlugAllowed(model string) bool {
+	if model == "" || strings.Contains(model, "*") {
+		return false
+	}
+	return true
+}
+
+func codexCatalogDisplayName(slug string) string {
+	trimmed := strings.TrimSpace(slug)
+	if trimmed == "" {
+		return trimmed
+	}
+	parts := strings.FieldsFunc(trimmed, func(r rune) bool {
+		return r == '-' || r == '_' || r == ':' || r == '/'
+	})
+	for i := range parts {
+		if parts[i] == "" {
+			continue
+		}
+		lower := strings.ToLower(parts[i])
+		switch lower {
+		case "gpt", "api", "ai":
+			parts[i] = strings.ToUpper(lower)
+		default:
+			runes := []rune(lower)
+			runes[0] = []rune(strings.ToUpper(string(runes[0])))[0]
+			parts[i] = string(runes)
+		}
+	}
+	display := strings.Join(parts, " ")
+	if display == "" {
+		return trimmed
+	}
+	return display
 }
 
 // GetByKey 根据Key字符串获取API Key（用于认证）

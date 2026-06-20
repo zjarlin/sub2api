@@ -140,9 +140,11 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useClipboard } from '@/composables/useClipboard'
 import type { GroupPlatform } from '@/types'
+import { keysAPI, type CodexModelCatalog } from '@/api/keys'
 
 interface Props {
   show: boolean
+  apiKeyId?: number | null
   apiKey: string
   baseUrl: string
   platform: GroupPlatform | null
@@ -175,6 +177,8 @@ const { copyToClipboard: clipboardCopy } = useClipboard()
 const copiedIndex = ref<number | null>(null)
 const activeTab = ref<string>('unix')
 const activeClientTab = ref<string>('claude')
+const codexModelCatalog = ref<CodexModelCatalog | null>(null)
+const codexModelCatalogKeyId = ref<number | null>(null)
 
 // Reset tabs when platform changes
 const defaultClientTab = computed(() => {
@@ -199,6 +203,29 @@ watch(() => props.platform, () => {
 watch(activeClientTab, () => {
   activeTab.value = 'unix'
 })
+
+watch(
+  () => [props.show, props.apiKeyId, props.platform] as const,
+  async ([show, apiKeyId, platform]) => {
+    if (!show || !apiKeyId || (platform !== 'openai' && platform !== 'gemini')) {
+      codexModelCatalog.value = null
+      codexModelCatalogKeyId.value = null
+      return
+    }
+    codexModelCatalogKeyId.value = apiKeyId
+    try {
+      const catalog = await keysAPI.getCodexModelCatalog(apiKeyId)
+      if (codexModelCatalogKeyId.value === apiKeyId) {
+        codexModelCatalog.value = catalog
+      }
+    } catch (error) {
+      if (codexModelCatalogKeyId.value === apiKeyId) {
+        codexModelCatalog.value = null
+      }
+    }
+  },
+  { immediate: true }
+)
 
 // Icon components
 const AppleIcon = {
@@ -567,6 +594,16 @@ interface CodexResponsesConfigOptions {
   reviewModel?: string
 }
 
+const CODEX_MODEL_CATALOG_FILENAME = 'sub2api-codex-model-catalog.json'
+
+function currentCodexModelCatalogContent(): string | null {
+  const models = codexModelCatalog.value?.models
+  if (!models?.length) {
+    return null
+  }
+  return JSON.stringify({ models }, null, 2)
+}
+
 function generateOpenAIFiles(baseUrl: string, apiKey: string, options: CodexResponsesConfigOptions = {}): FileConfig[] {
   const isWindows = activeTab.value === 'windows'
   const configDir = isWindows ? '%userprofile%\\.codex' : '~/.codex'
@@ -574,12 +611,14 @@ function generateOpenAIFiles(baseUrl: string, apiKey: string, options: CodexResp
   const providerName = options.providerName ?? providerKey
   const model = options.model ?? 'gpt-5.5'
   const reviewModel = options.reviewModel ?? model
+  const modelCatalogContent = currentCodexModelCatalogContent()
+  const modelCatalogConfig = modelCatalogContent ? `model_catalog_json = "${CODEX_MODEL_CATALOG_FILENAME}"\n` : ''
 
   // config.toml content
   const configContent = `model_provider = "${providerKey}"
 model = "${model}"
 review_model = "${reviewModel}"
-model_reasoning_effort = "xhigh"
+${modelCatalogConfig}model_reasoning_effort = "xhigh"
 disable_response_storage = true
 network_access = "enabled"
 windows_wsl_setup_acknowledged = true
@@ -609,18 +648,26 @@ goals = true`
       content: authContent
     }
   ]
-  return [...files, generateCodexSetupScript(configContent, authContent, isWindows)]
+  if (modelCatalogContent) {
+    files.push({
+      path: `${configDir}/${CODEX_MODEL_CATALOG_FILENAME}`,
+      content: modelCatalogContent
+    })
+  }
+  return [...files, generateCodexSetupScript(configContent, authContent, isWindows, modelCatalogContent)]
 }
 
 function generateOpenAIWsFiles(baseUrl: string, apiKey: string): FileConfig[] {
   const isWindows = activeTab.value === 'windows'
   const configDir = isWindows ? '%userprofile%\\.codex' : '~/.codex'
+  const modelCatalogContent = currentCodexModelCatalogContent()
+  const modelCatalogConfig = modelCatalogContent ? `model_catalog_json = "${CODEX_MODEL_CATALOG_FILENAME}"\n` : ''
 
   // config.toml content with WebSocket v2
   const configContent = `model_provider = "OpenAI"
 model = "gpt-5.5"
 review_model = "gpt-5.5"
-model_reasoning_effort = "xhigh"
+${modelCatalogConfig}model_reasoning_effort = "xhigh"
 disable_response_storage = true
 network_access = "enabled"
 windows_wsl_setup_acknowledged = true
@@ -652,11 +699,30 @@ goals = true`
       content: authContent
     }
   ]
-  return [...files, generateCodexSetupScript(configContent, authContent, isWindows)]
+  if (modelCatalogContent) {
+    files.push({
+      path: `${configDir}/${CODEX_MODEL_CATALOG_FILENAME}`,
+      content: modelCatalogContent
+    })
+  }
+  return [...files, generateCodexSetupScript(configContent, authContent, isWindows, modelCatalogContent)]
 }
 
-function generateCodexSetupScript(configContent: string, authContent: string, isWindows: boolean): FileConfig {
+function generateCodexSetupScript(
+  configContent: string,
+  authContent: string,
+  isWindows: boolean,
+  modelCatalogContent: string | null = null
+): FileConfig {
   if (isWindows) {
+    const modelCatalogBlock = modelCatalogContent ? `
+$modelCatalogJson = @'
+${modelCatalogContent}
+'@
+` : ''
+    const modelCatalogWrite = modelCatalogContent
+      ? `[System.IO.File]::WriteAllText((Join-Path $configDir "${CODEX_MODEL_CATALOG_FILENAME}"), $modelCatalogJson, $utf8NoBom)\n`
+      : ''
     const content = `$ErrorActionPreference = "Stop"
 $configDir = Join-Path $env:USERPROFILE ".codex"
 New-Item -ItemType Directory -Force -Path $configDir | Out-Null
@@ -668,11 +734,12 @@ ${configContent}
 $authJson = @'
 ${authContent}
 '@
+${modelCatalogBlock}
 
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText((Join-Path $configDir "config.toml"), $configToml, $utf8NoBom)
 [System.IO.File]::WriteAllText((Join-Path $configDir "auth.json"), $authJson, $utf8NoBom)
-Write-Host "Codex CLI configuration written to $configDir"`
+${modelCatalogWrite}Write-Host "Codex CLI configuration written to $configDir"`
 
     return {
       path: 'setup-codex.ps1',
@@ -681,6 +748,11 @@ Write-Host "Codex CLI configuration written to $configDir"`
     }
   }
 
+  const modelCatalogWrite = modelCatalogContent ? `
+cat > "$config_dir/${CODEX_MODEL_CATALOG_FILENAME}" <<'EOF'
+${modelCatalogContent}
+EOF
+` : ''
   const content = `#!/usr/bin/env bash
 set -euo pipefail
 
@@ -694,6 +766,7 @@ EOF
 cat > "$config_dir/auth.json" <<'EOF'
 ${authContent}
 EOF
+${modelCatalogWrite}
 
 chmod 600 "$config_dir/auth.json"
 echo "Codex CLI configuration written to $config_dir"`
