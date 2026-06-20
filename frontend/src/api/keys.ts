@@ -40,8 +40,11 @@ export interface CodexModelCatalogModel {
   input_modalities?: string[]
   supports_search_tool?: boolean
   supports_reasoning_summaries?: boolean
-  base_instructions?: string
-  model_messages?: Record<string, unknown>
+  base_instructions: string
+  model_messages: {
+    instructions_template: string
+    instructions_variables: Record<string, string>
+  }
 }
 
 export interface CodexModelCatalog {

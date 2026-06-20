@@ -509,8 +509,8 @@ type CodexModelCatalogModel struct {
 	InputModalities               []string                          `json:"input_modalities"`
 	SupportsSearchTool            bool                              `json:"supports_search_tool"`
 	SupportsReasoningSummaries    bool                              `json:"supports_reasoning_summaries"`
-	BaseInstructions              string                            `json:"base_instructions,omitempty"`
-	ModelMessages                 map[string]any                    `json:"model_messages,omitempty"`
+	BaseInstructions              string                            `json:"base_instructions"`
+	ModelMessages                 CodexModelCatalogModelMessages    `json:"model_messages"`
 }
 
 type CodexModelCatalogReasoningLevel struct {
@@ -521,6 +521,11 @@ type CodexModelCatalogReasoningLevel struct {
 type CodexModelCatalogTruncationPolicy struct {
 	Mode  string `json:"mode"`
 	Limit int    `json:"limit"`
+}
+
+type CodexModelCatalogModelMessages struct {
+	InstructionsTemplate  string            `json:"instructions_template"`
+	InstructionsVariables map[string]string `json:"instructions_variables"`
 }
 
 type CodexModelCatalog struct {
@@ -626,9 +631,50 @@ func codexCatalogModelsFromAccounts(accounts []Account) []CodexModelCatalogModel
 			InputModalities:               []string{"text", "image"},
 			SupportsSearchTool:            true,
 			SupportsReasoningSummaries:    true,
+			BaseInstructions:              codexCatalogBaseInstructions,
+			ModelMessages:                 codexCatalogModelMessages(),
 		})
 	}
 	return models
+}
+
+const (
+	codexCatalogBaseInstructions = `You are Codex, a coding agent. You and the user share one workspace, and your job is to collaborate with them until their goal is genuinely handled.
+
+# Personality
+
+You are a deeply pragmatic, effective software engineer. You communicate directly, keep the user informed, and prioritize verifiable outcomes.
+
+# General
+
+Read the codebase before making assumptions. Prefer existing project patterns. Keep edits scoped. Verify changes with focused tests or commands when feasible.`
+
+	codexCatalogInstructionsTemplate = `You are Codex, a coding agent. You and the user share one workspace, and your job is to collaborate with them until their goal is genuinely handled.
+
+{{ personality }}
+
+# General
+
+Read the codebase before making assumptions. Prefer existing project patterns. Keep edits scoped. Verify changes with focused tests or commands when feasible.`
+
+	codexCatalogFriendlyPersonality = `# Personality
+
+You are warm, curious, and collaborative. You keep the user informed, ask good questions when context is missing, and become decisive once the path is clear.`
+
+	codexCatalogPragmaticPersonality = `# Personality
+
+You are a deeply pragmatic, effective software engineer. You communicate directly, keep the user informed, and prioritize verifiable outcomes.`
+)
+
+func codexCatalogModelMessages() CodexModelCatalogModelMessages {
+	return CodexModelCatalogModelMessages{
+		InstructionsTemplate: codexCatalogInstructionsTemplate,
+		InstructionsVariables: map[string]string{
+			"personality_default":   "",
+			"personality_friendly":  codexCatalogFriendlyPersonality,
+			"personality_pragmatic": codexCatalogPragmaticPersonality,
+		},
+	}
 }
 
 func codexCatalogSupportedReasoningLevels() []CodexModelCatalogReasoningLevel {

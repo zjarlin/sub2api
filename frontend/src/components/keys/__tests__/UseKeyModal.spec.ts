@@ -45,6 +45,15 @@ function codexModel(slug: string, displayName: string = slug): CodexModelCatalog
     additional_speed_tiers: ['fast'],
     availability_nux: null,
     upgrade: null,
+    base_instructions: 'You are Codex, a coding agent.',
+    model_messages: {
+      instructions_template: 'You are Codex, a coding agent.\n\n{{ personality }}',
+      instructions_variables: {
+        personality_default: '',
+        personality_friendly: '# Personality\n\nYou are friendly.',
+        personality_pragmatic: '# Personality\n\nYou are pragmatic.'
+      }
+    },
     default_reasoning_summary: 'none',
     support_verbosity: true,
     default_verbosity: 'low',
@@ -206,6 +215,10 @@ describe('UseKeyModal', () => {
     expect(catalogFile).toContain('"supports_parallel_tool_calls": true')
     expect(catalogFile).toContain('"effective_context_window_percent": 95')
     expect(catalogFile).toContain('"context_window": 272000')
+    expect(catalogFile).toContain('"base_instructions"')
+    expect(catalogFile).toContain('"model_messages"')
+    expect(catalogFile).toContain('"instructions_template"')
+    expect(catalogFile).toContain('"personality_pragmatic"')
     expect(setupScript).toContain('cat > "$config_dir/model-catalog.json"')
     expect(setupScript).toContain('"slug": "deepseek-v4-pro"')
   })

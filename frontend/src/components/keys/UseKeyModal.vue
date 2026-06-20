@@ -284,6 +284,34 @@ interface PersistedCodexModelCatalog {
 const CODEX_MODEL_CATALOG_FILENAME = 'model-catalog.json'
 const CODEX_MODEL_CATALOG_STORAGE_PREFIX = 'sub2api:codex-model-catalog'
 const CODEX_CONTEXT_WINDOW_DEFAULT = 272000
+const CODEX_MODEL_CATALOG_BASE_INSTRUCTIONS = `You are Codex, a coding agent. You and the user share one workspace, and your job is to collaborate with them until their goal is genuinely handled.
+
+# Personality
+
+You are a deeply pragmatic, effective software engineer. You communicate directly, keep the user informed, and prioritize verifiable outcomes.
+
+# General
+
+Read the codebase before making assumptions. Prefer existing project patterns. Keep edits scoped. Verify changes with focused tests or commands when feasible.`
+const CODEX_MODEL_CATALOG_INSTRUCTIONS_TEMPLATE = `You are Codex, a coding agent. You and the user share one workspace, and your job is to collaborate with them until their goal is genuinely handled.
+
+{{ personality }}
+
+# General
+
+Read the codebase before making assumptions. Prefer existing project patterns. Keep edits scoped. Verify changes with focused tests or commands when feasible.`
+const CODEX_MODEL_CATALOG_MODEL_MESSAGES = {
+  instructions_template: CODEX_MODEL_CATALOG_INSTRUCTIONS_TEMPLATE,
+  instructions_variables: {
+    personality_default: '',
+    personality_friendly: `# Personality
+
+You are warm, curious, and collaborative. You keep the user informed, ask good questions when context is missing, and become decisive once the path is clear.`,
+    personality_pragmatic: `# Personality
+
+You are a deeply pragmatic, effective software engineer. You communicate directly, keep the user informed, and prioritize verifiable outcomes.`
+  }
+}
 const CODEX_REASONING_LEVELS = [
   { effort: 'low', description: 'Fast responses with lighter reasoning' },
   { effort: 'medium', description: 'Balances speed and reasoning depth for everyday tasks' },
@@ -771,6 +799,8 @@ const normalizedCodexModelCatalogModels = computed(() => {
         additional_speed_tiers: ['fast'],
         availability_nux: null,
         upgrade: null,
+        base_instructions: CODEX_MODEL_CATALOG_BASE_INSTRUCTIONS,
+        model_messages: CODEX_MODEL_CATALOG_MODEL_MESSAGES,
         default_reasoning_summary: 'none',
         support_verbosity: true,
         default_verbosity: 'low',

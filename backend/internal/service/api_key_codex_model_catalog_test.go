@@ -101,6 +101,11 @@ func TestAPIKeyService_GetCodexModelCatalog_UsesKeyGroupSchedulableAccounts(t *t
 		require.Equal(t, []string{"text", "image"}, model.InputModalities)
 		require.True(t, model.SupportsSearchTool)
 		require.True(t, model.SupportsReasoningSummaries)
+		require.NotEmpty(t, model.BaseInstructions)
+		require.Contains(t, model.BaseInstructions, "You are Codex")
+		require.NotEmpty(t, model.ModelMessages.InstructionsTemplate)
+		require.Contains(t, model.ModelMessages.InstructionsTemplate, "{{ personality }}")
+		require.Contains(t, model.ModelMessages.InstructionsVariables, "personality_pragmatic")
 	}
 	require.Contains(t, slugs, "deepseek-v4-pro")
 	require.Contains(t, slugs, "gpt-5.5")
