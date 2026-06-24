@@ -846,6 +846,20 @@ func normalizeOpenAIModelForUpstream(account *Account, model string) string {
 		return normalizeCodexModel(model)
 	}
 	trimmed := strings.TrimSpace(model)
+	if mapped, matched := account.ResolveMappedModel(trimmed); matched {
+		trimmed = strings.TrimSpace(mapped)
+	}
+	if mapped, matched := resolveVendorDefaultMappedModelForAccount(account, trimmed); matched {
+		trimmed = strings.TrimSpace(mapped)
+	}
+	if defaults := defaultOpenAIModelMappingForVendor(account.GetOpenAIVendor()); len(defaults) > 0 {
+		if mapped, matched := resolveRequestedModelInMapping(defaults, trimmed); matched {
+			trimmed = strings.TrimSpace(mapped)
+		}
+	}
+	if accountUsesChatGPTWeb2API(account) {
+		return normalizeChatGPTWeb2APIModel(trimmed)
+	}
 	if account.ShouldUseOpenAIChatCompletionsUpstream() {
 		return normalizeOpenAICompatibleUpstreamModel(trimmed)
 	}

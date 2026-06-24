@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 13 // v13: include personal account dispatch scope
+const apiKeyAuthSnapshotVersion = 13 // v13: retained personal_account_scope compatibility field
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int

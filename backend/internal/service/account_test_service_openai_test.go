@@ -434,6 +434,96 @@ func TestDefaultOpenAITestModel_Ollama(t *testing.T) {
 	require.Equal(t, "llama3.1", defaultOpenAITestModel(account))
 }
 
+func TestDefaultOpenAITestModel_ChatGPTWeb2API(t *testing.T) {
+	for _, account := range []*Account{
+		{
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeAPIKey,
+			Credentials: map[string]any{
+				"vendor": "chatgpt-web2api",
+			},
+		},
+		{
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeAPIKey,
+			Credentials: map[string]any{
+				"base_url": "http://127.0.0.1:8080/v1",
+			},
+		},
+	} {
+		require.Equal(t, "auto", defaultOpenAITestModel(account))
+	}
+}
+
+func TestAccountTestService_ChatGPTWeb2APIProbesHealthThenChatCompletions(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, recorder := newTestContext()
+
+	healthResp := newJSONResponse(http.StatusOK, `{"status":"ok","cdp_connected":true,"requests_served":3}`)
+	chatResp := newJSONResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`)
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{healthResp, chatResp}}
+	svc := &AccountTestService{
+		httpUpstream: upstream,
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled:           false,
+			AllowInsecureHTTP: true,
+		}}},
+	}
+	account := &Account{
+		ID:          93,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"vendor":  "chatgpt-web2api",
+			"api_key": "local-token",
+		},
+	}
+
+	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.5", "hello", "")
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, "http://127.0.0.1:8080/health", upstream.requests[0].URL.String())
+	require.Equal(t, "Bearer local-token", upstream.requests[0].Header.Get("Authorization"))
+	require.Equal(t, "http://127.0.0.1:8080/v1/chat/completions", upstream.requests[1].URL.String())
+	require.Len(t, upstream.bodies, 1)
+	require.Equal(t, "gpt-5-5", gjson.GetBytes(upstream.bodies[0], "model").String())
+	require.Contains(t, recorder.Body.String(), "ChatGPT-Web2API 健康检查通过")
+	require.Contains(t, recorder.Body.String(), `"text":"ok"`)
+	require.Contains(t, recorder.Body.String(), `"success":true`)
+}
+
+func TestAccountTestService_ChatGPTWeb2APIWaitingHealthStopsBeforeChat(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, recorder := newTestContext()
+
+	healthResp := newJSONResponse(http.StatusOK, `{"status":"waiting","cdp_connected":false,"requests_served":0}`)
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{healthResp}}
+	svc := &AccountTestService{
+		httpUpstream: upstream,
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled:           false,
+			AllowInsecureHTTP: true,
+		}}},
+	}
+	account := &Account{
+		ID:          94,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"vendor": "chatgpt-web2api",
+		},
+	}
+
+	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.5", "", "")
+	require.Error(t, err)
+	require.Len(t, upstream.requests, 1)
+	require.Equal(t, "http://127.0.0.1:8080/health", upstream.requests[0].URL.String())
+	require.Contains(t, recorder.Body.String(), "Chrome CDP")
+	require.NotContains(t, recorder.Body.String(), "/v1/chat/completions")
+}
+
 func TestDefaultOpenAITestModel_OpenRouter(t *testing.T) {
 	for _, account := range []*Account{
 		{
@@ -482,6 +572,11 @@ func TestDefaultOpenAITestModel_CompatibleBaseURL(t *testing.T) {
 			name:      "mimo",
 			baseURL:   "https://api.xiaomimimo.com/v1",
 			wantModel: "mimo-v2.5",
+		},
+		{
+			name:      "chatgpt web2api",
+			baseURL:   "http://localhost:8080/v1",
+			wantModel: "auto",
 		},
 		{
 			name:      "openrouter",
@@ -752,6 +847,7 @@ func TestAccountTestService_OpenCodeGoLocalUsesSessionAPI(t *testing.T) {
 	require.Equal(t, "minimax-m3", gjson.GetBytes(upstream.bodies[0], "model.id").String())
 	require.Equal(t, "opencode-go", gjson.GetBytes(upstream.bodies[1], "model.providerID").String())
 	require.Equal(t, "minimax-m3", gjson.GetBytes(upstream.bodies[1], "model.modelID").String())
+	require.NotContains(t, string(upstream.bodies[1]), "opencode-go/minimax-m3")
 	require.True(t, gjson.GetBytes(upstream.bodies[1], "tools.read").Bool())
 	require.True(t, gjson.GetBytes(upstream.bodies[1], "tools.glob").Bool())
 	require.True(t, gjson.GetBytes(upstream.bodies[1], "tools.grep").Bool())
@@ -762,6 +858,42 @@ func TestAccountTestService_OpenCodeGoLocalUsesSessionAPI(t *testing.T) {
 	require.Contains(t, body, "pong")
 	require.Contains(t, body, "已通过 OpenCode 本地 session API 验证")
 	require.Contains(t, body, `"success":true`)
+}
+
+func TestAccountTestService_OpenCodeGoLocalNormalizesPrefixedModelWithoutExplicitMapping(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, recorder := newTestContext()
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		newJSONResponse(http.StatusOK, `{"id":"ses_test","model":{"id":"minimax-m3","providerID":"opencode-go"}}`),
+		newJSONResponse(http.StatusOK, `{"info":{"id":"msg_test","modelID":"minimax-m3","providerID":"opencode-go","finish":"stop","tokens":{"input":5,"output":1,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1781610521583,"completed":1781610526394},"error":null},"parts":[{"type":"text","text":"pong"}]}`),
+	}}
+	svc := &AccountTestService{
+		httpUpstream: upstream,
+		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
+			Enabled:           false,
+			AllowInsecureHTTP: true,
+		}}},
+	}
+	account := &Account{
+		ID:          99,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "local-opencode",
+			"vendor":   "opencode-go",
+			"base_url": "http://host.docker.internal:4096",
+		},
+	}
+
+	err := svc.testOpenAIAccountConnection(ctx, account, "opencode-go/minimax-m3", "只回复 pong", "")
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, "minimax-m3", gjson.GetBytes(upstream.bodies[0], "model.id").String())
+	require.Equal(t, "minimax-m3", gjson.GetBytes(upstream.bodies[1], "model.modelID").String())
+	require.NotContains(t, string(upstream.bodies[1]), "opencode-go/minimax-m3")
+	require.Contains(t, recorder.Body.String(), `"success":true`)
 }
 
 func TestAccountTestService_OpenRouterUsesChatCompletionsPath(t *testing.T) {

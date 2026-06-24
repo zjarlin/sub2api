@@ -126,6 +126,86 @@ func TestForwardAsRawChatCompletions_ForcesStreamUsageUpstreamAndPassesUsageDown
 	require.Contains(t, rec.Body.String(), "data: [DONE]")
 }
 
+func TestForwardAsRawChatCompletions_ChatGPTWeb2APIAllowsEmptyAPIKey(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"auto","messages":[{"role":"user","content":"hello"}],"stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_chatgpt_web2api_raw"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"chatcmpl_web2api_raw","object":"chat.completion","model":"auto","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`,
+		)),
+	}}
+
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:          109,
+		Name:        "chatgpt-web2api-raw",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"vendor": "chatgpt-web2api",
+		},
+	}
+
+	result, err := svc.forwardAsRawChatCompletions(context.Background(), c, account, body, "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "http://127.0.0.1:8080/v1/chat/completions", upstream.lastReq.URL.String())
+	require.Equal(t, "", upstream.lastReq.Header.Get("Authorization"))
+	require.Equal(t, "auto", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "choices.0.message.content").String())
+}
+
+func TestForwardAsRawChatCompletions_ChatGPTWeb2APINormalizesModelSlug(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"gpt-5.5","messages":[{"role":"user","content":"hello"}],"stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_chatgpt_web2api_model"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"chatcmpl_web2api_model","object":"chat.completion","model":"gpt-5-5","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`,
+		)),
+	}}
+
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:          110,
+		Name:        "chatgpt-web2api-raw",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"vendor": "chatgpt-web2api",
+		},
+	}
+
+	result, err := svc.forwardAsRawChatCompletions(context.Background(), c, account, body, "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "gpt-5-5", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "gpt-5-5", result.UpstreamModel)
+}
+
 func TestForwardAsRawChatCompletions_PreservesDeepSeekReasoningContentNonStreaming(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -766,7 +846,11 @@ func TestForwardAsOpenCodeLocalChatCompletions_Streaming(t *testing.T) {
 	require.Equal(t, "http://host.docker.internal:4096/event", upstream.requests[1].URL.String())
 	require.Equal(t, http.MethodGet, upstream.requests[1].Method)
 	require.Equal(t, "text/event-stream", upstream.requests[1].Header.Get("Accept"))
+	require.Equal(t, HTTPUpstreamProfileOpenCodeEvent, HTTPUpstreamProfileFromContext(upstream.requests[1].Context()))
+	require.Equal(t, openCodeLocalEventMinConns, upstream.accountConcurrencies[1])
 	require.Equal(t, "http://host.docker.internal:4096/session/ses_stream/prompt_async", upstream.requests[2].URL.String())
+	require.Equal(t, HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileFromContext(upstream.requests[2].Context()))
+	require.Equal(t, openCodeLocalHTTPConcurrency(account), upstream.accountConcurrencies[2])
 	require.Len(t, upstream.bodies, 2)
 	require.Contains(t, gjson.GetBytes(upstream.bodies[1], "parts.0.text").String(), "hi")
 	require.Contains(t, rec.Body.String(), `"object":"chat.completion.chunk"`)
@@ -817,13 +901,124 @@ func TestForwardOpenCodeLocalResponsesViaChatCompletions_StreamingUsesEventPromp
 	require.Len(t, upstream.requests, 3)
 	require.Equal(t, "http://host.docker.internal:4096/session", upstream.requests[0].URL.String())
 	require.Equal(t, "http://host.docker.internal:4096/event", upstream.requests[1].URL.String())
+	require.Equal(t, HTTPUpstreamProfileOpenCodeEvent, HTTPUpstreamProfileFromContext(upstream.requests[1].Context()))
+	require.Equal(t, openCodeLocalEventMinConns, upstream.accountConcurrencies[1])
 	require.Equal(t, "http://host.docker.internal:4096/session/ses_resp_stream/prompt_async", upstream.requests[2].URL.String())
+	require.Equal(t, HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileFromContext(upstream.requests[2].Context()))
+	require.Equal(t, openCodeLocalHTTPConcurrency(account), upstream.accountConcurrencies[2])
 	require.Len(t, upstream.bodies, 2)
 	require.Contains(t, gjson.GetBytes(upstream.bodies[1], "parts.0.text").String(), "只回复 OK")
 	require.Contains(t, rec.Body.String(), `"type":"response.output_text.delta"`)
 	require.Contains(t, rec.Body.String(), `"delta":"OK"`)
 	require.Contains(t, rec.Body.String(), `"type":"response.completed"`)
 	require.Contains(t, rec.Body.String(), "data: [DONE]")
+}
+
+func TestForwardOpenCodeLocalResponsesViaChatCompletions_StreamsReasoningPart(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"opencode-go/minimax-m3","input":"先思考再回复 OK","stream":true}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"ses_resp_reasoning"}`)),
+		},
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader(openCodeLocalEventStreamForTest("ses_resp_reasoning", "msg_resp_reasoning", "OK", 7, 1))),
+		},
+		{
+			StatusCode: http.StatusNoContent,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader("")),
+		},
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+	account := openCodeLocalTestAccount()
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.Stream)
+	out := rec.Body.String()
+	require.Contains(t, out, `"type":"response.reasoning_summary_text.delta"`)
+	require.Contains(t, out, `"delta":"ignore"`)
+	require.Contains(t, out, `"type":"response.output_text.delta"`)
+	require.Contains(t, out, `"delta":"OK"`)
+	require.Contains(t, out, `"type":"response.completed"`)
+}
+
+func TestForwardOpenCodeLocalResponsesViaChatCompletions_KeepaliveDuringFilteredEvents(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"opencode-go/minimax-m3","input":"只回复 OK","stream":true}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	eventReader, eventWriter := io.Pipe()
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"ses_resp_keepalive"}`)),
+		},
+		{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       eventReader,
+		},
+		{
+			StatusCode: http.StatusNoContent,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader("")),
+		},
+	}}
+	cfg := rawChatCompletionsTestConfig()
+	cfg.Gateway.StreamKeepaliveInterval = 1
+	svc := &OpenAIGatewayService{
+		cfg:          cfg,
+		httpUpstream: upstream,
+	}
+	account := openCodeLocalTestAccount()
+
+	done := make(chan error, 1)
+	var result *OpenAIForwardResult
+	go func() {
+		var err error
+		result, err = svc.Forward(context.Background(), c, account, body)
+		done <- err
+	}()
+
+	time.Sleep(1100 * time.Millisecond)
+	_, err := io.WriteString(eventWriter,
+		"data: {\"type\":\"message.part.updated\",\"properties\":{\"sessionID\":\"ses_resp_keepalive\",\"part\":{\"id\":\"prt_tool\",\"type\":\"tool\"}}}\n\n"+
+			"data: {\"type\":\"message.part.delta\",\"properties\":{\"sessionID\":\"ses_resp_keepalive\",\"partID\":\"prt_tool\",\"field\":\"text\",\"delta\":\"filtered\"}}\n\n")
+	require.NoError(t, err)
+	time.Sleep(1100 * time.Millisecond)
+	_, err = io.WriteString(eventWriter, openCodeLocalEventStreamForTest("ses_resp_keepalive", "msg_resp_keepalive", "OK", 7, 1))
+	require.NoError(t, err)
+	require.NoError(t, eventWriter.Close())
+
+	require.NoError(t, <-done)
+	require.NotNil(t, result)
+	require.True(t, result.Stream)
+	out := rec.Body.String()
+	require.Contains(t, out, ":\n\n")
+	require.Contains(t, out, `"type":"response.output_text.delta"`)
+	require.Contains(t, out, `"delta":"OK"`)
+	require.Contains(t, out, `"type":"response.completed"`)
 }
 
 func openCodeLocalEventStreamForTest(sessionID, messageID, text string, inputTokens, outputTokens int) string {

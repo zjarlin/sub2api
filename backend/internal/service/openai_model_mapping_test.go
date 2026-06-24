@@ -318,6 +318,36 @@ func TestNormalizeOpenAIModelForUpstream(t *testing.T) {
 			model: "custom-model[beta]",
 			want:  "custom-model[beta]",
 		},
+		{
+			name: "opencode go default mapping normalizes prefixed model even with partial custom mapping",
+			account: &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"vendor": "opencode-go",
+					"model_mapping": map[string]any{
+						"minimax-m3": "minimax-m3",
+					},
+				},
+			},
+			model: "opencode-go/minimax-m3",
+			want:  "minimax-m3",
+		},
+		{
+			name: "custom mapping still wins before opencode go default normalization",
+			account: &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"vendor": "opencode-go",
+					"model_mapping": map[string]any{
+						"alias": "opencode-go/minimax-m3",
+					},
+				},
+			},
+			model: "alias",
+			want:  "minimax-m3",
+		},
 	}
 
 	for _, tt := range tests {

@@ -19,6 +19,7 @@ type mockAccountRepoForGemini struct {
 	accountsByID       map[int64]*Account
 	listByGroupFunc    func(ctx context.Context, groupID int64, platforms []string) ([]Account, error)
 	listByPlatformFunc func(ctx context.Context, platforms []string) ([]Account, error)
+	listUngroupedFunc  func(ctx context.Context, platforms []string) ([]Account, error)
 }
 
 func (m *mockAccountRepoForGemini) GetByID(ctx context.Context, id int64) (*Account, error) {
@@ -142,6 +143,9 @@ func (m *mockAccountRepoForGemini) ListSchedulableUngroupedByPlatform(ctx contex
 	return m.ListSchedulableByPlatform(ctx, platform)
 }
 func (m *mockAccountRepoForGemini) ListSchedulableUngroupedByPlatforms(ctx context.Context, platforms []string) ([]Account, error) {
+	if m.listUngroupedFunc != nil {
+		return m.listUngroupedFunc(ctx, platforms)
+	}
 	return m.ListSchedulableByPlatforms(ctx, platforms)
 }
 func (m *mockAccountRepoForGemini) SetRateLimited(ctx context.Context, id int64, resetAt time.Time) error {
@@ -618,19 +622,23 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_StickyS
 	})
 }
 
-func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_ForcePlatformFallback(t *testing.T) {
+func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_ForceAntigravityDoesNotFallbackGlobally(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(9)
 	ctx = context.WithValue(ctx, ctxkey.ForcePlatform, PlatformAntigravity)
 
+	var ungroupedCalls int
 	repo := &mockAccountRepoForGemini{
 		listByGroupFunc: func(ctx context.Context, groupID int64, platforms []string) ([]Account, error) {
 			return nil, nil
 		},
 		listByPlatformFunc: func(ctx context.Context, platforms []string) ([]Account, error) {
-			return []Account{
-				{ID: 1, Platform: PlatformAntigravity, Priority: 1, Status: StatusActive, Schedulable: true},
-			}, nil
+			t.Fatalf("non-Gemini forced platform fallback must not query all platform accounts")
+			return nil, nil
+		},
+		listUngroupedFunc: func(ctx context.Context, platforms []string) ([]Account, error) {
+			ungroupedCalls++
+			return nil, nil
 		},
 		accountsByID: map[int64]*Account{
 			1: {ID: 1, Platform: PlatformAntigravity, Priority: 1, Status: StatusActive, Schedulable: true},
@@ -647,9 +655,78 @@ func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_ForcePl
 	}
 
 	acc, err := svc.SelectAccountForModelWithExclusions(ctx, &groupID, "", "gemini-2.5-flash", nil)
+	require.Error(t, err)
+	require.Nil(t, acc)
+	require.ErrorContains(t, err, "no available Gemini accounts")
+	require.Equal(t, 1, ungroupedCalls)
+}
+
+func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_ForceGeminiFallbackFindsGroupedGlobalAccount(t *testing.T) {
+	ctx := context.WithValue(context.Background(), ctxkey.ForcePlatform, PlatformGemini)
+	groupID := int64(6)
+
+	var groupCalls int
+	var allPlatformCalls int
+	repo := &mockAccountRepoForGemini{
+		listByGroupFunc: func(ctx context.Context, groupID int64, platforms []string) ([]Account, error) {
+			groupCalls++
+			require.Equal(t, int64(6), groupID)
+			require.Equal(t, []string{PlatformGemini}, platforms)
+			return nil, nil
+		},
+		listByPlatformFunc: func(ctx context.Context, platforms []string) ([]Account, error) {
+			allPlatformCalls++
+			require.Equal(t, []string{PlatformGemini}, platforms)
+			return []Account{
+				{
+					ID:          307,
+					Name:        "zjarlin_gemini_aistudio",
+					Platform:    PlatformGemini,
+					Priority:    1,
+					Status:      StatusActive,
+					Schedulable: true,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{
+							"gemini-3.5-flash": "gemini-3.5-flash",
+						},
+					},
+				},
+			}, nil
+		},
+		listUngroupedFunc: func(ctx context.Context, platforms []string) ([]Account, error) {
+			t.Fatalf("forced Gemini fallback must query all Gemini accounts, not ungrouped accounts")
+			return nil, nil
+		},
+		accountsByID: map[int64]*Account{
+			307: {
+				ID:          307,
+				Name:        "zjarlin_gemini_aistudio",
+				Platform:    PlatformGemini,
+				Priority:    1,
+				Status:      StatusActive,
+				Schedulable: true,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{
+						"gemini-3.5-flash": "gemini-3.5-flash",
+					},
+				},
+			},
+		},
+	}
+
+	svc := &GeminiMessagesCompatService{
+		accountRepo: repo,
+		groupRepo:   &mockGroupRepoForGemini{groups: map[int64]*Group{}},
+		cache:       &mockGatewayCacheForGemini{},
+	}
+
+	acc, err := svc.SelectAccountForModelWithExclusions(ctx, &groupID, "", "gemini-3.5-flash", nil)
 	require.NoError(t, err)
 	require.NotNil(t, acc)
-	require.Equal(t, int64(1), acc.ID)
+	require.Equal(t, int64(307), acc.ID)
+	require.Equal(t, "zjarlin_gemini_aistudio", acc.Name)
+	require.Equal(t, 1, groupCalls)
+	require.Equal(t, 1, allPlatformCalls)
 }
 
 func TestGeminiMessagesCompatService_SelectAccountForModelWithExclusions_NoModelSupport(t *testing.T) {

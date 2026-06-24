@@ -89,4 +89,34 @@ describe('useOpenAIVendorPreset', () => {
       authScheme: 'Bearer'
     })).toBe('doubao-web')
   })
+
+  it('exposes Seedance with ModelArk video task defaults', () => {
+    const preset = getOpenAIVendorPreset('seedance')
+
+    expect(listOpenAIVendorPresets().map(item => item.id)).toContain('seedance')
+    expect(preset.baseUrl).toBe('https://ark.ap-southeast.bytepluses.com/api/v3')
+    expect(preset.authHeader).toBe('authorization')
+    expect(preset.authScheme).toBe('bearer')
+    expect(preset.modelPlatforms).toEqual(['seedance'])
+    expect(preset.presetPlatform).toBe('seedance')
+  })
+
+  it('exposes ChatGPT-Web2API as a local OpenAI-compatible preset', () => {
+    const preset = getOpenAIVendorPreset('chatgpt-web2api')
+
+    expect(listOpenAIVendorPresets().map(item => item.id)).toContain('chatgpt-web2api')
+    expect(preset.baseUrl).toBe('http://127.0.0.1:8080/v1')
+    expect(preset.authHeader).toBe('authorization')
+    expect(preset.authScheme).toBe('bearer')
+    expect(preset.modelPlatforms).toEqual(['chatgpt-web2api'])
+    expect(preset.presetPlatform).toBe('chatgpt-web2api')
+  })
+
+  it('infers ChatGPT-Web2API from its default local port', () => {
+    expect(inferOpenAIVendorPreset({
+      baseUrl: 'http://localhost:8080/v1',
+      authHeader: 'Authorization',
+      authScheme: 'Bearer'
+    })).toBe('chatgpt-web2api')
+  })
 })

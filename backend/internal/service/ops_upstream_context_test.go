@@ -1,10 +1,12 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -116,4 +118,50 @@ func TestDecorateScheduledAccountClientErrorJSONBody_NonAdmin(t *testing.T) {
 	patched := DecorateScheduledAccountClientErrorJSONBody(c, body)
 
 	require.JSONEq(t, string(body), string(patched))
+}
+
+func TestAppendOpsUpstreamError_BackfillsModelDiagnostics(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest("POST", "/v1/messages", nil)
+
+	ctx := context.WithValue(c.Request.Context(), ctxkey.Model, "gpt-5.5")
+	c.Request = c.Request.WithContext(ctx)
+	SetOpsModelDiagnostics(c, "gemini-3.5-flash", "gemini-2.5-pro")
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		Kind:               "http_error",
+		UpstreamStatusCode: 429,
+		Message:            "quota exhausted",
+	})
+
+	v, ok := c.Get(OpsUpstreamErrorsKey)
+	require.True(t, ok)
+	events, ok := v.([]*OpsUpstreamErrorEvent)
+	require.True(t, ok)
+	require.Len(t, events, 1)
+	require.Equal(t, "gpt-5.5", events[0].RequestedModel)
+	require.Equal(t, "gemini-2.5-pro", events[0].MappedModel)
+}
+
+func TestAppendOpsUpstreamError_ExplicitModelDiagnosticsWin(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+
+	SetOpsModelDiagnostics(c, "gpt-5.5", "gemini-2.5-pro")
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		Kind:           "http_error",
+		RequestedModel: "explicit-request",
+		MappedModel:    "explicit-upstream",
+		Message:        "quota exhausted",
+	})
+
+	v, ok := c.Get(OpsUpstreamErrorsKey)
+	require.True(t, ok)
+	events, ok := v.([]*OpsUpstreamErrorEvent)
+	require.True(t, ok)
+	require.Len(t, events, 1)
+	require.Equal(t, "explicit-request", events[0].RequestedModel)
+	require.Equal(t, "explicit-upstream", events[0].MappedModel)
 }

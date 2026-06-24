@@ -27,6 +27,12 @@ const messages: Record<string, string> = {
   'docs.codex.items.files.body': 'Write config files.',
   'docs.codex.items.script.title': 'One-click setup script',
   'docs.codex.items.script.body': 'Use the generated script.',
+  'docs.codex.items.download.title': 'One-click Codex official client download',
+  'docs.codex.items.download.body': 'Download official installers.',
+  'docs.codex.items.download.links.official': 'Open official page',
+  'docs.codex.items.download.links.mac': 'Download macOS default',
+  'docs.codex.items.download.links.macIntel': 'Download macOS Intel',
+  'docs.codex.items.download.links.windows': 'Download Windows installer',
   'docs.codex.items.windows.title': 'Windows paths',
   'docs.codex.items.windows.body': 'Use PowerShell.',
   'docs.clients.title': 'Other Clients',
@@ -104,6 +110,11 @@ describe('DocsView', () => {
     expect(wrapper.text()).toContain('Codex CLI Configuration')
     expect(wrapper.text()).toContain('~/.codex/config.toml')
     expect(wrapper.text()).toContain('setup script')
+    expect(wrapper.text()).toContain('One-click Codex official client download')
+    expect(wrapper.text()).toContain('winget install Codex -s msstore')
+    expect(wrapper.html()).toContain('https://developers.openai.com/codex/app')
+    expect(wrapper.html()).toContain('https://persistent.oaistatic.com/codex-app-prod/Codex.dmg')
+    expect(wrapper.html()).toContain('https://get.microsoft.com/installer/download/9PLM9XGG6VKS?cid=website_cta_psi')
     expect(wrapper.text()).toContain('OpenCode')
     expect(wrapper.text()).toContain('Usage Query')
   })

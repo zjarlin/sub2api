@@ -24,10 +24,12 @@ import (
 func f64p(v float64) *float64 { return &v }
 
 type httpUpstreamRecorder struct {
-	lastReq  *http.Request
-	lastBody []byte
-	requests []*http.Request
-	bodies   [][]byte
+	lastReq              *http.Request
+	lastBody             []byte
+	requests             []*http.Request
+	bodies               [][]byte
+	accountIDs           []int64
+	accountConcurrencies []int
 
 	resp      *http.Response
 	responses []*http.Response
@@ -44,6 +46,8 @@ func (u *httpUpstreamRecorder) Do(req *http.Request, proxyURL string, accountID 
 		req.Body = io.NopCloser(bytes.NewReader(b))
 	}
 	u.requests = append(u.requests, req)
+	u.accountIDs = append(u.accountIDs, accountID)
+	u.accountConcurrencies = append(u.accountConcurrencies, accountConcurrency)
 	if u.err != nil {
 		return nil, u.err
 	}
@@ -151,6 +155,273 @@ func TestOpenAIGatewayService_NativeResponsesBodyModificationPreservesHTMLChars(
 	require.NotContains(t, string(upstream.lastBody), `\\u003c`)
 	require.NotContains(t, string(upstream.lastBody), `\\u003e`)
 	require.NotContains(t, string(upstream.lastBody), `\\u0026`)
+}
+
+func TestOpenAIGatewayService_AgnesResponsesImageBridgesToImagesEndpoint(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	originalBody := []byte(`{"model":"agnes-image-2.1-flash","stream":false,"reasoning":{"effort":"medium"},"reasoning_effort":"medium","include":["reasoning.encrypted_content","message.input_image.image_url"],"input":[{"type":"message","role":"developer","content":[{"type":"input_text","text":"policy"}]},{"type":"message","role":"user","content":[{"type":"input_text","text":"draw"}]}]}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(originalBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_agnes"}},
+		Body:       io.NopCloser(strings.NewReader(`{"created":1710000001,"data":[{"b64_json":"aW1hZ2U=","revised_prompt":"draw"}],"usage":{"input_tokens":1,"output_tokens":1,"output_tokens_details":{"image_tokens":1}}}`)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          &config.Config{},
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:          287,
+		Name:        "agnes-apikey",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "sk-agnes",
+			"vendor":   "openai",
+			"base_url": "https://apihub.agnes-ai.com",
+			"model_mapping": map[string]any{
+				"agnes-image-2.1-flash": "agnes-t2i-general-model",
+			},
+		},
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesSupported: true,
+		},
+		Status:         StatusActive,
+		Schedulable:    true,
+		RateMultiplier: f64p(1),
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, originalBody)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, "https://apihub.agnes-ai.com/v1/images/generations", upstream.lastReq.URL.String())
+	require.Equal(t, "agnes-image-2.1-flash", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "draw", gjson.GetBytes(upstream.lastBody, "prompt").String())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "response_format").Exists())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "reasoning").Exists())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "reasoning_effort").Exists())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "include").Exists())
+	require.Equal(t, "response", gjson.Get(rec.Body.String(), "object").String())
+	require.Equal(t, "completed", gjson.Get(rec.Body.String(), "status").String())
+	require.Equal(t, "agnes-image-2.1-flash", gjson.Get(rec.Body.String(), "model").String())
+	require.Equal(t, "image_generation_call", gjson.Get(rec.Body.String(), "output.0.type").String())
+	require.Equal(t, "aW1hZ2U=", gjson.Get(rec.Body.String(), "output.0.result").String())
+	require.Equal(t, 1, result.ImageCount)
+	require.Equal(t, "agnes-t2i-general-model", result.BillingModel)
+}
+
+func TestOpenAIGatewayService_AgnesResponsesVideoStripsReasoning(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	originalBody := []byte(`{"model":"agnes-video-v2.0","stream":false,"reasoning":{"effort":"medium"},"reasoning_effort":"medium","include":["reasoning.encrypted_content","message.input_image.image_url"],"input":[{"type":"message","role":"developer","content":[{"type":"input_text","text":"policy"}]},{"type":"message","role":"user","content":[{"type":"input_text","text":"make a video"}]}]}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(originalBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_agnes_video"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"resp_agnes_video","object":"response","model":"agnes-video-v2.0","output":[],"usage":{"input_tokens":1,"output_tokens":1,"input_tokens_details":{"cached_tokens":0}}}`)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          &config.Config{},
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:          287,
+		Name:        "agnes-apikey",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "sk-agnes",
+			"vendor":   "openai",
+			"base_url": "https://apihub.agnes-ai.com",
+			"model_mapping": map[string]any{
+				"agnes-video-v2.0": "agnes-video-v2.0",
+			},
+		},
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesSupported: true,
+		},
+		Status:         StatusActive,
+		Schedulable:    true,
+		RateMultiplier: f64p(1),
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, originalBody)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, "https://apihub.agnes-ai.com/v1/videos", upstream.lastReq.URL.String())
+	require.Equal(t, "agnes-video-v2.0", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.Equal(t, "make a video", gjson.GetBytes(upstream.lastBody, "prompt").String())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "input").Exists())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "reasoning").Exists())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "reasoning_effort").Exists())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "include").Exists())
+	require.Equal(t, "response", gjson.Get(rec.Body.String(), "object").String())
+	require.Equal(t, "video_generation_call", gjson.Get(rec.Body.String(), "output.0.type").String())
+}
+
+func TestOpenAIGatewayService_AgnesResponsesVideoStreamsCompletedEvent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	originalBody := []byte(`{"model":"agnes-video-v2.0","stream":true,"reasoning":{"effort":"medium"},"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"make a video"}]}]}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(originalBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_agnes_video_stream"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"task_agnes_video_stream","video_id":"video_agnes_stream","object":"video","model":"agnes-video-v2.0","status":"queued"}`)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          &config.Config{},
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:          287,
+		Name:        "agnes-apikey",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "sk-agnes",
+			"vendor":   "openai",
+			"base_url": "https://apihub.agnes-ai.com",
+			"model_mapping": map[string]any{
+				"agnes-video-v2.0": "agnes-video-v2.0",
+			},
+		},
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesSupported: true,
+		},
+		Status:         StatusActive,
+		Schedulable:    true,
+		RateMultiplier: f64p(1),
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, originalBody)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.Stream)
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, "https://apihub.agnes-ai.com/v1/videos", upstream.lastReq.URL.String())
+	require.Equal(t, "agnes-video-v2.0", gjson.GetBytes(upstream.lastBody, "model").String())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "reasoning").Exists())
+
+	body := rec.Body.String()
+	require.Contains(t, rec.Header().Get("Content-Type"), "text/event-stream")
+	require.Contains(t, body, "event: response.completed")
+	require.Contains(t, body, `"type":"response.completed"`)
+	require.Contains(t, body, `"type":"video_generation_call"`)
+	require.Contains(t, body, `"video_id":"video_agnes_stream"`)
+	require.Contains(t, body, "data: [DONE]")
+}
+
+func TestOpenAIGatewayService_AgnesResponsesCompatPreservesTextReasoning(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	originalBody := []byte(`{"model":"agnes-2.0-flash","stream":false,"reasoning":{"effort":"medium"},"include":["reasoning.encrypted_content"],"input":[{"type":"message","role":"developer","content":[{"type":"input_text","text":"policy"}]},{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}]}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(originalBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_agnes_text"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"resp_agnes_text","object":"response","model":"agnes-2.0-flash","output":[],"usage":{"input_tokens":1,"output_tokens":1,"input_tokens_details":{"cached_tokens":0}}}`)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          &config.Config{},
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:          287,
+		Name:        "agnes-apikey",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "sk-agnes",
+			"vendor":   "openai",
+			"base_url": "https://apihub.agnes-ai.com",
+		},
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesSupported: true,
+		},
+		Status:         StatusActive,
+		Schedulable:    true,
+		RateMultiplier: f64p(1),
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, originalBody)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, "https://apihub.agnes-ai.com/v1/responses", upstream.lastReq.URL.String())
+	require.Equal(t, "system", gjson.GetBytes(upstream.lastBody, "input.0.role").String())
+	require.Equal(t, "medium", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
+	require.Equal(t, "reasoning.encrypted_content", gjson.GetBytes(upstream.lastBody, "include.0").String())
+}
+
+func TestOpenAIGatewayService_AgnesResponsesCompatDoesNotAffectOtherHosts(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	originalBody := []byte(`{"model":"agnes-image-2.1-flash","stream":false,"reasoning":{"effort":"medium"},"include":["reasoning.encrypted_content"],"input":[{"type":"message","role":"developer","content":[{"type":"input_text","text":"policy"}]}]}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(originalBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_other_host"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"resp_other","object":"response","model":"agnes-image-2.1-flash","output":[],"usage":{"input_tokens":1,"output_tokens":1,"input_tokens_details":{"cached_tokens":0}}}`)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          &config.Config{},
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:          288,
+		Name:        "other-openai-compatible",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "sk-other",
+			"vendor":   "openai",
+			"base_url": "https://compat.example.com",
+		},
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesSupported: true,
+		},
+		Status:         StatusActive,
+		Schedulable:    true,
+		RateMultiplier: f64p(1),
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, originalBody)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, "https://compat.example.com/v1/responses", upstream.lastReq.URL.String())
+	require.Equal(t, "developer", gjson.GetBytes(upstream.lastBody, "input.0.role").String())
+	require.Equal(t, "medium", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
+	require.Equal(t, "reasoning.encrypted_content", gjson.GetBytes(upstream.lastBody, "include.0").String())
 }
 
 func TestOpenAIGatewayService_OAuthMessagesBridgeDoesNotInjectDefaultInstructions(t *testing.T) {
@@ -912,6 +1183,36 @@ func TestOpenAIGatewayService_OpenAIPassthrough_429And529TriggerFailover(t *test
 				require.Empty(t, repo.rateLimitCalls)
 				require.Len(t, repo.overloadCalls, 1)
 				require.WithinDuration(t, start.Add(10*time.Minute), repo.overloadCalls[0], 5*time.Second)
+			},
+		},
+		{
+			name:        "oauth_502_bad_gateway",
+			accountType: AccountTypeOAuth,
+			statusCode:  http.StatusBadGateway,
+			body:        `<!DOCTYPE html><html><body>Bad gateway</body></html>`,
+			assertRepo: func(t *testing.T, repo *openAIPassthroughFailoverRepo, _ time.Time) {
+				require.Empty(t, repo.rateLimitCalls)
+				require.Empty(t, repo.overloadCalls)
+			},
+		},
+		{
+			name:        "oauth_503_unavailable",
+			accountType: AccountTypeOAuth,
+			statusCode:  http.StatusServiceUnavailable,
+			body:        `{"error":{"message":"temporarily unavailable","type":"server_error"}}`,
+			assertRepo: func(t *testing.T, repo *openAIPassthroughFailoverRepo, _ time.Time) {
+				require.Empty(t, repo.rateLimitCalls)
+				require.Empty(t, repo.overloadCalls)
+			},
+		},
+		{
+			name:        "oauth_504_timeout",
+			accountType: AccountTypeOAuth,
+			statusCode:  http.StatusGatewayTimeout,
+			body:        `{"error":{"message":"gateway timeout","type":"server_error"}}`,
+			assertRepo: func(t *testing.T, repo *openAIPassthroughFailoverRepo, _ time.Time) {
+				require.Empty(t, repo.rateLimitCalls)
+				require.Empty(t, repo.overloadCalls)
 			},
 		},
 		{

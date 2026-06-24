@@ -33,7 +33,8 @@ type APIKey struct {
 	Key     string
 	Name    string
 	GroupID *int64
-	// PersonalAccountScope limits dispatch for this key to accounts owned by the key user.
+	// PersonalAccountScope is retained for backward-compatible API responses.
+	// Scheduling is group-based and no longer uses this flag.
 	PersonalAccountScope bool
 	Status               string
 	IPWhitelist          []string

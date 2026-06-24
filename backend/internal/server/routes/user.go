@@ -55,7 +55,7 @@ func RegisterUserRoutes(
 			}
 		}
 
-		// 用户个人账号：仅可见、编辑和调度本人贡献的账号。
+		// 用户个人账号：仅可见、编辑本人贡献的账号；调度仍按分组进入公共池。
 		accounts := authenticated.Group("/user/accounts")
 		{
 			accounts.GET("", h.UserAccount.List)

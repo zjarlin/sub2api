@@ -26,6 +26,7 @@ const (
 	openCodeLocalDefaultProviderID = "opencode-go"
 	openCodeLocalDefaultModelID    = "minimax-m3"
 	openCodeLocalDefaultAgent      = "build"
+	openCodeLocalEventMinConns     = 64
 )
 
 var openCodeLocalDisabledTools = map[string]bool{
@@ -774,7 +775,7 @@ func (s *OpenAIGatewayService) doOpenCodeLocalEvent(
 	if err != nil {
 		return nil, err
 	}
-	req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI))
+	req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenCodeEvent))
 	req.Header.Set("Accept", "text/event-stream")
 	if customUA := account.GetOpenAIUserAgent(); customUA != "" {
 		req.Header.Set("user-agent", customUA)
@@ -784,7 +785,7 @@ func (s *OpenAIGatewayService) doOpenCodeLocalEvent(
 	if account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
-	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, openCodeLocalHTTPConcurrency(account))
+	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, openCodeLocalEventHTTPConcurrency(account))
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 	}
@@ -815,7 +816,6 @@ func (s *OpenAIGatewayService) consumeOpenCodeLocalEvents(
 ) error {
 	scanner := bufio.NewScanner(body)
 	scanBuf := getSSEScannerBuf64K()
-	defer putSSEScannerBuf64K(scanBuf)
 	scanner.Buffer(scanBuf[:0], 1024*1024)
 
 	var dataLines []string
@@ -832,30 +832,105 @@ func (s *OpenAIGatewayService) consumeOpenCodeLocalEvents(
 		return done, err
 	}
 
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			done, err := flush()
-			if err != nil || done {
-				return err
+	keepaliveInterval := s.openCodeLocalStreamKeepaliveInterval()
+	if keepaliveInterval <= 0 {
+		defer putSSEScannerBuf64K(scanBuf)
+		for scanner.Scan() {
+			line := scanner.Text()
+			if line == "" {
+				done, err := flush()
+				if err != nil || done {
+					return err
+				}
+				continue
 			}
-			continue
+			if strings.HasPrefix(line, "data:") {
+				dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
+			}
+		}
+		done, err := flush()
+		if err != nil {
+			return err
+		}
+		if done {
+			return nil
+		}
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("read opencode event stream: %w", err)
+		}
+		return nil
+	}
+
+	type scanEvent struct {
+		line string
+		err  error
+	}
+	events := make(chan scanEvent, 16)
+	doneCh := make(chan struct{})
+	sendEvent := func(ev scanEvent) bool {
+		select {
+		case events <- ev:
+			return true
+		case <-doneCh:
+			return false
+		}
+	}
+	go func(scanBuf *sseScannerBuf64K) {
+		defer putSSEScannerBuf64K(scanBuf)
+		defer close(events)
+		for scanner.Scan() {
+			if !sendEvent(scanEvent{line: scanner.Text()}) {
+				return
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			_ = sendEvent(scanEvent{err: err})
+		}
+	}(scanBuf)
+	defer close(doneCh)
+
+	ticker := time.NewTicker(keepaliveInterval)
+	defer ticker.Stop()
+
+	processLine := func(line string) (bool, error) {
+		if line == "" {
+			return flush()
 		}
 		if strings.HasPrefix(line, "data:") {
 			dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(line, "data:")))
 		}
+		return false, nil
 	}
-	done, err := flush()
-	if err != nil {
-		return err
+
+	for {
+		select {
+		case ev, ok := <-events:
+			if !ok {
+				done, err := flush()
+				if err != nil {
+					return err
+				}
+				if done {
+					return nil
+				}
+				return nil
+			}
+			if ev.err != nil {
+				return fmt.Errorf("read opencode event stream: %w", ev.err)
+			}
+			done, err := processLine(ev.line)
+			if err != nil || done {
+				return err
+			}
+		case <-ticker.C:
+			if time.Since(writer.lastWriteAt) < keepaliveInterval {
+				continue
+			}
+			if err := writer.writeKeepalive(); err != nil {
+				return err
+			}
+		}
 	}
-	if done {
-		return nil
-	}
-	if err := scanner.Err(); err != nil {
-		return fmt.Errorf("read opencode event stream: %w", err)
-	}
-	return nil
 }
 
 func handleOpenCodeLocalEvent(
@@ -888,11 +963,17 @@ func handleOpenCodeLocalEvent(
 		}
 		partID := strings.TrimSpace(event.Get("properties.partID").String())
 		partType := state.partTypes[partID]
-		if partType != "" && partType != "text" {
-			return false, nil
-		}
 		delta := event.Get("properties.delta").String()
 		if delta == "" {
+			return false, nil
+		}
+		if partType == "reasoning" {
+			if err := writer.writeReasoningDelta(state.result, delta); err != nil {
+				return false, err
+			}
+			return false, nil
+		}
+		if partType != "" && partType != "text" {
 			return false, nil
 		}
 		if state.firstTokenMs == nil {
@@ -983,10 +1064,11 @@ type openCodeLocalStreamWriter struct {
 	c              *gin.Context
 	options        openCodeLocalStreamOptions
 	responsesState *apicompat.ChatCompletionsToResponsesStreamState
+	lastWriteAt    time.Time
 }
 
 func newOpenCodeLocalStreamWriter(c *gin.Context, options openCodeLocalStreamOptions) *openCodeLocalStreamWriter {
-	writer := &openCodeLocalStreamWriter{c: c, options: options}
+	writer := &openCodeLocalStreamWriter{c: c, options: options, lastWriteAt: time.Now()}
 	if options.Protocol == openCodeLocalStreamProtocolResponses {
 		writer.responsesState = apicompat.NewChatCompletionsToResponsesStreamState(options.Model)
 	}
@@ -1001,6 +1083,20 @@ func (w *openCodeLocalStreamWriter) writeRole(result openCodeLocalResult) error 
 func (w *openCodeLocalStreamWriter) writeTextDelta(result openCodeLocalResult, delta string) error {
 	chunk := openCodeLocalChatTextChunk(result, w.options.Model, w.options.ServiceTier, delta)
 	return w.writeChatChunk(chunk)
+}
+
+func (w *openCodeLocalStreamWriter) writeReasoningDelta(result openCodeLocalResult, delta string) error {
+	chunk := openCodeLocalChatReasoningChunk(result, w.options.Model, w.options.ServiceTier, delta)
+	return w.writeChatChunk(chunk)
+}
+
+func (w *openCodeLocalStreamWriter) writeKeepalive() error {
+	if _, err := io.WriteString(w.c.Writer, ":\n\n"); err != nil {
+		return err
+	}
+	w.c.Writer.Flush()
+	w.lastWriteAt = time.Now()
+	return nil
 }
 
 func (w *openCodeLocalStreamWriter) finish(result openCodeLocalResult, options openCodeLocalStreamOptions) error {
@@ -1032,6 +1128,7 @@ func (w *openCodeLocalStreamWriter) writeChatChunk(chunk apicompat.ChatCompletio
 			}
 		}
 		w.c.Writer.Flush()
+		w.lastWriteAt = time.Now()
 		return nil
 	}
 	sse, err := apicompat.ChatChunkToSSE(chunk)
@@ -1042,6 +1139,7 @@ func (w *openCodeLocalStreamWriter) writeChatChunk(chunk apicompat.ChatCompletio
 		return err
 	}
 	w.c.Writer.Flush()
+	w.lastWriteAt = time.Now()
 	return nil
 }
 
@@ -1083,6 +1181,24 @@ func openCodeLocalChatTextChunk(result openCodeLocalResult, model string, servic
 		Choices: []apicompat.ChatChunkChoice{{
 			Index:        0,
 			Delta:        apicompat.ChatDelta{Content: &text},
+			FinishReason: nil,
+		}},
+	}
+	if serviceTier != nil {
+		chunk.ServiceTier = *serviceTier
+	}
+	return chunk
+}
+
+func openCodeLocalChatReasoningChunk(result openCodeLocalResult, model string, serviceTier *string, text string) apicompat.ChatCompletionsChunk {
+	chunk := apicompat.ChatCompletionsChunk{
+		ID:      result.ID,
+		Object:  "chat.completion.chunk",
+		Created: result.Created,
+		Model:   model,
+		Choices: []apicompat.ChatChunkChoice{{
+			Index:        0,
+			Delta:        apicompat.ChatDelta{ReasoningContent: &text},
 			FinishReason: nil,
 		}},
 	}
@@ -1170,6 +1286,21 @@ func openCodeLocalHTTPConcurrency(account *Account) int {
 		return 2
 	}
 	return account.Concurrency
+}
+
+func openCodeLocalEventHTTPConcurrency(account *Account) int {
+	concurrency := openCodeLocalHTTPConcurrency(account)
+	if concurrency < openCodeLocalEventMinConns {
+		return openCodeLocalEventMinConns
+	}
+	return concurrency
+}
+
+func (s *OpenAIGatewayService) openCodeLocalStreamKeepaliveInterval() time.Duration {
+	if s == nil || s.cfg == nil || s.cfg.Gateway.StreamKeepaliveInterval <= 0 {
+		return 0
+	}
+	return time.Duration(s.cfg.Gateway.StreamKeepaliveInterval) * time.Second
 }
 
 func (s *OpenAIGatewayService) handleOpenCodeLocalHTTPError(

@@ -36,6 +36,52 @@ func TestBuildSchedulerMetadataAccount_KeepsOpenAIWSFlags(t *testing.T) {
 	require.Nil(t, got.Extra["unused_large_field"])
 }
 
+func TestBuildSchedulerMetadataAccount_KeepsOpenAIVendorRoutingFields(t *testing.T) {
+	account := service.Account{
+		ID:       300,
+		Platform: service.PlatformOpenAI,
+		Type:     service.AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":                "local-opencode",
+			"vendor":                 "opencode-go",
+			"base_url":               "http://host.docker.internal:4096",
+			"auth_header":            "authorization",
+			"auth_scheme":            "bearer",
+			"model_mapping":          map[string]any{"minimax-m3": "minimax-m3"},
+			"compact_model_mapping":  map[string]any{"opencode-go/minimax-m3": "minimax-m3"},
+			"openai_capabilities":    []any{"chat_completions", "responses"},
+			"opencode_tools_enabled": true,
+			"opencode_tools": map[string]any{
+				"bash": true,
+				"read": true,
+			},
+			"opencode_tool_preset": "shell",
+		},
+		Extra: map[string]any{
+			"openai_compact_supported":   true,
+			"openai_compact_mode":        "auto",
+			"openai_responses_supported": true,
+			"unused_large_field":         "drop-me",
+		},
+	}
+
+	got := buildSchedulerMetadataAccount(account)
+
+	require.Equal(t, "opencode-go", got.GetCredential("vendor"))
+	require.Equal(t, "http://host.docker.internal:4096", got.GetCredential("base_url"))
+	require.Equal(t, "authorization", got.GetCredential("auth_header"))
+	require.Equal(t, "bearer", got.GetCredential("auth_scheme"))
+	require.NotEmpty(t, got.GetModelMapping())
+	require.NotEmpty(t, got.GetCompactModelMapping())
+	require.NotEmpty(t, got.Credentials["openai_capabilities"])
+	require.NotEmpty(t, got.Credentials["opencode_tools"])
+	require.Equal(t, "shell", got.GetCredential("opencode_tool_preset"))
+	require.Equal(t, true, got.Extra["openai_compact_supported"])
+	require.Equal(t, "auto", got.Extra["openai_compact_mode"])
+	require.Equal(t, true, got.Extra["openai_responses_supported"])
+	require.Nil(t, got.Extra["unused_large_field"])
+}
+
 func TestBuildSchedulerMetadataAccount_KeepsSlimGroupMembership(t *testing.T) {
 	account := service.Account{
 		ID:       42,

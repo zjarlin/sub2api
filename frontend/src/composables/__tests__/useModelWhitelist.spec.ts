@@ -33,6 +33,14 @@ describe('useModelWhitelist', () => {
     expect(models).not.toContain('gpt-5.2-codex')
   })
 
+  it('seedance 模型列表包含 BytePlus 和火山方舟命名', () => {
+    const models = getModelsByPlatform('seedance')
+
+    expect(models).toContain('seedance-2-0-260128')
+    expect(models).toContain('dreamina-seedance-2-0-mini-260615')
+    expect(models).toContain('doubao-seedance-2-0-260128')
+  })
+
   it('antigravity 模型列表包含图片模型兼容项', () => {
     const models = getModelsByPlatform('antigravity')
 

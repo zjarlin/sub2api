@@ -714,7 +714,11 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid base URL: %s", err.Error()))
 		}
 		if accountUsesLocalOpenCodeServer(account) {
+			testModelID = normalizeOpenAIModelForUpstream(account, testModelID)
 			return s.testOpenCodeLocalAccountConnection(c, account, testModelID, prompt, normalizedBaseURL)
+		}
+		if accountUsesChatGPTWeb2API(account) {
+			return s.testChatGPTWeb2APIAccountConnection(c, account, testModelID, prompt, normalizedBaseURL, authToken)
 		}
 		if account.ShouldUseOpenAIChatCompletionsUpstream() || !openai_compat.ShouldUseResponsesAPI(account.Extra) {
 			return s.testOpenAIChatCompletionsConnection(c, account, testModelID, prompt, normalizedBaseURL, authToken)
@@ -798,6 +802,8 @@ func defaultOpenAITestModel(account *Account) string {
 		return openai.DefaultTestModel
 	}
 	switch strings.ToLower(strings.TrimSpace(account.GetOpenAIVendor())) {
+	case "chatgpt-web2api":
+		return "auto"
 	case "doubao", "doubao-web":
 		return doubaoWebDefaultModel(account)
 	case "gemini":
@@ -817,6 +823,8 @@ func defaultOpenAITestModel(account *Account) string {
 			return "gemini-2.5-flash"
 		case openAIBaseURLLooksLikeMimo(baseURL):
 			return "mimo-v2.5"
+		case openAIBaseURLLooksLikeChatGPTWeb2API(baseURL):
+			return "auto"
 		case openAIBaseURLLooksLikeOpenRouter(baseURL):
 			return "~openai/gpt-latest"
 		}
@@ -1072,6 +1080,83 @@ func formatOpenCodeLocalTestHTTPError(stage string, statusCode int, body []byte)
 	return fmt.Sprintf("OpenCode local %s API returned %d: %s", stage, statusCode, message)
 }
 
+func (s *AccountTestService) testChatGPTWeb2APIAccountConnection(
+	c *gin.Context,
+	account *Account,
+	testModelID string,
+	prompt string,
+	normalizedBaseURL string,
+	authToken string,
+) error {
+	ctx := c.Request.Context()
+
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	c.Writer.Header().Set("X-Accel-Buffering", "no")
+	c.Writer.Flush()
+
+	upstreamModel := normalizeChatGPTWeb2APIModel(testModelID)
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
+	s.sendEvent(c, TestEvent{Type: "status", Text: "正在检查 ChatGPT-Web2API /health"})
+
+	if err := s.probeChatGPTWeb2APIHealth(c, ctx, account, normalizedBaseURL, authToken); err != nil {
+		return err
+	}
+
+	s.sendEvent(c, TestEvent{Type: "status", Text: "ChatGPT-Web2API 健康检查通过，正在测试 /v1/chat/completions"})
+	return s.testOpenAIChatCompletionsConnectionAfterStreamStarted(c, account, testModelID, upstreamModel, prompt, normalizedBaseURL, authToken)
+}
+
+func (s *AccountTestService) probeChatGPTWeb2APIHealth(
+	c *gin.Context,
+	ctx context.Context,
+	account *Account,
+	normalizedBaseURL string,
+	authToken string,
+) error {
+	healthURL, err := buildChatGPTWeb2APIHealthURL(normalizedBaseURL)
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid ChatGPT-Web2API health URL: %s", err.Error()))
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, healthURL, nil)
+	if err != nil {
+		return s.sendErrorAndEnd(c, "Failed to create ChatGPT-Web2API health request")
+	}
+	req = req.WithContext(WithHTTPUpstreamProfile(req.Context(), HTTPUpstreamProfileOpenAI))
+	req.Header.Set("Accept", "application/json")
+	applyOpenAIUpstreamAuthHeaders(req.Header, account, authToken)
+	if customUA := account.GetOpenAIUserAgent(); customUA != "" {
+		req.Header.Set("user-agent", customUA)
+	}
+
+	proxyURL := ""
+	if account.ProxyID != nil && account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("ChatGPT-Web2API is not running at %s: %s", healthURL, err.Error()))
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to read ChatGPT-Web2API /health response: %s", err.Error()))
+	}
+	if resp.StatusCode != http.StatusOK {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("ChatGPT-Web2API /health returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body))))
+	}
+	status, err := parseChatGPTWeb2APIHealth(body)
+	if err != nil {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to parse ChatGPT-Web2API /health response: %s", err.Error()))
+	}
+	if message := chatGPTWeb2APIHealthErrorMessage(status); message != "" {
+		return s.sendErrorAndEnd(c, message)
+	}
+	return nil
+}
+
 // testOpenAIChatCompletionsConnection tests an OpenAI-compatible APIKey account
 // through the raw /v1/chat/completions endpoint.
 func (s *AccountTestService) testOpenAIChatCompletionsConnection(
@@ -1082,21 +1167,33 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	normalizedBaseURL string,
 	authToken string,
 ) error {
-	ctx := c.Request.Context()
-	apiURL := buildOpenAIChatCompletionsURL(normalizedBaseURL)
-
 	c.Writer.Header().Set("Content-Type", "text/event-stream")
 	c.Writer.Header().Set("Cache-Control", "no-cache")
 	c.Writer.Header().Set("Connection", "keep-alive")
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 	c.Writer.Flush()
 
-	payload := createOpenAIChatCompletionsTestPayload(testModelID, prompt)
-	payload["model"] = normalizeOpenAIModelForUpstream(account, testModelID)
-	payloadBytes, _ := json.Marshal(payload)
-
+	upstreamModel := normalizeOpenAIModelForUpstream(account, testModelID)
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
 	s.sendEvent(c, TestEvent{Type: "status", Text: "正在通过 /v1/chat/completions 测试连接"})
+	return s.testOpenAIChatCompletionsConnectionAfterStreamStarted(c, account, testModelID, upstreamModel, prompt, normalizedBaseURL, authToken)
+}
+
+func (s *AccountTestService) testOpenAIChatCompletionsConnectionAfterStreamStarted(
+	c *gin.Context,
+	account *Account,
+	testModelID string,
+	upstreamModel string,
+	prompt string,
+	normalizedBaseURL string,
+	authToken string,
+) error {
+	ctx := c.Request.Context()
+	apiURL := buildOpenAIChatCompletionsURL(normalizedBaseURL)
+
+	payload := createOpenAIChatCompletionsTestPayload(testModelID, prompt)
+	payload["model"] = upstreamModel
+	payloadBytes, _ := json.Marshal(payload)
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, apiURL, bytes.NewReader(payloadBytes))
 	if err != nil {
@@ -1175,6 +1272,7 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid base URL: %s", err.Error()))
 		}
 		if accountUsesLocalOpenCodeServer(account) {
+			testModelID = normalizeOpenAIModelForUpstream(account, testModelID)
 			if err := s.testOpenCodeLocalAccountConnection(c, account, testModelID, "Respond with OK.", normalizedBaseURL); err != nil {
 				return err
 			}

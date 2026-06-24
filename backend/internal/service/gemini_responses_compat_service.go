@@ -55,6 +55,7 @@ func (s *GeminiMessagesCompatService) ForwardAsResponses(
 	}
 
 	mappedModel := resolveGeminiForwardModel(account, originalModel)
+	SetOpsModelDiagnostics(c, originalModel, mappedModel)
 
 	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(claudeBody)
 	if err != nil {
@@ -129,6 +130,8 @@ func (s *GeminiMessagesCompatService) ForwardAsResponses(
 			}
 			if resp.StatusCode == http.StatusTooManyRequests {
 				s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+				resp = &http.Response{StatusCode: resp.StatusCode, Header: resp.Header.Clone(), Body: io.NopCloser(bytes.NewReader(respBody))}
+				break
 			}
 			if attempt < geminiMaxRetries {
 				upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(respBody)))

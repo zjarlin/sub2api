@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -40,6 +41,46 @@ func (s *geminiCompatHTTPUpstreamStub) Do(req *http.Request, proxyURL string, ac
 
 func (s *geminiCompatHTTPUpstreamStub) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {
 	return s.Do(req, proxyURL, accountID, accountConcurrency)
+}
+
+type recordingGemini429Repo struct {
+	mockAccountRepoForGemini
+	rateLimitedID int64
+	rateLimitedAt *time.Time
+}
+
+func (r *recordingGemini429Repo) SetRateLimited(_ context.Context, id int64, resetAt time.Time) error {
+	r.rateLimitedID = id
+	r.rateLimitedAt = &resetAt
+	return nil
+}
+
+func newGemini429Response() *http.Response {
+	return &http.Response{
+		StatusCode: http.StatusTooManyRequests,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"code":429,"message":"You exceeded your current quota, please check your plan and billing details.","status":"RESOURCE_EXHAUSTED"}}`)),
+	}
+}
+
+func requireGemini429FailoverWithoutRetry(t *testing.T, c *gin.Context, err error, httpStub *geminiCompatHTTPUpstreamStub, repo *recordingGemini429Repo, accountID int64) {
+	t.Helper()
+	require.Error(t, err)
+	var failoverErr *UpstreamFailoverError
+	require.True(t, errors.As(err, &failoverErr), "429 should fail over instead of being returned as a plain upstream error")
+	require.Equal(t, http.StatusTooManyRequests, failoverErr.StatusCode)
+	require.Equal(t, 1, httpStub.calls, "Gemini 429 quota errors should not retry the same account")
+	require.Equal(t, accountID, repo.rateLimitedID)
+	require.NotNil(t, repo.rateLimitedAt)
+	require.True(t, repo.rateLimitedAt.After(time.Now()), "429 cooldown should be persisted before failover")
+
+	v, ok := c.Get(OpsUpstreamErrorsKey)
+	require.True(t, ok, "429 failover should append an ops upstream event")
+	events, ok := v.([]*OpsUpstreamErrorEvent)
+	require.True(t, ok)
+	require.Len(t, events, 1)
+	require.Equal(t, "gemini-3.5-flash", events[0].RequestedModel)
+	require.Equal(t, "gemini-3.5-flash", events[0].MappedModel)
 }
 
 func TestGeminiForwardAsChatCompletions_OAuthRoutesToGeminiAndReturnsChatFormat(t *testing.T) {
@@ -1217,4 +1258,124 @@ func parseAnthropicContentBlockEvents(t *testing.T, raw string) []anthropicConte
 		})
 	}
 	return events
+}
+
+func TestGeminiForward_429FailsOverWithoutSameAccountRetries(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	httpStub := &geminiCompatHTTPUpstreamStub{response: newGemini429Response()}
+	repo := &recordingGemini429Repo{}
+	svc := &GeminiMessagesCompatService{
+		accountRepo:  repo,
+		httpUpstream: httpStub,
+		cfg:          &config.Config{},
+	}
+	account := &Account{
+		ID:       307,
+		Name:     "zjarlin_gemini_aistudio",
+		Platform: PlatformGemini,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key": "gemini-api-key",
+		},
+		Concurrency: 1,
+	}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"gemini-3.5-flash","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}],"max_tokens":16,"stream":true}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+
+	_, err := svc.Forward(context.Background(), c, account, body)
+	requireGemini429FailoverWithoutRetry(t, c, err, httpStub, repo, account.ID)
+}
+
+func TestGeminiForwardNative_429FailsOverWithoutSameAccountRetries(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	httpStub := &geminiCompatHTTPUpstreamStub{response: newGemini429Response()}
+	repo := &recordingGemini429Repo{}
+	svc := &GeminiMessagesCompatService{
+		accountRepo:  repo,
+		httpUpstream: httpStub,
+		cfg:          &config.Config{},
+	}
+	account := &Account{
+		ID:       307,
+		Name:     "zjarlin_gemini_aistudio",
+		Platform: PlatformGemini,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key": "gemini-api-key",
+		},
+		Concurrency: 1,
+	}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-3.5-flash:streamGenerateContent", bytes.NewReader(body))
+
+	_, err := svc.ForwardNative(context.Background(), c, account, "gemini-3.5-flash", "streamGenerateContent", true, body)
+	requireGemini429FailoverWithoutRetry(t, c, err, httpStub, repo, account.ID)
+}
+
+func TestGeminiForwardAsResponses_429FailsOverWithoutSameAccountRetries(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	httpStub := &geminiCompatHTTPUpstreamStub{response: newGemini429Response()}
+	repo := &recordingGemini429Repo{}
+	svc := &GeminiMessagesCompatService{
+		accountRepo:  repo,
+		httpUpstream: httpStub,
+		cfg:          &config.Config{},
+	}
+	account := &Account{
+		ID:       307,
+		Name:     "zjarlin_gemini_aistudio",
+		Platform: PlatformGemini,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key": "gemini-api-key",
+		},
+		Concurrency: 1,
+	}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"gemini-3.5-flash","input":"hi","max_output_tokens":16}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+
+	_, err := svc.ForwardAsResponses(context.Background(), c, account, body)
+	requireGemini429FailoverWithoutRetry(t, c, err, httpStub, repo, account.ID)
+}
+
+func TestGeminiForwardAsChatCompletions_429FailsOverWithoutSameAccountRetries(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	httpStub := &geminiCompatHTTPUpstreamStub{response: newGemini429Response()}
+	repo := &recordingGemini429Repo{}
+	svc := &GeminiMessagesCompatService{
+		accountRepo:  repo,
+		httpUpstream: httpStub,
+		cfg:          &config.Config{},
+	}
+	account := &Account{
+		ID:       307,
+		Name:     "zjarlin_gemini_aistudio",
+		Platform: PlatformGemini,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key": "gemini-api-key",
+		},
+		Concurrency: 1,
+	}
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"gemini-3.5-flash","messages":[{"role":"user","content":"hi"}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+
+	_, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body)
+	requireGemini429FailoverWithoutRetry(t, c, err, httpStub, repo, account.ID)
 }

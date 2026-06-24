@@ -475,6 +475,9 @@ func (s *GeminiMessagesCompatService) listSchedulableAccountsOnce(ctx context.Co
 	if groupID != nil {
 		return s.accountRepo.ListSchedulableByGroupIDAndPlatforms(ctx, *groupID, queryPlatforms)
 	}
+	if hasForcePlatform && shouldFallbackForcePlatformGlobally(platform) {
+		return s.accountRepo.ListSchedulableByPlatforms(ctx, queryPlatforms)
+	}
 	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
 		return s.accountRepo.ListSchedulableByPlatforms(ctx, queryPlatforms)
 	}
@@ -613,6 +616,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 
 	originalModel := req.Model
 	mappedModel := resolveGeminiForwardModel(account, req.Model)
+	SetOpsModelDiagnostics(c, originalModel, mappedModel)
 
 	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(body)
 	if err != nil {
@@ -899,8 +903,15 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				break
 			}
 			if resp.StatusCode == 429 {
-				// Mark as rate-limited early so concurrent requests avoid this account.
+				// Quota exhaustion is not made healthier by retrying the same API key/token.
+				// Persist the cooldown immediately and let the handler fail over to another account.
 				s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+				resp = &http.Response{
+					StatusCode: resp.StatusCode,
+					Header:     resp.Header.Clone(),
+					Body:       io.NopCloser(bytes.NewReader(respBody)),
+				}
+				break
 			}
 			if attempt < geminiMaxRetries {
 				upstreamReqID := resp.Header.Get(requestIDHeader)
@@ -1151,6 +1162,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	body = ensureGeminiFunctionCallThoughtSignatures(body)
 
 	mappedModel := resolveGeminiForwardModel(account, originalModel)
+	SetOpsModelDiagnostics(c, originalModel, mappedModel)
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
@@ -1365,7 +1377,28 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				break
 			}
 			if resp.StatusCode == 429 {
+				// Quota exhaustion is not made healthier by retrying the same API key/token.
+				// Persist the cooldown immediately and let the handler fail over to another account.
 				s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+				if action == "countTokens" {
+					estimated := estimateGeminiCountTokens(body)
+					c.JSON(http.StatusOK, map[string]any{"totalTokens": estimated})
+					return &ForwardResult{
+						RequestID:     "",
+						Usage:         ClaudeUsage{},
+						Model:         originalModel,
+						UpstreamModel: mappedModel,
+						Stream:        false,
+						Duration:      time.Since(startTime),
+						FirstTokenMs:  nil,
+					}, nil
+				}
+				resp = &http.Response{
+					StatusCode: resp.StatusCode,
+					Header:     resp.Header.Clone(),
+					Body:       io.NopCloser(bytes.NewReader(respBody)),
+				}
+				break
 			}
 			if attempt < geminiMaxRetries {
 				upstreamReqID := resp.Header.Get(requestIDHeader)

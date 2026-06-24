@@ -30,6 +30,7 @@ func trimOpenAIEndpointSuffix(normalized string) string {
 		"/images/generations",
 		"/images/edits",
 		"/images/variations",
+		"/contents/generations/tasks",
 	} {
 		if strings.HasSuffix(lower, suffix) {
 			return normalized[:len(normalized)-len(suffix)]

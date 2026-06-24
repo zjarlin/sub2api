@@ -15,6 +15,8 @@ import (
 	"github.com/stretchr/testify/suite"
 )
 
+const openCodeLocalEventMinConnsForRepositoryTest = 64
+
 // HTTPUpstreamSuite HTTP 上游服务测试套件
 // 使用 testify/suite 组织测试，支持 SetupTest 初始化
 type HTTPUpstreamSuite struct {
@@ -351,6 +353,23 @@ func (s *HTTPUpstreamSuite) TestAccountConcurrencyOverridesPoolSettings() {
 	require.Equal(s.T(), 12, transport.MaxConnsPerHost, "MaxConnsPerHost mismatch")
 	require.Equal(s.T(), 12, transport.MaxIdleConns, "MaxIdleConns mismatch")
 	require.Equal(s.T(), 12, transport.MaxIdleConnsPerHost, "MaxIdleConnsPerHost mismatch")
+}
+
+func (s *HTTPUpstreamSuite) TestOpenCodeEventProfileUsesSeparatePool() {
+	s.cfg.Gateway = config.GatewayConfig{ConnectionPoolIsolation: config.ConnectionPoolIsolationAccountProxy}
+	svc := s.newService()
+
+	openAIEntry, err := svc.getClientEntry("", 1, 1, service.HTTPUpstreamProfileOpenAI, false, false)
+	require.NoError(s.T(), err)
+	eventEntry, err := svc.getClientEntry("", 1, openCodeLocalEventMinConnsForRepositoryTest, service.HTTPUpstreamProfileOpenCodeEvent, false, false)
+	require.NoError(s.T(), err)
+
+	require.NotSame(s.T(), openAIEntry, eventEntry, "OpenCode event stream must not share the short-request connection pool")
+	require.Equal(s.T(), upstreamProtocolModeOpenCodeEvent, eventEntry.protocolMode)
+	transport, ok := eventEntry.client.Transport.(*http.Transport)
+	require.True(s.T(), ok, "expected *http.Transport")
+	require.Equal(s.T(), openCodeLocalEventMinConnsForRepositoryTest, transport.MaxConnsPerHost)
+	require.Equal(s.T(), 0*time.Second, transport.ResponseHeaderTimeout)
 }
 
 // TestAccountConcurrencyFallbackToDefault 测试账户并发数为 0 时回退到默认配置

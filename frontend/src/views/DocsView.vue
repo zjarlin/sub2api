@@ -71,6 +71,19 @@
             >
               <h3 class="text-sm font-semibold text-slate-950 dark:text-white">{{ item.title }}</h3>
               <p class="mt-2 text-sm leading-6 text-slate-600 dark:text-dark-300">{{ item.body }}</p>
+              <div v-if="item.links?.length" class="mt-3 flex flex-wrap gap-2">
+                <a
+                  v-for="link in item.links"
+                  :key="link.href"
+                  :href="link.href"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="inline-flex items-center gap-1.5 rounded-lg border border-primary-200 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700 transition-colors hover:border-primary-300 hover:bg-primary-100 dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-primary-200 dark:hover:bg-primary-500/20"
+                >
+                  <Icon name="download" size="xs" />
+                  <span>{{ link.label }}</span>
+                </a>
+              </div>
               <pre
                 v-if="item.code"
                 class="mt-3 overflow-x-auto rounded-lg bg-slate-950 p-4 text-sm text-slate-100"
@@ -96,6 +109,10 @@ interface DocItem {
   title: string
   body: string
   code?: string
+  links?: Array<{
+    label: string
+    href: string
+  }>
 }
 
 interface DocSection {
@@ -151,6 +168,37 @@ const sections = computed<DocSection[]>(() => [
       {
         title: t('docs.codex.items.script.title'),
         body: t('docs.codex.items.script.body'),
+      },
+      {
+        title: t('docs.codex.items.download.title'),
+        body: t('docs.codex.items.download.body'),
+        links: [
+          {
+            label: t('docs.codex.items.download.links.official'),
+            href: 'https://developers.openai.com/codex/app',
+          },
+          {
+            label: t('docs.codex.items.download.links.mac'),
+            href: 'https://persistent.oaistatic.com/codex-app-prod/Codex.dmg',
+          },
+          {
+            label: t('docs.codex.items.download.links.macIntel'),
+            href: 'https://persistent.oaistatic.com/codex-app-prod/Codex-latest-x64.dmg',
+          },
+          {
+            label: t('docs.codex.items.download.links.windows'),
+            href: 'https://get.microsoft.com/installer/download/9PLM9XGG6VKS?cid=website_cta_psi',
+          },
+        ],
+        code: [
+          '# Bash',
+          'curl -L "https://persistent.oaistatic.com/codex-app-prod/Codex.dmg" -o "Codex.dmg"',
+          'curl -L "https://persistent.oaistatic.com/codex-app-prod/Codex-latest-x64.dmg" -o "Codex-latest-x64.dmg"',
+          '',
+          '# PowerShell',
+          'Invoke-WebRequest -Uri "https://get.microsoft.com/installer/download/9PLM9XGG6VKS?cid=website_cta_psi" -OutFile "$env:USERPROFILE\\Downloads\\Codex Installer.exe"',
+          'winget install Codex -s msstore',
+        ].join('\n'),
       },
       {
         title: t('docs.codex.items.windows.title'),

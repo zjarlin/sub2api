@@ -32,7 +32,7 @@ func NewAPIKeyHandler(apiKeyService *service.APIKeyService) *APIKeyHandler {
 type CreateAPIKeyRequest struct {
 	Name                 string   `json:"name" binding:"required"`
 	GroupID              *int64   `json:"group_id"`               // nullable
-	PersonalAccountScope bool     `json:"personal_account_scope"` // 仅调度本人贡献的账号
+	PersonalAccountScope bool     `json:"personal_account_scope"` // legacy: no longer affects scheduling
 	CustomKey            *string  `json:"custom_key"`             // 可选的自定义key
 	IPWhitelist          []string `json:"ip_whitelist"`           // IP 白名单
 	IPBlacklist          []string `json:"ip_blacklist"`           // IP 黑名单

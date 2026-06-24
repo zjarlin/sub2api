@@ -41,6 +41,8 @@ const (
 	OpsSelectedAccountIDKey       = "ops_selected_account_id"
 	OpsSelectedAccountNameKey     = "ops_selected_account_name"
 	OpsSelectedAccountPlatformKey = "ops_selected_account_platform"
+	OpsRequestedModelKey          = "ops_requested_model"
+	OpsMappedModelKey             = "ops_mapped_model"
 
 	// OpsSkipPassthroughKey 由 applyErrorPassthroughRule 在命中 skip_monitoring=true 的规则时设置。
 	// ops_error_logger 中间件检查此 key，为 true 时跳过错误记录。
@@ -93,6 +95,34 @@ func SetOpsSelectedAccount(c *gin.Context, accountID int64, accountName, platfor
 		ctx = context.WithValue(ctx, ctxkey.Platform, platform)
 	}
 	c.Request = c.Request.WithContext(ctx)
+}
+
+func SetOpsModelDiagnostics(c *gin.Context, requestedModel, mappedModel string) {
+	if c == nil {
+		return
+	}
+
+	requestedModel = strings.TrimSpace(requestedModel)
+	mappedModel = strings.TrimSpace(mappedModel)
+
+	// Prefer the inbound/client-requested model written by the handler before
+	// channel mapping. The method argument may already be channel-mapped.
+	if c.Request != nil {
+		if s, ok := c.Request.Context().Value(ctxkey.Model).(string); ok {
+			if inboundModel := strings.TrimSpace(s); inboundModel != "" {
+				requestedModel = inboundModel
+			}
+		}
+	}
+
+	if requestedModel != "" {
+		if _, exists := c.Get(OpsRequestedModelKey); !exists {
+			c.Set(OpsRequestedModelKey, requestedModel)
+		}
+	}
+	if mappedModel != "" {
+		c.Set(OpsMappedModelKey, mappedModel)
+	}
 }
 
 func GetOpsSelectedAccountSnapshot(c *gin.Context) OpsSelectedAccountSnapshot {
@@ -375,6 +405,9 @@ func appendOpsUpstreamError(c *gin.Context, ev OpsUpstreamErrorEvent) {
 	ev.Kind = strings.TrimSpace(ev.Kind)
 	ev.UpstreamURL = strings.TrimSpace(ev.UpstreamURL)
 	ev.AccountName = strings.TrimSpace(ev.AccountName)
+	ev.RequestedModel = strings.TrimSpace(ev.RequestedModel)
+	ev.MappedModel = strings.TrimSpace(ev.MappedModel)
+	ev.KiroModelID = strings.TrimSpace(ev.KiroModelID)
 	ev.Message = strings.TrimSpace(ev.Message)
 	ev.Detail = strings.TrimSpace(ev.Detail)
 	if ev.Message != "" {
@@ -390,6 +423,20 @@ func appendOpsUpstreamError(c *gin.Context, ev OpsUpstreamErrorEvent) {
 	}
 	if ev.Platform == "" && snapshot.Platform != "" {
 		ev.Platform = snapshot.Platform
+	}
+	if ev.RequestedModel == "" {
+		if v, ok := c.Get(OpsRequestedModelKey); ok {
+			if s, ok := v.(string); ok {
+				ev.RequestedModel = strings.TrimSpace(s)
+			}
+		}
+	}
+	if ev.MappedModel == "" {
+		if v, ok := c.Get(OpsMappedModelKey); ok {
+			if s, ok := v.(string); ok {
+				ev.MappedModel = strings.TrimSpace(s)
+			}
+		}
 	}
 
 	// If the caller didn't explicitly pass upstream request body but the gateway

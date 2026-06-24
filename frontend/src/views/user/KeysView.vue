@@ -1051,23 +1051,7 @@
             ]"
             :title="option.description || undefined"
           >
-            <div
-              v-if="option.personal"
-              class="flex min-w-0 flex-1 items-center justify-between gap-3"
-            >
-              <div class="flex min-w-0 flex-1 items-start gap-2">
-                <span class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-300">
-                  <Icon name="user" size="sm" />
-                </span>
-                <div class="min-w-0 text-left">
-                  <div class="text-sm font-semibold text-gray-900 dark:text-white">{{ option.label }}</div>
-                  <div class="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">{{ option.description }}</div>
-                </div>
-              </div>
-              <Icon v-if="isGroupOptionSelected(selectedKeyForGroup, option)" name="check" size="sm" class="text-primary-600 dark:text-primary-400" />
-            </div>
             <GroupOptionItem
-              v-else
               :name="option.label"
               :platform="option.platform!"
               :subscription-type="option.subscriptionType"
@@ -1121,9 +1105,6 @@ import {
   type CcSwitchClientType
 } from '@/utils/ccswitchImport'
 
-const PERSONAL_ACCOUNT_SCOPE_VALUE = 'personal_accounts' as const
-type PersonalAccountScopeValue = typeof PERSONAL_ACCOUNT_SCOPE_VALUE
-
 // Helper to format date for datetime-local input
 const formatDateTimeLocal = (isoDate: string): string => {
   const date = new Date(isoDate)
@@ -1132,14 +1113,13 @@ const formatDateTimeLocal = (isoDate: string): string => {
 }
 
 interface GroupOption extends SelectOption {
-  value: number | PersonalAccountScopeValue
+  value: number
   label: string
   description: string | null
   rate?: number
   userRate: number | null
   subscriptionType: SubscriptionType
   platform?: GroupPlatform
-  personal?: boolean
 }
 
 const appStore = useAppStore()
@@ -1262,7 +1242,6 @@ const statusOptions = computed(() => [
 // Filter dropdown options
 const groupFilterOptions = computed(() => [
   { value: '', label: t('keys.allGroups') },
-  { value: PERSONAL_ACCOUNT_SCOPE_VALUE, label: t('keys.personalAccountScope') },
   { value: 0, label: t('keys.noGroup') },
   ...groups.value.map((g) => ({ value: g.id, label: g.name }))
 ])
@@ -1291,16 +1270,7 @@ const onStatusFilterChange = (value: string | number | boolean | null) => {
 }
 
 // Convert groups to Select options format with rate multiplier and subscription type
-const groupOptions = computed<GroupOption[]>(() => [
-  {
-    value: PERSONAL_ACCOUNT_SCOPE_VALUE,
-    label: t('keys.personalAccountScope'),
-    description: t('keys.personalAccountScopeHint'),
-    userRate: null,
-    subscriptionType: 'standard',
-    personal: true
-  },
-  ...groups.value.map((group) => ({
+const groupOptions = computed<GroupOption[]>(() => groups.value.map((group) => ({
     value: group.id,
     label: group.name,
     description: group.description,
@@ -1308,21 +1278,13 @@ const groupOptions = computed<GroupOption[]>(() => [
     userRate: userGroupRates.value[group.id] ?? null,
     subscriptionType: group.subscription_type,
     platform: group.platform
-  }))
-])
+  })))
 
-const selectedGroupScope = computed<number | PersonalAccountScopeValue | null>({
+const selectedGroupScope = computed<number | null>({
   get() {
-    return formData.value.personal_account_scope
-      ? PERSONAL_ACCOUNT_SCOPE_VALUE
-      : formData.value.group_id
+    return formData.value.group_id
   },
   set(value) {
-    if (value === PERSONAL_ACCOUNT_SCOPE_VALUE) {
-      formData.value.personal_account_scope = true
-      formData.value.group_id = null
-      return
-    }
     formData.value.personal_account_scope = false
     formData.value.group_id = typeof value === 'number' ? value : null
   }
@@ -1367,15 +1329,12 @@ const loadApiKeys = async () => {
       search?: string
       status?: string
       group_id?: number | string
-      personal_account_scope?: boolean
       sort_by?: string
       sort_order?: 'asc' | 'desc'
     } = {}
     if (filterSearch.value) filters.search = filterSearch.value
     if (filterStatus.value) filters.status = filterStatus.value
-    if (filterGroupId.value === PERSONAL_ACCOUNT_SCOPE_VALUE) {
-      filters.personal_account_scope = true
-    } else if (filterGroupId.value !== '') {
+    if (filterGroupId.value !== '') {
       filters.group_id = filterGroupId.value
     }
     filters.sort_by = sortState.value.sort_by
@@ -1539,25 +1498,18 @@ const openGroupSelector = (key: ApiKey) => {
 
 const isGroupOptionSelected = (key: ApiKey | null, option: GroupOption) => {
   if (!key) return false
-  if (option.personal) return key.personal_account_scope
   return !key.personal_account_scope && key.group_id === option.value
 }
 
-const changeGroup = async (key: ApiKey, newGroupId: number | PersonalAccountScopeValue | null) => {
+const changeGroup = async (key: ApiKey, newGroupId: number | null) => {
   groupSelectorKeyId.value = null
   dropdownPosition.value = null
-  if (newGroupId === PERSONAL_ACCOUNT_SCOPE_VALUE) {
-    if (key.personal_account_scope) return
-  } else if (!key.personal_account_scope && key.group_id === newGroupId) {
+  if (!key.personal_account_scope && key.group_id === newGroupId) {
     return
   }
 
   try {
-    if (newGroupId === PERSONAL_ACCOUNT_SCOPE_VALUE) {
-      await keysAPI.update(key.id, { group_id: null, personal_account_scope: true })
-    } else {
-      await keysAPI.update(key.id, { group_id: newGroupId, personal_account_scope: false })
-    }
+    await keysAPI.update(key.id, { group_id: newGroupId, personal_account_scope: false })
     appStore.showSuccess(t('keys.groupChangedSuccess'))
     loadApiKeys()
   } catch (error) {
@@ -1581,7 +1533,7 @@ const confirmDelete = (key: ApiKey) => {
 
 const handleSubmit = async () => {
   // Validate group_id is required
-  if (!formData.value.personal_account_scope && formData.value.group_id === null) {
+  if (formData.value.group_id === null) {
     appStore.showError(t('keys.groupRequired'))
     return
   }
@@ -1639,7 +1591,7 @@ const handleSubmit = async () => {
       await keysAPI.update(selectedKey.value.id, {
         name: formData.value.name,
         group_id: formData.value.group_id,
-        personal_account_scope: formData.value.personal_account_scope,
+        personal_account_scope: false,
         status: formData.value.status,
         ip_whitelist: ipWhitelist,
         ip_blacklist: ipBlacklist,
@@ -1655,7 +1607,7 @@ const handleSubmit = async () => {
       await keysAPI.create(
         formData.value.name,
         formData.value.group_id,
-        formData.value.personal_account_scope,
+        false,
         customKey,
         ipWhitelist,
         ipBlacklist,

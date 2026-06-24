@@ -21,10 +21,12 @@ func testConfig() *config.Config {
 
 // mockAccountRepoForPlatform 单平台测试用的 mock
 type mockAccountRepoForPlatform struct {
-	accounts         []Account
-	accountsByID     map[int64]*Account
-	listPlatformFunc func(ctx context.Context, platform string) ([]Account, error)
-	getByIDCalls     int
+	accounts              []Account
+	accountsByID          map[int64]*Account
+	listPlatformFunc      func(ctx context.Context, platform string) ([]Account, error)
+	listGroupPlatformFunc func(ctx context.Context, groupID int64, platform string) ([]Account, error)
+	listUngroupedFunc     func(ctx context.Context, platform string) ([]Account, error)
+	getByIDCalls          int
 }
 
 func (m *mockAccountRepoForPlatform) GetByID(ctx context.Context, id int64) (*Account, error) {
@@ -67,6 +69,9 @@ func (m *mockAccountRepoForPlatform) ListSchedulableByPlatform(ctx context.Conte
 }
 
 func (m *mockAccountRepoForPlatform) ListSchedulableByGroupIDAndPlatform(ctx context.Context, groupID int64, platform string) ([]Account, error) {
+	if m.listGroupPlatformFunc != nil {
+		return m.listGroupPlatformFunc(ctx, groupID, platform)
+	}
 	return m.ListSchedulableByPlatform(ctx, platform)
 }
 
@@ -148,6 +153,9 @@ func (m *mockAccountRepoForPlatform) ListSchedulableByGroupIDAndPlatforms(ctx co
 	return m.ListSchedulableByPlatforms(ctx, platforms)
 }
 func (m *mockAccountRepoForPlatform) ListSchedulableUngroupedByPlatform(ctx context.Context, platform string) ([]Account, error) {
+	if m.listUngroupedFunc != nil {
+		return m.listUngroupedFunc(ctx, platform)
+	}
 	return m.ListSchedulableByPlatform(ctx, platform)
 }
 func (m *mockAccountRepoForPlatform) ListSchedulableUngroupedByPlatforms(ctx context.Context, platforms []string) ([]Account, error) {
@@ -705,6 +713,76 @@ func TestGatewayService_SelectAccountForModelWithExclusions_ForcePlatform(t *tes
 	require.NotNil(t, acc)
 	require.Equal(t, int64(2), acc.ID)
 	require.Equal(t, PlatformAntigravity, acc.Platform)
+}
+
+func TestGatewayService_SelectAccountForModelWithExclusions_ForceGeminiFallbackFindsGroupedGlobalAccount(t *testing.T) {
+	groupID := int64(6)
+	ctx := context.WithValue(context.Background(), ctxkey.ForcePlatform, PlatformGemini)
+
+	var groupCalls int
+	var allPlatformCalls int
+	repo := &mockAccountRepoForPlatform{
+		listGroupPlatformFunc: func(ctx context.Context, gotGroupID int64, platform string) ([]Account, error) {
+			groupCalls++
+			require.Equal(t, groupID, gotGroupID)
+			require.Equal(t, PlatformGemini, platform)
+			return nil, nil
+		},
+		listPlatformFunc: func(ctx context.Context, platform string) ([]Account, error) {
+			allPlatformCalls++
+			require.Equal(t, PlatformGemini, platform)
+			return []Account{
+				{
+					ID:          307,
+					Name:        "zjarlin_gemini_aistudio",
+					Platform:    PlatformGemini,
+					Priority:    1,
+					Status:      StatusActive,
+					Schedulable: true,
+					Concurrency: 1,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{
+							"gemini-3.5-flash": "gemini-3.5-flash",
+						},
+					},
+				},
+			}, nil
+		},
+		listUngroupedFunc: func(ctx context.Context, platform string) ([]Account, error) {
+			t.Fatalf("forced Gemini fallback must query all platform accounts, not ungrouped accounts")
+			return nil, nil
+		},
+		accountsByID: map[int64]*Account{
+			307: {
+				ID:          307,
+				Name:        "zjarlin_gemini_aistudio",
+				Platform:    PlatformGemini,
+				Priority:    1,
+				Status:      StatusActive,
+				Schedulable: true,
+				Concurrency: 1,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{
+						"gemini-3.5-flash": "gemini-3.5-flash",
+					},
+				},
+			},
+		},
+	}
+
+	svc := &GatewayService{
+		accountRepo: repo,
+		cache:       &mockGatewayCacheForPlatform{},
+		cfg:         testConfig(),
+	}
+
+	acc, err := svc.SelectAccountForModelWithExclusions(ctx, &groupID, "", "gemini-3.5-flash", nil)
+	require.NoError(t, err)
+	require.NotNil(t, acc)
+	require.Equal(t, int64(307), acc.ID)
+	require.Equal(t, "zjarlin_gemini_aistudio", acc.Name)
+	require.Equal(t, 1, groupCalls)
+	require.Equal(t, 1, allPlatformCalls)
 }
 
 func TestGatewayService_SelectAccountForModelWithPlatform_RoutedStickySessionClears(t *testing.T) {
@@ -2143,6 +2221,83 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 		require.NotNil(t, result)
 		require.NotNil(t, result.Account)
 		require.Equal(t, int64(1), result.Account.ID, "应选择优先级最高的账号")
+	})
+
+	t.Run("强制Gemini平台分组为空时回退全局账号", func(t *testing.T) {
+		groupID := int64(6)
+		ctx := context.WithValue(context.Background(), ctxkey.ForcePlatform, PlatformGemini)
+
+		var groupCalls int
+		var allPlatformCalls int
+		repo := &mockAccountRepoForPlatform{
+			listGroupPlatformFunc: func(ctx context.Context, gotGroupID int64, platform string) ([]Account, error) {
+				groupCalls++
+				require.Equal(t, groupID, gotGroupID)
+				require.Equal(t, PlatformGemini, platform)
+				return nil, nil
+			},
+			listPlatformFunc: func(ctx context.Context, platform string) ([]Account, error) {
+				allPlatformCalls++
+				require.Equal(t, PlatformGemini, platform)
+				return []Account{
+					{
+						ID:          307,
+						Name:        "zjarlin_gemini_aistudio",
+						Platform:    PlatformGemini,
+						Priority:    1,
+						Status:      StatusActive,
+						Schedulable: true,
+						Concurrency: 1,
+						Credentials: map[string]any{
+							"model_mapping": map[string]any{
+								"gemini-3.5-flash": "gemini-3.5-flash",
+							},
+						},
+					},
+				}, nil
+			},
+			listUngroupedFunc: func(ctx context.Context, platform string) ([]Account, error) {
+				t.Fatalf("forced Gemini global fallback must query all platform accounts, not ungrouped accounts")
+				return nil, nil
+			},
+			accountsByID: map[int64]*Account{
+				307: {
+					ID:          307,
+					Name:        "zjarlin_gemini_aistudio",
+					Platform:    PlatformGemini,
+					Priority:    1,
+					Status:      StatusActive,
+					Schedulable: true,
+					Concurrency: 1,
+					Credentials: map[string]any{
+						"model_mapping": map[string]any{
+							"gemini-3.5-flash": "gemini-3.5-flash",
+						},
+					},
+				},
+			},
+		}
+
+		cfg := testConfig()
+		cfg.Gateway.Scheduling.LoadBatchEnabled = true
+		concurrencyCache := &mockConcurrencyCache{}
+		svc := &GatewayService{
+			accountRepo:        repo,
+			cache:              &mockGatewayCacheForPlatform{},
+			cfg:                cfg,
+			concurrencyService: NewConcurrencyService(concurrencyCache),
+		}
+
+		result, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, "", "gemini-3.5-flash", nil, "", int64(0))
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		require.NotNil(t, result.Account)
+		require.Equal(t, int64(307), result.Account.ID)
+		require.Equal(t, "zjarlin_gemini_aistudio", result.Account.Name)
+		require.True(t, result.Acquired)
+		require.NotNil(t, result.ReleaseFunc)
+		require.Equal(t, 1, groupCalls)
+		require.Equal(t, 1, allPlatformCalls)
 	})
 
 	t.Run("模型路由-无ConcurrencyService也生效", func(t *testing.T) {

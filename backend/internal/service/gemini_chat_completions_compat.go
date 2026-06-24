@@ -54,6 +54,7 @@ func (s *GatewayService) ForwardAsGeminiChatCompletions(
 	geminiBody = ensureGeminiFunctionCallThoughtSignatures(geminiBody)
 
 	mappedModel := resolveGeminiForwardModel(account, originalModel)
+	SetOpsModelDiagnostics(c, originalModel, mappedModel)
 
 	resp, requestIDHeader, upstreamStream, err := s.forwardGeminiOpenAICompatUpstream(ctx, c, account, mappedModel, ccReq.Stream, geminiBody)
 	if err != nil {

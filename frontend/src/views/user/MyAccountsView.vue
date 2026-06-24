@@ -106,6 +106,10 @@
             <AccountStatusIndicator :account="row" />
           </template>
 
+          <template #cell-groups="{ row }">
+            <AccountGroupsCell :groups="row.groups" />
+          </template>
+
           <template #cell-capacity="{ row }">
             <AccountCapacityCell :account="row" />
           </template>
@@ -197,6 +201,13 @@
           ></textarea>
           <p class="input-hint">{{ t('myAccounts.privateAccountHint') }}</p>
         </div>
+
+        <GroupSelector
+          v-model="form.group_ids"
+          :groups="selectableGroups"
+          :platform="form.platform"
+          :mixed-scheduling="false"
+        />
 
         <div>
           <label class="input-label">{{ t('admin.accounts.platform') }}</label>
@@ -464,10 +475,13 @@ import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
+import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
+import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import ModelMappingBulkImporter from '@/components/account/ModelMappingBulkImporter.vue'
 import userAccountsAPI from '@/api/user/accounts'
-import type { Account, AccountPlatform, AccountType, CreateAccountRequest, UpdateAccountRequest } from '@/types'
+import { userGroupsAPI } from '@/api/groups'
+import type { Account, AccountPlatform, AccountType, AdminGroup, CreateAccountRequest, Group, UpdateAccountRequest } from '@/types'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
@@ -500,6 +514,7 @@ const showAccountDialog = ref(false)
 const showAdvancedJson = ref(false)
 const testingId = ref<number | null>(null)
 const editingAccount = ref<Account | null>(null)
+const groups = ref<Group[]>([])
 
 const filters = reactive({
   search: '',
@@ -531,6 +546,7 @@ const form = reactive({
   extraJson: '{}',
   concurrency: 3,
   priority: 50,
+  group_ids: [] as number[],
   status: 'active' as AccountStatus,
   modelRestrictionMode: 'whitelist' as ModelRestrictionMode,
   allowedModels: [] as string[],
@@ -541,12 +557,15 @@ const columns = computed<Column[]>(() => [
   { key: 'name', label: t('myAccounts.name'), sortable: true, class: 'min-w-[240px]' },
   { key: 'platform_type', label: t('myAccounts.platform'), class: 'min-w-[180px]' },
   { key: 'status', label: t('myAccounts.status'), class: 'min-w-[160px]' },
+  { key: 'groups', label: t('keys.group'), class: 'min-w-[180px]' },
   { key: 'capacity', label: t('admin.accounts.columns.capacity'), class: 'min-w-[140px]' },
   { key: 'priority', label: t('myAccounts.priority'), sortable: true },
   { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true },
   { key: 'created_at', label: t('admin.accounts.columns.createdAt'), sortable: true },
   { key: 'actions', label: t('common.actions'), class: 'sticky-right bg-white dark:bg-dark-900' },
 ])
+
+const selectableGroups = computed(() => groups.value as unknown as AdminGroup[])
 
 const platformOptions: Array<{
   value: AccountPlatform
@@ -819,6 +838,7 @@ function resetForm() {
     extraJson: '{}',
     concurrency: 3,
     priority: 50,
+    group_ids: [],
     status: 'active',
     modelRestrictionMode: 'whitelist',
     allowedModels: [],
@@ -861,6 +881,7 @@ function openEdit(account: Account) {
     extraJson: JSON.stringify(account.extra || {}, null, 2),
     concurrency: account.concurrency || 3,
     priority: account.priority ?? 50,
+    group_ids: account.group_ids || account.groups?.map((group) => group.id) || [],
     status: account.status,
     modelRestrictionMode: modelRestriction.modelMappings.length > 0 ? 'mapping' : 'whitelist',
     allowedModels: modelRestriction.allowedModels,
@@ -918,6 +939,7 @@ function buildPayload(): CreateAccountRequest | UpdateAccountRequest | null {
     extra,
     concurrency: Number(form.concurrency) || 3,
     priority: Number(form.priority) || 50,
+    group_ids: form.group_ids,
     auto_pause_on_expired: true,
   }
 
@@ -1098,7 +1120,17 @@ async function deleteAccount(account: Account) {
   }
 }
 
-onMounted(loadAccounts)
+async function loadGroups() {
+  try {
+    groups.value = await userGroupsAPI.getAvailable()
+  } catch (err: unknown) {
+    appStore.showError(extractApiErrorMessage(err, t('admin.groups.failedToLoad')))
+  }
+}
+
+onMounted(() => {
+  void Promise.all([loadAccounts(), loadGroups()])
+})
 </script>
 
 <style scoped>

@@ -9,7 +9,6 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/accountgroup"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/suite"
@@ -616,7 +615,7 @@ func (s *AccountRepoSuite) TestListSchedulableByGroupID_TimeBoundaries_And_Statu
 	s.Require().Len(sched2, 2, "expected 2 schedulable accounts after ClearRateLimit")
 }
 
-func (s *AccountRepoSuite) TestListSchedulableFiltersUserOwnedAccountsByContext() {
+func (s *AccountRepoSuite) TestListSchedulableIncludesUserOwnedAccounts() {
 	ownerOne, err := s.client.User.Create().
 		SetEmail("account-owner-one@example.com").
 		SetPasswordHash("hash").
@@ -639,23 +638,15 @@ func (s *AccountRepoSuite) TestListSchedulableFiltersUserOwnedAccountsByContext(
 	s.Require().NoError(s.repo.Create(s.ctx, ownedByOne))
 	s.Require().NoError(s.repo.Create(s.ctx, ownedByTwo))
 
-	withoutOwner, err := s.repo.ListSchedulable(s.ctx)
+	accounts, err := s.repo.ListSchedulable(s.ctx)
 	s.Require().NoError(err)
-	ids := idsOfAccounts(withoutOwner)
+	ids := idsOfAccounts(accounts)
 	s.Require().Contains(ids, global.ID)
-	s.Require().NotContains(ids, ownedByOne.ID)
-	s.Require().NotContains(ids, ownedByTwo.ID)
-
-	ownerOneCtx := context.WithValue(s.ctx, ctxkey.AccountOwnerUserID, ownerOneID)
-	withOwner, err := s.repo.ListSchedulable(ownerOneCtx)
-	s.Require().NoError(err)
-	ids = idsOfAccounts(withOwner)
-	s.Require().NotContains(ids, global.ID)
 	s.Require().Contains(ids, ownedByOne.ID)
-	s.Require().NotContains(ids, ownedByTwo.ID)
+	s.Require().Contains(ids, ownedByTwo.ID)
 }
 
-func (s *AccountRepoSuite) TestListSchedulableByGroupIncludesOwnerAccountsFromContext() {
+func (s *AccountRepoSuite) TestListSchedulableByGroupIncludesBoundUserOwnedAccounts() {
 	ownerOne, err := s.client.User.Create().
 		SetEmail("group-owner-one@example.com").
 		SetPasswordHash("hash").
@@ -681,20 +672,16 @@ func (s *AccountRepoSuite) TestListSchedulableByGroupIncludesOwnerAccountsFromCo
 	s.Require().NoError(s.repo.Create(s.ctx, ownedByTwo))
 	s.Require().NoError(s.repo.Create(s.ctx, ownedByOneOpenAI))
 	mustBindAccountToGroup(s.T(), s.client, global.ID, group.ID, 1)
+	mustBindAccountToGroup(s.T(), s.client, ownedByOne.ID, group.ID, 2)
+	mustBindAccountToGroup(s.T(), s.client, ownedByTwo.ID, group.ID, 3)
+	mustBindAccountToGroup(s.T(), s.client, ownedByOneOpenAI.ID, group.ID, 4)
 
-	withoutOwner, err := s.repo.ListSchedulableByGroupIDAndPlatform(s.ctx, group.ID, service.PlatformAnthropic)
+	accounts, err := s.repo.ListSchedulableByGroupIDAndPlatform(s.ctx, group.ID, service.PlatformAnthropic)
 	s.Require().NoError(err)
-	ids := idsOfAccounts(withoutOwner)
+	ids := idsOfAccounts(accounts)
 	s.Require().Contains(ids, global.ID)
-	s.Require().NotContains(ids, ownedByOne.ID)
-
-	ownerOneCtx := context.WithValue(s.ctx, ctxkey.AccountOwnerUserID, ownerOneID)
-	withOwner, err := s.repo.ListSchedulableByGroupIDAndPlatform(ownerOneCtx, group.ID, service.PlatformAnthropic)
-	s.Require().NoError(err)
-	ids = idsOfAccounts(withOwner)
-	s.Require().NotContains(ids, global.ID)
 	s.Require().Contains(ids, ownedByOne.ID)
-	s.Require().NotContains(ids, ownedByTwo.ID)
+	s.Require().Contains(ids, ownedByTwo.ID)
 	s.Require().NotContains(ids, ownedByOneOpenAI.ID)
 }
 

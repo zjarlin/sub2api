@@ -725,6 +725,8 @@ type GatewayConfig struct {
 	OpenAIHTTP2 GatewayOpenAIHTTP2Config `mapstructure:"openai_http2"`
 	// ImageConcurrency: 图片生成独立并发限制配置（默认关闭）
 	ImageConcurrency ImageConcurrencyConfig `mapstructure:"image_concurrency"`
+	// VideoStorage: 视频生成结果对象存储配置（S3/MinIO 兼容，默认关闭）
+	VideoStorage GatewayVideoStorageConfig `mapstructure:"video_storage"`
 
 	// HTTP 上游连接池配置（性能优化：支持高并发场景调优）
 	// MaxIdleConns: 所有主机的最大空闲连接总数
@@ -801,6 +803,25 @@ type GatewayConfig struct {
 	// UserMessageQueue: 用户消息串行队列配置
 	// 对 role:"user" 的真实用户消息实施账号级串行化 + RPM 自适应延迟
 	UserMessageQueue UserMessageQueueConfig `mapstructure:"user_message_queue"`
+}
+
+type GatewayVideoStorageConfig struct {
+	Enabled         bool   `mapstructure:"enabled"`
+	Endpoint        string `mapstructure:"endpoint"`
+	PublicBaseURL   string `mapstructure:"public_base_url"`
+	Region          string `mapstructure:"region"`
+	Bucket          string `mapstructure:"bucket"`
+	AccessKeyID     string `mapstructure:"access_key_id"`
+	SecretAccessKey string `mapstructure:"secret_access_key"`
+	Prefix          string `mapstructure:"prefix"`
+	ForcePathStyle  bool   `mapstructure:"force_path_style"`
+	PublicRead      bool   `mapstructure:"public_read"`
+	// ExpirationDays: 对象存储中视频文件的生命周期过期天数；<=0 表示不自动配置过期规则。
+	ExpirationDays       int   `mapstructure:"expiration_days"`
+	PollIntervalSeconds  int   `mapstructure:"poll_interval_seconds"`
+	PollTimeoutSeconds   int   `mapstructure:"poll_timeout_seconds"`
+	UploadTimeoutSeconds int   `mapstructure:"upload_timeout_seconds"`
+	MaxBytes             int64 `mapstructure:"max_bytes"`
 }
 
 // GatewayOpenAIHTTP2Config OpenAI HTTP 上游协议配置。
@@ -1883,6 +1904,21 @@ func setDefaults() {
 	viper.SetDefault("gateway.image_concurrency.overflow_mode", ImageConcurrencyOverflowModeReject)
 	viper.SetDefault("gateway.image_concurrency.wait_timeout_seconds", 30)
 	viper.SetDefault("gateway.image_concurrency.max_waiting_requests", 100)
+	viper.SetDefault("gateway.video_storage.enabled", false)
+	viper.SetDefault("gateway.video_storage.endpoint", "")
+	viper.SetDefault("gateway.video_storage.public_base_url", "")
+	viper.SetDefault("gateway.video_storage.region", "us-east-1")
+	viper.SetDefault("gateway.video_storage.bucket", "sub2api-videos")
+	viper.SetDefault("gateway.video_storage.access_key_id", "")
+	viper.SetDefault("gateway.video_storage.secret_access_key", "")
+	viper.SetDefault("gateway.video_storage.prefix", "videos/")
+	viper.SetDefault("gateway.video_storage.force_path_style", true)
+	viper.SetDefault("gateway.video_storage.public_read", true)
+	viper.SetDefault("gateway.video_storage.expiration_days", 7)
+	viper.SetDefault("gateway.video_storage.poll_interval_seconds", 5)
+	viper.SetDefault("gateway.video_storage.poll_timeout_seconds", 600)
+	viper.SetDefault("gateway.video_storage.upload_timeout_seconds", 300)
+	viper.SetDefault("gateway.video_storage.max_bytes", int64(512*1024*1024))
 	viper.SetDefault("gateway.antigravity_fallback_cooldown_minutes", 1)
 	viper.SetDefault("gateway.antigravity_extra_retries", 10)
 	viper.SetDefault("gateway.max_body_size", int64(256*1024*1024))

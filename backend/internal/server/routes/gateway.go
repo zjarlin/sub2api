@@ -1,14 +1,20 @@
 package routes
 
 import (
+	"bytes"
+	"context"
+	"io"
 	"net/http"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 )
 
 // RegisterGatewayRoutes 注册 API 网关路由（Claude/OpenAI/Gemini 兼容）
@@ -67,26 +73,18 @@ func RegisterGatewayRoutes(
 		gateway.GET("/usage", h.Gateway.Usage)
 		// OpenAI Responses API: auto-route based on group platform
 		gateway.POST("/responses", func(c *gin.Context) {
-			switch getGroupPlatform(c) {
-			case service.PlatformOpenAI:
-				h.OpenAIGateway.Responses(c)
-				return
-			case service.PlatformGemini:
+			if shouldRouteResponsesToGemini(c) {
 				h.Gateway.GeminiResponses(c)
 				return
 			}
-			h.Gateway.Responses(c)
+			routeResponsesByGroupPlatform(c, h)
 		})
 		gateway.POST("/responses/*subpath", func(c *gin.Context) {
-			switch getGroupPlatform(c) {
-			case service.PlatformOpenAI:
-				h.OpenAIGateway.Responses(c)
-				return
-			case service.PlatformGemini:
+			if shouldRouteResponsesToGemini(c) {
 				h.Gateway.GeminiResponses(c)
 				return
 			}
-			h.Gateway.Responses(c)
+			routeResponsesByGroupPlatform(c, h)
 		})
 		gateway.GET("/responses", h.OpenAIGateway.ResponsesWebSocket)
 		// OpenAI Chat Completions API: auto-route based on group platform
@@ -136,6 +134,32 @@ func RegisterGatewayRoutes(
 			}
 			h.OpenAIGateway.Images(c)
 		})
+		gateway.POST("/videos/generations", func(c *gin.Context) {
+			if getGroupPlatform(c) != service.PlatformOpenAI {
+				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+				c.JSON(http.StatusNotFound, gin.H{
+					"error": gin.H{
+						"type":    "not_found_error",
+						"message": "Videos API is not supported for this platform",
+					},
+				})
+				return
+			}
+			h.OpenAIGateway.Videos(c)
+		})
+		gateway.GET("/videos/generations/*id", func(c *gin.Context) {
+			if getGroupPlatform(c) != service.PlatformOpenAI {
+				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+				c.JSON(http.StatusNotFound, gin.H{
+					"error": gin.H{
+						"type":    "not_found_error",
+						"message": "Videos API is not supported for this platform",
+					},
+				})
+				return
+			}
+			h.OpenAIGateway.VideoTask(c)
+		})
 	}
 
 	// Gemini 原生 API 兼容层（Gemini SDK/CLI 直连）
@@ -155,15 +179,11 @@ func RegisterGatewayRoutes(
 
 	// OpenAI Responses API（不带v1前缀的别名）— auto-route based on group platform
 	responsesHandler := func(c *gin.Context) {
-		switch getGroupPlatform(c) {
-		case service.PlatformOpenAI:
-			h.OpenAIGateway.Responses(c)
-			return
-		case service.PlatformGemini:
+		if shouldRouteResponsesToGemini(c) {
 			h.Gateway.GeminiResponses(c)
 			return
 		}
-		h.Gateway.Responses(c)
+		routeResponsesByGroupPlatform(c, h)
 	}
 	r.POST("/responses", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, responsesHandler)
 	r.POST("/responses/*subpath", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, responsesHandler)
@@ -222,6 +242,32 @@ func RegisterGatewayRoutes(
 		}
 		h.OpenAIGateway.Images(c)
 	})
+	r.POST("/videos/generations", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, func(c *gin.Context) {
+		if getGroupPlatform(c) != service.PlatformOpenAI {
+			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": gin.H{
+					"type":    "not_found_error",
+					"message": "Videos API is not supported for this platform",
+				},
+			})
+			return
+		}
+		h.OpenAIGateway.Videos(c)
+	})
+	r.GET("/videos/generations/*id", bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, func(c *gin.Context) {
+		if getGroupPlatform(c) != service.PlatformOpenAI {
+			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": gin.H{
+					"type":    "not_found_error",
+					"message": "Videos API is not supported for this platform",
+				},
+			})
+			return
+		}
+		h.OpenAIGateway.VideoTask(c)
+	})
 
 	// Antigravity 模型列表
 	r.GET("/antigravity/models", gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.Gateway.AntigravityModels)
@@ -265,4 +311,52 @@ func getGroupPlatform(c *gin.Context) string {
 		return ""
 	}
 	return apiKey.Group.Platform
+}
+
+func routeResponsesByGroupPlatform(c *gin.Context, h *handler.Handlers) {
+	switch getGroupPlatform(c) {
+	case service.PlatformOpenAI:
+		h.OpenAIGateway.Responses(c)
+	case service.PlatformGemini:
+		h.Gateway.GeminiResponses(c)
+	default:
+		h.Gateway.Responses(c)
+	}
+}
+
+func shouldRouteResponsesToGemini(c *gin.Context) bool {
+	if getGroupPlatform(c) == service.PlatformGemini {
+		return true
+	}
+	if getGroupPlatform(c) != service.PlatformOpenAI {
+		return false
+	}
+	model, ok := peekJSONRequestModel(c)
+	if !ok || !isGeminiResponsesModel(model) {
+		return false
+	}
+	ctx := context.WithValue(c.Request.Context(), ctxkey.ForcePlatform, service.PlatformGemini)
+	c.Request = c.Request.WithContext(ctx)
+	c.Set(string(middleware.ContextKeyForcePlatform), service.PlatformGemini)
+	return true
+}
+
+func peekJSONRequestModel(c *gin.Context) (string, bool) {
+	if c == nil || c.Request == nil || c.Request.Body == nil {
+		return "", false
+	}
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		c.Request.Body = io.NopCloser(bytes.NewReader(nil))
+		return "", false
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+	model := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+	return model, model != ""
+}
+
+func isGeminiResponsesModel(model string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	normalized = strings.TrimPrefix(normalized, "models/")
+	return strings.HasPrefix(normalized, "gemini-") || strings.HasPrefix(normalized, "gemma-")
 }

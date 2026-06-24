@@ -200,7 +200,7 @@ describe('UseKeyModal', () => {
 
     await vi.waitFor(() => {
       const codeBlocks = wrapper.findAll('pre code').map((code) => code.text())
-      expect(codeBlocks.some((content) => content.includes('model_catalog_json = "model-catalog.json"'))).toBe(true)
+      expect(codeBlocks.some((content) => content.includes('model_catalog_json = "model_catalog.json"'))).toBe(true)
     })
 
     const codeBlocks = wrapper.findAll('pre code').map((code) => code.text())
@@ -219,7 +219,7 @@ describe('UseKeyModal', () => {
     expect(catalogFile).toContain('"model_messages"')
     expect(catalogFile).toContain('"instructions_template"')
     expect(catalogFile).toContain('"personality_pragmatic"')
-    expect(setupScript).toContain('cat > "$config_dir/model-catalog.json"')
+    expect(setupScript).toContain('cat > "$config_dir/model_catalog.json"')
     expect(setupScript).toContain('"slug": "deepseek-v4-pro"')
   })
 
@@ -541,7 +541,8 @@ describe('UseKeyModal', () => {
     expect(configToml).not.toContain('model = "gpt-5.4"')
     expect(configToml).not.toContain('model_context_window')
     expect(configToml).not.toContain('model_auto_compact_token_limit')
-    expect(configToml).toContain('[features]\nresponses_websockets_v2 = true\ngoals = true')
+    expect(configToml).toContain('[features]\ngoals = true')
+    expect(configToml).not.toContain('responses_websockets_v2')
   })
 
   it('renders GPT-5.4 mini entry in OpenCode config', async () => {

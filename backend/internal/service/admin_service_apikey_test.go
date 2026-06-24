@@ -23,6 +23,8 @@ type userRepoStubForGroupUpdate struct {
 	addGroupCalled bool
 	addedUserID    int64
 	addedGroupID   int64
+	user           *User
+	getByIDErr     error
 }
 
 func (s *userRepoStubForGroupUpdate) AddGroupToAllowedGroups(_ context.Context, userID int64, groupID int64) error {
@@ -33,8 +35,15 @@ func (s *userRepoStubForGroupUpdate) AddGroupToAllowedGroups(_ context.Context, 
 }
 
 func (s *userRepoStubForGroupUpdate) Create(context.Context, *User) error { panic("unexpected") }
-func (s *userRepoStubForGroupUpdate) GetByID(context.Context, int64) (*User, error) {
-	panic("unexpected")
+func (s *userRepoStubForGroupUpdate) GetByID(_ context.Context, id int64) (*User, error) {
+	if s.getByIDErr != nil {
+		return nil, s.getByIDErr
+	}
+	if s.user != nil {
+		clone := *s.user
+		return &clone, nil
+	}
+	return &User{ID: id, Status: StatusActive}, nil
 }
 func (s *userRepoStubForGroupUpdate) GetByEmail(context.Context, string) (*User, error) {
 	panic("unexpected")
@@ -203,12 +212,17 @@ type groupRepoStubForGroupUpdate struct {
 	group          *Group
 	getErr         error
 	lastGetByIDArg int64
+	groupsByID     map[int64]*Group
 }
 
 func (s *groupRepoStubForGroupUpdate) GetByID(_ context.Context, id int64) (*Group, error) {
 	s.lastGetByIDArg = id
 	if s.getErr != nil {
 		return nil, s.getErr
+	}
+	if group, ok := s.groupsByID[id]; ok {
+		clone := *group
+		return &clone, nil
 	}
 	clone := *s.group
 	return &clone, nil
@@ -260,12 +274,14 @@ type userSubRepoStubForGroupUpdate struct {
 	getActiveSub  *UserSubscription
 	getActiveErr  error
 	called        bool
+	calls         int
 	calledUserID  int64
 	calledGroupID int64
 }
 
 func (s *userSubRepoStubForGroupUpdate) GetActiveByUserIDAndGroupID(_ context.Context, userID, groupID int64) (*UserSubscription, error) {
 	s.called = true
+	s.calls++
 	s.calledUserID = userID
 	s.calledGroupID = groupID
 	if s.getActiveErr != nil {
@@ -300,6 +316,60 @@ func TestAdminService_AdminUpdateAPIKeyGroupID_NilGroupID_NoOp(t *testing.T) {
 	require.Equal(t, int64(1), got.APIKey.ID)
 	// Update should NOT have been called (updated stays nil)
 	require.Nil(t, repo.updated)
+}
+
+func TestAdminService_ValidateOwnerCanBindAccountGroups_AllowsAvailableGroups(t *testing.T) {
+	ownerID := int64(42)
+	subGroupID := int64(20)
+	svc := &adminServiceImpl{
+		userRepo: &userRepoStubForGroupUpdate{
+			user: &User{ID: ownerID, AllowedGroups: []int64{10}},
+		},
+		groupRepo: &groupRepoStubForGroupUpdate{
+			groupsByID: map[int64]*Group{
+				10: {ID: 10, Status: StatusActive, IsExclusive: true, SubscriptionType: SubscriptionTypeStandard},
+				20: {ID: 20, Status: StatusActive, SubscriptionType: SubscriptionTypeSubscription},
+			},
+		},
+		userSubRepo: &userSubRepoStubForGroupUpdate{
+			getActiveSub: &UserSubscription{ID: 99, UserID: ownerID, GroupID: subGroupID},
+		},
+	}
+
+	err := svc.validateOwnerCanBindAccountGroups(context.Background(), ownerID, []int64{10, subGroupID})
+
+	require.NoError(t, err)
+}
+
+func TestAdminService_ValidateOwnerCanBindAccountGroups_RejectsHiddenExclusiveGroup(t *testing.T) {
+	ownerID := int64(42)
+	svc := &adminServiceImpl{
+		userRepo: &userRepoStubForGroupUpdate{
+			user: &User{ID: ownerID, AllowedGroups: []int64{10}},
+		},
+		groupRepo: &groupRepoStubForGroupUpdate{
+			group: &Group{ID: 11, Status: StatusActive, IsExclusive: true, SubscriptionType: SubscriptionTypeStandard},
+		},
+	}
+
+	err := svc.validateOwnerCanBindAccountGroups(context.Background(), ownerID, []int64{11})
+
+	require.ErrorIs(t, err, ErrGroupNotAllowed)
+}
+
+func TestAdminService_ValidateOwnerCanBindAccountGroups_RejectsUnsubscribedGroup(t *testing.T) {
+	ownerID := int64(42)
+	svc := &adminServiceImpl{
+		userRepo: &userRepoStubForGroupUpdate{user: &User{ID: ownerID}},
+		groupRepo: &groupRepoStubForGroupUpdate{
+			group: &Group{ID: 20, Status: StatusActive, SubscriptionType: SubscriptionTypeSubscription},
+		},
+		userSubRepo: &userSubRepoStubForGroupUpdate{getActiveErr: ErrSubscriptionNotFound},
+	}
+
+	err := svc.validateOwnerCanBindAccountGroups(context.Background(), ownerID, []int64{20})
+
+	require.ErrorIs(t, err, ErrGroupNotAllowed)
 }
 
 func TestAdminService_AdminUpdateAPIKeyGroupID_Unbind(t *testing.T) {

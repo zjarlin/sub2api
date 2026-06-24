@@ -111,7 +111,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	)
 
 	apiKey := account.GetOpenAIApiKey()
-	if apiKey == "" {
+	if apiKey == "" && !account.AllowsEmptyOpenAIApiKey() {
 		return nil, fmt.Errorf("account %d missing api_key", account.ID)
 	}
 	baseURL := account.GetOpenAIBaseURL()

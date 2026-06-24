@@ -115,8 +115,61 @@ func TestAccountOpenAILocalProxyDefaults(t *testing.T) {
 	}
 }
 
+func TestAccountChatGPTWeb2APIDefaults(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"vendor": "chatgpt-web2api",
+		},
+	}
+
+	if !account.AllowsEmptyOpenAIApiKey() {
+		t.Fatal("chatgpt-web2api should allow an empty proxy auth token")
+	}
+	if got := account.GetOpenAIBaseURL(); got != "http://127.0.0.1:8080/v1" {
+		t.Fatalf("base url = %q, want chatgpt-web2api default base url", got)
+	}
+	if !account.ShouldUseOpenAIChatCompletionsUpstream() {
+		t.Fatal("chatgpt-web2api should use chat/completions upstream")
+	}
+	mapping := account.GetModelMapping()
+	expectedMappings := map[string]string{
+		"auto":             "auto",
+		"chatgpt":          "auto",
+		"chatgpt-web2api":  "auto",
+		"gpt-5.5":          "gpt-5.5",
+		"gpt-5.5-thinking": "gpt-5.5-thinking",
+		"gpt-5.3":          "gpt-5.3",
+		"gpt-5.2":          "gpt-5.2",
+		"gpt-5.1":          "gpt-5.1",
+		"gpt-5":            "gpt-5",
+		"gpt-5-mini":       "gpt-5-mini",
+		"gpt-5.3-mini":     "gpt-5.3-mini",
+		"gpt-4o":           "gpt-4o",
+		"gpt-4":            "gpt-4",
+		"gpt-3.5-turbo":    "gpt-3.5-turbo",
+		"gpt-5-5":          "gpt-5-5",
+	}
+
+	for model, expected := range expectedMappings {
+		if got := mapping[model]; got != expected {
+			t.Fatalf("mapping[%q] = %q, want %q", model, got, expected)
+		}
+	}
+	if got := account.GetMappedModel("gpt-5.4"); got != "gpt-5.4" {
+		t.Fatalf("mapped gpt-5.4 = %q, want passthrough", got)
+	}
+	if got := normalizeOpenAIModelForUpstream(account, "gpt-5.5"); got != "gpt-5-5" {
+		t.Fatalf("upstream model = %q, want gpt-5-5", got)
+	}
+	if got := normalizeOpenAIModelForUpstream(account, "gpt-4o"); got != "auto" {
+		t.Fatalf("upstream legacy model = %q, want auto", got)
+	}
+}
+
 func TestAccountOpenAIVendorChatCompletionsPreference(t *testing.T) {
-	for _, vendor := range []string{"deepseek", "gemini", "mimo", "ollama", "opencode", "openrouter", "trae"} {
+	for _, vendor := range []string{"chatgpt-web2api", "deepseek", "gemini", "mimo", "ollama", "opencode", "openrouter", "trae"} {
 		account := &Account{
 			Platform: PlatformOpenAI,
 			Type:     AccountTypeAPIKey,
@@ -227,6 +280,8 @@ func TestAccountChatCompletionsBaseURLPreferencesWithoutVendor(t *testing.T) {
 		{name: "opencode go", baseURL: "https://opencode.ai/zen/go/v1"},
 		{name: "opencode legacy", baseURL: "https://api.opencode.ai/v1"},
 		{name: "opencode local serve", baseURL: "http://host.docker.internal:4096"},
+		{name: "chatgpt web2api local", baseURL: "http://127.0.0.1:8080/v1"},
+		{name: "chatgpt web2api docker host", baseURL: "http://host.docker.internal:8080/v1"},
 		{name: "openrouter", baseURL: "https://openrouter.ai/api/v1"},
 		{name: "gemini openai compat", baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/"},
 		{name: "mimo", baseURL: "https://api.xiaomimimo.com/v1"},

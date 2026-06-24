@@ -51,6 +51,7 @@ type userCreateAccountRequest struct {
 	Extra              map[string]any `json:"extra"`
 	Concurrency        int            `json:"concurrency"`
 	Priority           int            `json:"priority"`
+	GroupIDs           []int64        `json:"group_ids"`
 	ExpiresAt          *int64         `json:"expires_at"`
 	AutoPauseOnExpired *bool          `json:"auto_pause_on_expired"`
 }
@@ -64,6 +65,7 @@ type userUpdateAccountRequest struct {
 	Concurrency        *int           `json:"concurrency"`
 	Priority           *int           `json:"priority"`
 	Status             string         `json:"status" binding:"omitempty,oneof=active inactive error"`
+	GroupIDs           *[]int64       `json:"group_ids"`
 	ExpiresAt          *int64         `json:"expires_at"`
 	AutoPauseOnExpired *bool          `json:"auto_pause_on_expired"`
 }
@@ -146,18 +148,18 @@ func (h *UserAccountHandler) Create(c *gin.Context) {
 		return
 	}
 	account, err := h.adminService.CreateAccount(c.Request.Context(), &service.CreateAccountInput{
-		Name:                 req.Name,
-		Notes:                req.Notes,
-		OwnerUserID:          &subject.UserID,
-		Platform:             req.Platform,
-		Type:                 req.Type,
-		Credentials:          req.Credentials,
-		Extra:                req.Extra,
-		Concurrency:          req.Concurrency,
-		Priority:             req.Priority,
-		ExpiresAt:            req.ExpiresAt,
-		AutoPauseOnExpired:   req.AutoPauseOnExpired,
-		SkipDefaultGroupBind: true,
+		Name:               req.Name,
+		Notes:              req.Notes,
+		OwnerUserID:        &subject.UserID,
+		Platform:           req.Platform,
+		Type:               req.Type,
+		Credentials:        req.Credentials,
+		Extra:              req.Extra,
+		Concurrency:        req.Concurrency,
+		Priority:           req.Priority,
+		GroupIDs:           req.GroupIDs,
+		ExpiresAt:          req.ExpiresAt,
+		AutoPauseOnExpired: req.AutoPauseOnExpired,
 	})
 	if err != nil {
 		if retryAfter := service.RetryAfterSecondsFromError(err); retryAfter > 0 {
@@ -200,6 +202,7 @@ func (h *UserAccountHandler) Update(c *gin.Context) {
 		Concurrency:        req.Concurrency,
 		Priority:           req.Priority,
 		Status:             req.Status,
+		GroupIDs:           req.GroupIDs,
 		ExpiresAt:          req.ExpiresAt,
 		AutoPauseOnExpired: req.AutoPauseOnExpired,
 	})

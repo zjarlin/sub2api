@@ -375,6 +375,9 @@ type OpenAIGatewayService struct {
 	codexSnapshotThrottle               *accountWriteThrottle
 	openaiCompatSessionResponses        sync.Map
 	openaiCompatAnthropicDigestSessions sync.Map
+	videoStorageUploads                 sync.Map
+	videoStorageBucketEnsured           sync.Map
+	videoStorageUploaded                sync.Map
 }
 
 // NewOpenAIGatewayService creates a new OpenAIGatewayService
@@ -2770,6 +2773,33 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		bodyModified = true
 		disablePatch()
 	}
+	flushModifiedOpenAIRequestBody := func() error {
+		if !bodyModified {
+			return nil
+		}
+		if requestView.HasPatches() {
+			if patchedBody, patchErr := requestView.ApplyPatches(); patchErr == nil {
+				body = patchedBody
+				requestView = newOpenAIRequestView(body)
+				reqBody = nil
+				bodyModified = false
+				return nil
+			}
+		}
+		decoded, decodeErr := ensureReqBody()
+		if decodeErr != nil {
+			return decodeErr
+		}
+		var marshalErr error
+		body, marshalErr = marshalOpenAIUpstreamJSON(decoded)
+		if marshalErr != nil {
+			return fmt.Errorf("serialize request body: %w", marshalErr)
+		}
+		requestView = newOpenAIRequestView(body)
+		reqBody = nil
+		bodyModified = false
+		return nil
+	}
 
 	apiKey := getAPIKeyFromContext(c)
 	imageGenerationAllowed := GroupAllowsImageGeneration(nil)
@@ -2827,6 +2857,21 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if strings.TrimSpace(gjson.GetBytes(body, "reasoning.effort").String()) == "minimal" {
 		markPatchSet("reasoning.effort", "none")
 		logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Normalized reasoning.effort: minimal -> none (account: %s)", account.Name)
+	}
+
+	if accountUsesAgnesAIResponsesCompat(account) && (agnesAIResponsesModelIsImage(upstreamModel) || agnesAIResponsesModelIsImage(originalModel) || agnesAIResponsesModelIsImage(billingModel)) {
+		decoded, decodeErr := ensureReqBody()
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		if applyAgnesAIResponsesCompat(decoded, upstreamModel, originalModel, billingModel, reqModel) {
+			markDecodedModified()
+			logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Applied Agnes Responses compatibility (account: %s, upstream_model: %s)", account.Name, upstreamModel)
+		}
+		if err := flushModifiedOpenAIRequestBody(); err != nil {
+			return nil, err
+		}
+		return s.forwardAgnesAIResponsesImageViaImages(ctx, c, account, body, originalModel, upstreamModel, startTime)
 	}
 
 	imageIntent = imageIntent || IsImageGenerationIntent(openAIResponsesEndpoint, reqModel, nil) || isOpenAIImageGenerationModel(upstreamModel)
@@ -2962,6 +3007,30 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		if sanitizeEmptyBase64InputImagesInOpenAIRequestBodyMap(decoded) {
 			markDecodedModified()
 		}
+	}
+
+	if accountUsesAgnesAIResponsesCompat(account) {
+		decoded, decodeErr := ensureReqBody()
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+		if applyAgnesAIResponsesCompat(decoded, upstreamModel, originalModel, billingModel, reqModel) {
+			markDecodedModified()
+			logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Applied Agnes Responses compatibility (account: %s, upstream_model: %s)", account.Name, upstreamModel)
+		}
+	}
+
+	if s.shouldBridgeAgnesAIResponsesImageRequest(account, upstreamModel) {
+		if err := flushModifiedOpenAIRequestBody(); err != nil {
+			return nil, err
+		}
+		return s.forwardAgnesAIResponsesImageViaImages(ctx, c, account, body, originalModel, upstreamModel, startTime)
+	}
+	if s.shouldBridgeAgnesAIResponsesVideoRequest(account, upstreamModel) {
+		if err := flushModifiedOpenAIRequestBody(); err != nil {
+			return nil, err
+		}
+		return s.forwardAgnesAIResponsesVideoViaVideos(ctx, c, account, body, originalModel, upstreamModel, startTime)
 	}
 
 	if rawTier := requestView.ServiceTier; rawTier != "" {
@@ -3765,7 +3834,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 
 func shouldFailoverOpenAIPassthroughResponse(statusCode int) bool {
 	switch statusCode {
-	case http.StatusTooManyRequests, 529:
+	case http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout, 529:
 		return true
 	default:
 		return false

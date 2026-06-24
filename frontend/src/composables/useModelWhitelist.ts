@@ -22,6 +22,20 @@ const openaiModels = [
   'gpt-image-1', 'gpt-image-1.5', 'gpt-image-2'
 ]
 
+const seedanceModels = [
+  'seedance-2-0-260128',
+  'seedance-2-0-fast-260128',
+  'dreamina-seedance-2-0-mini-260615',
+  'seedance-1-5-pro-251215',
+  'seedance-1.0-lite',
+  'seedance-1.0-pro',
+  'seedance-1.0-pro-fast',
+  'doubao-seedance-2-0-260128',
+  'doubao-seedance-2-0-fast-260128',
+  'doubao-seedance-2-0-mini-260615',
+  'doubao-seedance-1-5-Pro-251215'
+]
+
 const openrouterModels = [
   '~openai/gpt-latest',
   'openai/gpt-oss-120b:free',
@@ -200,6 +214,16 @@ const openaiLocalProxyModels = [
   'opencode/ling-2.6-flash-free'
 ]
 
+const chatgptWeb2apiModels = [
+  'auto',
+  'chatgpt',
+  'gpt-5-5',
+  'gpt-5-5-thinking',
+  'gpt-5-4',
+  'gpt-5-4-thinking',
+  'gpt-5-mini'
+]
+
 // Antigravity 官方支持的模型（精确匹配）
 // 基于官方 API 返回的模型列表，只支持 Claude 4.5+ 和 Gemini 2.5+
 const antigravityModels = [
@@ -370,6 +394,7 @@ const perplexityModels = [
 // 所有模型（去重）
 const allModelsList = Array.from(new Set<string>([
   ...openaiModels,
+  ...seedanceModels,
   ...openrouterModels,
   ...opencodeModels,
   ...opencodeGoModels,
@@ -380,6 +405,7 @@ const allModelsList = Array.from(new Set<string>([
   ...ollamaModels,
   ...traeModels,
   ...openaiLocalProxyModels,
+  ...chatgptWeb2apiModels,
   ...zhipuModels,
   ...qwenModels,
   ...deepseekModels,
@@ -515,6 +541,15 @@ const openaiLocalProxyPresetMappings = [
   { label: 'Opencode Free', from: 'opencode/big-pickle', to: 'opencode/big-pickle', color: 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800/60 dark:text-slate-300' }
 ]
 
+const chatgptWeb2apiPresetMappings = [
+  { label: 'Auto', from: 'auto', to: 'auto', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
+  { label: 'ChatGPT', from: 'chatgpt', to: 'auto', color: 'bg-teal-100 text-teal-700 hover:bg-teal-200 dark:bg-teal-900/30 dark:text-teal-400' },
+  { label: 'GPT->Auto', from: 'gpt-*', to: 'auto', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' },
+  { label: 'Claude->Auto', from: 'claude-*', to: 'auto', color: 'bg-violet-100 text-violet-700 hover:bg-violet-200 dark:bg-violet-900/30 dark:text-violet-400' },
+  { label: 'GPT-5.5', from: 'gpt-5-5', to: 'gpt-5-5', color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400' },
+  { label: 'GPT-5.4', from: 'gpt-5-4', to: 'gpt-5-4', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' }
+]
+
 const geminiPresetMappings = [
   { label: 'Flash 2.0', from: 'gemini-2.0-flash', to: 'gemini-2.0-flash', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' },
   { label: '2.5 Flash', from: 'gemini-2.5-flash', to: 'gemini-2.5-flash', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400' },
@@ -631,6 +666,7 @@ export const commonErrorCodes = [
 export function getModelsByPlatform(platform: string): string[] {
   switch (platform) {
     case 'openai': return openaiModels
+    case 'seedance': return seedanceModels
     case 'deepseek': return deepseekModels
     case 'openrouter': return openrouterModels
     case 'opencode': return opencodeModels
@@ -644,6 +680,7 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'ollama': return ollamaModels
     case 'trae': return traeModels
     case 'openai-local-proxy': return openaiLocalProxyModels
+    case 'chatgpt-web2api': return chatgptWeb2apiModels
     case 'antigravity': return antigravityModels
     case 'kiro': return kiroModels
     case 'zhipu': return zhipuModels
@@ -685,6 +722,7 @@ export function getPresetMappingsByPlatform(platform: string) {
   if (platform === 'ollama') return ollamaPresetMappings
   if (platform === 'trae') return traePresetMappings
   if (platform === 'openai-local-proxy') return openaiLocalProxyPresetMappings
+  if (platform === 'chatgpt-web2api') return chatgptWeb2apiPresetMappings
   if (platform === 'antigravity') return antigravityPresetMappings
   if (platform === 'kiro') return kiroPresetMappings
   if (platform === 'bedrock') return bedrockPresetMappings

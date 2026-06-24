@@ -345,6 +345,7 @@ func TestAccountResolveMappedModel(t *testing.T) {
 	tests := []struct {
 		name           string
 		platform       string
+		accountType    string
 		credentials    map[string]any
 		requestedModel string
 		expectedModel  string
@@ -415,12 +416,41 @@ func TestAccountResolveMappedModel(t *testing.T) {
 			expectedModel:  "gpt-5.4",
 			expectedMatch:  false,
 		},
+		{
+			name:        "opencode go vendor alias resolves through explicitly allowed target",
+			platform:    PlatformOpenAI,
+			accountType: AccountTypeAPIKey,
+			credentials: map[string]any{
+				"vendor": "opencode-go",
+				"model_mapping": map[string]any{
+					"minimax-m3": "minimax-m3",
+				},
+			},
+			requestedModel: "opencode-go/minimax-m3",
+			expectedModel:  "minimax-m3",
+			expectedMatch:  true,
+		},
+		{
+			name:        "opencode go vendor alias does not unlock other default targets",
+			platform:    PlatformOpenAI,
+			accountType: AccountTypeAPIKey,
+			credentials: map[string]any{
+				"vendor": "opencode-go",
+				"model_mapping": map[string]any{
+					"minimax-m3": "minimax-m3",
+				},
+			},
+			requestedModel: "opencode-go/kimi-k2.7",
+			expectedModel:  "opencode-go/kimi-k2.7",
+			expectedMatch:  false,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			account := &Account{
 				Platform:    tt.platform,
+				Type:        tt.accountType,
 				Credentials: tt.credentials,
 			}
 			mappedModel, matched := account.ResolveMappedModel(tt.requestedModel)
@@ -428,6 +458,47 @@ func TestAccountResolveMappedModel(t *testing.T) {
 				t.Fatalf("ResolveMappedModel(%q) = (%q, %v), want (%q, %v)", tt.requestedModel, mappedModel, matched, tt.expectedModel, tt.expectedMatch)
 			}
 		})
+	}
+}
+
+func TestAccountIsModelSupported_OpenCodeGoAliasRequiresExplicitTarget(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"vendor": "opencode-go",
+			"model_mapping": map[string]any{
+				"minimax-m3": "minimax-m3",
+			},
+		},
+	}
+
+	if !account.IsModelSupported("opencode-go/minimax-m3") {
+		t.Fatal("expected opencode-go/minimax-m3 to be supported through explicit minimax-m3 target")
+	}
+	if account.IsModelSupported("opencode-go/kimi-k2.7") {
+		t.Fatal("did not expect opencode-go/kimi-k2.7 to be supported without explicit kimi target")
+	}
+}
+
+func TestAccountIsModelSupported_OpenCodeGoAliasWithStringModelMapping(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"vendor": "opencode-go",
+			"model_mapping": map[string]string{
+				"minimax-m3": "minimax-m3",
+			},
+		},
+	}
+
+	if !account.IsModelSupported("opencode-go/minimax-m3") {
+		t.Fatal("expected opencode-go/minimax-m3 to be supported when model_mapping is map[string]string")
+	}
+	mappedModel, matched := account.ResolveMappedModel("opencode-go/minimax-m3")
+	if !matched || mappedModel != "minimax-m3" {
+		t.Fatalf("ResolveMappedModel(opencode-go/minimax-m3) = (%q, %v), want (minimax-m3, true)", mappedModel, matched)
 	}
 }
 

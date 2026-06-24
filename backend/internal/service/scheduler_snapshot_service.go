@@ -109,19 +109,6 @@ func (s *SchedulerSnapshotService) ListSchedulableAccounts(ctx context.Context, 
 	mode := s.resolveMode(platform, hasForcePlatform)
 	bucket := s.bucketFor(groupID, platform, mode)
 
-	if AccountOwnerUserIDFromContext(ctx) > 0 {
-		if err := s.guardFallback(ctx); err != nil {
-			return nil, useMixed, err
-		}
-		fallbackCtx, cancel := s.withFallbackTimeout(ctx)
-		defer cancel()
-		accounts, err := s.loadAccountsFromDB(fallbackCtx, bucket, useMixed)
-		if err != nil {
-			return nil, useMixed, err
-		}
-		return FilterAccountsVisibleToContext(ctx, accounts), useMixed, nil
-	}
-
 	if s.cache != nil {
 		cached, hit, err := s.cache.GetSnapshot(ctx, bucket)
 		if err != nil {
@@ -692,7 +679,7 @@ func (s *SchedulerSnapshotService) loadAccountsFromDB(ctx context.Context, bucke
 	if groupID > 0 {
 		return s.accountRepo.ListSchedulableByGroupIDAndPlatform(ctx, groupID, bucket.Platform)
 	}
-	if s.isRunModeSimple() {
+	if bucket.Mode == SchedulerModeForced || s.isRunModeSimple() {
 		return s.accountRepo.ListSchedulableByPlatform(ctx, bucket.Platform)
 	}
 	return s.accountRepo.ListSchedulableUngroupedByPlatform(ctx, bucket.Platform)

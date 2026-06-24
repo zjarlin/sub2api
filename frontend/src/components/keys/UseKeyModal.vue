@@ -281,7 +281,7 @@ interface PersistedCodexModelCatalog {
   blacklistedSlugs: string[]
 }
 
-const CODEX_MODEL_CATALOG_FILENAME = 'model-catalog.json'
+const CODEX_MODEL_CATALOG_FILENAME = 'model_catalog.json'
 const CODEX_MODEL_CATALOG_STORAGE_PREFIX = 'sub2api:codex-model-catalog'
 const CODEX_CONTEXT_WINDOW_DEFAULT = 272000
 const CODEX_MODEL_CATALOG_BASE_INSTRUCTIONS = `You are Codex, a coding agent. You and the user share one workspace, and your job is to collaborate with them until their goal is genuinely handled.
@@ -1109,7 +1109,6 @@ supports_websockets = true
 requires_openai_auth = true
 
 [features]
-responses_websockets_v2 = true
 goals = true`
 
   // auth.json content

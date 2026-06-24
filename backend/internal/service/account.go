@@ -7,7 +7,6 @@ import (
 	"hash/fnv"
 	"log/slog"
 	"net/http"
-	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -69,12 +68,10 @@ type Account struct {
 	Groups        []*Group
 
 	// model_mapping 热路径缓存（非持久化字段）
-	modelMappingCache               map[string]string
-	modelMappingCacheReady          bool
-	modelMappingCacheCredentialsPtr uintptr
-	modelMappingCacheRawPtr         uintptr
-	modelMappingCacheRawLen         int
-	modelMappingCacheRawSig         uint64
+	modelMappingCache       map[string]string
+	modelMappingCacheReady  bool
+	modelMappingCacheRawLen int
+	modelMappingCacheRawSig uint64
 }
 
 type OpenAIEndpointCapability string
@@ -82,6 +79,7 @@ type OpenAIEndpointCapability string
 const (
 	OpenAIEndpointCapabilityChatCompletions OpenAIEndpointCapability = "chat_completions"
 	OpenAIEndpointCapabilityEmbeddings      OpenAIEndpointCapability = "embeddings"
+	OpenAIEndpointCapabilityVideos          OpenAIEndpointCapability = "videos"
 )
 
 const openAIEndpointCapabilitiesCredentialKey = "openai_capabilities"
@@ -483,61 +481,36 @@ func stringMappingFromRaw(raw any) map[string]string {
 }
 
 func (a *Account) GetModelMapping() map[string]string {
-	credentialsPtr := mapPtr(a.Credentials)
-	rawMapping, _ := a.Credentials["model_mapping"].(map[string]any)
-	rawPtr := mapPtr(rawMapping)
+	var rawMapping map[string]string
+	if a.Credentials != nil {
+		rawMapping = stringMappingFromRaw(a.Credentials["model_mapping"])
+	}
 	rawLen := len(rawMapping)
-	rawSig := uint64(0)
-	rawSigReady := false
+	rawSig := modelMappingSignature(rawMapping)
 
 	if a.modelMappingCacheReady &&
-		a.modelMappingCacheCredentialsPtr == credentialsPtr &&
-		a.modelMappingCacheRawPtr == rawPtr &&
-		a.modelMappingCacheRawLen == rawLen {
-		rawSig = modelMappingSignature(rawMapping)
-		rawSigReady = true
-		if a.modelMappingCacheRawSig == rawSig {
-			return a.modelMappingCache
-		}
+		a.modelMappingCacheRawLen == rawLen &&
+		a.modelMappingCacheRawSig == rawSig {
+		return a.modelMappingCache
 	}
 
-	mapping := a.resolveModelMapping(rawMapping)
-	if !rawSigReady {
-		rawSig = modelMappingSignature(rawMapping)
-	}
+	mapping := a.resolveStringModelMapping(rawMapping)
 
 	a.modelMappingCache = mapping
 	a.modelMappingCacheReady = true
-	a.modelMappingCacheCredentialsPtr = credentialsPtr
-	a.modelMappingCacheRawPtr = rawPtr
 	a.modelMappingCacheRawLen = rawLen
 	a.modelMappingCacheRawSig = rawSig
 	return mapping
 }
 
-func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]string {
-	if a.Credentials == nil {
-		// 部分平台在未显式配置 model_mapping 时仍应使用默认映射，
-		// 以限制可调度/可转发的模型集合。
-		if defaults := a.defaultModelMapping(); defaults != nil {
-			return defaults
-		}
-		// Bedrock 默认映射由 forwardBedrock 统一处理（需配合 region prefix 调整）
-		return nil
-	}
+func (a *Account) resolveStringModelMapping(rawMapping map[string]string) map[string]string {
 	if len(rawMapping) == 0 {
 		if defaults := a.defaultModelMapping(); defaults != nil {
 			return defaults
 		}
 		return nil
 	}
-
-	result := make(map[string]string)
-	for k, v := range rawMapping {
-		if s, ok := v.(string); ok {
-			result[k] = s
-		}
-	}
+	result := cloneStringMap(rawMapping)
 	if len(result) > 0 {
 		if a.Platform == domain.PlatformAntigravity {
 			ensureAntigravityDefaultPassthroughs(result, []string{
@@ -548,7 +521,6 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 		}
 		return result
 	}
-
 	if defaults := a.defaultModelMapping(); defaults != nil {
 		return defaults
 	}
@@ -705,6 +677,29 @@ var openAIDoubaoWebDefaultModelMapping = map[string]string{
 	"doubao:doubao-pro": "doubao-pro",
 }
 
+var openAIChatGPTWeb2APIDefaultModelMapping = map[string]string{
+	"auto":             "auto",
+	"chatgpt":          "auto",
+	"chatgpt-web2api":  "auto",
+	"gpt-5.5":          "gpt-5.5",
+	"gpt-5.5-thinking": "gpt-5.5-thinking",
+	"gpt-5.3":          "gpt-5.3",
+	"gpt-5.2":          "gpt-5.2",
+	"gpt-5.1":          "gpt-5.1",
+	"gpt-5":            "gpt-5",
+	"gpt-5-mini":       "gpt-5-mini",
+	"gpt-5.3-mini":     "gpt-5.3-mini",
+	"gpt-4o":           "gpt-4o",
+	"gpt-4":            "gpt-4",
+	"gpt-3.5-turbo":    "gpt-3.5-turbo",
+	"gpt-5-5":          "gpt-5-5",
+	"gpt-5-5-thinking": "gpt-5-5-thinking",
+	"gpt-5-3":          "gpt-5-3",
+	"gpt-5-2":          "gpt-5-2",
+	"gpt-5-1":          "gpt-5-1",
+	"gpt-5-3-mini":     "gpt-5-3-mini",
+}
+
 func cloneStringMap(input map[string]string) map[string]string {
 	if len(input) == 0 {
 		return nil
@@ -728,6 +723,8 @@ func defaultOpenAIModelMappingForVendor(vendor string) map[string]string {
 		return cloneStringMap(openAILocalProxyDefaultModelMapping)
 	case "doubao", "doubao-web":
 		return cloneStringMap(openAIDoubaoWebDefaultModelMapping)
+	case "chatgpt-web2api":
+		return cloneStringMap(openAIChatGPTWeb2APIDefaultModelMapping)
 	default:
 		return nil
 	}
@@ -747,6 +744,8 @@ func defaultOpenAIBaseURLForVendor(vendor string) string {
 		return "https://opencode.ai/zen/go/v1"
 	case "openai-local-proxy":
 		return "http://127.0.0.1:18081/v1"
+	case "chatgpt-web2api":
+		return chatGPTWeb2APIDefaultBaseURL
 	case "doubao", "doubao-web":
 		return "https://www.doubao.com"
 	case "ollama":
@@ -760,7 +759,7 @@ func defaultOpenAIBaseURLForVendor(vendor string) string {
 
 func openAIVendorPrefersChatCompletions(vendor string) bool {
 	switch strings.ToLower(strings.TrimSpace(vendor)) {
-	case "deepseek", "doubao", "doubao-web", "gemini", "mimo", "ollama", "opencode", "openrouter", "trae":
+	case "chatgpt-web2api", "deepseek", "doubao", "doubao-web", "gemini", "mimo", "ollama", "opencode", "openrouter", "trae":
 		return true
 	default:
 		return false
@@ -771,6 +770,7 @@ func openAIBaseURLPrefersChatCompletions(baseURL string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(baseURL))
 	return openAIBaseURLLooksLikeDeepSeek(normalized) ||
 		openAIBaseURLLooksLikeOpenCode(normalized) ||
+		openAIBaseURLLooksLikeChatGPTWeb2API(normalized) ||
 		openAIBaseURLLooksLikeGeminiOpenAICompat(normalized) ||
 		openAIBaseURLLooksLikeMimo(normalized) ||
 		openAIBaseURLLooksLikeOpenRouter(normalized)
@@ -788,6 +788,13 @@ func openAIBaseURLLooksLikeOpenCode(normalized string) bool {
 		strings.Contains(normalized, "localhost:4096")
 }
 
+func openAIBaseURLLooksLikeChatGPTWeb2API(normalized string) bool {
+	return strings.Contains(normalized, "chatgpt-web2api") ||
+		strings.Contains(normalized, "host.docker.internal:8080") ||
+		strings.Contains(normalized, "127.0.0.1:8080") ||
+		strings.Contains(normalized, "localhost:8080")
+}
+
 func openAIBaseURLLooksLikeGeminiOpenAICompat(normalized string) bool {
 	return strings.Contains(normalized, "googleapis.com/v1beta/openai") ||
 		strings.Contains(normalized, "googleapis.com/v1alpha/openai")
@@ -803,21 +810,14 @@ func openAIBaseURLLooksLikeOpenRouter(normalized string) bool {
 
 func openAIVendorAllowsEmptyAPIKey(vendor string) bool {
 	switch strings.ToLower(strings.TrimSpace(vendor)) {
-	case "doubao", "doubao-web", "ollama", "openai-local-proxy":
+	case "chatgpt-web2api", "doubao", "doubao-web", "ollama", "openai-local-proxy":
 		return true
 	default:
 		return false
 	}
 }
 
-func mapPtr(m map[string]any) uintptr {
-	if m == nil {
-		return 0
-	}
-	return reflect.ValueOf(m).Pointer()
-}
-
-func modelMappingSignature(rawMapping map[string]any) uint64 {
+func modelMappingSignature(rawMapping map[string]string) uint64 {
 	if len(rawMapping) == 0 {
 		return 0
 	}
@@ -831,11 +831,7 @@ func modelMappingSignature(rawMapping map[string]any) uint64 {
 	for _, k := range keys {
 		_, _ = h.Write([]byte(k))
 		_, _ = h.Write([]byte{0})
-		if v, ok := rawMapping[k].(string); ok {
-			_, _ = h.Write([]byte(v))
-		} else {
-			_, _ = h.Write([]byte{1})
-		}
+		_, _ = h.Write([]byte(rawMapping[k]))
 		_, _ = h.Write([]byte{0xff})
 	}
 	return h.Sum64()
@@ -915,7 +911,113 @@ func accountHasExplicitModelMappingSupport(account *Account, requestedModel stri
 			return true
 		}
 	}
+	if mapped, matched := resolveVendorDefaultMappedModelForAccount(account, requestedModel); matched {
+		return mappingSupportsRequestedModelForAccount(account, mapping, mapped)
+	}
 	return false
+}
+
+func accountExplicitModelMapping(account *Account) map[string]string {
+	if account == nil || account.Credentials == nil {
+		return nil
+	}
+	return stringMappingFromRaw(account.Credentials["model_mapping"])
+}
+
+func requestedModelLookupCandidates(account *Account, requestedModel string) []string {
+	trimmed := strings.TrimSpace(requestedModel)
+	if trimmed == "" {
+		return nil
+	}
+
+	seen := make(map[string]struct{})
+	candidates := make([]string, 0, 4)
+	add := func(candidate string) {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" {
+			return
+		}
+		key := strings.ToLower(candidate)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		candidates = append(candidates, candidate)
+	}
+
+	add(trimmed)
+	add(normalizeRequestedModelForLookup(account.Platform, trimmed))
+	for _, fallbackModel := range resolveOpenAIRequestedModelFallbacks(account, trimmed) {
+		add(fallbackModel)
+		add(normalizeRequestedModelForLookup(account.Platform, fallbackModel))
+	}
+	return candidates
+}
+
+func mappingSupportsRequestedModelForAccount(account *Account, mapping map[string]string, requestedModel string) bool {
+	for _, candidate := range requestedModelLookupCandidates(account, requestedModel) {
+		if mappingSupportsRequestedModel(mapping, candidate) {
+			return true
+		}
+	}
+	return false
+}
+
+func resolveMappedModelInMappingForAccount(account *Account, mapping map[string]string, requestedModel string) (mappedModel string, matched bool) {
+	for _, candidate := range requestedModelLookupCandidates(account, requestedModel) {
+		if mappedModel, matched := resolveRequestedModelInMapping(mapping, candidate); matched {
+			return mappedModel, true
+		}
+	}
+	return requestedModel, false
+}
+
+func resolveVendorDefaultMappedModelForAccount(account *Account, requestedModel string) (mappedModel string, matched bool) {
+	if account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey {
+		return requestedModel, false
+	}
+	defaults := defaultOpenAIModelMappingForVendor(account.GetOpenAIVendor())
+	if len(defaults) == 0 {
+		return requestedModel, false
+	}
+	return resolveMappedModelInMappingForAccount(account, defaults, requestedModel)
+}
+
+func accountModelMappingSupportsRequestedModel(account *Account, requestedModel string) bool {
+	mapping := account.GetModelMapping()
+	if len(mapping) == 0 {
+		return false
+	}
+	if mappingSupportsRequestedModelForAccount(account, mapping, requestedModel) {
+		return true
+	}
+	explicitMapping := accountExplicitModelMapping(account)
+	if len(explicitMapping) == 0 {
+		return false
+	}
+	if mapped, matched := resolveVendorDefaultMappedModelForAccount(account, requestedModel); matched {
+		return mappingSupportsRequestedModelForAccount(account, explicitMapping, mapped)
+	}
+	return false
+}
+
+func resolveMappedModelFromAccountMappings(account *Account, requestedModel string) (mappedModel string, matched bool) {
+	mapping := account.GetModelMapping()
+	if len(mapping) == 0 {
+		return requestedModel, false
+	}
+	if mappedModel, matched := resolveMappedModelInMappingForAccount(account, mapping, requestedModel); matched {
+		return mappedModel, true
+	}
+	explicitMapping := accountExplicitModelMapping(account)
+	if len(explicitMapping) == 0 {
+		return requestedModel, false
+	}
+	if mappedModel, matched := resolveVendorDefaultMappedModelForAccount(account, requestedModel); matched &&
+		mappingSupportsRequestedModelForAccount(account, explicitMapping, mappedModel) {
+		return mappedModel, true
+	}
+	return requestedModel, false
 }
 
 func (a *Account) requiresExplicitModelMappingForOpenAIPassthroughModel(requestedModel string) bool {
@@ -1050,23 +1152,7 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 		}
 		return true // 无映射 = 允许所有
 	}
-	if mappingSupportsRequestedModel(mapping, requestedModel) {
-		return true
-	}
-	normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
-	if normalized != requestedModel && mappingSupportsRequestedModel(mapping, normalized) {
-		return true
-	}
-	for _, fallbackModel := range resolveOpenAIRequestedModelFallbacks(a, requestedModel) {
-		if mappingSupportsRequestedModel(mapping, fallbackModel) {
-			return true
-		}
-		normalizedFallback := normalizeRequestedModelForLookup(a.Platform, fallbackModel)
-		if normalizedFallback != fallbackModel && mappingSupportsRequestedModel(mapping, normalizedFallback) {
-			return true
-		}
-	}
-	return false
+	return accountModelMappingSupportsRequestedModel(a, requestedModel)
 }
 
 // GetMappedModel 获取映射后的模型名（支持通配符，最长优先匹配）。
@@ -1079,31 +1165,10 @@ func (a *Account) GetMappedModel(requestedModel string) string {
 // ResolveMappedModel 获取映射后的模型名，并返回是否命中了账号级映射。
 // matched=true 表示命中了精确映射或通配符映射，即使映射结果与原模型名相同。
 func (a *Account) ResolveMappedModel(requestedModel string) (mappedModel string, matched bool) {
-	mapping := a.GetModelMapping()
-	if len(mapping) == 0 {
+	if len(a.GetModelMapping()) == 0 {
 		return requestedModel, false
 	}
-	if mappedModel, matched := resolveRequestedModelInMapping(mapping, requestedModel); matched {
-		return mappedModel, true
-	}
-	normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
-	if normalized != requestedModel {
-		if mappedModel, matched := resolveRequestedModelInMapping(mapping, normalized); matched {
-			return mappedModel, true
-		}
-	}
-	for _, fallbackModel := range resolveOpenAIRequestedModelFallbacks(a, requestedModel) {
-		if mappedModel, matched := resolveRequestedModelInMapping(mapping, fallbackModel); matched {
-			return mappedModel, true
-		}
-		normalizedFallback := normalizeRequestedModelForLookup(a.Platform, fallbackModel)
-		if normalizedFallback != fallbackModel {
-			if mappedModel, matched := resolveRequestedModelInMapping(mapping, normalizedFallback); matched {
-				return mappedModel, true
-			}
-		}
-	}
-	return requestedModel, false
+	return resolveMappedModelFromAccountMappings(a, requestedModel)
 }
 
 // GetOpenAICompactMode returns the compact routing mode for an OpenAI account.
@@ -1678,6 +1743,10 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 	switch capability {
 	case OpenAIEndpointCapabilityChatCompletions:
 	case OpenAIEndpointCapabilityEmbeddings:
+		if a.Type != AccountTypeAPIKey {
+			return false
+		}
+	case OpenAIEndpointCapabilityVideos:
 		if a.Type != AccountTypeAPIKey {
 			return false
 		}

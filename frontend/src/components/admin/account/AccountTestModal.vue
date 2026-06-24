@@ -48,7 +48,7 @@
         <Select
           v-model="selectedModelId"
           :options="availableModels"
-          :disabled="loadingModels || status === 'connecting'"
+          :disabled="loadingModels || status === 'connecting' || batchTesting"
           value-key="id"
           label-key="display_name"
           :placeholder="loadingModels ? t('common.loading') + '...' : t('admin.accounts.selectTestModel')"
@@ -61,7 +61,7 @@
           :label="t('admin.accounts.imagePromptLabel')"
           :placeholder="t('admin.accounts.imagePromptPlaceholder')"
           :hint="t('admin.accounts.imageTestHint')"
-          :disabled="status === 'connecting'"
+          :disabled="status === 'connecting' || batchTesting"
           rows="3"
         />
       </div>
@@ -193,11 +193,38 @@
           {{ t('common.close') }}
         </button>
         <button
-          @click="startTest"
-          :disabled="status === 'connecting' || !selectedModelId"
+          @click="startBatchTestAndPrune"
+          :disabled="status === 'connecting' || loadingModels || availableModels.length === 0"
           :class="[
             'flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-            status === 'connecting' || !selectedModelId
+            status === 'connecting' || loadingModels || availableModels.length === 0
+              ? 'cursor-not-allowed bg-gray-300 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              : 'bg-blue-500 text-white hover:bg-blue-600'
+          ]"
+        >
+          <Icon
+            :name="batchTesting ? 'refresh' : 'beaker'"
+            size="sm"
+            :class="{ 'animate-spin': batchTesting }"
+            :stroke-width="2"
+          />
+          <span>
+            {{
+              batchTesting
+                ? t('admin.accounts.batchTestingModelsProgress', {
+                    done: batchTestDone,
+                    total: batchTestTotal
+                  })
+                : t('admin.accounts.batchTestModelsAndPrune')
+            }}
+          </span>
+        </button>
+        <button
+          @click="startTest"
+          :disabled="status === 'connecting' || batchTesting || !selectedModelId"
+          :class="[
+            'flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-all',
+            status === 'connecting' || batchTesting || !selectedModelId
               ? 'cursor-not-allowed bg-primary-400 text-white'
               : status === 'success'
                 ? 'bg-green-500 text-white hover:bg-green-600'
@@ -261,6 +288,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'updated', account: Account): void
 }>()
 
 const terminalRef = ref<HTMLElement | null>(null)
@@ -275,21 +303,25 @@ const loadingModels = ref(false)
 let abortController: AbortController | null = null
 const generatedImages = ref<PreviewImage[]>([])
 const previewImageUrl = ref('')
+const batchTesting = ref(false)
+const batchTestDone = ref(0)
+const batchTestTotal = ref(0)
 const prioritizedGeminiModels = ['gemini-3.1-flash-image', 'gemini-2.5-flash-image', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-flash-preview', 'gemini-3-pro-preview', 'gemini-2.0-flash']
-const supportsGeminiImageTest = computed(() => {
-  const modelID = selectedModelId.value.toLowerCase()
+const supportsGeminiImageModel = (modelID: string) => {
+  modelID = modelID.toLowerCase()
   if (!modelID.startsWith('gemini-') || !modelID.includes('-image')) return false
 
   return props.account?.platform === 'gemini' || (props.account?.platform === 'antigravity' && props.account?.type === 'apikey')
-})
+}
 
-const supportsOpenAIImageTest = computed(() => {
-  const modelID = selectedModelId.value.toLowerCase()
+const supportsOpenAIImageModel = (modelID: string) => {
+  modelID = modelID.toLowerCase()
   if (!modelID.startsWith('gpt-image-')) return false
   return props.account?.platform === 'openai'
-})
+}
 
-const supportsImageTest = computed(() => supportsGeminiImageTest.value || supportsOpenAIImageTest.value)
+const supportsImageModel = (modelID: string) => supportsGeminiImageModel(modelID) || supportsOpenAIImageModel(modelID)
+const supportsImageTest = computed(() => supportsImageModel(selectedModelId.value))
 
 const sortTestModels = (models: ClaudeModel[]) => {
   const priorityMap = new Map(prioritizedGeminiModels.map((id, index) => [id, index]))
@@ -359,6 +391,9 @@ const resetState = () => {
   errorMessage.value = ''
   generatedImages.value = []
   previewImageUrl.value = ''
+  batchTesting.value = false
+  batchTestDone.value = 0
+  batchTestTotal.value = 0
 }
 
 const handleClose = () => {
@@ -385,6 +420,92 @@ const scrollToBottom = async () => {
   }
 }
 
+interface TestRunResult {
+  success: boolean
+  error?: string
+}
+
+const getTestPromptForModel = (modelID: string) => {
+  if (!supportsImageModel(modelID)) return ''
+  return (selectedModelId.value === modelID ? testPrompt.value.trim() : '') || t('admin.accounts.imagePromptDefault')
+}
+
+const runModelTest = async (modelID: string, renderEvents: boolean): Promise<TestRunResult> => {
+  if (!props.account || !abortController) {
+    return { success: false, error: 'Test aborted' }
+  }
+
+  const url = `/api/v1/admin/accounts/${props.account.id}/test`
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${localStorage.getItem('auth_token')}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model_id: modelID,
+      prompt: getTestPromptForModel(modelID)
+    }),
+    signal: abortController.signal
+  })
+
+  if (!response.ok) {
+    throw new Error(`HTTP error! status: ${response.status}`)
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader) {
+    throw new Error('No response body')
+  }
+
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let completed = false
+  let success = false
+  let errorMessage = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() || ''
+
+    for (const line of lines) {
+      if (line.startsWith('data:')) {
+        const jsonStr = line.replace(/^data:\s*/, '').trim()
+        if (jsonStr) {
+          try {
+            const event = JSON.parse(jsonStr)
+            if (renderEvents) {
+              handleEvent(event)
+            }
+            if (event.type === 'test_complete') {
+              completed = true
+              success = Boolean(event.success)
+              if (!success) {
+                errorMessage = event.error || t('admin.accounts.testFailed')
+              }
+            } else if (event.type === 'error') {
+              completed = true
+              success = false
+              errorMessage = event.error || t('admin.accounts.testFailed')
+            }
+          } catch (e) {
+            console.error('Failed to parse SSE event:', e)
+          }
+        }
+      }
+    }
+  }
+
+  if (!completed) {
+    return { success: false, error: t('admin.accounts.batchTestStreamIncomplete') }
+  }
+  return { success, error: errorMessage || undefined }
+}
+
 const startTest = async () => {
   if (!props.account || !selectedModelId.value) return
 
@@ -395,60 +516,13 @@ const startTest = async () => {
   addLine('', 'text-gray-300')
 
   abortStream()
-
   abortController = new AbortController()
 
   try {
-    // Create EventSource for SSE
-    const url = `/api/v1/admin/accounts/${props.account.id}/test`
-
-    // Use fetch with streaming for SSE since EventSource doesn't support POST
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${localStorage.getItem('auth_token')}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-              model_id: selectedModelId.value,
-              prompt: supportsImageTest.value ? testPrompt.value.trim() : ''
-            }),
-      signal: abortController.signal
-    })
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-
-    const reader = response.body?.getReader()
-    if (!reader) {
-      throw new Error('No response body')
-    }
-
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const jsonStr = line.slice(6).trim()
-          if (jsonStr) {
-            try {
-              const event = JSON.parse(jsonStr)
-              handleEvent(event)
-            } catch (e) {
-              console.error('Failed to parse SSE event:', e)
-            }
-          }
-        }
-      }
+    const result = await runModelTest(selectedModelId.value, true)
+    if (!result.success && status.value === 'connecting') {
+      status.value = 'error'
+      errorMessage.value = result.error || t('admin.accounts.testFailed')
     }
   } catch (error: unknown) {
     if (error instanceof DOMException && error.name === 'AbortError') {
@@ -459,6 +533,129 @@ const startTest = async () => {
     const msg = error instanceof Error ? error.message : 'Unknown error'
     errorMessage.value = msg
     addLine(`Error: ${msg}`, 'text-red-400')
+  } finally {
+    abortController = null
+  }
+}
+
+const getExistingModelMapping = () => {
+  const raw = props.account?.credentials?.model_mapping
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    return {} as Record<string, string>
+  }
+
+  const mapping: Record<string, string> = {}
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof value === 'string' && value.trim()) {
+      mapping[key] = value
+    }
+  }
+  return mapping
+}
+
+const buildSuccessfulModelMapping = (successfulModelIds: string[]) => {
+  const existingMapping = getExistingModelMapping()
+  const nextMapping: Record<string, string> = {}
+  for (const modelID of successfulModelIds) {
+    nextMapping[modelID] = existingMapping[modelID] || modelID
+  }
+  return nextMapping
+}
+
+const startBatchTestAndPrune = async () => {
+  if (!props.account || availableModels.value.length === 0 || status.value === 'connecting') return
+
+  resetState()
+  status.value = 'connecting'
+  batchTesting.value = true
+  batchTestTotal.value = availableModels.value.length
+  batchTestDone.value = 0
+  const models = [...availableModels.value]
+  const successfulModelIds: string[] = []
+  const failed: Array<{ id: string; error?: string }> = []
+
+  addLine(t('admin.accounts.batchTestModelsStarted', {
+    account: props.account.name,
+    total: models.length
+  }), 'text-blue-400')
+  addLine(t('admin.accounts.batchTestModelsPruneHint'), 'text-gray-400')
+  addLine('', 'text-gray-300')
+
+  abortStream()
+  abortController = new AbortController()
+
+  try {
+    for (const model of models) {
+      addLine(t('admin.accounts.batchTestingModel', {
+        model: model.id,
+        current: batchTestDone.value + 1,
+        total: batchTestTotal.value
+      }), 'text-cyan-300')
+
+      try {
+        const result = await runModelTest(model.id, false)
+        if (result.success) {
+          successfulModelIds.push(model.id)
+          addLine(t('admin.accounts.batchTestModelPassed', { model: model.id }), 'text-green-400')
+        } else {
+          failed.push({ id: model.id, error: result.error })
+          addLine(t('admin.accounts.batchTestModelFailed', {
+            model: model.id,
+            error: result.error || t('admin.accounts.testFailed')
+          }), 'text-red-400')
+        }
+      } catch (error: unknown) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          status.value = 'idle'
+          return
+        }
+        const msg = error instanceof Error ? error.message : String(error)
+        failed.push({ id: model.id, error: msg })
+        addLine(t('admin.accounts.batchTestModelFailed', {
+          model: model.id,
+          error: msg
+        }), 'text-red-400')
+      } finally {
+        batchTestDone.value += 1
+      }
+    }
+
+    addLine('', 'text-gray-300')
+    addLine(t('admin.accounts.batchTestModelsSummary', {
+      passed: successfulModelIds.length,
+      failed: failed.length
+    }), failed.length === 0 ? 'text-green-400' : 'text-yellow-400')
+
+    if (successfulModelIds.length === 0) {
+      status.value = 'error'
+      errorMessage.value = t('admin.accounts.batchTestModelsNoSuccess')
+      addLine(t('admin.accounts.batchTestModelsNoSuccess'), 'text-red-400')
+      return
+    }
+
+    const modelMapping = buildSuccessfulModelMapping(successfulModelIds)
+    const updated = await adminAPI.accounts.update(props.account.id, {
+      credentials: {
+        model_mapping: modelMapping
+      }
+    })
+    emit('updated', updated)
+    availableModels.value = models.filter(model => successfulModelIds.includes(model.id))
+    selectedModelId.value = availableModels.value[0]?.id || ''
+    status.value = 'success'
+    addLine(t('admin.accounts.batchTestModelsPruned', { count: successfulModelIds.length }), 'text-green-400')
+  } catch (error: unknown) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      status.value = 'idle'
+      return
+    }
+    status.value = 'error'
+    const msg = error instanceof Error ? error.message : String(error)
+    errorMessage.value = msg
+    addLine(`Error: ${msg}`, 'text-red-400')
+  } finally {
+    batchTesting.value = false
+    abortController = null
   }
 }
 
@@ -491,6 +688,12 @@ const handleEvent = (event: {
       if (event.text) {
         streamingContent.value += event.text
         scrollToBottom()
+      }
+      break
+
+    case 'status':
+      if (event.text) {
+        addLine(event.text, 'text-cyan-300')
       }
       break
 

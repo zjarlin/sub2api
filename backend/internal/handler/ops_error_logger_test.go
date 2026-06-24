@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 
@@ -117,6 +119,45 @@ func TestOpsCaptureWriterPool_ResetOnRelease(t *testing.T) {
 	defer releaseOpsCaptureWriter(reused)
 
 	require.Zero(t, reused.buf.Len(), "writer should be reset before reuse")
+}
+
+func TestSetOpsRequestBodyReadError_TrimsAndTruncates(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	setOpsRequestBodyReadError(c, errors.New("  unexpected EOF  "))
+	require.Equal(t, "unexpected EOF", getOpsRequestBodyReadError(c))
+
+	setOpsRequestBodyReadError(c, errors.New(strings.Repeat("x", 3000)))
+	require.Len(t, getOpsRequestBodyReadError(c), 2048)
+}
+
+func TestEnrichOpsErrorBodyWithRequestBodyReadDiagnostic_JSON(t *testing.T) {
+	got := enrichOpsErrorBodyWithRequestBodyReadDiagnostic(
+		[]byte(`{"error":{"message":"Failed to read request body","type":"invalid_request_error"}}`),
+		"unexpected EOF",
+	)
+
+	require.JSONEq(t, `{
+		"error": {
+			"message": "Failed to read request body",
+			"type": "invalid_request_error"
+		},
+		"diagnostic": {
+			"request_body_read_error": "unexpected EOF"
+		}
+	}`, got)
+}
+
+func TestEnrichOpsErrorBodyWithRequestBodyReadDiagnostic_NonJSON(t *testing.T) {
+	got := enrichOpsErrorBodyWithRequestBodyReadDiagnostic([]byte("bad gateway"), "read tcp: connection reset by peer")
+
+	require.JSONEq(t, `{
+		"error_body": "bad gateway",
+		"diagnostic": {
+			"request_body_read_error": "read tcp: connection reset by peer"
+		}
+	}`, got)
 }
 
 func TestOpsErrorLoggerMiddleware_DoesNotBreakOuterMiddlewares(t *testing.T) {

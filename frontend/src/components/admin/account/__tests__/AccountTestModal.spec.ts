@@ -2,15 +2,17 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import AccountTestModal from '../AccountTestModal.vue'
 
-const { getAvailableModels, copyToClipboard } = vi.hoisted(() => ({
+const { getAvailableModels, updateAccount, copyToClipboard } = vi.hoisted(() => ({
   getAvailableModels: vi.fn(),
+  updateAccount: vi.fn(),
   copyToClipboard: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
-      getAvailableModels
+      getAvailableModels,
+      update: updateAccount
     }
   }
 }))
@@ -68,7 +70,14 @@ function mountModal() {
         name: 'Gemini Image Test',
         platform: 'gemini',
         type: 'apikey',
-        status: 'active'
+        status: 'active',
+        credentials: {
+          model_mapping: {
+            'gemini-3.1-flash-image': 'gemini-3.1-flash-image',
+            'gemini-2.5-flash-image': 'models/gemini-2.5-flash-image',
+            'gemini-2.0-flash': 'gemini-2.0-flash'
+          }
+        }
       }
     } as any,
     global: {
@@ -94,6 +103,19 @@ describe('AccountTestModal', () => {
       { id: 'gemini-3.1-flash-image', display_name: 'Gemini 3.1 Flash Image' }
     ])
     copyToClipboard.mockReset()
+    updateAccount.mockReset()
+    updateAccount.mockResolvedValue({
+      id: 42,
+      name: 'Gemini Image Test',
+      platform: 'gemini',
+      type: 'apikey',
+      status: 'active',
+      credentials: {
+        model_mapping: {
+          'gemini-3.1-flash-image': 'gemini-3.1-flash-image'
+        }
+      }
+    })
     Object.defineProperty(globalThis, 'localStorage', {
       value: {
         getItem: vi.fn((key: string) => (key === 'auth_token' ? 'test-token' : null)),
@@ -143,5 +165,47 @@ describe('AccountTestModal', () => {
     const preview = wrapper.find('img[alt="test-image-1"]')
     expect(preview.exists()).toBe(true)
     expect(preview.attributes('src')).toBe('data:image/png;base64,QUJD')
+  })
+
+  it('批量测试后只把成功模型写回 model_mapping', async () => {
+    const wrapper = mountModal()
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    global.fetch = vi.fn()
+      .mockResolvedValueOnce(createStreamResponse([
+        'data: {"type":"error","error":"not supported"}\n'
+      ]))
+      .mockResolvedValueOnce(createStreamResponse([
+        'data: {"type":"test_complete","success":true}\n'
+      ]))
+      .mockResolvedValueOnce(createStreamResponse([
+        'data: {"type":"error","error":"quota exceeded"}\n'
+      ])) as any
+
+    const buttons = wrapper.findAll('button')
+    const batchButton = buttons.find((button) => button.text().includes('admin.accounts.batchTestModelsAndPrune'))
+    expect(batchButton).toBeTruthy()
+
+    await batchButton!.trigger('click')
+    await flushPromises()
+    await flushPromises()
+
+    expect(global.fetch).toHaveBeenCalledTimes(3)
+    expect(updateAccount).toHaveBeenCalledWith(42, {
+      credentials: {
+        model_mapping: {
+          'gemini-2.5-flash-image': 'models/gemini-2.5-flash-image'
+        }
+      }
+    })
+    expect(wrapper.emitted('updated')?.[0]?.[0]).toMatchObject({
+      id: 42,
+      credentials: {
+        model_mapping: {
+          'gemini-3.1-flash-image': 'gemini-3.1-flash-image'
+        }
+      }
+    })
   })
 })

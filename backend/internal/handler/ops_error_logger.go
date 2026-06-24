@@ -27,6 +27,7 @@ const (
 	opsStreamKey                 = "ops_stream"
 	opsAccountIDKey              = service.OpsSelectedAccountIDKey
 	opsRoutingCapacityLimitedKey = "ops_routing_capacity_limited"
+	opsRequestBodyReadErrorKey   = "ops_request_body_read_error"
 
 	opsUpstreamModelKey = "ops_upstream_model"
 	opsRequestTypeKey   = "ops_request_type"
@@ -396,6 +397,60 @@ func setOpsRequestContext(c *gin.Context, model string, stream bool) {
 		ctx := context.WithValue(c.Request.Context(), ctxkey.Model, model)
 		c.Request = c.Request.WithContext(ctx)
 	}
+}
+
+func setOpsRequestBodyReadError(c *gin.Context, err error) {
+	if c == nil || err == nil {
+		return
+	}
+	message := strings.TrimSpace(err.Error())
+	if message == "" {
+		return
+	}
+	c.Set(opsRequestBodyReadErrorKey, truncateString(message, 2048))
+}
+
+func getOpsRequestBodyReadError(c *gin.Context) string {
+	if c == nil {
+		return ""
+	}
+	v, ok := c.Get(opsRequestBodyReadErrorKey)
+	if !ok {
+		return ""
+	}
+	s, ok := v.(string)
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(s)
+}
+
+func enrichOpsErrorBodyWithRequestBodyReadDiagnostic(body []byte, readErr string) string {
+	base := string(body)
+	readErr = truncateString(strings.TrimSpace(readErr), 2048)
+	if readErr == "" {
+		return base
+	}
+
+	var root map[string]any
+	if err := json.Unmarshal(body, &root); err != nil || root == nil {
+		root = map[string]any{
+			"error_body": base,
+		}
+	}
+
+	diagnostic, _ := root["diagnostic"].(map[string]any)
+	if diagnostic == nil {
+		diagnostic = map[string]any{}
+	}
+	diagnostic["request_body_read_error"] = readErr
+	root["diagnostic"] = diagnostic
+
+	enriched, err := json.Marshal(root)
+	if err != nil {
+		return base
+	}
+	return string(enriched)
 }
 
 // setOpsEndpointContext stores upstream model and request type for ops error logging.
@@ -791,6 +846,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 
 		body := w.buf.Bytes()
 		parsed := parseOpsErrorResponse(body)
+		errorBody := enrichOpsErrorBodyWithRequestBodyReadDiagnostic(body, getOpsRequestBodyReadError(c))
 
 		// Skip logging if a passthrough rule with skip_monitoring=true matched.
 		if v, ok := c.Get(service.OpsSkipPassthroughKey); ok {
@@ -887,7 +943,7 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			ErrorMessage: parsed.Message,
 			// Keep the full captured error body (capture is already capped at 64KB) so the
 			// service layer can sanitize JSON before truncating for storage.
-			ErrorBody:   string(body),
+			ErrorBody:   errorBody,
 			ErrorSource: errorSource,
 			ErrorOwner:  errorOwner,
 

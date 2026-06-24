@@ -5,11 +5,13 @@ export type OpenAIVendorPresetId =
   | 'opencode'
   | 'opencode-go'
   | 'doubao-web'
+  | 'seedance'
   | 'gemini'
   | 'mimo'
   | 'ollama'
   | 'trae'
   | 'openai-local-proxy'
+  | 'chatgpt-web2api'
   | 'custom'
 
 export interface OpenAIVendorPreset {
@@ -98,6 +100,18 @@ const OPENAI_VENDOR_PRESETS: Record<OpenAIVendorPresetId, OpenAIVendorPreset> = 
     baseUrlHintKey: 'admin.accounts.openai.doubaoWebBaseUrlHint',
     apiKeyHintKey: 'admin.accounts.openai.doubaoWebApiKeyHint'
   },
+  seedance: {
+    id: 'seedance',
+    labelKey: 'admin.accounts.openai.vendorOptions.seedance',
+    baseUrl: 'https://ark.ap-southeast.bytepluses.com/api/v3',
+    authHeader: 'authorization',
+    authScheme: 'bearer',
+    apiKeyPlaceholder: 'ark-...',
+    modelPlatforms: ['seedance'],
+    presetPlatform: 'seedance',
+    baseUrlHintKey: 'admin.accounts.openai.seedanceBaseUrlHint',
+    apiKeyHintKey: 'admin.accounts.openai.seedanceApiKeyHint'
+  },
   gemini: {
     id: 'gemini',
     labelKey: 'admin.accounts.openai.vendorOptions.gemini',
@@ -158,6 +172,18 @@ const OPENAI_VENDOR_PRESETS: Record<OpenAIVendorPresetId, OpenAIVendorPreset> = 
     baseUrlHintKey: 'admin.accounts.openai.openaiLocalProxyBaseUrlHint',
     apiKeyHintKey: 'admin.accounts.openai.openaiLocalProxyApiKeyHint'
   },
+  'chatgpt-web2api': {
+    id: 'chatgpt-web2api',
+    labelKey: 'admin.accounts.openai.vendorOptions.chatgptWeb2api',
+    baseUrl: 'http://127.0.0.1:8080/v1',
+    authHeader: 'authorization',
+    authScheme: 'bearer',
+    apiKeyPlaceholder: 'optional-proxy-auth-token',
+    modelPlatforms: ['chatgpt-web2api'],
+    presetPlatform: 'chatgpt-web2api',
+    baseUrlHintKey: 'admin.accounts.openai.chatgptWeb2apiBaseUrlHint',
+    apiKeyHintKey: 'admin.accounts.openai.chatgptWeb2apiApiKeyHint'
+  },
   custom: {
     id: 'custom',
     labelKey: 'admin.accounts.openai.vendorOptions.custom',
@@ -179,11 +205,13 @@ const PRESET_ORDER: OpenAIVendorPresetId[] = [
   'opencode',
   'opencode-go',
   'doubao-web',
+  'seedance',
   'gemini',
   'mimo',
   'ollama',
   'trae',
   'openai-local-proxy',
+  'chatgpt-web2api',
   'custom'
 ]
 
@@ -265,6 +293,14 @@ export function inferOpenAIVendorPreset(input: {
   }
   if (baseUrl.includes(':18081') || baseUrl.includes('openai-local-proxy')) {
     return 'openai-local-proxy'
+  }
+  if (
+    baseUrl.includes('chatgpt-web2api') ||
+    baseUrl.includes('host.docker.internal:8080') ||
+    baseUrl.includes('127.0.0.1:8080') ||
+    baseUrl.includes('localhost:8080')
+  ) {
+    return 'chatgpt-web2api'
   }
   if (baseUrl.includes('api.openai.com')) {
     return 'openai'
