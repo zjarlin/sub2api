@@ -645,6 +645,7 @@ type GatewayService struct {
 	tlsFPProfileService   *TLSFingerprintProfileService
 	balanceNotifyService  *BalanceNotifyService
 	userPlatformQuotaRepo UserPlatformQuotaRepository
+	accountModelProbe     AccountModelProbe
 }
 
 // NewGatewayService creates a new GatewayService
@@ -679,6 +680,7 @@ func NewGatewayService(
 	resolver *ModelPricingResolver,
 	balanceNotifyService *BalanceNotifyService,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
+	accountModelProbe AccountModelProbe,
 ) *GatewayService {
 	userGroupRateTTL := resolveUserGroupRateCacheTTL(cfg)
 	modelsListTTL := resolveModelsListCacheTTL(cfg)
@@ -718,6 +720,7 @@ func NewGatewayService(
 		resolver:              resolver,
 		balanceNotifyService:  balanceNotifyService,
 		userPlatformQuotaRepo: userPlatformQuotaRepo,
+		accountModelProbe:     accountModelProbe,
 	}
 	svc.userGroupRateResolver = newUserGroupRateResolver(
 		userGroupRateRepo,
@@ -1816,6 +1819,10 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		}
 	}
 	if len(accounts) == 0 {
+		if s.tryRecoverGroupModelAccountByProbe(ctx, groupID, platform, useMixed, requestedModel, excludedIDs) {
+			retryCtx := withGroupModelProbeRecoveryAttempted(ctx)
+			return s.SelectAccountWithLoadAwareness(retryCtx, groupID, sessionHash, requestedModel, excludedIDs, metadataUserID, sub2apiUserID)
+		}
 		return nil, ErrNoAvailableAccounts
 	}
 	if platform == PlatformOpenAI {
@@ -2261,6 +2268,10 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	if len(candidates) == 0 {
 		if s.tryRecoverKiroCooldownPool(ctx, accounts, requestedModel, excludedIDs, useMixed) {
 			retryCtx := context.WithValue(ctx, kiroCooldownRecoveryAttemptedKey, true)
+			return s.SelectAccountWithLoadAwareness(retryCtx, groupID, sessionHash, requestedModel, excludedIDs, metadataUserID, sub2apiUserID)
+		}
+		if s.tryRecoverGroupModelAccountByProbe(ctx, groupID, platform, useMixed, requestedModel, excludedIDs) {
+			retryCtx := withGroupModelProbeRecoveryAttempted(ctx)
 			return s.SelectAccountWithLoadAwareness(retryCtx, groupID, sessionHash, requestedModel, excludedIDs, metadataUserID, sub2apiUserID)
 		}
 		return nil, ErrNoAvailableAccounts
@@ -3651,6 +3662,10 @@ func (s *GatewayService) selectAccountForModelWithPlatform(ctx context.Context, 
 			retryCtx := context.WithValue(ctx, kiroCooldownRecoveryAttemptedKey, true)
 			return s.selectAccountForModelWithPlatform(retryCtx, groupID, sessionHash, requestedModel, excludedIDs, platform)
 		}
+		if s.tryRecoverGroupModelAccountByProbe(ctx, groupID, platform, false, requestedModel, excludedIDs) {
+			retryCtx := withGroupModelProbeRecoveryAttempted(ctx)
+			return s.selectAccountForModelWithPlatform(retryCtx, groupID, sessionHash, requestedModel, excludedIDs, platform)
+		}
 		if requestedModel != "" {
 			return nil, fmt.Errorf("%w supporting model: %s (%s)", ErrNoAvailableAccounts, requestedModel, summarizeSelectionFailureStats(stats))
 		}
@@ -3912,6 +3927,10 @@ func (s *GatewayService) selectAccountWithMixedScheduling(ctx context.Context, g
 
 	if selected == nil {
 		stats := s.logDetailedSelectionFailure(ctx, groupID, sessionHash, requestedModel, nativePlatform, accounts, excludedIDs, true)
+		if s.tryRecoverGroupModelAccountByProbe(ctx, groupID, nativePlatform, true, requestedModel, excludedIDs) {
+			retryCtx := withGroupModelProbeRecoveryAttempted(ctx)
+			return s.selectAccountWithMixedScheduling(retryCtx, groupID, sessionHash, requestedModel, excludedIDs, nativePlatform)
+		}
 		if requestedModel != "" {
 			return nil, fmt.Errorf("%w supporting model: %s (%s)", ErrNoAvailableAccounts, requestedModel, summarizeSelectionFailureStats(stats))
 		}
@@ -9269,6 +9288,8 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	if input.BillingModelSource == BillingModelSourceRequested && input.OriginalModel != "" {
 		billingModel = input.OriginalModel
 	}
+	modelMultiplier := resolveModelRateMultiplier(apiKey, billingModel, multiplier)
+	modelImageMultiplier := resolveModelRateMultiplier(apiKey, billingModel, imageMultiplier)
 
 	// 确定 RequestedModel（渠道映射前的原始模型）
 	requestedModel := result.Model
@@ -9278,7 +9299,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 
 	// 计算费用
 	opts.IsKiroAccount = account != nil && account.Platform == PlatformKiro
-	cost := s.calculateRecordUsageCost(ctx, result, apiKey, billingModel, multiplier, imageMultiplier, opts)
+	cost := s.calculateRecordUsageCost(ctx, result, apiKey, billingModel, modelMultiplier, modelImageMultiplier, opts)
 
 	// 判断计费方式：订阅模式 vs 余额模式
 	isSubscriptionBilling := subscription != nil && apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
@@ -9290,7 +9311,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	// 创建使用日志
 	accountRateMultiplier := account.BillingRateMultiplier()
 	usageLog := s.buildRecordUsageLog(ctx, input, result, apiKey, user, account, subscription,
-		requestedModel, multiplier, imageMultiplier, accountRateMultiplier, billingType, cacheTTLOverridden, cost, opts)
+		requestedModel, modelMultiplier, modelImageMultiplier, accountRateMultiplier, billingType, cacheTTLOverridden, cost, opts)
 
 	// 计算账号统计定价费用（使用最终上游模型匹配自定义规则）
 	if apiKey.GroupID != nil {

@@ -153,6 +153,14 @@ func (s *OpenAIGatewayService) forwardAgnesAIResponsesImageViaImages(
 			Message:            upstreamMsg,
 			Detail:             truncateString(string(respBody), 2048),
 		})
+		if s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody) {
+			s.handleFailoverSideEffects(ctx, resp, account, upstreamModel)
+			return nil, &UpstreamFailoverError{
+				StatusCode:             resp.StatusCode,
+				ResponseBody:           respBody,
+				RetryableOnSameAccount: isOpenAITransientProcessingError(resp.StatusCode, upstreamMsg, respBody) || account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+			}
+		}
 		return s.handleErrorResponse(ctx, resp, c, account, imagesBody, requestModel)
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -165,6 +173,7 @@ func (s *OpenAIGatewayService) forwardAgnesAIResponsesImageViaImages(
 	if err != nil {
 		return nil, err
 	}
+	responsesBody = s.enrichAgnesAIResponsesImageBody(ctx, upstreamBody, responsesBody, requestModel)
 	clientStream := agnesAIResponsesClientWantsStream(body)
 
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -248,6 +257,14 @@ func (s *OpenAIGatewayService) forwardAgnesAIResponsesVideoViaVideos(
 			Message:            upstreamMsg,
 			Detail:             truncateString(string(respBody), 2048),
 		})
+		if s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody) {
+			s.handleFailoverSideEffects(ctx, resp, account, upstreamModel)
+			return nil, &UpstreamFailoverError{
+				StatusCode:             resp.StatusCode,
+				ResponseBody:           respBody,
+				RetryableOnSameAccount: isOpenAITransientProcessingError(resp.StatusCode, upstreamMsg, respBody) || account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+			}
+		}
 		return s.handleErrorResponse(ctx, resp, c, account, videosBody, requestModel)
 	}
 	defer func() { _ = resp.Body.Close() }()
@@ -308,6 +325,45 @@ func (s *OpenAIGatewayService) writeAgnesAIResponsesCompletedStream(c *gin.Conte
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
 	c.Writer.WriteHeader(http.StatusOK)
+
+	if gjson.ValidBytes(responseBody) {
+		createdPayload := buildAgnesAIResponsesStreamResponseEvent("response.created", responseBody, "in_progress", false)
+		if err := s.writeOpenAIImagesStreamEvent(c, flusher, "response.created", createdPayload); err != nil {
+			return err
+		}
+		inProgressPayload := buildAgnesAIResponsesStreamResponseEvent("response.in_progress", responseBody, "in_progress", false)
+		if err := s.writeOpenAIImagesStreamEvent(c, flusher, "response.in_progress", inProgressPayload); err != nil {
+			return err
+		}
+		outputs := gjson.GetBytes(responseBody, "output")
+		if outputs.IsArray() {
+			outputIndex := 0
+			var writeErr error
+			outputs.ForEach(func(_, item gjson.Result) bool {
+				addedItem := buildAgnesAIResponsesStreamAddedItem(item)
+				addedPayload := []byte(`{"type":"response.output_item.added","output_index":0}`)
+				addedPayload, _ = sjson.SetBytes(addedPayload, "output_index", outputIndex)
+				addedPayload, _ = sjson.SetRawBytes(addedPayload, "item", addedItem)
+				if writeErr = s.writeOpenAIImagesStreamEvent(c, flusher, "response.output_item.added", addedPayload); writeErr != nil {
+					return false
+				}
+
+				doneItem := buildAgnesAIResponsesStreamDoneItem(item)
+				donePayload := []byte(`{"type":"response.output_item.done","output_index":0}`)
+				donePayload, _ = sjson.SetBytes(donePayload, "output_index", outputIndex)
+				donePayload, _ = sjson.SetRawBytes(donePayload, "item", doneItem)
+				if writeErr = s.writeOpenAIImagesStreamEvent(c, flusher, "response.output_item.done", donePayload); writeErr != nil {
+					return false
+				}
+				outputIndex++
+				return true
+			})
+			if writeErr != nil {
+				return writeErr
+			}
+		}
+	}
+
 	if err := s.writeOpenAIImagesStreamEvent(c, flusher, "response.completed", payload); err != nil {
 		return err
 	}
@@ -316,6 +372,75 @@ func (s *OpenAIGatewayService) writeAgnesAIResponsesCompletedStream(c *gin.Conte
 	}
 	flusher.Flush()
 	return nil
+}
+
+func buildAgnesAIResponsesStreamResponseEvent(eventType string, responseBody []byte, status string, includeOutput bool) []byte {
+	response := append([]byte(nil), responseBody...)
+	response = ensureAgnesAIResponsesUsageShape(response)
+	if trimmed := strings.TrimSpace(status); trimmed != "" {
+		response, _ = sjson.SetBytes(response, "status", trimmed)
+	}
+	if !includeOutput {
+		response, _ = sjson.SetRawBytes(response, "output", []byte("[]"))
+		response, _ = sjson.SetRawBytes(response, "usage", []byte("null"))
+	}
+	payload := []byte(`{"type":""}`)
+	payload, _ = sjson.SetBytes(payload, "type", strings.TrimSpace(eventType))
+	payload, _ = sjson.SetRawBytes(payload, "response", response)
+	return payload
+}
+
+func buildAgnesAIResponsesStreamAddedItem(item gjson.Result) []byte {
+	id := strings.TrimSpace(item.Get("id").String())
+	itemType := strings.TrimSpace(item.Get("type").String())
+	if id == "" && itemType == "" {
+		if item.Raw != "" {
+			return []byte(item.Raw)
+		}
+		return []byte(`{}`)
+	}
+	minimal := []byte(`{}`)
+	if id != "" {
+		minimal, _ = sjson.SetBytes(minimal, "id", id)
+	}
+	if itemType != "" {
+		minimal, _ = sjson.SetBytes(minimal, "type", itemType)
+	}
+	if status := agnesAIResponsesInProgressStatus(itemType); status != "" {
+		minimal, _ = sjson.SetBytes(minimal, "status", status)
+	}
+	return minimal
+}
+
+func buildAgnesAIResponsesStreamDoneItem(item gjson.Result) []byte {
+	if item.Raw == "" || !gjson.Valid(item.Raw) {
+		return []byte(`{}`)
+	}
+	done := []byte(item.Raw)
+	if strings.TrimSpace(item.Get("status").String()) == "" {
+		if status := agnesAIResponsesCompletedStatus(item.Get("type").String()); status != "" {
+			done, _ = sjson.SetBytes(done, "status", status)
+		}
+	}
+	return done
+}
+
+func agnesAIResponsesInProgressStatus(itemType string) string {
+	switch strings.TrimSpace(itemType) {
+	case "image_generation_call", "video_generation_call":
+		return "in_progress"
+	default:
+		return ""
+	}
+}
+
+func agnesAIResponsesCompletedStatus(itemType string) string {
+	switch strings.TrimSpace(itemType) {
+	case "image_generation_call", "message":
+		return "completed"
+	default:
+		return ""
+	}
 }
 
 func buildAgnesAIImagesRequestFromResponses(body []byte, requestModel string, upstreamModel string) ([]byte, error) {
@@ -457,8 +582,9 @@ func buildAgnesAIResponsesImageResponse(upstreamBody []byte, model string) ([]by
 			return true
 		}
 		output := map[string]any{
-			"id":   fmt.Sprintf("ig_agnes_%d", outputIndex),
-			"type": "image_generation_call",
+			"id":     fmt.Sprintf("ig_agnes_%d", outputIndex),
+			"type":   "image_generation_call",
+			"status": "completed",
 		}
 		if b64 != "" {
 			output["result"] = b64
@@ -486,6 +612,7 @@ func buildAgnesAIResponsesImageResponse(upstreamBody []byte, model string) ([]by
 	if usageRaw := root.Get("usage"); usageRaw.Exists() && usageRaw.IsObject() {
 		response, _ = sjson.SetRawBytes(response, "usage", []byte(usageRaw.Raw))
 	}
+	response = ensureAgnesAIResponsesUsageShape(response)
 	usage, _ := extractOpenAIUsageFromJSONBytes(response)
 	return response, usage, outputIndex, sizes, responseID, nil
 }
@@ -547,8 +674,48 @@ func buildAgnesAIResponsesVideoResponse(upstreamBody []byte, model string) ([]by
 	if usageRaw := root.Get("usage"); usageRaw.Exists() && usageRaw.IsObject() {
 		response, _ = sjson.SetRawBytes(response, "usage", []byte(usageRaw.Raw))
 	}
+	response = ensureAgnesAIResponsesUsageShape(response)
 	usage, _ := extractOpenAIUsageFromJSONBytes(response)
 	return response, usage, responseID, nil
+}
+
+func ensureAgnesAIResponsesUsageShape(response []byte) []byte {
+	if len(response) == 0 || !gjson.ValidBytes(response) {
+		return response
+	}
+	out := response
+	usage := gjson.GetBytes(out, "usage")
+	if !usage.Exists() || usage.Type == gjson.Null {
+		out, _ = sjson.SetRawBytes(out, "usage", []byte(`{"input_tokens":0,"output_tokens":0,"total_tokens":0,"input_tokens_details":{"cached_tokens":0},"output_tokens_details":{"reasoning_tokens":0}}`))
+		return out
+	}
+	if !usage.IsObject() {
+		return out
+	}
+	inputTokens := gjson.GetBytes(out, "usage.input_tokens")
+	if !inputTokens.Exists() || inputTokens.Type != gjson.Number {
+		out, _ = sjson.SetBytes(out, "usage.input_tokens", 0)
+		inputTokens = gjson.GetBytes(out, "usage.input_tokens")
+	}
+	outputTokens := gjson.GetBytes(out, "usage.output_tokens")
+	if !outputTokens.Exists() || outputTokens.Type != gjson.Number {
+		out, _ = sjson.SetBytes(out, "usage.output_tokens", 0)
+		outputTokens = gjson.GetBytes(out, "usage.output_tokens")
+	}
+	if totalTokens := gjson.GetBytes(out, "usage.total_tokens"); !totalTokens.Exists() || totalTokens.Type != gjson.Number {
+		out, _ = sjson.SetBytes(out, "usage.total_tokens", inputTokens.Int()+outputTokens.Int())
+	}
+	if details := gjson.GetBytes(out, "usage.input_tokens_details"); !details.Exists() || !details.IsObject() {
+		out, _ = sjson.SetRawBytes(out, "usage.input_tokens_details", []byte(`{"cached_tokens":0}`))
+	} else if cached := details.Get("cached_tokens"); !cached.Exists() || cached.Type != gjson.Number {
+		out, _ = sjson.SetBytes(out, "usage.input_tokens_details.cached_tokens", 0)
+	}
+	if details := gjson.GetBytes(out, "usage.output_tokens_details"); !details.Exists() || !details.IsObject() {
+		out, _ = sjson.SetRawBytes(out, "usage.output_tokens_details", []byte(`{"reasoning_tokens":0}`))
+	} else if reasoning := details.Get("reasoning_tokens"); !reasoning.Exists() || reasoning.Type != gjson.Number {
+		out, _ = sjson.SetBytes(out, "usage.output_tokens_details.reasoning_tokens", 0)
+	}
+	return out
 }
 
 func normalizeAgnesAIResponsesDeveloperRoles(input any) bool {

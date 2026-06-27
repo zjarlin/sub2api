@@ -778,6 +778,43 @@ func TestClassifyOpsOtherErrorsStillCountForSLA(t *testing.T) {
 	require.Equal(t, "gateway", errorSource)
 }
 
+func TestShouldSkipCodexDesktopEmptyResponsesRequest(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	parsed := parsedOpsError{
+		ErrorType: "invalid_request_error",
+		Message:   "Request body is empty",
+	}
+
+	t.Run("codex desktop empty responses probe", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/responses", nil)
+		c.Request.Header.Set("User-Agent", "Codex Desktop/0.142.3 (Mac OS 26.0.0; arm64)")
+
+		require.True(t, shouldSkipCodexDesktopEmptyResponsesRequest(c, parsed, http.StatusBadRequest))
+	})
+
+	t.Run("normal clients remain visible", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/responses", nil)
+		c.Request.Header.Set("User-Agent", "curl/8.0")
+
+		require.False(t, shouldSkipCodexDesktopEmptyResponsesRequest(c, parsed, http.StatusBadRequest))
+	})
+
+	t.Run("upstream errors remain visible", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(rec)
+		c.Request = httptest.NewRequest(http.MethodPost, "/responses", nil)
+		c.Request.Header.Set("User-Agent", "Codex Desktop/0.142.3 (Mac OS 26.0.0; arm64)")
+		c.Set(service.OpsUpstreamStatusCodeKey, http.StatusBadGateway)
+
+		require.False(t, shouldSkipCodexDesktopEmptyResponsesRequest(c, parsed, http.StatusBadRequest))
+	})
+}
+
 func TestClassifyOpsUnsupportedModelExcludedFromSLA(t *testing.T) {
 	tests := []string{
 		"No available accounts: no available accounts supporting model: made-up-model",

@@ -65,6 +65,11 @@
               <span>{{ billingModeLabel }}</span>
             </div>
 
+            <div v-if="modelRateEntries.length > 0" class="flex justify-between gap-2">
+              <span class="text-gray-500 dark:text-gray-400">{{ t(prefixKey('modelRates'), 'Model rates') }}</span>
+              <span class="text-right font-mono">{{ modelRateEntries.join(' · ') }}</span>
+            </div>
+
             <template v-if="model.pricing.billing_mode === BILLING_MODE_TOKEN">
               <PricingRow
                 :label="t(prefixKey('inputPrice'))"
@@ -225,6 +230,13 @@ const billingModeLabel = computed(() => {
     default:
       return '-'
   }
+})
+
+const modelRateEntries = computed(() => {
+  const rates = props.model.rate_multipliers || {}
+  return Object.entries(rates)
+    .filter(([, rate]) => Number.isFinite(Number(rate)) && Number(rate) > 0)
+    .map(([groupID, rate]) => `#${groupID} ×${Number(rate).toPrecision(4)}`)
 })
 
 function formatRange(min: number, max: number | null): string {

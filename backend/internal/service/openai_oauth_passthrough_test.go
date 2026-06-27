@@ -23,6 +23,30 @@ import (
 
 func f64p(v float64) *float64 { return &v }
 
+func lastSSEDataForEvent(t *testing.T, body string, eventName string) string {
+	t.Helper()
+	blocks := strings.Split(body, "\n\n")
+	var currentEvent string
+	var currentData string
+	for _, block := range blocks {
+		currentEvent = ""
+		currentData = ""
+		for _, line := range strings.Split(block, "\n") {
+			if strings.HasPrefix(line, "event:") {
+				currentEvent = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+			}
+			if strings.HasPrefix(line, "data:") {
+				currentData = strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+			}
+		}
+		if currentEvent == eventName && currentData != "" {
+			return currentData
+		}
+	}
+	t.Fatalf("missing SSE event %s in body: %s", eventName, body)
+	return ""
+}
+
 type httpUpstreamRecorder struct {
 	lastReq              *http.Request
 	lastBody             []byte
@@ -272,6 +296,67 @@ func TestOpenAIGatewayService_AgnesResponsesVideoStripsReasoning(t *testing.T) {
 	require.Equal(t, "video_generation_call", gjson.Get(rec.Body.String(), "output.0.type").String())
 }
 
+func TestOpenAIGatewayService_AgnesResponsesImageStreamsOutputItemEvents(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	originalBody := []byte(`{"model":"agnes-image-2.1-flash","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"draw"}]}]}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(originalBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_agnes_image_stream"}},
+		Body:       io.NopCloser(strings.NewReader(`{"created":1710000001,"data":[{"b64_json":"aW1hZ2U=","revised_prompt":"draw"}],"usage":{"input_tokens":1,"output_tokens":1,"output_tokens_details":{"image_tokens":1}}}`)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          &config.Config{},
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:          287,
+		Name:        "agnes-apikey",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "sk-agnes",
+			"vendor":   "openai",
+			"base_url": "https://apihub.agnes-ai.com",
+			"model_mapping": map[string]any{
+				"agnes-image-2.1-flash": "agnes-t2i-general-model",
+			},
+		},
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesSupported: true,
+		},
+		Status:         StatusActive,
+		Schedulable:    true,
+		RateMultiplier: f64p(1),
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, originalBody)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.True(t, result.Stream)
+
+	body := rec.Body.String()
+	require.Contains(t, rec.Header().Get("Content-Type"), "text/event-stream")
+	require.Contains(t, body, "event: response.created")
+	require.Contains(t, body, "event: response.in_progress")
+	require.Contains(t, body, "event: response.output_item.added")
+	require.Contains(t, body, "event: response.output_item.done")
+	require.Contains(t, body, "event: response.completed")
+	require.Contains(t, body, `"type":"image_generation_call"`)
+	require.Contains(t, body, `"status":"completed"`)
+	require.Contains(t, body, "data: [DONE]")
+
+	completedPayload := lastSSEDataForEvent(t, body, "response.completed")
+	require.True(t, gjson.Get(completedPayload, "response.usage.input_tokens_details.cached_tokens").Exists())
+	require.Equal(t, int64(0), gjson.Get(completedPayload, "response.usage.input_tokens_details.cached_tokens").Int())
+}
+
 func TestOpenAIGatewayService_AgnesResponsesVideoStreamsCompletedEvent(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -323,11 +408,69 @@ func TestOpenAIGatewayService_AgnesResponsesVideoStreamsCompletedEvent(t *testin
 
 	body := rec.Body.String()
 	require.Contains(t, rec.Header().Get("Content-Type"), "text/event-stream")
+	require.Contains(t, body, "event: response.created")
+	require.Contains(t, body, "event: response.in_progress")
+	require.Contains(t, body, "event: response.output_item.added")
+	require.Contains(t, body, "event: response.output_item.done")
 	require.Contains(t, body, "event: response.completed")
 	require.Contains(t, body, `"type":"response.completed"`)
 	require.Contains(t, body, `"type":"video_generation_call"`)
 	require.Contains(t, body, `"video_id":"video_agnes_stream"`)
 	require.Contains(t, body, "data: [DONE]")
+
+	completedPayload := lastSSEDataForEvent(t, body, "response.completed")
+	require.True(t, gjson.Get(completedPayload, "response.usage.input_tokens_details.cached_tokens").Exists())
+	require.Equal(t, int64(0), gjson.Get(completedPayload, "response.usage.input_tokens_details.cached_tokens").Int())
+}
+
+func TestOpenAIGatewayService_AgnesResponsesVideoServiceBusyTriggersRetryableFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	originalBody := []byte(`{"model":"agnes-video-v2.0","stream":true,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"make a video"}]}]}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(originalBody))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstreamBody := `{"code":"fail_to_fetch_task","data":null,"message":"{\"error\":{\"message\":\"litellm.ServiceUnavailableError: ServiceUnavailableError: OpenAIException - {\\\"error\\\":{\\\"message\\\":\\\"Service busy (tasks: 1)\\\",\\\"code\\\":\\\"503\\\",\\\"type\\\":\\\"server_error\\\"}}\",\"type\":null,\"param\":null,\"code\":\"503\"}}"}`
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusServiceUnavailable,
+		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_agnes_video_busy"}},
+		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          &config.Config{},
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:          287,
+		Name:        "agnes-apikey",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "sk-agnes",
+			"vendor":   "openai",
+			"base_url": "https://apihub.agnes-ai.com",
+			"model_mapping": map[string]any{
+				"agnes-video-v2.0": "agnes-video-v2.0",
+			},
+		},
+		Extra: map[string]any{
+			openai_compat.ExtraKeyResponsesSupported: true,
+		},
+		Status:         StatusActive,
+		Schedulable:    true,
+		RateMultiplier: f64p(1),
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, originalBody)
+	require.Nil(t, result)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Equal(t, http.StatusServiceUnavailable, failoverErr.StatusCode)
+	require.True(t, failoverErr.RetryableOnSameAccount)
+	require.Equal(t, 0, rec.Body.Len(), "bridge should not write response.failed before handler retry/failover")
 }
 
 func TestOpenAIGatewayService_AgnesResponsesCompatPreservesTextReasoning(t *testing.T) {
@@ -1097,9 +1240,9 @@ func TestOpenAIGatewayService_OAuthPassthrough_AdminErrorDecoratesScheduledAccou
 	originalBody := []byte(`{"model":"gpt-5.2","stream":false,"input":[{"type":"text","text":"hi"}]}`)
 
 	resp := &http.Response{
-		StatusCode: http.StatusServiceUnavailable,
+		StatusCode: http.StatusBadRequest,
 		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid"}},
-		Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"Service temporarily unavailable"}}`)),
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"message":"Bad request"}}`)),
 	}
 	upstream := &httpUpstreamRecorder{resp: resp}
 
@@ -1124,8 +1267,8 @@ func TestOpenAIGatewayService_OAuthPassthrough_AdminErrorDecoratesScheduledAccou
 	_, err := svc.Forward(context.Background(), c, account, originalBody)
 	require.Error(t, err)
 	require.True(t, c.Writer.Written())
-	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
-	require.JSONEq(t, `{"error":{"message":"Service temporarily unavailable [scheduled account: acc]"}}`, rec.Body.String())
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.JSONEq(t, `{"error":{"message":"Bad request [scheduled account: acc]"}}`, rec.Body.String())
 }
 
 func TestOpenAIGatewayService_OpenAIPassthrough_429And529TriggerFailover(t *testing.T) {
@@ -1682,6 +1825,51 @@ func TestOpenAIGatewayService_OAuthPassthrough_WarnOnTimeoutHeadersForStream(t *
 	require.NoError(t, err)
 	require.True(t, logSink.ContainsMessage("检测到超时相关请求头，将按配置过滤以降低断流风险"))
 	require.True(t, logSink.ContainsFieldValue("timeout_headers", "x-stainless-timeout=10000"))
+}
+
+func TestOpenAIGatewayService_OAuthPassthrough_AppendsDoneAfterTerminalEvent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(nil))
+	c.Request.Header.Set("User-Agent", "Codex Desktop/0.142.3")
+
+	originalBody := []byte(`{"model":"gpt-5.5","stream":true,"input":[{"type":"input_text","text":"hi"}]}`)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"rid-terminal-no-done"}},
+		Body: io.NopCloser(strings.NewReader(strings.Join([]string{
+			`event: response.output_text.delta`,
+			`data: {"type":"response.output_text.delta","delta":"ok"}`,
+			``,
+			`event: response.completed`,
+			`data: {"type":"response.completed","response":{"id":"resp_test","usage":{"input_tokens":1,"output_tokens":1}}}`,
+			``,
+		}, "\n"))),
+	}
+	upstream := &httpUpstreamRecorder{resp: resp}
+	svc := &OpenAIGatewayService{
+		cfg:          &config.Config{Gateway: config.GatewayConfig{ForceCodexCLI: false}},
+		httpUpstream: upstream,
+	}
+	account := &Account{
+		ID:             654,
+		Name:           "acc",
+		Platform:       PlatformOpenAI,
+		Type:           AccountTypeAPIKey,
+		Concurrency:    1,
+		Credentials:    map[string]any{"api_key": "sk-test"},
+		Extra:          map[string]any{"openai_passthrough": true},
+		Status:         StatusActive,
+		Schedulable:    true,
+		RateMultiplier: f64p(1),
+	}
+
+	_, err := svc.Forward(context.Background(), c, account, originalBody)
+	require.NoError(t, err)
+	require.Contains(t, rec.Body.String(), `event: response.completed`)
+	require.Contains(t, rec.Body.String(), `data: [DONE]`)
 }
 
 func TestOpenAIGatewayService_OAuthPassthrough_InfoWhenStreamEndsWithoutDone(t *testing.T) {

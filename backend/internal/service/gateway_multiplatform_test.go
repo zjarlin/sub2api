@@ -715,6 +715,45 @@ func TestGatewayService_SelectAccountForModelWithExclusions_ForcePlatform(t *tes
 	require.Equal(t, PlatformAntigravity, acc.Platform)
 }
 
+func TestGatewayService_SelectAccountForModelWithPlatform_ProbeRecoversUnschedulableGroupAccount(t *testing.T) {
+	groupID := int64(88)
+	until := time.Now().Add(time.Hour)
+	repo := &mutableRecoveryAccountRepo{
+		accounts: []Account{
+			{
+				ID:                      202,
+				Platform:                PlatformAnthropic,
+				Type:                    AccountTypeAPIKey,
+				Status:                  StatusActive,
+				Schedulable:             false,
+				TempUnschedulableUntil:  &until,
+				TempUnschedulableReason: "temporary upstream failure",
+				Concurrency:             1,
+				GroupIDs:                []int64{groupID},
+			},
+		},
+	}
+	probe := &recordingAccountModelProbe{successByAccount: map[int64]bool{202: true}}
+	svc := &GatewayService{
+		accountRepo:       repo,
+		groupRepo:         &mockGroupRepoForGateway{groups: map[int64]*Group{groupID: {ID: groupID, Platform: PlatformAnthropic}}},
+		cache:             &mockGatewayCacheForPlatform{},
+		accountModelProbe: probe,
+	}
+
+	account, err := svc.selectAccountForModelWithPlatform(context.Background(), &groupID, "", "claude-3-5-sonnet-20241022", nil, PlatformAnthropic)
+
+	require.NoError(t, err)
+	require.NotNil(t, account)
+	require.Equal(t, int64(202), account.ID)
+	require.True(t, repo.accounts[0].Schedulable)
+	require.Nil(t, repo.accounts[0].TempUnschedulableUntil)
+	require.Equal(t, []int64{202}, repo.setSchedulableCalls)
+	require.Equal(t, []int64{202}, repo.clearTempCalls)
+	require.Len(t, probe.calls, 1)
+	require.Equal(t, recordingAccountModelProbeCall{accountID: 202, modelID: "claude-3-5-sonnet-20241022", mode: AccountTestModeDefault}, probe.calls[0])
+}
+
 func TestGatewayService_SelectAccountForModelWithExclusions_ForceGeminiFallbackFindsGroupedGlobalAccount(t *testing.T) {
 	groupID := int64(6)
 	ctx := context.WithValue(context.Background(), ctxkey.ForcePlatform, PlatformGemini)

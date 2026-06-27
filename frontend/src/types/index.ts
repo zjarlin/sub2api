@@ -569,6 +569,7 @@ export interface AdminGroup extends Group {
 export interface ModelsListConfig {
   enabled: boolean
   models: string[]
+  model_rate_multipliers?: Record<string, number>
 }
 
 export interface ApiKey {

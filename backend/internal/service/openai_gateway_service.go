@@ -355,6 +355,7 @@ type OpenAIGatewayService struct {
 	balanceNotifyService  *BalanceNotifyService
 	settingService        *SettingService
 	userPlatformQuotaRepo UserPlatformQuotaRepository
+	accountModelProbe     AccountModelProbe
 
 	openaiWSPoolOnce              sync.Once
 	openaiWSStateStoreOnce        sync.Once
@@ -403,6 +404,7 @@ func NewOpenAIGatewayService(
 	balanceNotifyService *BalanceNotifyService,
 	settingService *SettingService,
 	userPlatformQuotaRepo UserPlatformQuotaRepository,
+	accountModelProbe AccountModelProbe,
 ) *OpenAIGatewayService {
 	svc := &OpenAIGatewayService{
 		accountRepo:         accountRepo,
@@ -435,6 +437,7 @@ func NewOpenAIGatewayService(
 		balanceNotifyService:  balanceNotifyService,
 		settingService:        settingService,
 		userPlatformQuotaRepo: userPlatformQuotaRepo,
+		accountModelProbe:     accountModelProbe,
 		responseHeaderFilter:  compileResponseHeaderFilter(cfg),
 		codexSnapshotThrottle: newAccountWriteThrottle(openAICodexSnapshotPersistMinInterval),
 	}
@@ -446,6 +449,13 @@ func NewOpenAIGatewayService(
 	}
 	svc.logOpenAIWSModeBootstrap()
 	return svc
+}
+
+func (s *OpenAIGatewayService) SetAccountModelProbe(probe AccountModelProbe) {
+	if s == nil {
+		return
+	}
+	s.accountModelProbe = probe
 }
 
 // ResolveChannelMapping 解析渠道级模型映射（代理到 ChannelService）
@@ -1141,7 +1151,7 @@ func isOpenAIInstructionsRequiredError(upstreamStatusCode int, upstreamMsg strin
 }
 
 func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string, upstreamBody []byte) bool {
-	if upstreamStatusCode != http.StatusBadRequest {
+	if upstreamStatusCode != http.StatusBadRequest && upstreamStatusCode != http.StatusServiceUnavailable {
 		return false
 	}
 
@@ -1154,6 +1164,12 @@ func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string
 			return true
 		}
 		if strings.Contains(lower, "selected model is at capacity") {
+			return true
+		}
+		if strings.Contains(lower, "service busy") && strings.Contains(lower, "tasks:") {
+			return true
+		}
+		if strings.Contains(lower, "fail_to_fetch_task") && strings.Contains(lower, "service busy") {
 			return true
 		}
 		return strings.Contains(lower, "you can retry your request") &&
@@ -1720,6 +1736,10 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusions(ctx context.C
 	selected, compactBlocked, attemptStats := s.selectBestAccount(ctx, groupID, accounts, requestedModel, excludedIDs, requireCompact, requiredCapability, explicitModelScope)
 
 	if selected == nil {
+		if s.tryRecoverGroupModelAccountByProbe(ctx, groupID, requestedModel, excludedIDs, requireCompact, requiredCapability, "") {
+			retryCtx := withGroupModelProbeRecoveryAttempted(ctx)
+			return s.selectAccountForModelWithExclusions(retryCtx, groupID, sessionHash, requestedModel, excludedIDs, requireCompact, stickyAccountID, requiredCapability)
+		}
 		return nil, newOpenAINoAvailableAccountsError(
 			"live_recheck",
 			"no available accounts survived live recheck",
@@ -2012,6 +2032,10 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	explicitModelScope := openAIAccountsHaveExplicitModelSupport(accounts, requestedModel)
 	accounts = filterOpenAIAccountsByExplicitModelSupport(accounts, requestedModel)
 	if len(accounts) == 0 {
+		if s.tryRecoverGroupModelAccountByProbe(ctx, groupID, requestedModel, excludedIDs, requireCompact, requiredCapability, "") {
+			retryCtx := withGroupModelProbeRecoveryAttempted(ctx)
+			return s.selectAccountWithLoadAwareness(retryCtx, groupID, sessionHash, requestedModel, excludedIDs, requireCompact, requiredCapability)
+		}
 		return nil, newOpenAINoAvailableAccountsError(
 			"list_schedulable_accounts",
 			"no available accounts were loaded for the group",
@@ -2103,6 +2127,10 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	}
 
 	if len(candidates) == 0 {
+		if s.tryRecoverGroupModelAccountByProbe(ctx, groupID, requestedModel, excludedIDs, requireCompact, requiredCapability, "") {
+			retryCtx := withGroupModelProbeRecoveryAttempted(ctx)
+			return s.selectAccountWithLoadAwareness(retryCtx, groupID, sessionHash, requestedModel, excludedIDs, requireCompact, requiredCapability)
+		}
 		return nil, newOpenAINoAvailableAccountsError(
 			"candidate_filtering",
 			"no available accounts remain after candidate filtering",
@@ -2360,6 +2388,10 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	}
 
 	if requireCompact && baseCandidateCount > 0 {
+		if s.tryRecoverGroupModelAccountByProbe(ctx, groupID, requestedModel, excludedIDs, requireCompact, requiredCapability, "") {
+			retryCtx := withGroupModelProbeRecoveryAttempted(ctx)
+			return s.selectAccountWithLoadAwareness(retryCtx, groupID, sessionHash, requestedModel, excludedIDs, requireCompact, requiredCapability)
+		}
 		return nil, newOpenAINoAvailableAccountsError(
 			"fallback_wait_candidates",
 			"no available accounts support /responses/compact after fallback wait evaluation",
@@ -2371,6 +2403,10 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			),
 			true,
 		)
+	}
+	if s.tryRecoverGroupModelAccountByProbe(ctx, groupID, requestedModel, excludedIDs, requireCompact, requiredCapability, "") {
+		retryCtx := withGroupModelProbeRecoveryAttempted(ctx)
+		return s.selectAccountWithLoadAwareness(retryCtx, groupID, sessionHash, requestedModel, excludedIDs, requireCompact, requiredCapability)
 	}
 	return nil, newOpenAINoAvailableAccountsError(
 		"fallback_wait_candidates",
@@ -4150,6 +4186,18 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	clientOutputStarted := false
 	upstreamRequestID := strings.TrimSpace(resp.Header.Get("x-request-id"))
 	pendingLines := make([]string, 0, 8)
+	writeDoneIfNeeded := func() {
+		if clientDisconnected || sawDone || !sawTerminalEvent {
+			return
+		}
+		if _, err := fmt.Fprint(w, "data: [DONE]\n\n"); err != nil {
+			clientDisconnected = true
+			logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] Client disconnected while appending missing [DONE]: account=%d", account.ID)
+			return
+		}
+		sawDone = true
+		flusher.Flush()
+	}
 	writePendingLines := func() bool {
 		for _, pending := range pendingLines {
 			if _, err := fmt.Fprintln(w, pending); err != nil {
@@ -4245,9 +4293,11 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	}
 	if err := scanner.Err(); err != nil {
 		if sawTerminalEvent && !sawFailedEvent {
+			writeDoneIfNeeded()
 			return resultWithUsage(), nil
 		}
 		if sawFailedEvent {
+			writeDoneIfNeeded()
 			return resultWithUsage(), fmt.Errorf("upstream response failed: %s", failedMessage)
 		}
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
@@ -4277,6 +4327,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		return resultWithUsage(), fmt.Errorf("stream read error: %w", err)
 	}
 	if sawFailedEvent {
+		writeDoneIfNeeded()
 		return resultWithUsage(), fmt.Errorf("upstream response failed: %s", failedMessage)
 	}
 	if !clientDisconnected && !sawDone && !sawTerminalEvent && ctx.Err() == nil {
@@ -4292,6 +4343,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		return resultWithUsage(), errors.New("stream usage incomplete: missing terminal event")
 	}
 
+	writeDoneIfNeeded()
 	return resultWithUsage(), nil
 }
 
@@ -6147,7 +6199,12 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if result.ServiceTier != nil {
 		serviceTier = strings.TrimSpace(*result.ServiceTier)
 	}
-	cost, err = s.calculateOpenAIRecordUsageCost(ctx, result, apiKey, billingModels, multiplier, imageMultiplier, tokens, serviceTier)
+	usageRateMultiplier := resolveModelRateMultiplier(apiKey, billingModel, multiplier)
+	var calculatedRateMultiplier float64
+	cost, calculatedRateMultiplier, err = s.calculateOpenAIRecordUsageCost(ctx, result, apiKey, billingModels, multiplier, imageMultiplier, tokens, serviceTier)
+	if err == nil {
+		usageRateMultiplier = calculatedRateMultiplier
+	}
 	if err != nil {
 		if !isUsagePricingUnavailableError(err) {
 			return err
@@ -6220,11 +6277,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		usageLog.TotalCost = cost.TotalCost
 		usageLog.ActualCost = cost.ActualCost
 	}
-	if result.ImageCount > 0 && (cost == nil || cost.BillingMode != string(BillingModeToken)) {
-		usageLog.RateMultiplier = imageMultiplier
-	} else {
-		usageLog.RateMultiplier = multiplier
-	}
+	usageLog.RateMultiplier = usageRateMultiplier
 	usageLog.AccountRateMultiplier = &accountRateMultiplier
 	usageLog.BillingType = billingType
 	usageLog.Stream = result.Stream
@@ -6311,16 +6364,17 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	imageMultiplier float64,
 	tokens UsageTokens,
 	serviceTier string,
-) (*CostBreakdown, error) {
+) (*CostBreakdown, float64, error) {
 	billingModel := firstUsageBillingModel(billingModels)
 	if result != nil && result.ImageCount > 0 {
 		// 渠道定价为 token 计费时走 token 路径，否则走图片计费
 		if resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey); resolved == nil || resolved.Mode != BillingModeToken {
-			return s.calculateOpenAIImageCost(ctx, billingModel, apiKey, result, imageMultiplier), nil
+			candidateMultiplier := resolveModelRateMultiplier(apiKey, billingModel, imageMultiplier)
+			return s.calculateOpenAIImageCost(ctx, billingModel, apiKey, result, candidateMultiplier), candidateMultiplier, nil
 		}
 	}
 	if len(billingModels) == 0 || billingModel == "" {
-		return nil, errors.New("openai usage billing model is empty")
+		return nil, multiplier, errors.New("openai usage billing model is empty")
 	}
 	var lastErr error
 	for _, candidate := range billingModels {
@@ -6328,16 +6382,17 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 		if candidate == "" {
 			continue
 		}
-		cost, err := s.calculateOpenAIRecordUsageTokenCost(ctx, apiKey, candidate, multiplier, tokens, serviceTier)
+		candidateMultiplier := resolveModelRateMultiplier(apiKey, candidate, multiplier)
+		cost, err := s.calculateOpenAIRecordUsageTokenCost(ctx, apiKey, candidate, candidateMultiplier, tokens, serviceTier)
 		if err == nil {
-			return cost, nil
+			return cost, candidateMultiplier, nil
 		}
 		lastErr = err
 	}
 	if lastErr == nil {
 		lastErr = errors.New("no non-empty billing model candidates")
 	}
-	return nil, fmt.Errorf("calculate OpenAI usage cost failed for billing models %s: %w", strings.Join(billingModels, ","), lastErr)
+	return nil, multiplier, fmt.Errorf("calculate OpenAI usage cost failed for billing models %s: %w", strings.Join(billingModels, ","), lastErr)
 }
 
 func isUsagePricingUnavailableError(err error) bool {

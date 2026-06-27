@@ -1437,7 +1437,7 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 		}
 	}
 
-	return scheduler.Select(ctx, OpenAIAccountScheduleRequest{
+	req := OpenAIAccountScheduleRequest{
 		GroupID:                 groupID,
 		SessionHash:             sessionHash,
 		StickyAccountID:         stickyAccountID,
@@ -1448,7 +1448,13 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 		RequiredImageCapability: requiredImageCapability,
 		RequireCompact:          requireCompact,
 		ExcludedIDs:             excludedIDs,
-	})
+	}
+	selection, scheduleDecision, err := scheduler.Select(ctx, req)
+	if err != nil && isOpenAISelectionRecoverableByProbe(err) && s.tryRecoverGroupModelAccountByProbe(ctx, groupID, requestedModel, excludedIDs, requireCompact, requiredCapability, requiredImageCapability) {
+		retryCtx := withGroupModelProbeRecoveryAttempted(ctx)
+		return scheduler.Select(retryCtx, req)
+	}
+	return selection, scheduleDecision, err
 }
 
 func accountSupportsOpenAICapabilities(account *Account, requiredCapability OpenAIEndpointCapability, requiredImageCapability OpenAIImagesCapability) bool {

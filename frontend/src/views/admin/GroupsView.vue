@@ -767,6 +767,18 @@
                 <span class="min-w-0 flex-1 break-all text-sm text-gray-700 dark:text-gray-300">
                   {{ item.id }}
                 </span>
+                <div class="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                  <span>×</span>
+                  <input
+                    type="number"
+                    step="0.001"
+                    min="0.001"
+                    :value="item.rateMultiplier ?? ''"
+                    class="hide-spinner w-20 rounded border border-gray-200 bg-white px-2 py-1 text-center text-xs transition-colors focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500/20 dark:border-dark-500 dark:bg-dark-700 dark:focus:border-primary-500"
+                    :placeholder="String(createForm.rate_multiplier || 1)"
+                    @change="updateModelsListItemRate(createModelsListState, item.id, ($event.target as HTMLInputElement).value)"
+                  />
+                </div>
                 <button
                   type="button"
                   :disabled="index === 0"
@@ -2094,6 +2106,18 @@
                 <span class="min-w-0 flex-1 break-all text-sm text-gray-700 dark:text-gray-300">
                   {{ item.id }}
                 </span>
+                <div class="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                  <span>×</span>
+                  <input
+                    type="number"
+                    step="0.001"
+                    min="0.001"
+                    :value="item.rateMultiplier ?? ''"
+                    class="hide-spinner w-20 rounded border border-gray-200 bg-white px-2 py-1 text-center text-xs transition-colors focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500/20 dark:border-dark-500 dark:bg-dark-700 dark:focus:border-primary-500"
+                    :placeholder="String(editForm.rate_multiplier || 1)"
+                    @change="updateModelsListItemRate(editModelsListState, item.id, ($event.target as HTMLInputElement).value)"
+                  />
+                </div>
                 <button
                   type="button"
                   :disabled="index === 0"
@@ -3153,6 +3177,7 @@ import {
   moveModelsListItem,
   selectAllModelsListItems,
   setModelsListCandidates,
+  updateModelsListItemRate,
 } from "./groupsModelsList";
 import { createModelsListCandidatesTracker } from "./groupsModelsListCandidates";
 import { normalizeSupportedModelScopesForPlatform } from "./groupsSupportedModelScopes";

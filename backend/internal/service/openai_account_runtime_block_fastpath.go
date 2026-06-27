@@ -45,6 +45,9 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	if statusCode == http.StatusTooManyRequests {
 		s.markOpenAIOAuth429RateLimited(stateCtx, account, headers, responseBody)
 	}
+	if isOpenAITransientProcessingError(statusCode, "", responseBody) {
+		return false
+	}
 	if s == nil || account == nil || s.rateLimitService == nil {
 		return false
 	}

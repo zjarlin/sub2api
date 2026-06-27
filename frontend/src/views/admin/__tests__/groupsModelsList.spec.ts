@@ -9,6 +9,7 @@ import {
   selectAllModelsListItems,
   setModelsListCandidates,
   toggleModelsListItem,
+  updateModelsListItemRate,
 } from "../groupsModelsList";
 
 describe("groupsModelsList", () => {
@@ -19,8 +20,8 @@ describe("groupsModelsList", () => {
 
     expect(state.enabled).toBe(false);
     expect(state.items).toEqual([
-      { id: "gpt-5.5", selected: true },
-      { id: "gpt-5.4", selected: true },
+      { id: "gpt-5.5", selected: true, rateMultiplier: null },
+      { id: "gpt-5.4", selected: true, rateMultiplier: null },
     ]);
   });
 
@@ -34,9 +35,9 @@ describe("groupsModelsList", () => {
 
     expect(state.enabled).toBe(true);
     expect(state.items).toEqual([
-      { id: "gpt-5.5", selected: true },
-      { id: "gpt-5.4", selected: true },
-      { id: "legacy-gpt", selected: false },
+      { id: "gpt-5.5", selected: true, rateMultiplier: null },
+      { id: "gpt-5.4", selected: true, rateMultiplier: null },
+      { id: "legacy-gpt", selected: false, rateMultiplier: null },
     ]);
   });
 
@@ -49,8 +50,8 @@ describe("groupsModelsList", () => {
     setModelsListCandidates(state, ["gpt-5.5", "gpt-5.4"]);
 
     expect(state.items).toEqual([
-      { id: "gpt-5.5", selected: true },
-      { id: "gpt-5.4", selected: false },
+      { id: "gpt-5.5", selected: true, rateMultiplier: null },
+      { id: "gpt-5.4", selected: false, rateMultiplier: null },
     ]);
   });
 
@@ -102,9 +103,9 @@ describe("groupsModelsList", () => {
     selectAllModelsListItems(state);
 
     expect(state.items).toEqual([
-      { id: "gpt-5.5", selected: true },
-      { id: "gpt-5.4", selected: true },
-      { id: "gpt-5.4-mini", selected: true },
+      { id: "gpt-5.5", selected: true, rateMultiplier: null },
+      { id: "gpt-5.4", selected: true, rateMultiplier: null },
+      { id: "gpt-5.4-mini", selected: true, rateMultiplier: null },
     ]);
   });
 
@@ -117,9 +118,34 @@ describe("groupsModelsList", () => {
     invertModelsListSelection(state);
 
     expect(state.items).toEqual([
-      { id: "gpt-5.5", selected: false },
-      { id: "gpt-5.4", selected: true },
-      { id: "gpt-5.4-mini", selected: true },
+      { id: "gpt-5.5", selected: false, rateMultiplier: null },
+      { id: "gpt-5.4", selected: true, rateMultiplier: null },
+      { id: "gpt-5.4-mini", selected: true, rateMultiplier: null },
     ]);
   });
+
+
+  it("saves model rate multipliers only for selected models", () => {
+    const state = hydrateModelsListState({
+      enabled: true,
+      models: ["gpt-5.5", "gpt-5.4"],
+      model_rate_multipliers: {
+        "gpt-5.5": 0.5,
+        "gpt-5.4": 0.8,
+        "legacy-gpt": 2,
+      },
+    }, ["gpt-5.5", "gpt-5.4", "legacy-gpt"]);
+
+    toggleModelsListItem(state, "gpt-5.4");
+    updateModelsListItemRate(state, "gpt-5.5", 0.6);
+
+    expect(buildModelsListConfig(state)).toEqual({
+      enabled: true,
+      models: ["gpt-5.5"],
+      model_rate_multipliers: {
+        "gpt-5.5": 0.6,
+      },
+    });
+  });
+
 });

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
@@ -42,6 +43,17 @@ func (u *recordingVideosHTTPUpstream) Do(req *http.Request, _ string, _ int64, _
 
 func (u *recordingVideosHTTPUpstream) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, _ *tlsfingerprint.Profile) (*http.Response, error) {
 	return u.Do(req, proxyURL, accountID, accountConcurrency)
+}
+
+func requirePresignedMediaURL(t *testing.T, rawURL string, wantPath string, wantExpires string) {
+	t.Helper()
+	parsed, err := url.Parse(rawURL)
+	require.NoError(t, err)
+	require.Equal(t, "http", parsed.Scheme)
+	require.Equal(t, "localhost:19000", parsed.Host)
+	require.Equal(t, wantPath, parsed.EscapedPath())
+	require.Equal(t, wantExpires, parsed.Query().Get("X-Amz-Expires"))
+	require.NotEmpty(t, parsed.Query().Get("X-Amz-Signature"))
 }
 
 func TestOpenAIGatewayServiceParseOpenAIVideosRequest_Prompt(t *testing.T) {
@@ -194,10 +206,12 @@ func TestOpenAIGatewayServiceAgnesVideoStorageAddsPredictableLocalURL(t *testing
 
 	enriched := svc.enrichAgnesAIVideoResponseBody(context.Background(), &Account{}, body, "agnes-video-v2.0", "agnes-video-v2.0", "token")
 
-	require.Equal(t, "http://localhost:19000/sub2api-videos/videos/agnes-video-v2.0/"+time.Now().UTC().Format("2006/01/02")+"/video_final_123.mp4", gjson.GetBytes(enriched, "local_url").String())
+	wantPath := "/sub2api-videos/videos/agnes-video-v2.0/" + time.Now().UTC().Format("2006/01/02") + "/video_final_123.mp4"
+	requirePresignedMediaURL(t, gjson.GetBytes(enriched, "local_url").String(), wantPath, "604800")
 	require.Equal(t, gjson.GetBytes(enriched, "local_url").String(), gjson.GetBytes(enriched, "url").String())
 	require.Equal(t, "sub2api-videos", gjson.GetBytes(enriched, "storage.bucket").String())
 	require.Equal(t, "uploading", gjson.GetBytes(enriched, "storage.status").String())
+	require.Equal(t, int64(604800), gjson.GetBytes(enriched, "storage.expires_in_seconds").Int())
 
 	svc.videoStorageUploaded.Store("videos/agnes-video-v2.0/"+time.Now().UTC().Format("2006/01/02")+"/video_final_123.mp4", struct{}{})
 	enriched = svc.enrichAgnesAIVideoResponseBody(context.Background(), &Account{}, body, "agnes-video-v2.0", "agnes-video-v2.0", "token")
@@ -221,10 +235,33 @@ func TestBuildAgnesAIResponsesVideoResponseAddsLocalStorageResult(t *testing.T) 
 
 	enriched := svc.enrichAgnesAIResponsesVideoBody(context.Background(), &Account{}, upstreamBody, responseBody, "agnes-video-v2.0", "agnes-video-v2.0", "token")
 
-	want := "http://localhost:19000/sub2api-videos/videos/agnes-video-v2.0/" + time.Now().UTC().Format("2006/01/02") + "/video_final_456.mp4"
-	require.Equal(t, want, gjson.GetBytes(enriched, "output.0.result").String())
-	require.Equal(t, want, gjson.GetBytes(enriched, "output.0.local_url").String())
+	wantPath := "/sub2api-videos/videos/agnes-video-v2.0/" + time.Now().UTC().Format("2006/01/02") + "/video_final_456.mp4"
+	requirePresignedMediaURL(t, gjson.GetBytes(enriched, "output.0.result").String(), wantPath, "604800")
+	require.Equal(t, gjson.GetBytes(enriched, "output.0.result").String(), gjson.GetBytes(enriched, "output.0.local_url").String())
 	require.Equal(t, "videos/agnes-video-v2.0/"+time.Now().UTC().Format("2006/01/02")+"/video_final_456.mp4", gjson.GetBytes(enriched, "output.0.storage.key").String())
+	require.Equal(t, int64(604800), gjson.GetBytes(enriched, "output.0.storage.expires_in_seconds").Int())
+	require.Equal(t, "agnes_video_result", gjson.Get(gjson.GetBytes(enriched, "output.1.content.0.text").String(), "type").String())
+}
+
+func TestOpenAIGatewayServiceAgnesImageStorageUsesThreeDayPresignedURL(t *testing.T) {
+	svc := &OpenAIGatewayService{cfg: &config.Config{}}
+	svc.cfg.Gateway.VideoStorage.Enabled = true
+	svc.cfg.Gateway.VideoStorage.Endpoint = "http://minio:9000"
+	svc.cfg.Gateway.VideoStorage.PublicBaseURL = "http://localhost:19000/sub2api-videos"
+	svc.cfg.Gateway.VideoStorage.Bucket = "sub2api-videos"
+	svc.cfg.Gateway.VideoStorage.AccessKeyID = "minio"
+	svc.cfg.Gateway.VideoStorage.SecretAccessKey = "secret"
+	svc.cfg.Gateway.VideoStorage.ImagePrefix = "images"
+	svc.cfg.Gateway.VideoStorage.ImageExpirationDays = 3
+	svc.cfg.Gateway.VideoStorage.ForcePathStyle = true
+
+	key := svc.openAIImageStorageObjectKey("agnes-image-2.1-flash", "image_final_123", "png")
+	ref := svc.localOpenAIMediaStorageRef(key, "image", svc.openAIImageStorageURLTTL(), "available")
+
+	wantPath := "/sub2api-videos/images/agnes-image-2.1-flash/" + time.Now().UTC().Format("2006/01/02") + "/image_final_123.png"
+	requirePresignedMediaURL(t, ref.URL, wantPath, "259200")
+	require.Equal(t, "image", ref.MediaType)
+	require.Equal(t, int64(259200), ref.ExpiresInSeconds)
 }
 
 func TestBuildOpenAIVideoStorageLifecycleConfiguration(t *testing.T) {
@@ -248,14 +285,26 @@ func TestBuildOpenAIVideoStorageLifecycleConfiguration(t *testing.T) {
 			Days: aws.Int32(1),
 		},
 	}
+	oldImageRule := types.LifecycleRule{
+		ID:     aws.String(openAIImageStorageLifecycleRuleID),
+		Status: types.ExpirationStatusEnabled,
+		Filter: &types.LifecycleRuleFilter{
+			Prefix: aws.String("images/"),
+		},
+		Expiration: &types.LifecycleExpiration{
+			Days: aws.Int32(1),
+		},
+	}
 
-	lifecycle, err := buildOpenAIVideoStorageLifecycleConfiguration([]types.LifecycleRule{keepRule, oldRule}, config.GatewayVideoStorageConfig{
-		Prefix:         "/videos/",
-		ExpirationDays: 7,
+	lifecycle, err := buildOpenAIVideoStorageLifecycleConfiguration([]types.LifecycleRule{keepRule, oldRule, oldImageRule}, config.GatewayVideoStorageConfig{
+		Prefix:              "/videos/",
+		ImagePrefix:         "/images/",
+		ExpirationDays:      7,
+		ImageExpirationDays: 3,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, lifecycle)
-	require.Len(t, lifecycle.Rules, 2)
+	require.Len(t, lifecycle.Rules, 3)
 	require.Equal(t, "keep-existing", aws.ToString(lifecycle.Rules[0].ID))
 
 	rule := lifecycle.Rules[1]
@@ -267,6 +316,16 @@ func TestBuildOpenAIVideoStorageLifecycleConfiguration(t *testing.T) {
 	require.Equal(t, int32(7), aws.ToInt32(rule.Expiration.Days))
 	require.NotNil(t, rule.AbortIncompleteMultipartUpload)
 	require.Equal(t, int32(7), aws.ToInt32(rule.AbortIncompleteMultipartUpload.DaysAfterInitiation))
+
+	imageRule := lifecycle.Rules[2]
+	require.Equal(t, openAIImageStorageLifecycleRuleID, aws.ToString(imageRule.ID))
+	require.Equal(t, types.ExpirationStatusEnabled, imageRule.Status)
+	require.NotNil(t, imageRule.Filter)
+	require.Equal(t, "images/", aws.ToString(imageRule.Filter.Prefix))
+	require.NotNil(t, imageRule.Expiration)
+	require.Equal(t, int32(3), aws.ToInt32(imageRule.Expiration.Days))
+	require.NotNil(t, imageRule.AbortIncompleteMultipartUpload)
+	require.Equal(t, int32(3), aws.ToInt32(imageRule.AbortIncompleteMultipartUpload.DaysAfterInitiation))
 }
 
 func TestBuildOpenAIVideosTaskURL(t *testing.T) {

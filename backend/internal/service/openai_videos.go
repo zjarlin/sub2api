@@ -238,7 +238,7 @@ func (s *OpenAIGatewayService) ForwardVideos(
 			return nil, &UpstreamFailoverError{
 				StatusCode:             resp.StatusCode,
 				ResponseBody:           respBody,
-				RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+				RetryableOnSameAccount: isOpenAITransientProcessingError(resp.StatusCode, upstreamMsg, respBody) || account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
 			}
 		}
 		writeOpenAIVideosUpstreamResponse(c, resp, respBody, s.responseHeaderFilter, s.cfg)
@@ -540,7 +540,7 @@ func (s *OpenAIGatewayService) forwardAgnesAIVideos(
 			return nil, &UpstreamFailoverError{
 				StatusCode:             resp.StatusCode,
 				ResponseBody:           respBody,
-				RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+				RetryableOnSameAccount: isOpenAITransientProcessingError(resp.StatusCode, upstreamMsg, respBody) || account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
 			}
 		}
 		writeOpenAIVideosUpstreamResponse(c, resp, respBody, s.responseHeaderFilter, s.cfg)

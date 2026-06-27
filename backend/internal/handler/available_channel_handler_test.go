@@ -49,7 +49,7 @@ func TestToUserSupportedModels_FiltersByAllowedPlatforms(t *testing.T) {
 		{Name: "gpt-4o", Platform: "openai", Pricing: nil},
 	}
 	allowed := map[string]struct{}{"anthropic": {}}
-	out := toUserSupportedModels(src, allowed)
+	out := toUserSupportedModels(src, allowed, nil)
 	require.Len(t, out, 1)
 	require.Equal(t, "claude-sonnet-4-6", out[0].Name)
 }
@@ -60,7 +60,20 @@ func TestToUserSupportedModels_NilAllowedPlatformsKeepsAll(t *testing.T) {
 		{Name: "a", Platform: "anthropic"},
 		{Name: "b", Platform: "openai"},
 	}
-	require.Len(t, toUserSupportedModels(src, nil), 2)
+	require.Len(t, toUserSupportedModels(src, nil, nil), 2)
+}
+
+func TestToUserSupportedModels_IncludesVisibleGroupModelRates(t *testing.T) {
+	src := []service.SupportedModel{{Name: "GPT-5.5", Platform: "openai"}}
+	groups := []userAvailableGroup{
+		{ID: 10, ModelRates: map[string]float64{"gpt-5.5": 0.25}},
+		{ID: 11, ModelRates: map[string]float64{"gpt-5.4": 0.5}},
+	}
+
+	out := toUserSupportedModels(src, map[string]struct{}{"openai": {}}, groups)
+
+	require.Len(t, out, 1)
+	require.Equal(t, map[int64]float64{10: 0.25}, out[0].RateMultipliers)
 }
 
 func TestUserAvailableChannel_FieldWhitelist(t *testing.T) {

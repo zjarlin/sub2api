@@ -30,14 +30,18 @@ import (
 const (
 	openAIVideoStorageObjectContentType = "video/mp4"
 	openAIVideoStorageLifecycleRuleID   = "sub2api-video-expiration"
+	openAIImageStorageLifecycleRuleID   = "sub2api-image-expiration"
 )
 
 type openAIVideoStorageRef struct {
-	Bucket string `json:"bucket"`
-	Key    string `json:"key"`
-	URL    string `json:"url"`
-	Status string `json:"status"`
-	Error  string `json:"error,omitempty"`
+	Bucket           string `json:"bucket"`
+	Key              string `json:"key"`
+	URL              string `json:"url"`
+	Status           string `json:"status"`
+	MediaType        string `json:"media_type,omitempty"`
+	ExpiresAt        string `json:"expires_at,omitempty"`
+	ExpiresInSeconds int64  `json:"expires_in_seconds,omitempty"`
+	Error            string `json:"error,omitempty"`
 }
 
 func (s *OpenAIGatewayService) videoStorageEnabled() bool {
@@ -97,6 +101,13 @@ func (s *OpenAIGatewayService) enrichAgnesAIResponsesVideoBody(ctx context.Conte
 	out, _ = sjson.SetBytes(out, "output.0.result", ref.URL)
 	out, _ = sjson.SetBytes(out, "output.0.local_url", ref.URL)
 	out, _ = sjson.SetRawBytes(out, "output.0.storage", mustJSONRaw(ref))
+	out = appendAgnesAIResponsesJSONMessage(out, "agnes_video_result", map[string]any{
+		"type":    "agnes_video_result",
+		"model":   strings.TrimSpace(requestModel),
+		"status":  strings.TrimSpace(gjson.GetBytes(upstreamBody, "status").String()),
+		"url":     ref.URL,
+		"storage": ref,
+	})
 
 	status := strings.ToLower(strings.TrimSpace(gjson.GetBytes(upstreamBody, "status").String()))
 	upstreamURL := strings.TrimSpace(gjson.GetBytes(upstreamBody, "remixed_from_video_id").String())
@@ -106,6 +117,62 @@ func (s *OpenAIGatewayService) enrichAgnesAIResponsesVideoBody(ctx context.Conte
 	case status == "queued" || status == "in_progress" || status == "processing" || status == "":
 		s.startAgnesAIVideoStoragePoller(account, upstreamBody, requestModel, upstreamModel, token)
 	}
+	return out
+}
+
+func (s *OpenAIGatewayService) enrichAgnesAIResponsesImageBody(ctx context.Context, upstreamBody []byte, responseBody []byte, requestModel string) []byte {
+	if len(responseBody) == 0 || !gjson.ValidBytes(responseBody) || !s.videoStorageEnabled() {
+		return responseBody
+	}
+	data := gjson.GetBytes(upstreamBody, "data")
+	if !data.IsArray() {
+		return responseBody
+	}
+	out := responseBody
+	images := make([]map[string]any, 0, len(data.Array()))
+	outputIndex := 0
+	data.ForEach(func(_, item gjson.Result) bool {
+		if strings.TrimSpace(item.Get("b64_json").String()) == "" && strings.TrimSpace(item.Get("url").String()) == "" {
+			return true
+		}
+		result := map[string]any{
+			"index": outputIndex,
+		}
+		if revised := strings.TrimSpace(item.Get("revised_prompt").String()); revised != "" {
+			result["revised_prompt"] = revised
+		}
+		if size := strings.TrimSpace(item.Get("size").String()); size != "" {
+			result["size"] = size
+		}
+		ref, format, err := s.storeAgnesAIResponseImageItem(ctx, item, requestModel, outputIndex)
+		if err == nil && ref.URL != "" {
+			out, _ = sjson.SetBytes(out, fmt.Sprintf("output.%d.result", outputIndex), ref.URL)
+			out, _ = sjson.SetBytes(out, fmt.Sprintf("output.%d.local_url", outputIndex), ref.URL)
+			out, _ = sjson.SetBytes(out, fmt.Sprintf("output.%d.output_format", outputIndex), format)
+			out, _ = sjson.SetRawBytes(out, fmt.Sprintf("output.%d.storage", outputIndex), mustJSONRaw(ref))
+			result["url"] = ref.URL
+			result["output_format"] = format
+			result["storage"] = ref
+		} else {
+			if upstreamURL := strings.TrimSpace(item.Get("url").String()); upstreamURL != "" {
+				result["upstream_url"] = upstreamURL
+			}
+			if err != nil {
+				result["storage_error"] = sanitizeUpstreamErrorMessage(err.Error())
+			}
+		}
+		images = append(images, result)
+		outputIndex++
+		return true
+	})
+	if len(images) == 0 {
+		return out
+	}
+	out = appendAgnesAIResponsesJSONMessage(out, "agnes_image_result", map[string]any{
+		"type":   "agnes_image_result",
+		"model":  strings.TrimSpace(requestModel),
+		"images": images,
+	})
 	return out
 }
 
@@ -122,17 +189,34 @@ func (s *OpenAIGatewayService) localAgnesAIVideoStorageRef(body []byte, model st
 	if _, ok := s.videoStorageUploaded.Load(key); ok {
 		status = "available"
 	}
+	expiresIn := s.openAIVideoStorageURLTTL()
+	expiresAt := time.Now().UTC().Add(expiresIn)
 	return openAIVideoStorageRef{
-		Bucket: strings.TrimSpace(s.cfg.Gateway.VideoStorage.Bucket),
-		Key:    key,
-		URL:    s.openAIVideoStoragePublicURL(key),
-		Status: status,
+		Bucket:           strings.TrimSpace(s.cfg.Gateway.VideoStorage.Bucket),
+		Key:              key,
+		URL:              s.openAIMediaStorageURL(key, expiresIn),
+		Status:           status,
+		MediaType:        "video",
+		ExpiresAt:        expiresAt.Format(time.RFC3339),
+		ExpiresInSeconds: int64(expiresIn.Seconds()),
 	}
 }
 
 func (s *OpenAIGatewayService) openAIVideoStorageObjectKey(model string, id string) string {
-	cfg := s.cfg.Gateway.VideoStorage
-	prefix := strings.Trim(strings.TrimSpace(cfg.Prefix), "/")
+	cfg := s.effectiveVideoStorageConfig()
+	return openAIMediaStorageObjectKey(cfg.Prefix, model, id, "mp4")
+}
+
+func (s *OpenAIGatewayService) openAIImageStorageObjectKey(model string, id string, extension string) string {
+	cfg := s.effectiveVideoStorageConfig()
+	if extension == "" {
+		extension = "png"
+	}
+	return openAIMediaStorageObjectKey(cfg.ImagePrefix, model, id, extension)
+}
+
+func openAIMediaStorageObjectKey(prefix string, model string, id string, extension string) string {
+	prefix = strings.Trim(strings.TrimSpace(prefix), "/")
 	model = sanitizeVideoStoragePathSegment(model)
 	if model == "" {
 		model = "unknown-model"
@@ -142,11 +226,15 @@ func (s *OpenAIGatewayService) openAIVideoStorageObjectKey(model string, id stri
 		sum := sha256.Sum256([]byte(time.Now().String()))
 		id = hex.EncodeToString(sum[:8])
 	}
+	extension = sanitizeVideoStoragePathSegment(strings.TrimPrefix(extension, "."))
+	if extension == "" {
+		extension = "bin"
+	}
 	parts := []string{}
 	if prefix != "" {
 		parts = append(parts, prefix)
 	}
-	parts = append(parts, model, time.Now().UTC().Format("2006/01/02"), id+".mp4")
+	parts = append(parts, model, time.Now().UTC().Format("2006/01/02"), id+"."+extension)
 	return path.Join(parts...)
 }
 
@@ -156,6 +244,313 @@ func (s *OpenAIGatewayService) openAIVideoStoragePublicURL(key string) string {
 		return ""
 	}
 	return base + "/" + strings.TrimLeft(key, "/")
+}
+
+func (s *OpenAIGatewayService) openAIMediaStorageURL(key string, ttlOverride time.Duration) string {
+	ttl := s.openAIVideoStorageURLTTL()
+	if ttlOverride > 0 {
+		ttl = ttlOverride
+	}
+	if url, err := s.presignOpenAIMediaStorageURL(context.Background(), key, ttl); err == nil && strings.TrimSpace(url) != "" {
+		return url
+	}
+	return s.openAIVideoStoragePublicURL(key)
+}
+
+func (s *OpenAIGatewayService) presignOpenAIMediaStorageURL(ctx context.Context, key string, ttl time.Duration) (string, error) {
+	if !s.videoStorageEnabled() {
+		return "", fmt.Errorf("media storage disabled")
+	}
+	key = strings.TrimLeft(strings.TrimSpace(key), "/")
+	if key == "" {
+		return "", fmt.Errorf("missing media storage key")
+	}
+	if ttl <= 0 {
+		return "", fmt.Errorf("missing media storage url ttl")
+	}
+	maxTTL := 7 * 24 * time.Hour
+	if ttl > maxTTL {
+		ttl = maxTTL
+	}
+	cfg := s.effectiveVideoStorageConfig()
+	client, err := s.newOpenAIMediaStoragePresignS3Client(ctx, cfg)
+	if err != nil {
+		return "", err
+	}
+	presigner := s3.NewPresignClient(client)
+	result, err := presigner.PresignGetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(cfg.Bucket),
+		Key:    aws.String(key),
+	}, s3.WithPresignExpires(ttl))
+	if err != nil {
+		return "", fmt.Errorf("presign media object: %w", err)
+	}
+	return result.URL, nil
+}
+
+func (s *OpenAIGatewayService) newOpenAIMediaStoragePresignS3Client(ctx context.Context, cfg config.GatewayVideoStorageConfig) (*s3.Client, error) {
+	presignCfg := cfg
+	if endpoint := openAIMediaStoragePresignEndpoint(cfg); endpoint != "" {
+		presignCfg.Endpoint = endpoint
+	}
+	return s.newOpenAIVideoStorageS3Client(ctx, presignCfg)
+}
+
+func openAIMediaStoragePresignEndpoint(cfg config.GatewayVideoStorageConfig) string {
+	raw := strings.TrimSpace(cfg.PublicBaseURL)
+	if raw == "" {
+		return strings.TrimSpace(cfg.Endpoint)
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return strings.TrimSpace(cfg.Endpoint)
+	}
+	return parsed.Scheme + "://" + parsed.Host
+}
+
+func (s *OpenAIGatewayService) openAIVideoStorageURLTTL() time.Duration {
+	cfg := s.effectiveVideoStorageConfig()
+	days := cfg.ExpirationDays
+	if days <= 0 {
+		days = 7
+	}
+	return time.Duration(days) * 24 * time.Hour
+}
+
+func (s *OpenAIGatewayService) openAIImageStorageURLTTL() time.Duration {
+	cfg := s.effectiveVideoStorageConfig()
+	days := cfg.ImageExpirationDays
+	if days <= 0 {
+		days = 3
+	}
+	return time.Duration(days) * 24 * time.Hour
+}
+
+func (s *OpenAIGatewayService) localOpenAIMediaStorageRef(key string, mediaType string, ttl time.Duration, status string) openAIVideoStorageRef {
+	if key == "" {
+		return openAIVideoStorageRef{}
+	}
+	expiresAt := time.Now().UTC().Add(ttl)
+	return openAIVideoStorageRef{
+		Bucket:           strings.TrimSpace(s.cfg.Gateway.VideoStorage.Bucket),
+		Key:              key,
+		URL:              s.openAIMediaStorageURL(key, ttl),
+		Status:           status,
+		MediaType:        mediaType,
+		ExpiresAt:        expiresAt.Format(time.RFC3339),
+		ExpiresInSeconds: int64(ttl.Seconds()),
+	}
+}
+
+func (s *OpenAIGatewayService) storeAgnesAIResponseImageItem(ctx context.Context, item gjson.Result, model string, outputIndex int) (openAIVideoStorageRef, string, error) {
+	b64 := strings.TrimSpace(item.Get("b64_json").String())
+	if b64 != "" {
+		data, declaredContentType, err := decodeAgnesAIImageBase64(b64)
+		if err != nil {
+			return openAIVideoStorageRef{}, "", err
+		}
+		format, contentType := detectAgnesAIImageFormat(data, declaredContentType)
+		keyID := hashOpenAIImageOutputResult(fmt.Sprintf("%d:%s", outputIndex, b64))
+		if len(keyID) > 32 {
+			keyID = keyID[:32]
+		}
+		key := s.openAIImageStorageObjectKey(model, keyID, format)
+		if err := s.uploadOpenAIMediaBytesToStorage(ctx, data, key, contentType); err != nil {
+			return openAIVideoStorageRef{}, "", err
+		}
+		return s.localOpenAIMediaStorageRef(key, "image", s.openAIImageStorageURLTTL(), "available"), format, nil
+	}
+
+	upstreamURL := strings.TrimSpace(item.Get("url").String())
+	if upstreamURL == "" {
+		return openAIVideoStorageRef{}, "", fmt.Errorf("Agnes image output has no b64_json or url")
+	}
+	keyID := hashOpenAIImageOutputResult(fmt.Sprintf("%d:%s", outputIndex, upstreamURL))
+	if len(keyID) > 32 {
+		keyID = keyID[:32]
+	}
+	key := s.openAIImageStorageObjectKey(model, keyID, "png")
+	format, err := s.uploadOpenAIMediaURLToStorage(ctx, upstreamURL, key, "image")
+	if err != nil {
+		return openAIVideoStorageRef{}, "", err
+	}
+	return s.localOpenAIMediaStorageRef(key, "image", s.openAIImageStorageURLTTL(), "available"), format, nil
+}
+
+func decodeAgnesAIImageBase64(value string) ([]byte, string, error) {
+	value = strings.TrimSpace(value)
+	contentType := ""
+	if strings.HasPrefix(strings.ToLower(value), "data:") {
+		comma := strings.Index(value, ",")
+		if comma < 0 {
+			return nil, "", fmt.Errorf("invalid data url image")
+		}
+		meta := value[len("data:"):comma]
+		if semi := strings.Index(meta, ";"); semi >= 0 {
+			contentType = strings.TrimSpace(meta[:semi])
+		} else {
+			contentType = strings.TrimSpace(meta)
+		}
+		value = value[comma+1:]
+	}
+	data, err := base64.StdEncoding.DecodeString(value)
+	if err != nil {
+		data, err = base64.RawStdEncoding.DecodeString(value)
+	}
+	if err != nil {
+		return nil, "", fmt.Errorf("decode image base64: %w", err)
+	}
+	return data, contentType, nil
+}
+
+func detectAgnesAIImageFormat(data []byte, declaredContentType string) (string, string) {
+	contentType := strings.ToLower(strings.TrimSpace(declaredContentType))
+	switch {
+	case strings.Contains(contentType, "image/jpeg") || strings.Contains(contentType, "image/jpg"):
+		return "jpg", "image/jpeg"
+	case strings.Contains(contentType, "image/png"):
+		return "png", "image/png"
+	case strings.Contains(contentType, "image/webp"):
+		return "webp", "image/webp"
+	case strings.Contains(contentType, "image/gif"):
+		return "gif", "image/gif"
+	}
+	if len(data) >= 12 && string(data[0:4]) == "RIFF" && string(data[8:12]) == "WEBP" {
+		return "webp", "image/webp"
+	}
+	if len(data) >= 4 && data[0] == 0x89 && data[1] == 0x50 && data[2] == 0x4e && data[3] == 0x47 {
+		return "png", "image/png"
+	}
+	if len(data) >= 3 && data[0] == 0xff && data[1] == 0xd8 && data[2] == 0xff {
+		return "jpg", "image/jpeg"
+	}
+	if len(data) >= 3 && string(data[0:3]) == "GIF" {
+		return "gif", "image/gif"
+	}
+	return "png", "image/png"
+}
+
+func (s *OpenAIGatewayService) uploadOpenAIMediaBytesToStorage(ctx context.Context, data []byte, key string, contentType string) error {
+	if !s.videoStorageEnabled() {
+		return nil
+	}
+	if len(data) == 0 {
+		return fmt.Errorf("empty media data")
+	}
+	cfg := s.effectiveVideoStorageConfig()
+	maxBytes := cfg.MaxBytes
+	if maxBytes <= 0 {
+		maxBytes = 512 * 1024 * 1024
+	}
+	if int64(len(data)) > maxBytes {
+		return fmt.Errorf("media exceeds max size %d bytes", maxBytes)
+	}
+	timeout := time.Duration(cfg.UploadTimeoutSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = 5 * time.Minute
+	}
+	uploadCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	client, err := s.newOpenAIVideoStorageS3Client(uploadCtx, cfg)
+	if err != nil {
+		return err
+	}
+	if err := s.ensureOpenAIVideoStorageBucket(uploadCtx, client, cfg); err != nil {
+		return err
+	}
+	if strings.TrimSpace(contentType) == "" {
+		contentType = "application/octet-stream"
+	}
+	input := &s3.PutObjectInput{
+		Bucket:      aws.String(cfg.Bucket),
+		Key:         aws.String(key),
+		Body:        bytes.NewReader(data),
+		ContentType: aws.String(contentType),
+	}
+	if cfg.PublicRead {
+		input.ACL = types.ObjectCannedACLPublicRead
+	}
+	_, err = client.PutObject(uploadCtx, input)
+	if err != nil && cfg.PublicRead {
+		input.ACL = ""
+		_, err = client.PutObject(uploadCtx, input)
+	}
+	if err != nil {
+		return fmt.Errorf("put media object: %w", err)
+	}
+	s.videoStorageUploaded.Store(key, struct{}{})
+	return nil
+}
+
+func (s *OpenAIGatewayService) uploadOpenAIMediaURLToStorage(ctx context.Context, upstreamURL string, key string, fallbackMediaType string) (string, error) {
+	if err := validateOpenAIVideoStorageSourceURL(upstreamURL); err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, upstreamURL, nil)
+	if err != nil {
+		return "", err
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("download media: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode >= 400 {
+		return "", fmt.Errorf("download media returned %d", resp.StatusCode)
+	}
+	cfg := s.effectiveVideoStorageConfig()
+	maxBytes := cfg.MaxBytes
+	if maxBytes <= 0 {
+		maxBytes = 512 * 1024 * 1024
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("read media: %w", err)
+	}
+	if int64(len(data)) > maxBytes {
+		return "", fmt.Errorf("media exceeds max size %d bytes", maxBytes)
+	}
+	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
+	format, contentType := detectAgnesAIImageFormat(data, contentType)
+	if fallbackMediaType == "video" {
+		format = "mp4"
+		contentType = openAIVideoStorageObjectContentType
+	}
+	return format, s.uploadOpenAIMediaBytesToStorage(ctx, data, key, contentType)
+}
+
+func appendAgnesAIResponsesJSONMessage(response []byte, messageIDPrefix string, value any) []byte {
+	if len(response) == 0 || !gjson.ValidBytes(response) {
+		return response
+	}
+	raw, err := json.MarshalIndent(value, "", "  ")
+	if err != nil {
+		return response
+	}
+	idHash := hashOpenAIImageOutputResult(string(raw))
+	if len(idHash) > 24 {
+		idHash = idHash[:24]
+	}
+	message := map[string]any{
+		"id":     fmt.Sprintf("msg_%s_%s", sanitizeVideoStoragePathSegment(messageIDPrefix), idHash),
+		"type":   "message",
+		"status": "completed",
+		"role":   "assistant",
+		"content": []map[string]any{
+			{
+				"type": "output_text",
+				"text": string(raw),
+			},
+		},
+	}
+	messageRaw, err := json.Marshal(message)
+	if err != nil {
+		return response
+	}
+	out := response
+	out, _ = sjson.SetRawBytes(out, "output.-1", messageRaw)
+	return out
 }
 
 func sanitizeVideoStoragePathSegment(value string) string {
@@ -419,6 +814,12 @@ func (s *OpenAIGatewayService) effectiveVideoStorageConfig() config.GatewayVideo
 	if strings.TrimSpace(cfg.Prefix) == "" {
 		cfg.Prefix = "videos/"
 	}
+	if strings.TrimSpace(cfg.ImagePrefix) == "" {
+		cfg.ImagePrefix = "images/"
+	}
+	if cfg.ImageExpirationDays <= 0 {
+		cfg.ImageExpirationDays = 3
+	}
 	if cfg.PollIntervalSeconds <= 0 {
 		cfg.PollIntervalSeconds = 5
 	}
@@ -477,6 +878,7 @@ func (s *OpenAIGatewayService) ensureOpenAIVideoStorageBucket(ctx context.Contex
 		slog.Warn("openai video storage lifecycle setup failed",
 			"bucket", bucket,
 			"expiration_days", cfg.ExpirationDays,
+			"image_expiration_days", cfg.ImageExpirationDays,
 			"error", sanitizeUpstreamErrorMessage(err.Error()),
 		)
 	}
@@ -491,11 +893,13 @@ func (s *OpenAIGatewayService) ensureOpenAIVideoStorageLifecycle(ctx context.Con
 	if bucket == "" {
 		return fmt.Errorf("missing video storage bucket")
 	}
-	if cfg.ExpirationDays <= 0 {
-		return nil
+	videoPrefix := openAIVideoStorageLifecyclePrefix(cfg.Prefix)
+	imagePrefix := openAIVideoStorageLifecyclePrefix(cfg.ImagePrefix)
+	imageDays := cfg.ImageExpirationDays
+	if imageDays <= 0 {
+		imageDays = 3
 	}
-	prefix := openAIVideoStorageLifecyclePrefix(cfg.Prefix)
-	cacheKey := fmt.Sprintf("lifecycle|%s|%s|%d", bucket, prefix, cfg.ExpirationDays)
+	cacheKey := fmt.Sprintf("lifecycle|%s|%s|%d|%s|%d", bucket, videoPrefix, cfg.ExpirationDays, imagePrefix, imageDays)
 	if _, loaded := s.videoStorageBucketEnsured.LoadOrStore(cacheKey, struct{}{}); loaded {
 		return nil
 	}
@@ -531,43 +935,67 @@ func (s *OpenAIGatewayService) ensureOpenAIVideoStorageLifecycle(ctx context.Con
 }
 
 func buildOpenAIVideoStorageLifecycleConfiguration(existingRules []types.LifecycleRule, cfg config.GatewayVideoStorageConfig) (*types.BucketLifecycleConfiguration, error) {
-	if cfg.ExpirationDays <= 0 {
+	managedRules := make([]types.LifecycleRule, 0, 2)
+	if cfg.ExpirationDays > 0 {
+		rule, err := buildOpenAIMediaStorageLifecycleRule(openAIVideoStorageLifecycleRuleID, cfg.Prefix, cfg.ExpirationDays, "video storage expiration_days")
+		if err != nil {
+			return nil, err
+		}
+		managedRules = append(managedRules, rule)
+	}
+	imageDays := cfg.ImageExpirationDays
+	if imageDays <= 0 {
+		imageDays = 3
+	}
+	imagePrefix := cfg.ImagePrefix
+	if strings.TrimSpace(imagePrefix) == "" {
+		imagePrefix = "images/"
+	}
+	if imageDays > 0 {
+		rule, err := buildOpenAIMediaStorageLifecycleRule(openAIImageStorageLifecycleRuleID, imagePrefix, imageDays, "image storage expiration_days")
+		if err != nil {
+			return nil, err
+		}
+		managedRules = append(managedRules, rule)
+	}
+	if len(managedRules) == 0 {
 		return nil, nil
 	}
-	if cfg.ExpirationDays > 36500 {
-		return nil, fmt.Errorf("video storage expiration_days too large: %d", cfg.ExpirationDays)
+
+	rules := make([]types.LifecycleRule, 0, len(existingRules)+len(managedRules))
+	for _, existing := range existingRules {
+		switch strings.TrimSpace(aws.ToString(existing.ID)) {
+		case openAIVideoStorageLifecycleRuleID, openAIImageStorageLifecycleRuleID:
+			continue
+		default:
+			rules = append(rules, existing)
+		}
 	}
-	days := int32(cfg.ExpirationDays)
-	rule := types.LifecycleRule{
-		ID:     aws.String(openAIVideoStorageLifecycleRuleID),
+	rules = append(rules, managedRules...)
+	return &types.BucketLifecycleConfiguration{Rules: rules}, nil
+}
+
+func buildOpenAIMediaStorageLifecycleRule(ruleID string, prefix string, days int, fieldName string) (types.LifecycleRule, error) {
+	if days <= 0 {
+		return types.LifecycleRule{}, fmt.Errorf("%s must be positive", fieldName)
+	}
+	if days > 36500 {
+		return types.LifecycleRule{}, fmt.Errorf("%s too large: %d", fieldName, days)
+	}
+	ttlDays := int32(days)
+	return types.LifecycleRule{
+		ID:     aws.String(ruleID),
 		Status: types.ExpirationStatusEnabled,
 		Filter: &types.LifecycleRuleFilter{
-			Prefix: aws.String(openAIVideoStorageLifecyclePrefix(cfg.Prefix)),
+			Prefix: aws.String(openAIVideoStorageLifecyclePrefix(prefix)),
 		},
 		Expiration: &types.LifecycleExpiration{
-			Days: aws.Int32(days),
+			Days: aws.Int32(ttlDays),
 		},
 		AbortIncompleteMultipartUpload: &types.AbortIncompleteMultipartUpload{
-			DaysAfterInitiation: aws.Int32(days),
+			DaysAfterInitiation: aws.Int32(ttlDays),
 		},
-	}
-
-	rules := make([]types.LifecycleRule, 0, len(existingRules)+1)
-	replaced := false
-	for _, existing := range existingRules {
-		if strings.TrimSpace(aws.ToString(existing.ID)) == openAIVideoStorageLifecycleRuleID {
-			if !replaced {
-				rules = append(rules, rule)
-				replaced = true
-			}
-			continue
-		}
-		rules = append(rules, existing)
-	}
-	if !replaced {
-		rules = append(rules, rule)
-	}
-	return &types.BucketLifecycleConfiguration{Rules: rules}, nil
+	}, nil
 }
 
 func openAIVideoStorageLifecyclePrefix(prefix string) string {

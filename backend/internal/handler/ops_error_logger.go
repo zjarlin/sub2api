@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"net/http"
 	"runtime"
 	"runtime/debug"
 	"strconv"
@@ -855,6 +856,10 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 			}
 		}
 
+		if shouldSkipCodexDesktopEmptyResponsesRequest(c, parsed, status) {
+			return
+		}
+
 		// Skip logging if the error should be filtered based on settings
 		if shouldSkipOpsErrorLog(c.Request.Context(), ops, parsed.Message, string(body), c.Request.URL.Path) {
 			return
@@ -1226,6 +1231,35 @@ func shouldSuppressUpstreamEndpoint(entry *service.OpsInsertErrorLogInput) bool 
 		return false
 	}
 	return true
+}
+
+func shouldSkipCodexDesktopEmptyResponsesRequest(c *gin.Context, parsed parsedOpsError, status int) bool {
+	if c == nil || c.Request == nil || c.Request.URL == nil {
+		return false
+	}
+	if status != http.StatusBadRequest {
+		return false
+	}
+	if !strings.EqualFold(c.Request.Method, http.MethodPost) {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(parsed.ErrorType), "invalid_request_error") {
+		return false
+	}
+	if !strings.EqualFold(strings.TrimSpace(parsed.Message), "Request body is empty") {
+		return false
+	}
+	if hasOpsUpstreamErrorContext(c) {
+		return false
+	}
+
+	path := strings.TrimRight(strings.TrimSpace(c.Request.URL.Path), "/")
+	if path != "/responses" && path != "/v1/responses" {
+		return false
+	}
+
+	userAgent := c.GetHeader("User-Agent")
+	return strings.Contains(userAgent, "Codex Desktop")
 }
 
 // isKnownOpsErrorType returns true if t is a recognized error type used by the

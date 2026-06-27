@@ -79,6 +79,23 @@ func TestOpenAIModelNotFound_DoesNotRuntimeBlockWholeAccount(t *testing.T) {
 	require.Len(t, repo.modelRateLimitCalls, 1)
 }
 
+func TestOpenAITransientServiceBusy_DoesNotTrip503BurstState(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &OpenAIGatewayService{
+		rateLimitService: &RateLimitService{accountRepo: repo},
+	}
+	account := &Account{ID: 287, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	body := []byte(`{"code":"fail_to_fetch_task","message":"{\"error\":{\"message\":\"Service busy (tasks: 1)\",\"code\":\"503\"}}"}`)
+
+	for i := 0; i < openAI503BurstDisableThreshold; i++ {
+		shouldDisable := svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusServiceUnavailable, http.Header{}, body, "agnes-video-v2.0")
+		require.False(t, shouldDisable)
+	}
+
+	require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	require.Zero(t, repo.tempCalls)
+}
+
 func TestOpenAIRuntimeBlock_DoesNotShortenExistingBlock(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	account := &Account{ID: 46, Platform: PlatformOpenAI, Type: AccountTypeOAuth}

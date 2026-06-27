@@ -814,10 +814,13 @@ type GatewayVideoStorageConfig struct {
 	AccessKeyID     string `mapstructure:"access_key_id"`
 	SecretAccessKey string `mapstructure:"secret_access_key"`
 	Prefix          string `mapstructure:"prefix"`
+	ImagePrefix     string `mapstructure:"image_prefix"`
 	ForcePathStyle  bool   `mapstructure:"force_path_style"`
 	PublicRead      bool   `mapstructure:"public_read"`
 	// ExpirationDays: 对象存储中视频文件的生命周期过期天数；<=0 表示不自动配置过期规则。
-	ExpirationDays       int   `mapstructure:"expiration_days"`
+	ExpirationDays int `mapstructure:"expiration_days"`
+	// ImageExpirationDays: 对象存储中图片文件的生命周期过期天数；<=0 使用默认 3 天。
+	ImageExpirationDays  int   `mapstructure:"image_expiration_days"`
 	PollIntervalSeconds  int   `mapstructure:"poll_interval_seconds"`
 	PollTimeoutSeconds   int   `mapstructure:"poll_timeout_seconds"`
 	UploadTimeoutSeconds int   `mapstructure:"upload_timeout_seconds"`

@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 13 // v13: retained personal_account_scope compatibility field
+const apiKeyAuthSnapshotVersion = 14 // v14：分组 models_list_config 携带模型级倍率
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -352,6 +352,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			ModelsListConfig:                snapshot.Group.ModelsListConfig,
 			RPMLimit:                        snapshot.Group.RPMLimit,
 		}
+		apiKey.Group.PrepareRuntimeCaches()
 	}
 	s.compileAPIKeyIPRules(apiKey)
 	return apiKey

@@ -53,12 +53,14 @@ func (h *AvailableChannelHandler) featureEnabled(c *gin.Context) bool {
 // 订阅视觉加深），并用 RateMultiplier 作为默认倍率；用户专属倍率前端走
 // /groups/rates，和 API 密钥页面保持一致。
 type userAvailableGroup struct {
-	ID               int64   `json:"id"`
-	Name             string  `json:"name"`
-	Platform         string  `json:"platform"`
-	SubscriptionType string  `json:"subscription_type"`
-	RateMultiplier   float64 `json:"rate_multiplier"`
-	IsExclusive      bool    `json:"is_exclusive"`
+	ID               int64              `json:"id"`
+	Name             string             `json:"name"`
+	Platform         string             `json:"platform"`
+	SubscriptionType string             `json:"subscription_type"`
+	RateMultiplier   float64            `json:"rate_multiplier"`
+	ModelRates       map[string]float64 `json:"model_rates,omitempty"`
+	ModelRateLookup  map[string]float64 `json:"-"`
+	IsExclusive      bool               `json:"is_exclusive"`
 }
 
 // userSupportedModelPricing 用户可见的定价字段白名单。
@@ -87,9 +89,10 @@ type userPricingIntervalDTO struct {
 
 // userSupportedModel 用户可见的支持模型条目。
 type userSupportedModel struct {
-	Name     string                     `json:"name"`
-	Platform string                     `json:"platform"`
-	Pricing  *userSupportedModelPricing `json:"pricing"`
+	Name            string                     `json:"name"`
+	Platform        string                     `json:"platform"`
+	RateMultipliers map[int64]float64          `json:"rate_multipliers,omitempty"`
+	Pricing         *userSupportedModelPricing `json:"pricing"`
 }
 
 // userChannelPlatformSection 单渠道内某个平台的子视图：用户可见的分组 + 该平台
@@ -196,7 +199,7 @@ func buildPlatformSections(
 		sections = append(sections, userChannelPlatformSection{
 			Platform:        platform,
 			Groups:          groupsByPlatform[platform],
-			SupportedModels: toUserSupportedModels(ch.SupportedModels, platformSet),
+			SupportedModels: toUserSupportedModels(ch.SupportedModels, platformSet, groupsByPlatform[platform]),
 		})
 	}
 	return sections
@@ -218,6 +221,8 @@ func filterUserVisibleGroups(
 			Platform:         g.Platform,
 			SubscriptionType: g.SubscriptionType,
 			RateMultiplier:   g.RateMultiplier,
+			ModelRates:       g.ModelRateMultipliers,
+			ModelRateLookup:  g.ModelRateLookup,
 			IsExclusive:      g.IsExclusive,
 		})
 	}
@@ -230,6 +235,7 @@ func filterUserVisibleGroups(
 func toUserSupportedModels(
 	src []service.SupportedModel,
 	allowedPlatforms map[string]struct{},
+	groups []userAvailableGroup,
 ) []userSupportedModel {
 	out := make([]userSupportedModel, 0, len(src))
 	for i := range src {
@@ -240,10 +246,27 @@ func toUserSupportedModels(
 			}
 		}
 		out = append(out, userSupportedModel{
-			Name:     m.Name,
-			Platform: m.Platform,
-			Pricing:  toUserPricing(m.Pricing),
+			Name:            m.Name,
+			Platform:        m.Platform,
+			RateMultipliers: modelRateMultipliersForGroups(m.Name, groups),
+			Pricing:         toUserPricing(m.Pricing),
 		})
+	}
+	return out
+}
+
+func modelRateMultipliersForGroups(model string, groups []userAvailableGroup) map[int64]float64 {
+	out := make(map[int64]float64)
+	for _, g := range groups {
+		if len(g.ModelRates) == 0 {
+			continue
+		}
+		if rate, ok := service.FindModelRateMultiplier(g.ModelRates, g.ModelRateLookup, model); ok {
+			out[g.ID] = rate
+		}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }
