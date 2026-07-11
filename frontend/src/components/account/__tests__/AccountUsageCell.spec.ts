@@ -572,7 +572,7 @@ describe('AccountUsageCell', () => {
       kiro_overage: {
         current_overages: 2,
         overage_charges: 0.08,
-        currency_symbol: '$',
+        currency_symbol: '¥',
         currency_code: 'USD',
       },
       kiro_reset_at: '2099-03-13T12:00:00Z',
@@ -660,7 +660,7 @@ describe('AccountUsageCell', () => {
       kiro_overage: {
         current_overages: 3,
         overage_charges: 0.12,
-        currency_symbol: '$',
+        currency_symbol: '¥',
       },
     })
 
