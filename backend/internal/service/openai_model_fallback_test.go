@@ -72,3 +72,57 @@ func TestResolveOpenAIForwardModel_OpenAIImplicitGpt55Fallback(t *testing.T) {
 		t.Fatalf("resolveOpenAIForwardModel(...) = %q, want %q", got, "pool:smart")
 	}
 }
+
+func TestOpenAISchedulingExplicitMappingDoesNotUseVendorDefaultAlias(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"vendor": "deepseek",
+			"model_mapping": map[string]any{
+				"deepseek-v4-pro": "deepseek-v4-pro",
+			},
+		},
+	}
+
+	if isOpenAIAccountModelSupportedForScheduling(account, "gpt-5.5") {
+		t.Fatal("scheduler must not treat gpt-5.5 as supported when only deepseek-v4-pro is explicitly mapped")
+	}
+	if !isOpenAIAccountModelSupportedForScheduling(account, "deepseek-v4-pro") {
+		t.Fatal("scheduler should support the explicitly mapped deepseek-v4-pro model")
+	}
+}
+
+func TestOpenAIForwardModelStillUsesVendorDefaultAlias(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"vendor": "deepseek",
+			"model_mapping": map[string]any{
+				"deepseek-v4-pro": "deepseek-v4-pro",
+			},
+		},
+	}
+
+	if got := resolveOpenAIForwardModel(account, "gpt-5.5", ""); got != "deepseek-v4-pro" {
+		t.Fatalf("resolveOpenAIForwardModel(gpt-5.5) = %q, want deepseek-v4-pro", got)
+	}
+}
+
+func TestOpenAISchedulingExplicitMappingRespectsVendorPrefix(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"vendor": "deepseek",
+			"model_mapping": map[string]any{
+				"gpt-5.5": "deepseek-v4-pro",
+			},
+		},
+	}
+
+	if isOpenAIAccountModelSupportedForScheduling(account, "openai/gpt-5.5") {
+		t.Fatal("scheduler must not route openai-prefixed models to a deepseek vendor account")
+	}
+}

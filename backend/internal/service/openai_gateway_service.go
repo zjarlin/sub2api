@@ -1382,6 +1382,15 @@ func isOpenAIAccountModelSupportedForScheduling(account *Account, requestedModel
 	if account == nil || !account.IsOpenAI() {
 		return false
 	}
+	if account.Platform == PlatformOpenAI && !openAIAccountVendorMatchesRequestedModelPrefix(account, requestedModel) {
+		return false
+	}
+	// If an OpenAI-compatible account has an explicit model_mapping, scheduler
+	// admission must match the requested model key directly. Do not use vendor
+	// default mappings here; they are forwarding rules, not account eligibility.
+	if len(accountExplicitModelMapping(account)) > 0 {
+		return accountExplicitMappingDirectlySupportsRequestedModelForScheduling(account, requestedModel)
+	}
 	if !account.IsModelSupported(requestedModel) {
 		return false
 	}
@@ -1401,7 +1410,7 @@ func filterOpenAIAccountsByExplicitModelSupport(accounts []Account, requestedMod
 	}
 	hasExplicitSupport := false
 	for i := range accounts {
-		if accountHasExplicitModelMappingSupport(&accounts[i], requestedModel) {
+		if accountExplicitMappingDirectlySupportsRequestedModelForScheduling(&accounts[i], requestedModel) {
 			hasExplicitSupport = true
 			break
 		}
@@ -1411,7 +1420,7 @@ func filterOpenAIAccountsByExplicitModelSupport(accounts []Account, requestedMod
 	}
 	filtered := make([]Account, 0, len(accounts))
 	for i := range accounts {
-		if accountHasExplicitModelMappingSupport(&accounts[i], requestedModel) {
+		if accountExplicitMappingDirectlySupportsRequestedModelForScheduling(&accounts[i], requestedModel) {
 			filtered = append(filtered, accounts[i])
 		}
 	}
@@ -1423,7 +1432,7 @@ func openAIAccountsHaveExplicitModelSupport(accounts []Account, requestedModel s
 		return false
 	}
 	for i := range accounts {
-		if accountHasExplicitModelMappingSupport(&accounts[i], requestedModel) {
+		if accountExplicitMappingDirectlySupportsRequestedModelForScheduling(&accounts[i], requestedModel) {
 			return true
 		}
 	}
@@ -1434,7 +1443,7 @@ func openAIAccountAllowedByExplicitModelScope(account *Account, requestedModel s
 	if !explicitModelScope {
 		return true
 	}
-	return accountHasExplicitModelMappingSupport(account, requestedModel)
+	return accountExplicitMappingDirectlySupportsRequestedModelForScheduling(account, requestedModel)
 }
 
 type openAIQuotaAutoPauseDecision struct {

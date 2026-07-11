@@ -887,7 +887,11 @@ func mappingSupportsRequestedModel(mapping map[string]string, requestedModel str
 	return false
 }
 
-func accountHasExplicitModelMappingSupport(account *Account, requestedModel string) bool {
+// accountExplicitMappingDirectlySupportsRequestedModelForScheduling checks only
+// the account's raw model_mapping keys for scheduling eligibility.
+// It intentionally does not apply vendor default mappings or gpt-5.5 -> gpt-5.4
+// fallback aliases; those are forwarding concerns, not scheduler admission rules.
+func accountExplicitMappingDirectlySupportsRequestedModelForScheduling(account *Account, requestedModel string) bool {
 	if account == nil || strings.TrimSpace(requestedModel) == "" || account.Credentials == nil {
 		return false
 	}
@@ -895,24 +899,18 @@ func accountHasExplicitModelMappingSupport(account *Account, requestedModel stri
 	if len(mapping) == 0 {
 		return false
 	}
-	if mappingSupportsRequestedModel(mapping, requestedModel) {
+	trimmed := strings.TrimSpace(requestedModel)
+	if mappingSupportsRequestedModel(mapping, trimmed) {
 		return true
 	}
-	normalized := normalizeRequestedModelForLookup(account.Platform, requestedModel)
-	if normalized != requestedModel && mappingSupportsRequestedModel(mapping, normalized) {
+	if normalized := normalizeRequestedModelForLookup(account.Platform, trimmed); normalized != trimmed && mappingSupportsRequestedModel(mapping, normalized) {
 		return true
 	}
-	for _, fallbackModel := range resolveOpenAIRequestedModelFallbacks(account, requestedModel) {
-		if mappingSupportsRequestedModel(mapping, fallbackModel) {
+	if requestedModelHasVendorPrefix(trimmed) {
+		segment := lastOpenAIModelSegment(trimmed)
+		if segment != trimmed && mappingSupportsRequestedModel(mapping, segment) {
 			return true
 		}
-		normalizedFallback := normalizeRequestedModelForLookup(account.Platform, fallbackModel)
-		if normalizedFallback != fallbackModel && mappingSupportsRequestedModel(mapping, normalizedFallback) {
-			return true
-		}
-	}
-	if mapped, matched := resolveVendorDefaultMappedModelForAccount(account, requestedModel); matched {
-		return mappingSupportsRequestedModelForAccount(account, mapping, mapped)
 	}
 	return false
 }
