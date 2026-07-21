@@ -1,27 +1,12 @@
 <template>
-  <div class="relative flex min-h-screen items-center justify-center overflow-hidden p-4">
-    <!-- Background -->
-    <div
-      class="absolute inset-0 bg-gradient-to-br from-gray-50 via-primary-50/30 to-gray-100 dark:from-dark-950 dark:via-dark-900 dark:to-dark-950"
-    ></div>
+  <div class="auth-shell relative flex min-h-screen items-center justify-center overflow-hidden p-4">
+    <div class="auth-grid absolute inset-0"></div>
 
     <!-- Decorative Elements -->
     <div class="pointer-events-none absolute inset-0 overflow-hidden">
-      <!-- Gradient Orbs -->
-      <div
-        class="absolute -right-40 -top-40 h-80 w-80 rounded-full bg-primary-400/20 blur-3xl"
-      ></div>
-      <div
-        class="absolute -bottom-40 -left-40 h-80 w-80 rounded-full bg-primary-500/15 blur-3xl"
-      ></div>
-      <div
-        class="absolute left-1/2 top-1/2 h-96 w-96 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary-300/10 blur-3xl"
-      ></div>
-
-      <!-- Grid Pattern -->
-      <div
-        class="absolute inset-0 bg-[linear-gradient(rgba(20,184,166,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(20,184,166,0.03)_1px,transparent_1px)] bg-[size:64px_64px]"
-      ></div>
+      <div class="auth-sheet auth-sheet-primary"></div>
+      <div class="auth-sheet auth-sheet-cyan"></div>
+      <div class="auth-sheet auth-sheet-pink"></div>
     </div>
 
     <!-- Content Container -->
@@ -31,7 +16,7 @@
         <!-- Custom Logo or Default Logo -->
         <template v-if="settingsLoaded">
           <div
-            class="mb-4 inline-flex h-16 w-16 items-center justify-center overflow-hidden rounded-2xl shadow-lg shadow-primary-500/30"
+            class="mb-4 inline-flex h-16 w-16 items-center justify-center overflow-hidden rounded-md border-2 border-black bg-[#ffdc58] shadow-[6px_6px_0_#000] dark:border-white dark:shadow-[6px_6px_0_#fff]"
           >
             <img :src="siteLogo || '/logo.svg'" alt="Logo" class="h-full w-full object-contain" />
           </div>
@@ -45,7 +30,7 @@
       </div>
 
       <!-- Card Container -->
-      <div class="card-glass rounded-2xl p-8 shadow-glass">
+      <div class="card-glass rounded-md border-2 border-black p-8 shadow-[8px_8px_0_#000] dark:border-white dark:shadow-[8px_8px_0_#fff]">
         <slot />
       </div>
 
@@ -69,9 +54,9 @@ import { sanitizeUrl } from '@/utils/url'
 
 const appStore = useAppStore()
 
-const siteName = computed(() => appStore.siteName || 'Sub2API')
+const siteName = computed(() => appStore.siteName || '++0 的 API')
 const siteLogo = computed(() => sanitizeUrl(appStore.siteLogo || '', { allowRelative: true, allowDataUrl: true }))
-const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle || 'Subscription to API Conversion Platform')
+const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle || '一个接口，接上主流 AI 模型和上游账号池')
 const settingsLoaded = computed(() => appStore.publicSettingsLoaded)
 
 const currentYear = computed(() => new Date().getFullYear())
@@ -83,6 +68,70 @@ onMounted(() => {
 
 <style scoped>
 .text-gradient {
-  @apply bg-gradient-to-r from-primary-600 to-primary-500 bg-clip-text text-transparent;
+  background: linear-gradient(100deg, #ff5fa2, #ffdc58 52%, #35d9ff);
+  background-clip: text;
+  color: transparent;
+  -webkit-background-clip: text;
+}
+
+.auth-shell {
+  background: #fff3bf;
+}
+
+.auth-grid {
+  background-image:
+    linear-gradient(to right, rgb(0 0 0 / 16%) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(0 0 0 / 16%) 1px, transparent 1px);
+  background-size: 70px 70px;
+}
+
+.auth-sheet {
+  position: absolute;
+  border: 3px solid #000;
+  box-shadow: 12px 12px 0 #000;
+  clip-path: polygon(8% 0, 100% 0, 92% 100%, 0 100%);
+}
+
+.auth-sheet-primary {
+  right: -7rem;
+  top: -10rem;
+  width: 26rem;
+  height: 42rem;
+  background: #ffdc58;
+  transform: rotate(-12deg);
+}
+
+.auth-sheet-cyan {
+  bottom: -14rem;
+  left: -8rem;
+  width: 30rem;
+  height: 36rem;
+  background: #35d9ff;
+  transform: rotate(17deg);
+}
+
+.auth-sheet-pink {
+  left: 50%;
+  top: 45%;
+  width: 22rem;
+  height: 22rem;
+  background: #ff5fa2;
+  opacity: 0.5;
+  transform: translate(-50%, -50%) rotate(28deg);
+}
+
+:global(.dark) .auth-shell {
+  background: #080808;
+}
+
+:global(.dark) .auth-grid {
+  background-image:
+    linear-gradient(to right, rgb(255 255 255 / 14%) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(255 255 255 / 14%) 1px, transparent 1px);
+}
+
+:global(.dark) .auth-sheet {
+  border-color: #fff;
+  box-shadow: 12px 12px 0 #fff;
 }
 </style>
