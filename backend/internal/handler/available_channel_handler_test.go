@@ -49,7 +49,7 @@ func TestToUserSupportedModels_FiltersByAllowedPlatforms(t *testing.T) {
 		{Name: "gpt-4o", Platform: "openai", Pricing: nil},
 	}
 	allowed := map[string]struct{}{"anthropic": {}}
-	out := toUserSupportedModels(src, allowed, nil)
+	out := toUserSupportedModels(src, allowed)
 	require.Len(t, out, 1)
 	require.Equal(t, "claude-sonnet-4-6", out[0].Name)
 }
@@ -60,20 +60,7 @@ func TestToUserSupportedModels_NilAllowedPlatformsKeepsAll(t *testing.T) {
 		{Name: "a", Platform: "anthropic"},
 		{Name: "b", Platform: "openai"},
 	}
-	require.Len(t, toUserSupportedModels(src, nil, nil), 2)
-}
-
-func TestToUserSupportedModels_IncludesVisibleGroupModelRates(t *testing.T) {
-	src := []service.SupportedModel{{Name: "GPT-5.5", Platform: "openai"}}
-	groups := []userAvailableGroup{
-		{ID: 10, ModelRates: map[string]float64{"gpt-5.5": 0.25}},
-		{ID: 11, ModelRates: map[string]float64{"gpt-5.4": 0.5}},
-	}
-
-	out := toUserSupportedModels(src, map[string]struct{}{"openai": {}}, groups)
-
-	require.Len(t, out, 1)
-	require.Equal(t, map[int64]float64{10: 0.25}, out[0].RateMultipliers)
+	require.Len(t, toUserSupportedModels(src, nil), 2)
 }
 
 func TestUserAvailableChannel_FieldWhitelist(t *testing.T) {
@@ -114,13 +101,13 @@ func TestUserAvailableChannel_FieldWhitelist(t *testing.T) {
 		require.Truef(t, exists, "platform section must expose %q", key)
 	}
 
-	// Group DTO 暴露区分专属/公开、订阅类型、默认倍率所需的字段，
+	// Group DTO 暴露区分专属/公开、订阅类型、默认倍率和高峰倍率规则所需的字段，
 	// 前端据此渲染 GroupBadge 并与 API 密钥页保持一致的视觉。
 	rawGroup, err := json.Marshal(row.Platforms[0].Groups[0])
 	require.NoError(t, err)
 	var groupDecoded map[string]any
 	require.NoError(t, json.Unmarshal(rawGroup, &groupDecoded))
-	for _, key := range []string{"id", "name", "platform", "subscription_type", "rate_multiplier", "is_exclusive"} {
+	for _, key := range []string{"id", "name", "platform", "subscription_type", "rate_multiplier", "peak_rate_enabled", "peak_start", "peak_end", "peak_rate_multiplier", "is_exclusive"} {
 		_, exists := groupDecoded[key]
 		require.Truef(t, exists, "group DTO must expose %q", key)
 	}

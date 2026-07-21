@@ -3,9 +3,7 @@
 package service
 
 import (
-	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -27,7 +25,6 @@ import (
 type queuedHTTPUpstream struct {
 	responses []*http.Response
 	requests  []*http.Request
-	bodies    [][]byte
 	tlsFlags  []bool
 }
 
@@ -36,12 +33,6 @@ func (u *queuedHTTPUpstream) Do(_ *http.Request, _ string, _ int64, _ int) (*htt
 }
 
 func (u *queuedHTTPUpstream) DoWithTLS(req *http.Request, _ string, _ int64, _ int, profile *tlsfingerprint.Profile) (*http.Response, error) {
-	if req != nil && req.Body != nil {
-		b, _ := io.ReadAll(req.Body)
-		u.bodies = append(u.bodies, append([]byte(nil), b...))
-		_ = req.Body.Close()
-		req.Body = io.NopCloser(bytes.NewReader(b))
-	}
 	u.requests = append(u.requests, req)
 	u.tlsFlags = append(u.tlsFlags, profile != nil)
 	if len(u.responses) == 0 {
@@ -144,6 +135,92 @@ func TestAccountTestService_OpenAISuccessPersistsSnapshotFromHeaders(t *testing.
 	require.Equal(t, 42.0, repo.updatedExtra["codex_5h_used_percent"])
 	require.Equal(t, 88.0, repo.updatedExtra["codex_7d_used_percent"])
 	require.Contains(t, recorder.Body.String(), "test_complete")
+}
+
+func TestAccountTestService_OpenAIOAuthTestNormalizesGPT56Alias(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := newTestContext()
+
+	resp := newJSONResponse(http.StatusOK, "")
+	resp.Body = io.NopCloser(strings.NewReader(`data: {"type":"response.completed"}
+
+`))
+
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
+	svc := &AccountTestService{httpUpstream: upstream}
+	account := &Account{
+		ID:          90,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{"access_token": "test-token"},
+	}
+
+	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.6", "", "")
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 1)
+
+	body, err := io.ReadAll(upstream.requests[0].Body)
+	require.NoError(t, err)
+	require.Equal(t, "gpt-5.6-sol", gjson.GetBytes(body, "model").String())
+}
+
+func TestAccountTestService_OpenAIShadowUsesParentCredentialsAndShadowModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, recorder := newTestContext()
+
+	resp := newJSONResponse(http.StatusOK, "")
+	resp.Body = io.NopCloser(strings.NewReader(`data: {"type":"response.completed"}
+
+`))
+
+	parentID := int64(100)
+	parent := &Account{
+		ID:       parentID,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Status:   StatusActive,
+		Credentials: map[string]any{
+			"access_token":       "parent-token",
+			"chatgpt_account_id": "org-parent",
+		},
+	}
+	shadow := &Account{
+		ID:              200,
+		Platform:        PlatformOpenAI,
+		Type:            AccountTypeOAuth,
+		Status:          StatusActive,
+		ParentAccountID: &parentID,
+		QuotaDimension:  QuotaDimensionSpark,
+		Concurrency:     2,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"gpt-5.3-codex-spark": "gpt-5.3-codex-spark",
+			},
+		},
+	}
+
+	repo := &openAIAccountTestRepo{
+		mockAccountRepoForGemini: mockAccountRepoForGemini{
+			accountsByID: map[int64]*Account{
+				parentID: parent,
+				200:      shadow,
+			},
+		},
+	}
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
+	svc := &AccountTestService{accountRepo: repo, httpUpstream: upstream}
+
+	err := svc.TestAccountConnection(ctx, shadow.ID, "gpt-5.3-codex-spark", "", "")
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 1)
+	req := upstream.requests[0]
+	require.Equal(t, "Bearer parent-token", req.Header.Get("Authorization"))
+	require.Equal(t, "org-parent", req.Header.Get("chatgpt-account-id"))
+	body, err := io.ReadAll(req.Body)
+	require.NoError(t, err)
+	require.Equal(t, "gpt-5.3-codex-spark", gjson.GetBytes(body, "model").String())
+	require.Contains(t, recorder.Body.String(), `"success":true`)
 }
 
 func TestAccountTestService_OpenAIStreamEOFBeforeCompletedFails(t *testing.T) {
@@ -347,634 +424,6 @@ func TestAccountTestService_OpenAI401SetsPermanentErrorOnly(t *testing.T) {
 	require.Nil(t, account.RateLimitResetAt)
 }
 
-func TestAccountTestService_OpenAIVendorChatCompletionsBypassesResponsesProbe(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	ctx, recorder := newTestContext()
-
-	resp := newJSONResponse(http.StatusOK, "")
-	resp.Header.Set("Content-Type", "text/event-stream")
-	resp.Body = io.NopCloser(strings.NewReader("data: [DONE]\n\n"))
-
-	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
-	svc := &AccountTestService{
-		httpUpstream: upstream,
-		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
-			Enabled: false,
-		}}},
-	}
-	account := &Account{
-		ID:          91,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"api_key":  "test-token",
-			"base_url": "https://proxy.example.com/v1",
-			"vendor":   "gemini",
-		},
-		Extra: map[string]any{
-			openai_compat.ExtraKeyResponsesSupported: true,
-		},
-	}
-
-	err := svc.testOpenAIAccountConnection(ctx, account, "", "", "")
-	require.NoError(t, err)
-	require.Len(t, upstream.requests, 1)
-	require.Equal(t, "https://proxy.example.com/v1/chat/completions", upstream.requests[0].URL.String())
-	require.Contains(t, recorder.Body.String(), `"model":"gemini-2.5-flash"`)
-	require.NotContains(t, upstream.requests[0].URL.String(), "/responses")
-}
-
-func TestAccountTestService_DeepSeekChatCompletionsStripsMappedRateSuffix(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	ctx, _ := newTestContext()
-
-	resp := newJSONResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`)
-	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
-	svc := &AccountTestService{
-		httpUpstream: upstream,
-		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
-			Enabled: false,
-		}}},
-	}
-	account := &Account{
-		ID:          92,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"api_key":  "test-token",
-			"vendor":   "deepseek",
-			"base_url": "https://api.deepseek.com",
-			"model_mapping": map[string]any{
-				"gpt-5.5": "deepseek-v4-pro[1m]",
-			},
-		},
-		Extra: map[string]any{
-			openai_compat.ExtraKeyResponsesSupported: true,
-		},
-	}
-
-	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.5", "", "")
-	require.NoError(t, err)
-	require.Len(t, upstream.requests, 1)
-	require.Equal(t, "https://api.deepseek.com/v1/chat/completions", upstream.requests[0].URL.String())
-	require.Equal(t, "deepseek-v4-pro", gjson.GetBytes(upstream.bodies[0], "model").String())
-}
-
-func TestDefaultOpenAITestModel_Ollama(t *testing.T) {
-	account := &Account{
-		Platform: PlatformOpenAI,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"vendor": "ollama",
-		},
-	}
-
-	require.Equal(t, "llama3.1", defaultOpenAITestModel(account))
-}
-
-func TestDefaultOpenAITestModel_ChatGPTWeb2API(t *testing.T) {
-	for _, account := range []*Account{
-		{
-			Platform: PlatformOpenAI,
-			Type:     AccountTypeAPIKey,
-			Credentials: map[string]any{
-				"vendor": "chatgpt-web2api",
-			},
-		},
-		{
-			Platform: PlatformOpenAI,
-			Type:     AccountTypeAPIKey,
-			Credentials: map[string]any{
-				"base_url": "http://127.0.0.1:8080/v1",
-			},
-		},
-	} {
-		require.Equal(t, "auto", defaultOpenAITestModel(account))
-	}
-}
-
-func TestAccountTestService_ChatGPTWeb2APIProbesHealthThenChatCompletions(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	ctx, recorder := newTestContext()
-
-	healthResp := newJSONResponse(http.StatusOK, `{"status":"ok","cdp_connected":true,"requests_served":3}`)
-	chatResp := newJSONResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`)
-	upstream := &queuedHTTPUpstream{responses: []*http.Response{healthResp, chatResp}}
-	svc := &AccountTestService{
-		httpUpstream: upstream,
-		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
-			Enabled:           false,
-			AllowInsecureHTTP: true,
-		}}},
-	}
-	account := &Account{
-		ID:          93,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"vendor":  "chatgpt-web2api",
-			"api_key": "local-token",
-		},
-	}
-
-	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.5", "hello", "")
-	require.NoError(t, err)
-	require.Len(t, upstream.requests, 2)
-	require.Equal(t, "http://127.0.0.1:8080/health", upstream.requests[0].URL.String())
-	require.Equal(t, "Bearer local-token", upstream.requests[0].Header.Get("Authorization"))
-	require.Equal(t, "http://127.0.0.1:8080/v1/chat/completions", upstream.requests[1].URL.String())
-	require.Len(t, upstream.bodies, 1)
-	require.Equal(t, "gpt-5-5", gjson.GetBytes(upstream.bodies[0], "model").String())
-	require.Contains(t, recorder.Body.String(), "ChatGPT-Web2API 健康检查通过")
-	require.Contains(t, recorder.Body.String(), `"text":"ok"`)
-	require.Contains(t, recorder.Body.String(), `"success":true`)
-}
-
-func TestAccountTestService_ChatGPTWeb2APIWaitingHealthStopsBeforeChat(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	ctx, recorder := newTestContext()
-
-	healthResp := newJSONResponse(http.StatusOK, `{"status":"waiting","cdp_connected":false,"requests_served":0}`)
-	upstream := &queuedHTTPUpstream{responses: []*http.Response{healthResp}}
-	svc := &AccountTestService{
-		httpUpstream: upstream,
-		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
-			Enabled:           false,
-			AllowInsecureHTTP: true,
-		}}},
-	}
-	account := &Account{
-		ID:          94,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"vendor": "chatgpt-web2api",
-		},
-	}
-
-	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.5", "", "")
-	require.Error(t, err)
-	require.Len(t, upstream.requests, 1)
-	require.Equal(t, "http://127.0.0.1:8080/health", upstream.requests[0].URL.String())
-	require.Contains(t, recorder.Body.String(), "Chrome CDP")
-	require.NotContains(t, recorder.Body.String(), "/v1/chat/completions")
-}
-
-func TestDefaultOpenAITestModel_OpenRouter(t *testing.T) {
-	for _, account := range []*Account{
-		{
-			Platform: PlatformOpenAI,
-			Type:     AccountTypeAPIKey,
-			Credentials: map[string]any{
-				"vendor": "openrouter",
-			},
-		},
-		{
-			Platform: PlatformOpenAI,
-			Type:     AccountTypeAPIKey,
-			Credentials: map[string]any{
-				"base_url": "https://openrouter.ai/api/v1",
-			},
-		},
-	} {
-		require.Equal(t, "~openai/gpt-latest", defaultOpenAITestModel(account))
-	}
-}
-
-func TestDefaultOpenAITestModel_DoubaoWeb(t *testing.T) {
-	account := &Account{
-		Platform: PlatformOpenAI,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"vendor": "doubao-web",
-		},
-	}
-
-	require.Equal(t, "doubao", defaultOpenAITestModel(account))
-}
-
-func TestDefaultOpenAITestModel_CompatibleBaseURL(t *testing.T) {
-	tests := []struct {
-		name      string
-		baseURL   string
-		wantModel string
-	}{
-		{
-			name:      "gemini openai compatibility",
-			baseURL:   "https://generativelanguage.googleapis.com/v1beta/openai",
-			wantModel: "gemini-2.5-flash",
-		},
-		{
-			name:      "mimo",
-			baseURL:   "https://api.xiaomimimo.com/v1",
-			wantModel: "mimo-v2.5",
-		},
-		{
-			name:      "chatgpt web2api",
-			baseURL:   "http://localhost:8080/v1",
-			wantModel: "auto",
-		},
-		{
-			name:      "openrouter",
-			baseURL:   "https://openrouter.ai/api/v1",
-			wantModel: "~openai/gpt-latest",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			account := &Account{
-				Platform: PlatformOpenAI,
-				Type:     AccountTypeAPIKey,
-				Credentials: map[string]any{
-					"base_url": tt.baseURL,
-				},
-			}
-
-			require.Equal(t, tt.wantModel, defaultOpenAITestModel(account))
-		})
-	}
-}
-
-func TestAccountTestService_DoubaoWebUsesReverseAdapterForAccountTest(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	ctx, recorder := newTestContext()
-
-	fake := &fakeDoubaoWebExecutor{result: &doubaoWebResult{
-		ID:            "chatcmpl_doubao_test",
-		SessionID:     "resp_doubao_test",
-		Content:       "OK",
-		FinishReason:  "stop",
-		InputTokens:   2,
-		OutputTokens:  1,
-		Created:       1781610521,
-		UpstreamModel: "doubao",
-	}}
-	restore := swapDoubaoWebExecutor(fake)
-	defer restore()
-
-	upstream := &queuedHTTPUpstream{}
-	svc := &AccountTestService{
-		httpUpstream: upstream,
-		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
-			Enabled: false,
-		}}},
-	}
-	account := &Account{
-		ID:          99,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"vendor":  "doubao-web",
-			"api_key": "sid-api-key",
-		},
-	}
-
-	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.5", "", "")
-	require.NoError(t, err)
-	require.Empty(t, upstream.requests)
-	require.Len(t, fake.requests, 1)
-	require.Equal(t, doubaoWebDefaultBaseURL, fake.requests[0].BaseURL)
-	require.Equal(t, "sid-api-key", fake.requests[0].SessionID)
-	require.Equal(t, "doubao", fake.requests[0].Model)
-	require.Equal(t, "hi", fake.requests[0].Prompt)
-	require.Contains(t, recorder.Body.String(), `"model":"doubao"`)
-	require.Contains(t, recorder.Body.String(), `"text":"OK"`)
-	require.Contains(t, recorder.Body.String(), `"success":true`)
-	require.NotContains(t, recorder.Body.String(), "/v1/chat/completions")
-}
-
-func TestAccountTestService_DoubaoWebAccountTestKeepsExplicitModelMapping(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	ctx, _ := newTestContext()
-
-	fake := &fakeDoubaoWebExecutor{result: &doubaoWebResult{
-		ID:            "chatcmpl_doubao_test",
-		SessionID:     "resp_doubao_test",
-		Content:       "OK",
-		FinishReason:  "stop",
-		UpstreamModel: "1234567890",
-	}}
-	restore := swapDoubaoWebExecutor(fake)
-	defer restore()
-
-	svc := &AccountTestService{
-		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
-			Enabled: false,
-		}}},
-	}
-	account := &Account{
-		ID:          100,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"vendor":  "doubao-web",
-			"api_key": "sid-api-key",
-			"model_mapping": map[string]any{
-				"gpt-5.5": "1234567890",
-			},
-		},
-	}
-
-	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.5", "hello", "")
-	require.NoError(t, err)
-	require.Len(t, fake.requests, 1)
-	require.Equal(t, "1234567890", fake.requests[0].Model)
-	require.Equal(t, "hello", fake.requests[0].Prompt)
-}
-
-func TestAccountTestService_DoubaoWebAccountTestIgnoresCanceledClientContext(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	c, _ := newTestContext()
-	requestCtx, cancel := context.WithCancel(c.Request.Context())
-	cancel()
-	c.Request = c.Request.WithContext(requestCtx)
-
-	fake := &fakeDoubaoWebExecutor{result: &doubaoWebResult{
-		ID:            "chatcmpl_doubao_test",
-		SessionID:     "resp_doubao_test",
-		Content:       "OK",
-		FinishReason:  "stop",
-		UpstreamModel: "doubao",
-	}}
-	restore := swapDoubaoWebExecutor(fake)
-	defer restore()
-
-	svc := &AccountTestService{
-		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
-			Enabled: false,
-		}}},
-	}
-	account := &Account{
-		ID:          101,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"vendor":  "doubao-web",
-			"api_key": "sid-api-key",
-		},
-	}
-
-	err := svc.testOpenAIAccountConnection(c, account, "gpt-5.5", "", "")
-	require.NoError(t, err)
-	require.Len(t, fake.requests, 1)
-}
-
-type contextProbeDoubaoWebExecutor struct {
-	err error
-}
-
-func (f *contextProbeDoubaoWebExecutor) Complete(ctx context.Context, req doubaoWebRequest) (*doubaoWebResult, error) {
-	if ctx.Err() != nil {
-		f.err = ctx.Err()
-		return nil, ctx.Err()
-	}
-	return &doubaoWebResult{
-		ID:            "chatcmpl_doubao_test",
-		SessionID:     "resp_doubao_test",
-		Content:       "OK",
-		FinishReason:  "stop",
-		UpstreamModel: req.Model,
-	}, nil
-}
-
-func TestAccountTestService_DoubaoWebExecutorReceivesLiveContext(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	c, _ := newTestContext()
-	requestCtx, cancel := context.WithCancel(c.Request.Context())
-	cancel()
-	c.Request = c.Request.WithContext(requestCtx)
-
-	fake := &contextProbeDoubaoWebExecutor{}
-	restore := swapDoubaoWebExecutor(fake)
-	defer restore()
-
-	svc := &AccountTestService{
-		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
-			Enabled: false,
-		}}},
-	}
-	account := &Account{
-		ID:          102,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"vendor":  "doubao-web",
-			"api_key": "sid-api-key",
-		},
-	}
-
-	err := svc.testOpenAIAccountConnection(c, account, "gpt-5.5", "", "")
-	require.NoError(t, err)
-	require.False(t, errors.Is(fake.err, context.Canceled))
-}
-
-func TestAccountTestService_OllamaUsesChatCompletionsPath(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	ctx, recorder := newTestContext()
-
-	resp := newJSONResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`)
-	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
-	svc := &AccountTestService{
-		httpUpstream: upstream,
-		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
-			Enabled:           false,
-			AllowInsecureHTTP: true,
-		}}},
-	}
-	account := &Account{
-		ID:          92,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"vendor": "ollama",
-		},
-	}
-
-	err := svc.testOpenAIAccountConnection(ctx, account, "", "", "")
-	require.NoError(t, err)
-	require.Len(t, upstream.requests, 1)
-	require.Contains(t, upstream.requests[0].URL.String(), "/v1/chat/completions")
-	require.NotContains(t, upstream.requests[0].URL.String(), "/v1/responses")
-	require.Contains(t, recorder.Body.String(), "test_complete")
-}
-
-func TestAccountTestService_OpenCodeGoLocalUsesSessionAPI(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	ctx, recorder := newTestContext()
-
-	upstream := &httpUpstreamRecorder{responses: []*http.Response{
-		newJSONResponse(http.StatusOK, `{"id":"ses_test","model":{"id":"minimax-m3","providerID":"opencode-go"}}`),
-		newJSONResponse(http.StatusOK, `{"info":{"id":"msg_test","modelID":"minimax-m3","providerID":"opencode-go","finish":"stop","tokens":{"input":5,"output":1,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1781610521583,"completed":1781610526394},"error":null},"parts":[{"type":"text","text":"pong"}]}`),
-	}}
-	svc := &AccountTestService{
-		httpUpstream: upstream,
-		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
-			Enabled:           false,
-			AllowInsecureHTTP: true,
-		}}},
-	}
-	account := &Account{
-		ID:          99,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"api_key":  "local-opencode",
-			"vendor":   "opencode-go",
-			"base_url": "http://host.docker.internal:4096",
-			"model_mapping": map[string]any{
-				"opencode-go/minimax-m3": "minimax-m3",
-				"minimax-m3":             "minimax-m3",
-			},
-		},
-	}
-
-	err := svc.testOpenAIAccountConnection(ctx, account, "opencode-go/minimax-m3", "只回复 pong", "")
-	require.NoError(t, err)
-	require.Len(t, upstream.requests, 2)
-	require.Equal(t, "http://host.docker.internal:4096/session", upstream.requests[0].URL.String())
-	require.Equal(t, "http://host.docker.internal:4096/session/ses_test/message", upstream.requests[1].URL.String())
-	require.Equal(t, "opencode-go", gjson.GetBytes(upstream.bodies[0], "model.providerID").String())
-	require.Equal(t, "minimax-m3", gjson.GetBytes(upstream.bodies[0], "model.id").String())
-	require.Equal(t, "opencode-go", gjson.GetBytes(upstream.bodies[1], "model.providerID").String())
-	require.Equal(t, "minimax-m3", gjson.GetBytes(upstream.bodies[1], "model.modelID").String())
-	require.NotContains(t, string(upstream.bodies[1]), "opencode-go/minimax-m3")
-	require.True(t, gjson.GetBytes(upstream.bodies[1], "tools.read").Bool())
-	require.True(t, gjson.GetBytes(upstream.bodies[1], "tools.glob").Bool())
-	require.True(t, gjson.GetBytes(upstream.bodies[1], "tools.grep").Bool())
-	require.False(t, gjson.GetBytes(upstream.bodies[1], "tools.bash").Bool())
-	require.False(t, gjson.GetBytes(upstream.bodies[1], "tools.write").Bool())
-	require.Equal(t, "只回复 pong", gjson.GetBytes(upstream.bodies[1], "parts.0.text").String())
-	body := recorder.Body.String()
-	require.Contains(t, body, "pong")
-	require.Contains(t, body, "已通过 OpenCode 本地 session API 验证")
-	require.Contains(t, body, `"success":true`)
-}
-
-func TestAccountTestService_OpenCodeGoLocalNormalizesPrefixedModelWithoutExplicitMapping(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	ctx, recorder := newTestContext()
-
-	upstream := &httpUpstreamRecorder{responses: []*http.Response{
-		newJSONResponse(http.StatusOK, `{"id":"ses_test","model":{"id":"minimax-m3","providerID":"opencode-go"}}`),
-		newJSONResponse(http.StatusOK, `{"info":{"id":"msg_test","modelID":"minimax-m3","providerID":"opencode-go","finish":"stop","tokens":{"input":5,"output":1,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1781610521583,"completed":1781610526394},"error":null},"parts":[{"type":"text","text":"pong"}]}`),
-	}}
-	svc := &AccountTestService{
-		httpUpstream: upstream,
-		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
-			Enabled:           false,
-			AllowInsecureHTTP: true,
-		}}},
-	}
-	account := &Account{
-		ID:          99,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"api_key":  "local-opencode",
-			"vendor":   "opencode-go",
-			"base_url": "http://host.docker.internal:4096",
-		},
-	}
-
-	err := svc.testOpenAIAccountConnection(ctx, account, "opencode-go/minimax-m3", "只回复 pong", "")
-	require.NoError(t, err)
-	require.Len(t, upstream.requests, 2)
-	require.Equal(t, "minimax-m3", gjson.GetBytes(upstream.bodies[0], "model.id").String())
-	require.Equal(t, "minimax-m3", gjson.GetBytes(upstream.bodies[1], "model.modelID").String())
-	require.NotContains(t, string(upstream.bodies[1]), "opencode-go/minimax-m3")
-	require.Contains(t, recorder.Body.String(), `"success":true`)
-}
-
-func TestAccountTestService_OpenRouterUsesChatCompletionsPath(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	ctx, recorder := newTestContext()
-
-	resp := newJSONResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`)
-	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
-	svc := &AccountTestService{
-		httpUpstream: upstream,
-		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
-			Enabled: false,
-		}}},
-	}
-	account := &Account{
-		ID:          93,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"api_key": "test-token",
-			"vendor":  "openrouter",
-		},
-		Extra: map[string]any{
-			openai_compat.ExtraKeyResponsesSupported: true,
-		},
-	}
-
-	err := svc.testOpenAIAccountConnection(ctx, account, "", "", "")
-	require.NoError(t, err)
-	require.Len(t, upstream.requests, 1)
-	require.Equal(t, "https://openrouter.ai/api/v1/chat/completions", upstream.requests[0].URL.String())
-	require.Contains(t, recorder.Body.String(), `"model":"~openai/gpt-latest"`)
-	require.NotContains(t, upstream.requests[0].URL.String(), "/responses")
-
-	body, err := io.ReadAll(upstream.requests[0].Body)
-	require.NoError(t, err)
-	require.Contains(t, string(body), `"messages"`)
-	require.Contains(t, string(body), `"role":"user"`)
-	require.NotContains(t, string(body), `"role":"developer"`)
-	require.NotContains(t, string(body), `"input"`)
-}
-
-func TestAccountTestService_OpenRouterBaseURLUsesChatCompletionsWithoutVendor(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	ctx, _ := newTestContext()
-
-	resp := newJSONResponse(http.StatusOK, `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`)
-	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
-	svc := &AccountTestService{
-		httpUpstream: upstream,
-		cfg: &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{
-			Enabled: false,
-		}}},
-	}
-	account := &Account{
-		ID:          94,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"api_key":  "test-token",
-			"base_url": "https://openrouter.ai/api/v1",
-		},
-		Extra: map[string]any{
-			openai_compat.ExtraKeyResponsesSupported: true,
-		},
-	}
-
-	err := svc.testOpenAIAccountConnection(ctx, account, "openai/gpt-oss-120b:free", "", "")
-	require.NoError(t, err)
-	require.Len(t, upstream.requests, 1)
-	require.Equal(t, "https://openrouter.ai/api/v1/chat/completions", upstream.requests[0].URL.String())
-
-	body, err := io.ReadAll(upstream.requests[0].Body)
-	require.NoError(t, err)
-	require.Contains(t, string(body), `"model":"openai/gpt-oss-120b:free"`)
-	require.Contains(t, string(body), `"role":"user"`)
-	require.NotContains(t, string(body), `"role":"developer"`)
-}
-
 func TestAccountTestService_OpenAIAPIKeyResponsesUnsupportedUsesChatCompletionsPath(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, recorder := newTestContext()
@@ -997,7 +446,7 @@ func TestAccountTestService_OpenAIAPIKeyResponsesUnsupportedUsesChatCompletionsP
 		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
 	}
 	account := &Account{
-		ID:          95,
+		ID:          91,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
 		Concurrency: 1,
@@ -1036,7 +485,7 @@ func TestAccountTestService_OpenAIChatCompletionsPathReturns4xx(t *testing.T) {
 		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
 	}
 	account := &Account{
-		ID:          96,
+		ID:          92,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
 		Concurrency: 1,
@@ -1065,7 +514,7 @@ func TestAccountTestService_OpenAIChatCompletionsPathTimeout(t *testing.T) {
 		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
 	}
 	account := &Account{
-		ID:          97,
+		ID:          93,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
 		Concurrency: 1,
@@ -1099,7 +548,7 @@ func TestAccountTestService_OpenAIChatCompletionsPathRejectsNonJSONStream(t *tes
 		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
 	}
 	account := &Account{
-		ID:          98,
+		ID:          94,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
 		Concurrency: 1,

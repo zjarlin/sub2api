@@ -22,9 +22,9 @@ func optionalNonEqualStringPtr(value, compare string) *string {
 
 func forwardResultBillingModel(requestedModel, upstreamModel string) string {
 	if trimmed := strings.TrimSpace(requestedModel); trimmed != "" {
-		return normalizeModelNameForPricing(trimmed)
+		return trimmed
 	}
-	return normalizeModelNameForPricing(upstreamModel)
+	return strings.TrimSpace(upstreamModel)
 }
 
 func optionalInt64Ptr(v int64) *int64 {

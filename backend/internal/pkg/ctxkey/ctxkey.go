@@ -23,9 +23,6 @@ const (
 	// AccountID 当前请求最终命中的账号 ID（用于统一请求链路日志字段）。
 	AccountID Key = "ctx_account_id"
 
-	// AccountOwnerUserID 当前 API Key 所属用户，用于调度时同时允许全局账号和该用户私有账号。
-	AccountOwnerUserID Key = "ctx_account_owner_user_id"
-
 	// RetryCount 表示当前请求在网关层的重试次数（用于 Ops 记录与排障）。
 	RetryCount Key = "ctx_retry_count"
 
@@ -43,6 +40,10 @@ const (
 
 	// Group 认证后的分组信息，由 API Key 认证中间件设置
 	Group Key = "ctx_group"
+
+	// UserID 认证后的 Sub2API 用户 ID，由 API Key 认证中间件设置。
+	// 供 service 层执行用户级策略，不能使用客户端请求体中的 user 标识替代。
+	UserID Key = "ctx_user_id"
 
 	// IsMaxTokensOneHaikuRequest 标识当前请求是否为 max_tokens=1 + haiku 模型的探测请求
 	// 用于 ClaudeCodeOnly 验证绕过（绕过 system prompt 检查，但仍需验证 User-Agent）

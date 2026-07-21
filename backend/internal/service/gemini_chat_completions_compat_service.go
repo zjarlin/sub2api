@@ -83,12 +83,10 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 	}
 
-	requestedModelForOps := strings.TrimSpace(originalModel)
-	if requestedModelForOps == "" {
-		requestedModelForOps = req.Model
+	mappedModel := req.Model
+	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
+		mappedModel = account.GetMappedModel(req.Model)
 	}
-	mappedModel := resolveGeminiForwardModel(account, requestedModelForOps)
-	SetOpsModelDiagnostics(c, requestedModelForOps, mappedModel)
 
 	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(claudeBody)
 	if err != nil {
@@ -145,7 +143,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 			return nil, s.writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed after retries: "+safeErr)
 		}
 
-		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp); matched {
+		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, mappedModel); matched {
 			resp = rebuilt
 			break
 		} else {
@@ -165,12 +163,6 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 			}
 			if resp.StatusCode == http.StatusTooManyRequests {
 				s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
-				resp = &http.Response{
-					StatusCode: resp.StatusCode,
-					Header:     resp.Header.Clone(),
-					Body:       io.NopCloser(bytes.NewReader(respBody)),
-				}
-				break
 			}
 			if attempt < geminiMaxRetries {
 				upstreamReqID := resp.Header.Get(requestIDHeader)
@@ -213,10 +205,19 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	}
 
 	reasoningEffort := extractCCReasoningEffortFromBody(originalChatBody)
+	// 国产模型默认 effort 补充（本路径上游是 Gemini，不会命中 passback-required）。
+	// 保持与 OpenAI 网关路径调用模式一致，便于未来上游变异时语义一致。
+	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, originalChatBody, mappedModel)
 
 	if resp.StatusCode >= 400 {
 		respBody := s.readUpstreamErrorBody(resp)
-		s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		policy := ErrorPolicyNone
+		if s.rateLimitService != nil {
+			policy = s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody, mappedModel)
+		}
+		if policy != ErrorPolicyTempUnscheduled {
+			s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+		}
 		evBody := unwrapIfNeeded(account.Type == AccountTypeOAuth, respBody)
 
 		if s.shouldFailoverGeminiUpstreamError(resp.StatusCode) {
@@ -555,12 +556,13 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	if emitAnthropicEvent(&apicompat.AnthropicStreamEvent{
 		Type: "message_start",
 		Message: &apicompat.AnthropicResponse{
-			ID:      messageID,
-			Type:    "message",
-			Role:    "assistant",
-			Model:   originalModel,
-			Content: []apicompat.AnthropicContentBlock{},
-			Usage:   apicompat.AnthropicUsage{},
+			ID:         messageID,
+			Type:       "message",
+			Role:       "assistant",
+			Model:      originalModel,
+			Content:    []apicompat.AnthropicContentBlock{},
+			StopReason: nil, // JSON null
+			Usage:      apicompat.AnthropicUsage{},
 		},
 	}) {
 		return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil

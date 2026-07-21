@@ -122,7 +122,7 @@ Compatible with any payment service that implements the EasyPay protocol.
 
 ### Alipay (Direct)
 
-Direct integration with Alipay Open Platform. Mobile flows return an Alipay WAP/app redirect URL. Desktop flows prefer Face-to-Face Precreate QR payloads; if the merchant has not enabled that product, the provider falls back to Computer Website Pay and also returns the cashier URL so the frontend can render a QR code or open the hosted checkout page directly. In web QR flows, the frontend does not rely on Alipay browser redirects; it polls the backend order status every 1-2 seconds and navigates to the result page after payment is confirmed.
+Direct integration with Alipay Open Platform. Mobile flows return an Alipay WAP/app redirect URL. Desktop flows prefer Face-to-Face Precreate QR payloads; if the merchant has not enabled that product, the provider falls back to Computer Website Pay and also returns the cashier URL so the frontend can render a QR code or open the hosted checkout page directly.
 
 | Parameter | Description | Required |
 |-----------|-------------|----------|

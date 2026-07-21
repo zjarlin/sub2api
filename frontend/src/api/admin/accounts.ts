@@ -18,8 +18,11 @@ import type {
   AdminDataImportResult,
   CodexSessionImportRequest,
   CodexSessionImportResult,
+  OpenAICodexPATCreateRequest,
   CheckMixedChannelRequest,
-  CheckMixedChannelResponse
+  CheckMixedChannelResponse,
+  UpstreamBillingProbeResult,
+  UpstreamBillingProbeSettings
 } from '@/types'
 
 /**
@@ -36,14 +39,11 @@ export async function list(
     platform?: string
     type?: string
     status?: string
-    schedulable?: string
     group?: string
-    display_group?: string
     search?: string
-    name_prefix?: string
-    search_regex?: string
     privacy_mode?: string
     lite?: string
+    include_scheduler_score?: string
     sort_by?: string
     sort_order?: 'asc' | 'desc'
   },
@@ -75,14 +75,11 @@ export async function listWithEtag(
     platform?: string
     type?: string
     status?: string
-    schedulable?: string
     group?: string
-    display_group?: string
     search?: string
-    name_prefix?: string
-    search_regex?: string
     privacy_mode?: string
     lite?: string
+    include_scheduler_score?: string
     sort_by?: string
     sort_order?: 'asc' | 'desc'
   },
@@ -144,12 +141,46 @@ export async function create(accountData: CreateAccountRequest): Promise<Account
 }
 
 /**
- * Duplicate an existing account.
+ * Duplicate an account while keeping credentials on the server.
  * @param id - Source account ID
- * @returns Created account copy
+ * @returns Newly created account
  */
-export async function copyAccount(id: number): Promise<Account> {
-  const { data } = await apiClient.post<Account>(`/admin/accounts/${id}/copy`)
+const duplicateOperationKeys = new Map<number, string>()
+
+function duplicateOperationStorageKey(id: number): string {
+  return `sub2api:admin:account-duplicate:${id}`
+}
+
+function getStoredDuplicateOperationKey(id: number): string | null {
+  try {
+    return globalThis.sessionStorage?.getItem(duplicateOperationStorageKey(id)) ?? null
+  } catch {
+    return null
+  }
+}
+
+function storeDuplicateOperationKey(id: number, key: string | null): void {
+  try {
+    if (key) globalThis.sessionStorage?.setItem(duplicateOperationStorageKey(id), key)
+    else globalThis.sessionStorage?.removeItem(duplicateOperationStorageKey(id))
+  } catch {
+    // In-memory retry protection still works when browser storage is unavailable.
+  }
+}
+
+export async function duplicate(id: number): Promise<Account> {
+  let idempotencyKey = duplicateOperationKeys.get(id) ?? getStoredDuplicateOperationKey(id)
+  if (!idempotencyKey) {
+    const requestID = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    idempotencyKey = `account-duplicate-${id}-${requestID}`
+  }
+  duplicateOperationKeys.set(id, idempotencyKey)
+  storeDuplicateOperationKey(id, idempotencyKey)
+  const { data } = await apiClient.post<Account>(`/admin/accounts/${id}/duplicate`, undefined, {
+    headers: { 'Idempotency-Key': idempotencyKey }
+  })
+  duplicateOperationKeys.delete(id)
+  storeDuplicateOperationKey(id, null)
   return data
 }
 
@@ -171,95 +202,6 @@ export async function checkMixedChannelRisk(
   payload: CheckMixedChannelRequest
 ): Promise<CheckMixedChannelResponse> {
   const { data } = await apiClient.post<CheckMixedChannelResponse>('/admin/accounts/check-mixed-channel', payload)
-  return data
-}
-
-export interface ResolveUpstreamKeyRateRequest {
-  base_url: string
-  login_path?: string
-  keys_path?: string
-  site_type?: string
-  username?: string
-  email: string
-  password: string
-  api_key: string
-  page_size?: number
-  max_pages?: number
-}
-
-export interface ResolveUpstreamKeyRateResponse {
-  rate_multiplier: number
-  site_type?: string
-  account_balance?: number
-  group_id?: number
-  group_name?: string
-  key_id?: number
-  key_name?: string
-  matched_field?: string
-}
-
-export async function resolveUpstreamKeyRate(
-  payload: ResolveUpstreamKeyRateRequest
-): Promise<ResolveUpstreamKeyRateResponse> {
-  const { data } = await apiClient.post<ResolveUpstreamKeyRateResponse>(
-    '/admin/accounts/resolve-upstream-key-rate',
-    payload
-  )
-  return data
-}
-
-export interface TestUpstreamConsoleLoginRequest {
-  base_url: string
-  login_path?: string
-  site_type?: string
-  username?: string
-  email: string
-  password: string
-}
-
-export interface TestUpstreamConsoleLoginResponse {
-  site_type: string
-  user_id?: string
-  has_access_token: boolean
-  has_session_cookie: boolean
-  account_balance?: number
-}
-
-export async function testUpstreamConsoleLogin(
-  payload: TestUpstreamConsoleLoginRequest
-): Promise<TestUpstreamConsoleLoginResponse> {
-  const { data } = await apiClient.post<TestUpstreamConsoleLoginResponse>(
-    '/admin/accounts/test-upstream-console-login',
-    payload
-  )
-  return data
-}
-
-export interface SwitchUpstreamKeyGroupRequest {
-  group_name: string
-}
-
-export interface UpstreamKeyGroupOption {
-  name: string
-  rate_multiplier: number
-  description?: string
-}
-
-export async function listUpstreamKeyGroups(id: number): Promise<UpstreamKeyGroupOption[]> {
-  const { data } = await apiClient.get<UpstreamKeyGroupOption[]>(
-    `/admin/accounts/${id}/upstream-key-groups`
-  )
-  return data
-}
-
-export async function switchUpstreamKeyGroup(
-  id: number,
-  payload: SwitchUpstreamKeyGroupRequest
-): Promise<Account> {
-  const { data } = await apiClient.post<Account>(
-    `/admin/accounts/${id}/switch-upstream-key-group`,
-    payload
-  )
   return data
 }
 
@@ -419,29 +361,6 @@ export async function getTempUnschedulableStatus(id: number): Promise<TempUnsche
   return data
 }
 
-export interface SetTempUnschedulableRequest {
-  duration_minutes?: number
-  reason?: string
-  status_code?: number
-}
-
-/**
- * Set temporary unschedulable status
- * @param id - Account ID
- * @param payload - Temporary disable options
- * @returns Status with detail state if active
- */
-export async function setTempUnschedulable(
-  id: number,
-  payload?: SetTempUnschedulableRequest
-): Promise<TempUnschedulableStatus> {
-  const { data } = await apiClient.post<TempUnschedulableStatus>(
-    `/admin/accounts/${id}/temp-unschedulable`,
-    payload || {}
-  )
-  return data
-}
-
 /**
  * Reset temporary unschedulable status
  * @param id - Account ID
@@ -490,12 +409,12 @@ export async function exchangeCode(
 export async function batchCreate(accounts: CreateAccountRequest[]): Promise<{
   success: number
   failed: number
-  results: Array<{ success: boolean; id?: number; name?: string; account?: Account; error?: string }>
+  results: Array<{ success: boolean; account?: Account; error?: string }>
 }> {
   const { data } = await apiClient.post<{
     success: number
     failed: number
-    results: Array<{ success: boolean; id?: number; name?: string; account?: Account; error?: string }>
+    results: Array<{ success: boolean; account?: Account; error?: string }>
   }>('/admin/accounts/batch', { accounts })
   return data
 }
@@ -687,7 +606,9 @@ export async function syncFromCrs(params: {
       action: string
       error?: string
     }>
-  }>('/admin/accounts/sync/crs', params)
+  }>('/admin/accounts/sync/crs', params, {
+    timeout: 180000 // 180s timeout: sync refreshes each existing account's OAuth token serially
+  })
   return data
 }
 
@@ -697,13 +618,9 @@ export async function exportData(options?: {
     platform?: string
     type?: string
     status?: string
-    schedulable?: string
     group?: string
-    display_group?: string
     privacy_mode?: string
     search?: string
-    name_prefix?: string
-    search_regex?: string
     sort_by?: string
     sort_order?: 'asc' | 'desc'
   }
@@ -713,17 +630,13 @@ export async function exportData(options?: {
   if (options?.ids && options.ids.length > 0) {
     params.ids = options.ids.join(',')
   } else if (options?.filters) {
-    const { platform, type, status, schedulable, group, display_group, privacy_mode, search, name_prefix, search_regex, sort_by, sort_order } = options.filters
+    const { platform, type, status, group, privacy_mode, search, sort_by, sort_order } = options.filters
     if (platform) params.platform = platform
     if (type) params.type = type
     if (status) params.status = status
-    if (schedulable) params.schedulable = schedulable
     if (group) params.group = group
-    if (display_group) params.display_group = display_group
     if (privacy_mode) params.privacy_mode = privacy_mode
     if (search) params.search = search
-    if (name_prefix) params.name_prefix = name_prefix
-    if (search_regex) params.search_regex = search_regex
     if (sort_by) params.sort_by = sort_by
     if (sort_order) params.sort_order = sort_order
   }
@@ -746,7 +659,14 @@ export async function importData(payload: {
 }
 
 export async function importCodexSession(payload: CodexSessionImportRequest): Promise<CodexSessionImportResult> {
-  const { data } = await apiClient.post<CodexSessionImportResult>('/admin/accounts/import/codex-session', payload)
+  const { data } = await apiClient.post<CodexSessionImportResult>('/admin/accounts/import/codex-session', payload, {
+    timeout: 120000 // 120s timeout for large session imports
+  })
+  return data
+}
+
+export async function createOpenAICodexPAT(payload: OpenAICodexPATCreateRequest): Promise<Account> {
+  const { data } = await apiClient.post<Account>('/admin/openai/create-from-codex-pat', payload)
   return data
 }
 
@@ -757,13 +677,6 @@ export async function importCodexSession(payload: CodexSessionImportRequest): Pr
 export async function getAntigravityDefaultModelMapping(): Promise<Record<string, string>> {
   const { data } = await apiClient.get<Record<string, string>>(
     '/admin/accounts/antigravity/default-model-mapping'
-  )
-  return data
-}
-
-export async function getKiroDefaultModelMapping(): Promise<Record<string, string>> {
-  const { data } = await apiClient.get<Record<string, string>>(
-    '/admin/accounts/kiro/default-model-mapping'
   )
   return data
 }
@@ -850,18 +763,133 @@ export async function setPrivacy(id: number): Promise<Account> {
   return data
 }
 
+/**
+ * OpenAI / Codex rate-limit reset feature: query and reset upstream usage.
+ */
+export interface OpenAIRateLimitWindow {
+  used_percent: number
+  limit_window_seconds: number
+  reset_after_seconds: number
+  reset_at: number
+}
+
+export interface OpenAIRateLimit {
+  allowed: boolean
+  limit_reached: boolean
+  primary_window?: OpenAIRateLimitWindow | null
+  secondary_window?: OpenAIRateLimitWindow | null
+}
+
+export interface OpenAIAdditionalRateLimit {
+  limit_name: string
+  metered_feature: string
+  rate_limit?: OpenAIRateLimit | null
+}
+
+export interface OpenAIRateLimitResetCreditDetail {
+  expires_at?: string
+}
+
+export interface OpenAIRateLimitResetCredits {
+  available_count: number
+  credits?: OpenAIRateLimitResetCreditDetail[]
+}
+
+export interface OpenAIQuotaUsage {
+  user_id?: string
+  account_id?: string
+  email?: string
+  plan_type?: string
+  rate_limit?: OpenAIRateLimit | null
+  additional_rate_limits?: OpenAIAdditionalRateLimit[]
+  rate_limit_reset_credits?: OpenAIRateLimitResetCredits | null
+  fetched_at: number
+}
+
+export interface OpenAIQuotaResetCredit {
+  id?: string
+  reset_type?: string
+  status?: string
+  granted_at?: string
+  expires_at?: string
+  redeem_started_at?: string
+  redeemed_at?: string
+}
+
+export interface OpenAIQuotaResetResult {
+  code: string
+  credit?: OpenAIQuotaResetCredit | null
+  windows_reset: number
+}
+
+/**
+ * Query OpenAI/Codex rate-limit usage for an OAuth account.
+ */
+export async function queryOpenAIQuota(id: number): Promise<OpenAIQuotaUsage> {
+  const { data } = await apiClient.get<OpenAIQuotaUsage>(`/admin/openai/accounts/${id}/quota`)
+  return data
+}
+
+/**
+ * Consume one rate-limit-reset credit for an OpenAI/Codex OAuth account.
+ */
+export async function resetOpenAIQuota(id: number): Promise<OpenAIQuotaResetResult> {
+  const { data } = await apiClient.post<OpenAIQuotaResetResult>(`/admin/openai/accounts/${id}/reset-quota`)
+  return data
+}
+
+export interface SparkShadowCreatePayload {
+  name?: string
+  priority?: number
+  concurrency?: number
+  group_ids?: number[]
+}
+
+export async function createSparkShadow(parentId: number, payload: SparkShadowCreatePayload): Promise<Account> {
+  const { data } = await apiClient.post<Account>(`/admin/accounts/${parentId}/shadow`, payload)
+  return data
+}
+
+export async function getUpstreamBillingProbeSettings(): Promise<UpstreamBillingProbeSettings> {
+  const { data } = await apiClient.get<UpstreamBillingProbeSettings>('/admin/accounts/upstream-billing-probe/settings')
+  return data
+}
+
+export async function updateUpstreamBillingProbeSettings(
+  settings: UpstreamBillingProbeSettings
+): Promise<UpstreamBillingProbeSettings> {
+  const { data } = await apiClient.put<UpstreamBillingProbeSettings>(
+    '/admin/accounts/upstream-billing-probe/settings',
+    settings
+  )
+  return data
+}
+
+export async function setUpstreamBillingProbeEnabled(id: number, enabled: boolean): Promise<void> {
+  await apiClient.put(`/admin/accounts/${id}/upstream-billing-probe`, { enabled })
+}
+
+export async function probeUpstreamBilling(id: number): Promise<UpstreamBillingProbeResult> {
+  const { data } = await apiClient.post<UpstreamBillingProbeResult>(`/admin/accounts/${id}/upstream-billing-probe`)
+  return data
+}
+
+export async function probeUpstreamBillingBatch(accountIds: number[]): Promise<UpstreamBillingProbeResult[]> {
+  const { data } = await apiClient.post<{ results: UpstreamBillingProbeResult[] }>(
+    '/admin/accounts/upstream-billing-probe/batch',
+    { account_ids: accountIds }
+  )
+  return data.results
+}
+
 export const accountsAPI = {
   list,
   listWithEtag,
   getById,
   create,
-  copyAccount,
+  duplicate,
   update,
   checkMixedChannelRisk,
-  resolveUpstreamKeyRate,
-  testUpstreamConsoleLogin,
-  listUpstreamKeyGroups,
-  switchUpstreamKeyGroup,
   delete: deleteAccount,
   toggleStatus,
   testAccount,
@@ -876,7 +904,6 @@ export const accountsAPI = {
   recoverState,
   resetAccountQuota,
   getTempUnschedulableStatus,
-  setTempUnschedulable,
   resetTempUnschedulable,
   setSchedulable,
   getAvailableModels,
@@ -893,11 +920,20 @@ export const accountsAPI = {
   exportData,
   importData,
   importCodexSession,
+  createOpenAICodexPAT,
   getAntigravityDefaultModelMapping,
   batchClearError,
   batchRefresh,
   setPrivacy,
-  revertProxyFallback
+  revertProxyFallback,
+  queryOpenAIQuota,
+  resetOpenAIQuota,
+  createSparkShadow,
+  getUpstreamBillingProbeSettings,
+  updateUpstreamBillingProbeSettings,
+  setUpstreamBillingProbeEnabled,
+  probeUpstreamBilling,
+  probeUpstreamBillingBatch
 }
 
 export default accountsAPI

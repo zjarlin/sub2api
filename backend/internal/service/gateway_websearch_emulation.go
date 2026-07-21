@@ -49,10 +49,8 @@ func getWebSearchManager() *websearch.Manager {
 
 // shouldEmulateWebSearch checks whether a request should be intercepted.
 //
-// Judgment chain: manager exists → only web_search tool → global enabled → platform-specific policy.
-// Anthropic API Key keeps the existing account-level override:
-// "enabled" (force on), "disabled" (force off), "default" (follow channel).
-// Kiro OAuth uses channel-level switch only.
+// Judgment chain: manager exists → only web_search tool → global enabled → account/channel enabled.
+// Account-level mode: "enabled" (force on), "disabled" (force off), "default" (follow channel).
 func (s *GatewayService) shouldEmulateWebSearch(ctx context.Context, account *Account, groupID *int64, body []byte) bool {
 	if getWebSearchManager() == nil {
 		return false
@@ -64,37 +62,22 @@ func (s *GatewayService) shouldEmulateWebSearch(ctx context.Context, account *Ac
 		return false
 	}
 
-	if account == nil {
+	mode := account.GetWebSearchEmulationMode()
+	switch mode {
+	case WebSearchModeEnabled:
+		return true
+	case WebSearchModeDisabled:
 		return false
-	}
-
-	switch {
-	case account.Platform == PlatformAnthropic && account.Type == AccountTypeAPIKey:
-		mode := account.GetWebSearchEmulationMode()
-		switch mode {
-		case WebSearchModeEnabled:
-			return true
-		case WebSearchModeDisabled:
+	default: // "default" → follow channel config
+		if groupID == nil || s.channelService == nil {
 			return false
-		default:
-			return s.isChannelWebSearchEmulationEnabled(ctx, groupID, account.Platform)
 		}
-	case account.Platform == PlatformKiro && account.Type == AccountTypeOAuth:
-		return s.isChannelWebSearchEmulationEnabled(ctx, groupID, account.Platform)
-	default:
-		return false
+		ch, err := s.channelService.GetChannelForGroup(ctx, *groupID)
+		if err != nil || ch == nil {
+			return false
+		}
+		return ch.IsWebSearchEmulationEnabled(account.Platform)
 	}
-}
-
-func (s *GatewayService) isChannelWebSearchEmulationEnabled(ctx context.Context, groupID *int64, platform string) bool {
-	if groupID == nil || s.channelService == nil {
-		return false
-	}
-	ch, err := s.channelService.GetChannelForGroup(ctx, *groupID)
-	if err != nil || ch == nil {
-		return false
-	}
-	return ch.IsWebSearchEmulationEnabled(platform)
 }
 
 // isOnlyWebSearchToolInBody checks if the body contains exactly one web_search tool.
@@ -266,12 +249,7 @@ func writeSSEMessageStart(w http.ResponseWriter, msgID, model string) error {
 		"message": map[string]any{
 			"id": msgID, "type": "message", "role": "assistant", "model": model,
 			"content": []any{}, "stop_reason": nil, "stop_sequence": nil,
-			"usage": map[string]int{
-				"input_tokens":                0,
-				"output_tokens":               0,
-				"cache_creation_input_tokens": 0,
-				"cache_read_input_tokens":     0,
-			},
+			"usage": map[string]int{"input_tokens": 0, "output_tokens": 0},
 		},
 	}
 	return flushSSEJSON(w, "message_start", evt)
@@ -282,24 +260,10 @@ func writeSSEServerToolUse(w http.ResponseWriter, toolUseID, query string, index
 		"type": "content_block_start", "index": index,
 		"content_block": map[string]any{
 			"type": "server_tool_use", "id": toolUseID,
-			"name": toolNameWebSearch, "input": map[string]any{},
+			"name": toolNameWebSearch, "input": map[string]string{"query": query},
 		},
 	}
 	if err := flushSSEJSON(w, "content_block_start", start); err != nil {
-		return err
-	}
-	inputJSON, err := json.Marshal(map[string]string{"query": query})
-	if err != nil {
-		return fmt.Errorf("marshal query: %w", err)
-	}
-	if err := flushSSEJSON(w, "content_block_delta", map[string]any{
-		"type":  "content_block_delta",
-		"index": index,
-		"delta": map[string]any{
-			"type":         "input_json_delta",
-			"partial_json": string(inputJSON),
-		},
-	}); err != nil {
 		return err
 	}
 	return flushSSEJSON(w, "content_block_stop", map[string]any{"type": "content_block_stop", "index": index})
@@ -398,15 +362,16 @@ func writeWebSearchNonStreamResponse(
 
 // --- Helpers ---
 
-func buildSearchResultBlocks(results []websearch.SearchResult) []map[string]any {
-	blocks := make([]map[string]any, 0, len(results))
+func buildSearchResultBlocks(results []websearch.SearchResult) []map[string]string {
+	blocks := make([]map[string]string, 0, len(results))
 	for _, r := range results {
-		block := map[string]any{
-			"type":              "web_search_result",
-			"url":               r.URL,
-			"title":             r.Title,
-			"encrypted_content": r.Snippet,
-			"page_age":          nil,
+		block := map[string]string{
+			"type":  "web_search_result",
+			"url":   r.URL,
+			"title": r.Title,
+		}
+		if r.Snippet != "" {
+			block["page_content"] = r.Snippet
 		}
 		if r.PageAge != "" {
 			block["page_age"] = r.PageAge

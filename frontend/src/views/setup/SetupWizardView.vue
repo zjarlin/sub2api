@@ -218,6 +218,15 @@
 
           <div class="grid grid-cols-2 gap-4">
             <div>
+              <label class="input-label">{{ t('setup.redis.username') }}</label>
+              <input
+                v-model="formData.redis.username"
+                type="text"
+                class="input"
+                :placeholder="t('setup.redis.usernamePlaceholder')"
+              />
+            </div>
+            <div>
               <label class="input-label">{{ t('setup.redis.password') }}</label>
               <input
                 v-model="formData.redis.password"
@@ -493,6 +502,7 @@
 import { ref, reactive, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { testDatabase, testRedis, install, type InstallRequest } from '@/api/setup'
+import { buildGatewayUrl } from '@/api/client'
 import Select from '@/components/common/Select.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -541,6 +551,7 @@ const formData = reactive<InstallRequest>({
   redis: {
     host: 'localhost',
     port: 6379,
+    username: '',
     password: '',
     db: 0,
     enable_tls: false
@@ -644,7 +655,7 @@ async function waitForServiceRestart() {
     try {
       // Use setup status endpoint as it tells us the real mode
       // Service might return 404 or connection refused while restarting
-      const response = await fetch('/setup/status', {
+      const response = await fetch(buildGatewayUrl('/setup/status'), {
         method: 'GET',
         cache: 'no-store'
       })

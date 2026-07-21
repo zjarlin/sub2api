@@ -17,7 +17,6 @@ import (
 	"go.uber.org/zap"
 )
 
-// ForwardEmbeddings forwards an OpenAI-compatible embeddings request without protocol conversion.
 func (s *OpenAIGatewayService) ForwardEmbeddings(
 	ctx context.Context,
 	c *gin.Context,
@@ -30,7 +29,7 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 	originalModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
 	if originalModel == "" {
 		writeOpenAIEmbeddingsError(c, http.StatusBadRequest, "invalid_request_error", "model is required")
-		return nil, fmt.Errorf("missing model in embeddings request")
+		return nil, fmt.Errorf("missing model in request")
 	}
 
 	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
@@ -48,7 +47,7 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 	)
 
 	apiKey := account.GetOpenAIApiKey()
-	if apiKey == "" && !account.AllowsEmptyOpenAIApiKey() {
+	if apiKey == "" {
 		return nil, fmt.Errorf("account %d missing api_key", account.ID)
 	}
 	baseURL := account.GetOpenAIBaseURL()
@@ -69,20 +68,22 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 	}
 	upstreamReq = upstreamReq.WithContext(WithHTTPUpstreamProfile(upstreamReq.Context(), HTTPUpstreamProfileOpenAI))
 	upstreamReq.Header.Set("Content-Type", "application/json")
+	upstreamReq.Header.Set("Authorization", "Bearer "+apiKey)
 	upstreamReq.Header.Set("Accept", "application/json")
-	applyOpenAIUpstreamAuthHeaders(upstreamReq.Header, account, apiKey)
-	if c != nil && c.Request != nil {
-		for key, values := range c.Request.Header {
-			if openaiCCRawAllowedHeaders[strings.ToLower(key)] {
-				for _, value := range values {
-					upstreamReq.Header.Add(key, value)
-				}
+	for key, values := range c.Request.Header {
+		lowerKey := strings.ToLower(key)
+		if openaiCCRawAllowedHeaders[lowerKey] {
+			for _, v := range values {
+				upstreamReq.Header.Add(key, v)
 			}
 		}
 	}
 	if customUA := account.GetOpenAIUserAgent(); customUA != "" {
 		upstreamReq.Header.Set("user-agent", customUA)
 	}
+
+	// 账号级请求头覆写（仅 openai api_key 账号启用时生效）
+	account.ApplyHeaderOverrides(upstreamReq.Header)
 
 	proxyURL := ""
 	if account.Proxy != nil {
@@ -101,7 +102,7 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 			Message:            safeErr,
 		})
 		writeOpenAIEmbeddingsError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed")
-		return nil, fmt.Errorf("upstream embeddings request failed: %s", safeErr)
+		return nil, fmt.Errorf("upstream request failed: %s", safeErr)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -112,48 +113,34 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
-		upstreamDetail := ""
-		if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
-			maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes
-			if maxBytes <= 0 {
-				maxBytes = 2048
-			}
-			upstreamDetail = truncateString(string(respBody), maxBytes)
-		}
-		setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
-
 		if s.shouldFailoverOpenAIUpstreamResponse(resp.StatusCode, upstreamMsg, respBody) {
+			upstreamDetail := ""
+			if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
+				maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes
+				if maxBytes <= 0 {
+					maxBytes = 2048
+				}
+				upstreamDetail = truncateString(string(respBody), maxBytes)
+			}
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				Platform:           account.Platform,
 				AccountID:          account.ID,
 				AccountName:        account.Name,
 				UpstreamStatusCode: resp.StatusCode,
-				UpstreamRequestID:  firstNonEmptyString(getHeaderCI(resp.Header, "x-request-id"), getHeaderCI(resp.Header, "request-id")),
+				UpstreamRequestID:  resp.Header.Get("x-request-id"),
 				Kind:               "failover",
 				Message:            upstreamMsg,
 				Detail:             upstreamDetail,
 			})
-			s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel)
+			shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel)
 			return nil, &UpstreamFailoverError{
 				StatusCode:             resp.StatusCode,
 				ResponseBody:           respBody,
-				ResponseHeaders:        resp.Header.Clone(),
-				RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+				RetryableOnSameAccount: !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
 			}
 		}
-
-		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-			Platform:           account.Platform,
-			AccountID:          account.ID,
-			AccountName:        account.Name,
-			UpstreamStatusCode: resp.StatusCode,
-			UpstreamRequestID:  firstNonEmptyString(getHeaderCI(resp.Header, "x-request-id"), getHeaderCI(resp.Header, "request-id")),
-			Kind:               "http_error",
-			Message:            upstreamMsg,
-			Detail:             upstreamDetail,
-		})
 		writeOpenAIEmbeddingsUpstreamResponse(c, resp, respBody, s.responseHeaderFilter)
-		return nil, fmt.Errorf("embeddings upstream returned %d: %s", resp.StatusCode, upstreamMsg)
+		return nil, fmt.Errorf("upstream returned status %d", resp.StatusCode)
 	}
 
 	respBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
@@ -161,19 +148,13 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 		if !errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
 			writeOpenAIEmbeddingsError(c, http.StatusBadGateway, "api_error", "Failed to read upstream response")
 		}
-		return nil, fmt.Errorf("read embeddings upstream body: %w", err)
+		return nil, fmt.Errorf("read upstream body: %w", err)
 	}
 
 	writeOpenAIEmbeddingsUpstreamResponse(c, resp, respBody, s.responseHeaderFilter)
-	logger.L().Debug("openai embeddings: forwarded",
-		zap.Int64("account_id", account.ID),
-		zap.String("original_model", originalModel),
-		zap.String("billing_model", billingModel),
-		zap.String("upstream_model", upstreamModel),
-	)
 
 	return &OpenAIForwardResult{
-		RequestID:     firstNonEmptyString(getHeaderCI(resp.Header, "x-request-id"), getHeaderCI(resp.Header, "request-id")),
+		RequestID:     firstNonEmptyString(resp.Header.Get("x-request-id"), resp.Header.Get("request-id")),
 		Usage:         extractOpenAIEmbeddingsUsage(respBody),
 		Model:         originalModel,
 		BillingModel:  billingModel,
@@ -184,7 +165,10 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 }
 
 func writeOpenAIEmbeddingsUpstreamResponse(c *gin.Context, resp *http.Response, body []byte, filter *responseheaders.CompiledHeaderFilter) {
-	if c == nil || resp == nil || c.Writer.Written() {
+	if c == nil || resp == nil {
+		return
+	}
+	if c.Writer.Written() {
 		return
 	}
 	if resp.Header != nil {
@@ -200,10 +184,12 @@ func writeOpenAIEmbeddingsUpstreamResponse(c *gin.Context, resp *http.Response, 
 }
 
 func writeOpenAIEmbeddingsError(c *gin.Context, statusCode int, errType, message string) {
-	if c == nil || c.Writer.Written() {
-		return
-	}
-	WriteOpenAIClientError(c, statusCode, errType, message, nil)
+	c.JSON(statusCode, gin.H{
+		"error": gin.H{
+			"type":    errType,
+			"message": message,
+		},
+	})
 }
 
 func extractOpenAIEmbeddingsUsage(body []byte) OpenAIUsage {
@@ -220,19 +206,17 @@ func extractOpenAIEmbeddingsUsage(body []byte) OpenAIUsage {
 		usage.Get("completion_tokens"),
 		usage.Get("output_tokens"),
 	)
-	cacheReadTokens := firstPositiveGJSONInt(
-		usage.Get("prompt_tokens_details.cached_tokens"),
-		usage.Get("input_tokens_details.cached_tokens"),
-		usage.Get("cache_read_tokens"),
-		usage.Get("cache_read_input_tokens"),
-	)
-	cacheCreationTokens := firstPositiveGJSONInt(
-		usage.Get("cache_creation_tokens"),
-		usage.Get("cache_creation_input_tokens"),
-		usage.Get("input_tokens_details.cache_creation_tokens"),
+	cacheReadTokens := openAICacheReadTokensFromUsage(usage)
+	cacheCreationTokens := openAICacheCreationTokensFromUsage(usage)
+	// 多模态 embedding（如 doubao-embedding-vision）回传图文 token 拆分，
+	// 用于图文不同价计费；纯文本 embedding 该字段为 0，行为不变。
+	imageInputTokens := firstPositiveGJSONInt(
+		usage.Get("prompt_tokens_details.image_tokens"),
+		usage.Get("input_tokens_details.image_tokens"),
 	)
 	return OpenAIUsage{
 		InputTokens:              inputTokens,
+		ImageInputTokens:         imageInputTokens,
 		OutputTokens:             outputTokens,
 		CacheReadInputTokens:     cacheReadTokens,
 		CacheCreationInputTokens: cacheCreationTokens,

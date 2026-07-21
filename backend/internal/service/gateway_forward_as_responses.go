@@ -58,11 +58,7 @@ func (s *GatewayService) ForwardAsResponses(
 	// 4. Model mapping
 	mappedModel := originalModel
 	reasoningEffort := ExtractResponsesReasoningEffortFromBody(body)
-	if account.Platform == PlatformKiro {
-		if next := account.GetMappedModel(originalModel); next != "" {
-			mappedModel = next
-		}
-	} else if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
+	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(originalModel)
 	}
 	if mappedModel == originalModel && account.Platform == PlatformAnthropic && account.Type == AccountTypeServiceAccount {
@@ -76,6 +72,8 @@ func (s *GatewayService) ForwardAsResponses(
 			mappedModel = normalized
 		}
 	}
+	// 国产模型默认 effort 补充：需要 mappedModel 判定，推迟到 mapping 完成之后。
+	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, mappedModel)
 	anthropicReq.Model = mappedModel
 
 	logger.L().Debug("gateway forward_as_responses: model mapping applied",
@@ -106,63 +104,44 @@ func (s *GatewayService) ForwardAsResponses(
 	// 7. Enforce cache_control block limit
 	anthropicBody = enforceCacheControlLimit(anthropicBody)
 
-	var resp *http.Response
-	if account.Platform == PlatformKiro && account.Type == AccountTypeOAuth {
-		resp, _, err = s.openKiroAnthropicStreamResponse(ctx, account, anthropicBody, mappedModel, originalModel, c.Request.Header)
-		if err != nil {
-			safeErr := sanitizeUpstreamErrorMessage(err.Error())
-			setOpsUpstreamError(c, 0, safeErr, "")
-			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-				Platform:           account.Platform,
-				AccountID:          account.ID,
-				AccountName:        account.Name,
-				UpstreamStatusCode: 0,
-				Kind:               "request_error",
-				Message:            safeErr,
-			})
-			writeResponsesError(c, http.StatusBadGateway, "server_error", "Upstream request failed")
-			return nil, fmt.Errorf("upstream request failed: %s", safeErr)
-		}
-	} else {
-		// 8. Get access token
-		token, tokenType, err := s.GetAccessToken(ctx, account)
-		if err != nil {
-			return nil, fmt.Errorf("get access token: %w", err)
-		}
+	// 8. Get access token
+	token, tokenType, err := s.GetAccessToken(ctx, account)
+	if err != nil {
+		return nil, fmt.Errorf("get access token: %w", err)
+	}
 
-		// 9. Get proxy URL
-		proxyURL := ""
-		if account.ProxyID != nil && account.Proxy != nil {
-			proxyURL = account.Proxy.URL()
-		}
+	// 9. Get proxy URL
+	proxyURL := ""
+	if account.ProxyID != nil && account.Proxy != nil {
+		proxyURL = account.Proxy.URL()
+	}
 
-		// 10. Build upstream request
-		upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, reqStream)
-		upstreamReq, _, err := s.buildUpstreamRequest(upstreamCtx, c, account, anthropicBody, token, tokenType, mappedModel, reqStream, shouldMimicClaudeCode)
-		releaseUpstreamCtx()
-		if err != nil {
-			return nil, fmt.Errorf("build upstream request: %w", err)
-		}
+	// 10. Build upstream request
+	upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, reqStream)
+	upstreamReq, _, err := s.buildUpstreamRequest(upstreamCtx, c, account, anthropicBody, token, tokenType, mappedModel, reqStream, shouldMimicClaudeCode)
+	releaseUpstreamCtx()
+	if err != nil {
+		return nil, fmt.Errorf("build upstream request: %w", err)
+	}
 
-		// 11. Send request
-		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
-		if err != nil {
-			if resp != nil && resp.Body != nil {
-				_ = resp.Body.Close()
-			}
-			safeErr := sanitizeUpstreamErrorMessage(err.Error())
-			setOpsUpstreamError(c, 0, safeErr, "")
-			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-				Platform:           account.Platform,
-				AccountID:          account.ID,
-				AccountName:        account.Name,
-				UpstreamStatusCode: 0,
-				Kind:               "request_error",
-				Message:            safeErr,
-			})
-			writeResponsesError(c, http.StatusBadGateway, "server_error", "Upstream request failed")
-			return nil, fmt.Errorf("upstream request failed: %s", safeErr)
+	// 11. Send request
+	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+	if err != nil {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
 		}
+		safeErr := sanitizeUpstreamErrorMessage(err.Error())
+		setOpsUpstreamError(c, 0, safeErr, "")
+		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+			Platform:           account.Platform,
+			AccountID:          account.ID,
+			AccountName:        account.Name,
+			UpstreamStatusCode: 0,
+			Kind:               "request_error",
+			Message:            safeErr,
+		})
+		writeResponsesError(c, http.StatusBadGateway, "server_error", "Upstream request failed")
+		return nil, fmt.Errorf("upstream request failed: %s", safeErr)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
@@ -243,6 +222,17 @@ func mergeAnthropicUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
 	}
 }
 
+// parseAnthropicSSEField parses an SSE field line in the form "field:value" or "field: value".
+// According to the SSE spec (https://html.spec.whatwg.org/multipage/server-sent-events.html#event-stream-interpretation),
+// the space after the colon is optional. This function handles both formats.
+func parseAnthropicSSEField(line, field string) (string, bool) {
+	prefix := field + ":"
+	if !strings.HasPrefix(line, prefix) {
+		return "", false
+	}
+	return strings.TrimSpace(strings.TrimPrefix(line, prefix)), true
+}
+
 // handleResponsesBufferedStreamingResponse reads all Anthropic SSE events from
 // the upstream streaming response, assembles them into a complete Anthropic
 // response, converts to Responses API JSON format, and writes it to the client.
@@ -269,20 +259,20 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 
 	for scanner.Scan() {
 		line := scanner.Text()
-		if !strings.HasPrefix(line, "event: ") {
+		eventType, ok := parseAnthropicSSEField(line, "event")
+		if !ok {
 			continue
 		}
-		eventType := strings.TrimPrefix(line, "event: ")
 
 		// Read the data line
 		if !scanner.Scan() {
 			break
 		}
 		dataLine := scanner.Text()
-		if !strings.HasPrefix(dataLine, "data: ") {
+		payload, ok := parseAnthropicSSEField(dataLine, "data")
+		if !ok {
 			continue
 		}
-		payload := dataLine[6:]
 
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
@@ -306,7 +296,7 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 				mergeAnthropicUsage(&usage, *event.Usage)
 			}
 			if event.Delta != nil && event.Delta.StopReason != "" && finalResp != nil {
-				finalResp.StopReason = event.Delta.StopReason
+				finalResp.StopReason = apicompat.AnthropicStopReasonPtr(event.Delta.StopReason)
 			}
 		}
 
@@ -491,20 +481,20 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	// Read Anthropic SSE events
 	for scanner.Scan() {
 		line := scanner.Text()
-		if !strings.HasPrefix(line, "event: ") {
+		eventType, ok := parseAnthropicSSEField(line, "event")
+		if !ok {
 			continue
 		}
-		eventType := strings.TrimPrefix(line, "event: ")
 
 		// Read data line
 		if !scanner.Scan() {
 			break
 		}
 		dataLine := scanner.Text()
-		if !strings.HasPrefix(dataLine, "data: ") {
+		payload, ok := parseAnthropicSSEField(dataLine, "data")
+		if !ok {
 			continue
 		}
-		payload := dataLine[6:]
 
 		var event apicompat.AnthropicStreamEvent
 		if err := json.Unmarshal([]byte(payload), &event); err != nil {
@@ -543,7 +533,13 @@ func appendRawJSON(existing json.RawMessage, fragment string) json.RawMessage {
 
 // writeResponsesError writes an error response in OpenAI Responses API format.
 func writeResponsesError(c *gin.Context, statusCode int, code, message string) {
-	WriteResponsesClientError(c, statusCode, code, message, nil)
+	MarkResponseCommitted(c)
+	c.JSON(statusCode, gin.H{
+		"error": gin.H{
+			"code":    code,
+			"message": message,
+		},
+	})
 }
 
 // mapUpstreamStatusCode maps upstream HTTP status codes to appropriate client-facing codes.

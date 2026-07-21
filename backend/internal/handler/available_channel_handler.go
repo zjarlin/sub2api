@@ -50,17 +50,19 @@ func (h *AvailableChannelHandler) featureEnabled(c *gin.Context) bool {
 // userAvailableGroup 用户可见的分组概要（白名单字段）。
 //
 // 前端据此区分专属 vs 公开分组（IsExclusive）、订阅 vs 标准分组（SubscriptionType，
-// 订阅视觉加深），并用 RateMultiplier 作为默认倍率；用户专属倍率前端走
+// 订阅视觉加深），并展示默认倍率与高峰倍率规则；用户专属倍率前端走
 // /groups/rates，和 API 密钥页面保持一致。
 type userAvailableGroup struct {
-	ID               int64              `json:"id"`
-	Name             string             `json:"name"`
-	Platform         string             `json:"platform"`
-	SubscriptionType string             `json:"subscription_type"`
-	RateMultiplier   float64            `json:"rate_multiplier"`
-	ModelRates       map[string]float64 `json:"model_rates,omitempty"`
-	ModelRateLookup  map[string]float64 `json:"-"`
-	IsExclusive      bool               `json:"is_exclusive"`
+	ID                 int64   `json:"id"`
+	Name               string  `json:"name"`
+	Platform           string  `json:"platform"`
+	SubscriptionType   string  `json:"subscription_type"`
+	RateMultiplier     float64 `json:"rate_multiplier"`
+	PeakRateEnabled    bool    `json:"peak_rate_enabled"`
+	PeakStart          string  `json:"peak_start"`
+	PeakEnd            string  `json:"peak_end"`
+	PeakRateMultiplier float64 `json:"peak_rate_multiplier"`
+	IsExclusive        bool    `json:"is_exclusive"`
 }
 
 // userSupportedModelPricing 用户可见的定价字段白名单。
@@ -70,6 +72,7 @@ type userSupportedModelPricing struct {
 	OutputPrice      *float64                 `json:"output_price"`
 	CacheWritePrice  *float64                 `json:"cache_write_price"`
 	CacheReadPrice   *float64                 `json:"cache_read_price"`
+	ImageInputPrice  *float64                 `json:"image_input_price"`
 	ImageOutputPrice *float64                 `json:"image_output_price"`
 	PerRequestPrice  *float64                 `json:"per_request_price"`
 	Intervals        []userPricingIntervalDTO `json:"intervals"`
@@ -89,10 +92,9 @@ type userPricingIntervalDTO struct {
 
 // userSupportedModel 用户可见的支持模型条目。
 type userSupportedModel struct {
-	Name            string                     `json:"name"`
-	Platform        string                     `json:"platform"`
-	RateMultipliers map[int64]float64          `json:"rate_multipliers,omitempty"`
-	Pricing         *userSupportedModelPricing `json:"pricing"`
+	Name     string                     `json:"name"`
+	Platform string                     `json:"platform"`
+	Pricing  *userSupportedModelPricing `json:"pricing"`
 }
 
 // userChannelPlatformSection 单渠道内某个平台的子视图：用户可见的分组 + 该平台
@@ -199,7 +201,7 @@ func buildPlatformSections(
 		sections = append(sections, userChannelPlatformSection{
 			Platform:        platform,
 			Groups:          groupsByPlatform[platform],
-			SupportedModels: toUserSupportedModels(ch.SupportedModels, platformSet, groupsByPlatform[platform]),
+			SupportedModels: toUserSupportedModels(ch.SupportedModels, platformSet),
 		})
 	}
 	return sections
@@ -216,14 +218,16 @@ func filterUserVisibleGroups(
 			continue
 		}
 		visible = append(visible, userAvailableGroup{
-			ID:               g.ID,
-			Name:             g.Name,
-			Platform:         g.Platform,
-			SubscriptionType: g.SubscriptionType,
-			RateMultiplier:   g.RateMultiplier,
-			ModelRates:       g.ModelRateMultipliers,
-			ModelRateLookup:  g.ModelRateLookup,
-			IsExclusive:      g.IsExclusive,
+			ID:                 g.ID,
+			Name:               g.Name,
+			Platform:           g.Platform,
+			SubscriptionType:   g.SubscriptionType,
+			RateMultiplier:     g.RateMultiplier,
+			PeakRateEnabled:    g.PeakRateEnabled,
+			PeakStart:          g.PeakStart,
+			PeakEnd:            g.PeakEnd,
+			PeakRateMultiplier: g.PeakRateMultiplier,
+			IsExclusive:        g.IsExclusive,
 		})
 	}
 	return visible
@@ -235,7 +239,6 @@ func filterUserVisibleGroups(
 func toUserSupportedModels(
 	src []service.SupportedModel,
 	allowedPlatforms map[string]struct{},
-	groups []userAvailableGroup,
 ) []userSupportedModel {
 	out := make([]userSupportedModel, 0, len(src))
 	for i := range src {
@@ -246,27 +249,10 @@ func toUserSupportedModels(
 			}
 		}
 		out = append(out, userSupportedModel{
-			Name:            m.Name,
-			Platform:        m.Platform,
-			RateMultipliers: modelRateMultipliersForGroups(m.Name, groups),
-			Pricing:         toUserPricing(m.Pricing),
+			Name:     m.Name,
+			Platform: m.Platform,
+			Pricing:  toUserPricing(m.Pricing),
 		})
-	}
-	return out
-}
-
-func modelRateMultipliersForGroups(model string, groups []userAvailableGroup) map[int64]float64 {
-	out := make(map[int64]float64)
-	for _, g := range groups {
-		if len(g.ModelRates) == 0 {
-			continue
-		}
-		if rate, ok := service.FindModelRateMultiplier(g.ModelRates, g.ModelRateLookup, model); ok {
-			out[g.ID] = rate
-		}
-	}
-	if len(out) == 0 {
-		return nil
 	}
 	return out
 }
@@ -299,6 +285,7 @@ func toUserPricing(p *service.ChannelModelPricing) *userSupportedModelPricing {
 		OutputPrice:      p.OutputPrice,
 		CacheWritePrice:  p.CacheWritePrice,
 		CacheReadPrice:   p.CacheReadPrice,
+		ImageInputPrice:  p.ImageInputPrice,
 		ImageOutputPrice: p.ImageOutputPrice,
 		PerRequestPrice:  p.PerRequestPrice,
 		Intervals:        intervals,

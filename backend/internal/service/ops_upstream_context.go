@@ -1,16 +1,11 @@
 package service
 
 import (
-	"context"
 	"encoding/json"
-	"strconv"
 	"strings"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/gin-gonic/gin"
-	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 )
 
 // Gin context keys used by Ops error logger for capturing upstream error details.
@@ -20,11 +15,6 @@ const (
 	OpsUpstreamErrorMessageKey = "ops_upstream_error_message"
 	OpsUpstreamErrorDetailKey  = "ops_upstream_error_detail"
 	OpsUpstreamErrorsKey       = "ops_upstream_errors"
-
-	// Best-effort capture of the current upstream request body so ops can
-	// retry the specific upstream attempt (not just the client request).
-	// This value is sanitized+trimmed before being persisted.
-	OpsUpstreamRequestBodyKey = "ops_upstream_request_body"
 
 	// Optional stage latencies (milliseconds) for troubleshooting and alerting.
 	OpsAuthLatencyMsKey      = "ops_auth_latency_ms"
@@ -38,18 +28,22 @@ const (
 	OpsOpenAIWSConnReusedKey  = "ops_openai_ws_conn_reused"
 	OpsOpenAIWSConnIDKey      = "ops_openai_ws_conn_id"
 
-	OpsSelectedAccountIDKey       = "ops_selected_account_id"
-	OpsSelectedAccountNameKey     = "ops_selected_account_name"
-	OpsSelectedAccountPlatformKey = "ops_selected_account_platform"
-	OpsRequestedModelKey          = "ops_requested_model"
-	OpsMappedModelKey             = "ops_mapped_model"
-
 	// OpsSkipPassthroughKey 由 applyErrorPassthroughRule 在命中 skip_monitoring=true 的规则时设置。
 	// ops_error_logger 中间件检查此 key，为 true 时跳过错误记录。
 	OpsSkipPassthroughKey = "ops_skip_passthrough"
 
+	// OpsStreamErrorKey 保存 handleStreamingAwareError 在「响应已固化为 HTTP 200 的 SSE 流」
+	// 上就地(in-band)补发错误帧时记录的 OpsStreamError。因为 wire 状态码停留在 200，
+	// ops_error_logger 的 status>=400 采集路径永远不会触发，这类流内失败
+	//（例如等待并发槽位超时后回退的限流、Wait 后二次计费校验失败）本会在错误看板里隐形。
+	OpsStreamErrorKey = "ops_stream_error"
+
 	// Client-side configuration denials should remain visible in ops_error_logs,
 	// but should be excluded from SLA/error-rate calculations.
+	// ResponseCommittedKey 由 handleErrorResponse 系列函数在写完 HTTP 错误响应后设置。
+	// ensureForwardErrorResponse 检查此 key，为 true 时跳过兜底写入，避免在已完成的 JSON 后追加 SSE。
+	ResponseCommittedKey = "response_committed"
+
 	OpsClientBusinessLimitedKey                          = "ops_client_business_limited"
 	OpsClientBusinessLimitedReasonKey                    = "ops_client_business_limited_reason"
 	OpsClientBusinessLimitedReasonIPRestriction          = "api_key_ip_restriction"
@@ -59,235 +53,15 @@ const (
 	OpsClientBusinessLimitedReasonLocalPolicyDenied      = "local_policy_denied"
 )
 
-type OpsSelectedAccountSnapshot struct {
-	ID       int64
-	Name     string
-	Platform string
-}
+func MarkResponseCommitted(c *gin.Context) { c.Set(ResponseCommittedKey, true) }
 
-func SetOpsSelectedAccount(c *gin.Context, accountID int64, accountName, platform string) {
-	if c == nil {
-		return
-	}
-
-	accountName = strings.TrimSpace(accountName)
-	platform = strings.TrimSpace(platform)
-
-	if accountID > 0 {
-		c.Set(OpsSelectedAccountIDKey, accountID)
-	}
-	if accountName != "" {
-		c.Set(OpsSelectedAccountNameKey, accountName)
-	}
-	if platform != "" {
-		c.Set(OpsSelectedAccountPlatformKey, platform)
-	}
-
-	if c.Request == nil {
-		return
-	}
-
-	ctx := c.Request.Context()
-	if accountID > 0 {
-		ctx = context.WithValue(ctx, ctxkey.AccountID, accountID)
-	}
-	if platform != "" {
-		ctx = context.WithValue(ctx, ctxkey.Platform, platform)
-	}
-	c.Request = c.Request.WithContext(ctx)
-}
-
-func SetOpsModelDiagnostics(c *gin.Context, requestedModel, mappedModel string) {
-	if c == nil {
-		return
-	}
-
-	requestedModel = strings.TrimSpace(requestedModel)
-	mappedModel = strings.TrimSpace(mappedModel)
-
-	// Prefer the inbound/client-requested model written by the handler before
-	// channel mapping. The method argument may already be channel-mapped.
-	if c.Request != nil {
-		if s, ok := c.Request.Context().Value(ctxkey.Model).(string); ok {
-			if inboundModel := strings.TrimSpace(s); inboundModel != "" {
-				requestedModel = inboundModel
-			}
-		}
-	}
-
-	if requestedModel != "" {
-		if _, exists := c.Get(OpsRequestedModelKey); !exists {
-			c.Set(OpsRequestedModelKey, requestedModel)
-		}
-	}
-	if mappedModel != "" {
-		c.Set(OpsMappedModelKey, mappedModel)
-	}
-}
-
-func GetOpsSelectedAccountSnapshot(c *gin.Context) OpsSelectedAccountSnapshot {
-	if c == nil {
-		return OpsSelectedAccountSnapshot{}
-	}
-
-	snapshot := OpsSelectedAccountSnapshot{}
-
-	if v, ok := c.Get(OpsSelectedAccountIDKey); ok {
-		switch t := v.(type) {
-		case int64:
-			if t > 0 {
-				snapshot.ID = t
-			}
-		case int:
-			if t > 0 {
-				snapshot.ID = int64(t)
-			}
-		}
-	}
-	if v, ok := c.Get(OpsSelectedAccountNameKey); ok {
-		if s, ok := v.(string); ok {
-			snapshot.Name = strings.TrimSpace(s)
-		}
-	}
-	if v, ok := c.Get(OpsSelectedAccountPlatformKey); ok {
-		if s, ok := v.(string); ok {
-			snapshot.Platform = strings.TrimSpace(s)
-		}
-	}
-
-	if c.Request != nil {
-		if snapshot.ID <= 0 {
-			switch t := c.Request.Context().Value(ctxkey.AccountID).(type) {
-			case int64:
-				if t > 0 {
-					snapshot.ID = t
-				}
-			case int:
-				if t > 0 {
-					snapshot.ID = int64(t)
-				}
-			}
-		}
-		if snapshot.Platform == "" {
-			if s, ok := c.Request.Context().Value(ctxkey.Platform).(string); ok {
-				snapshot.Platform = strings.TrimSpace(s)
-			}
-		}
-	}
-
-	return snapshot
-}
-
-func ShouldExposeScheduledAccountInClientError(c *gin.Context) bool {
-	if c == nil {
-		return false
-	}
-	v, ok := c.Get("user_role")
+func IsResponseCommitted(c *gin.Context) bool {
+	v, ok := c.Get(ResponseCommittedKey)
 	if !ok {
 		return false
 	}
-	role, ok := v.(string)
-	return ok && strings.EqualFold(strings.TrimSpace(role), RoleAdmin)
-}
-
-func ResolveClientScheduledAccountLabel(c *gin.Context) string {
-	if c == nil {
-		return ""
-	}
-
-	snapshot := GetOpsSelectedAccountSnapshot(c)
-	if name := strings.TrimSpace(snapshot.Name); name != "" {
-		return name
-	}
-	if snapshot.ID > 0 {
-		return strconv.FormatInt(snapshot.ID, 10)
-	}
-
-	if v, ok := c.Get(OpsUpstreamErrorsKey); ok {
-		if events, ok := v.([]*OpsUpstreamErrorEvent); ok {
-			for i := len(events) - 1; i >= 0; i-- {
-				ev := events[i]
-				if ev == nil {
-					continue
-				}
-				if name := strings.TrimSpace(ev.AccountName); name != "" {
-					return name
-				}
-				if ev.AccountID > 0 {
-					return strconv.FormatInt(ev.AccountID, 10)
-				}
-			}
-		}
-	}
-
-	return ""
-}
-
-func DecorateScheduledAccountClientError(c *gin.Context, message string) string {
-	message = strings.TrimSpace(message)
-	if message == "" || !ShouldExposeScheduledAccountInClientError(c) {
-		return message
-	}
-	if strings.Contains(message, "[scheduled account:") {
-		return message
-	}
-	label := ResolveClientScheduledAccountLabel(c)
-	if label == "" {
-		return message
-	}
-	return message + " [scheduled account: " + label + "]"
-}
-
-func DecorateScheduledAccountClientErrorJSONBody(c *gin.Context, body []byte) []byte {
-	if len(body) == 0 {
-		return body
-	}
-
-	message := strings.TrimSpace(gjson.GetBytes(body, "error.message").String())
-	if message == "" {
-		return body
-	}
-
-	decorated := DecorateScheduledAccountClientError(c, message)
-	if decorated == message {
-		return body
-	}
-
-	patched, err := sjson.SetBytes(body, "error.message", decorated)
-	if err != nil {
-		return body
-	}
-	return patched
-}
-
-func WriteOpenAIClientError(c *gin.Context, statusCode int, errType, message string, extraFields gin.H) {
-	payload := gin.H{
-		"type":    errType,
-		"message": DecorateScheduledAccountClientError(c, message),
-	}
-	for key, value := range extraFields {
-		payload[key] = value
-	}
-	c.JSON(statusCode, gin.H{"error": payload})
-}
-
-func WriteResponsesClientError(c *gin.Context, statusCode int, code, message string, extraFields gin.H) {
-	payload := gin.H{
-		"code":    code,
-		"message": DecorateScheduledAccountClientError(c, message),
-	}
-	for key, value := range extraFields {
-		payload[key] = value
-	}
-	c.JSON(statusCode, gin.H{"error": payload})
-}
-
-func setOpsUpstreamRequestBody(c *gin.Context, body []byte) {
-	if c == nil || len(body) == 0 {
-		return
-	}
-	// 热路径避免 string(body) 额外分配，按需在落库前再转换。
-	c.Set(OpsUpstreamRequestBodyKey, body)
+	b, _ := v.(bool)
+	return b
 }
 
 func SetOpsLatencyMs(c *gin.Context, key string, value int64) {
@@ -319,18 +93,83 @@ func HasOpsClientBusinessLimited(c *gin.Context) bool {
 	return marked
 }
 
+// OpsStreamError 描述网关在「响应状态已固化为 200」之后（keepalive ping 或部分数据
+// 已 flush）就地以 SSE error 帧形式返回的错误。由于 HTTP 状态码停留在 200，
+// 而 ops_error_logger 以 status>=400 为采集触发条件，这类流内失败
+// （并发限流回退、Wait 后二次计费校验失败、流开始后才无可用账号等）本会在错误看板里
+// 完全隐形。handler.handleStreamingAwareError 负责标记，ops_error_logger 中间件在
+// status<400 分支消费它并补记一条错误日志。
+type OpsStreamError struct {
+	// ErrType 是写入 SSE 帧的对客错误类型（如 rate_limit_error / upstream_error / api_error）。
+	ErrType string
+	// Code 是可选的稳定错误分类；用于既保留通用 OpenAI error.type，又向客户端和 Ops
+	// 暴露可编程判断的细分类（如 upstream_http2_stream_error）。
+	Code string
+	// Message 是写入 SSE 帧的对客错误消息。
+	Message string
+	// IntendedStatus 是流若未固化本应返回的 HTTP 状态码（如并发限流的 429）。
+	// 默认仅用于错误分级；CountTowardsSLA=true 时也作为 Ops 的逻辑状态码。
+	IntendedStatus int
+	// CountTowardsSLA 表示虽然 wire 状态已固化为 200，请求在应用语义上仍然失败，
+	// Ops 应使用 IntendedStatus 计入错误率/SLA。
+	CountTowardsSLA bool
+}
+
+// MarkOpsStreamError 记录一次就地 SSE 错误，供 ops 日志采集。
+// 采用「首个标记生效」策略：同一请求若先后补发多帧（如上游透传错误后又追加通用兜底帧），
+// 保留最先记录的根因错误，而不是被后续的 "Upstream request failed" 覆盖。
+func MarkOpsStreamError(c *gin.Context, errType, message string, intendedStatus int) {
+	markOpsStreamError(c, OpsStreamError{
+		ErrType:        errType,
+		Message:        message,
+		IntendedStatus: intendedStatus,
+	})
+}
+
+// MarkOpsStreamFailure records an in-band stream error that represents a failed
+// request and therefore must count towards Ops error rate/SLA despite HTTP 200
+// already being committed on the wire.
+func MarkOpsStreamFailure(c *gin.Context, errType, code, message string, intendedStatus int) {
+	markOpsStreamError(c, OpsStreamError{
+		ErrType:         errType,
+		Code:            code,
+		Message:         message,
+		IntendedStatus:  intendedStatus,
+		CountTowardsSLA: true,
+	})
+}
+
+func markOpsStreamError(c *gin.Context, streamErr OpsStreamError) {
+	if c == nil {
+		return
+	}
+	if _, exists := c.Get(OpsStreamErrorKey); exists {
+		return
+	}
+	streamErr.ErrType = strings.TrimSpace(streamErr.ErrType)
+	streamErr.Code = strings.TrimSpace(streamErr.Code)
+	streamErr.Message = strings.TrimSpace(streamErr.Message)
+	c.Set(OpsStreamErrorKey, streamErr)
+}
+
+// GetOpsStreamError 返回本请求记录的就地 SSE 错误（若有）。
+func GetOpsStreamError(c *gin.Context) (OpsStreamError, bool) {
+	if c == nil {
+		return OpsStreamError{}, false
+	}
+	v, ok := c.Get(OpsStreamErrorKey)
+	if !ok {
+		return OpsStreamError{}, false
+	}
+	se, ok := v.(OpsStreamError)
+	return se, ok
+}
+
 // SetOpsUpstreamError is the exported wrapper for setOpsUpstreamError, used by
 // handler-layer code (e.g. failover-exhausted paths) that needs to record the
 // original upstream status code before mapping it to a client-facing code.
 func SetOpsUpstreamError(c *gin.Context, upstreamStatusCode int, upstreamMessage, upstreamDetail string) {
 	setOpsUpstreamError(c, upstreamStatusCode, upstreamMessage, upstreamDetail)
-}
-
-// AppendOpsUpstreamError is the exported wrapper for appendOpsUpstreamError, used by
-// handler-layer fallback paths that need to persist a best-effort upstream event
-// even when the service path returned before appending one.
-func AppendOpsUpstreamError(c *gin.Context, ev OpsUpstreamErrorEvent) {
-	appendOpsUpstreamError(c, ev)
 }
 
 func setOpsUpstreamError(c *gin.Context, upstreamStatusCode int, upstreamMessage, upstreamDetail string) {
@@ -362,14 +201,6 @@ type OpsUpstreamErrorEvent struct {
 	AccountID   int64  `json:"account_id,omitempty"`
 	AccountName string `json:"account_name,omitempty"`
 
-	// Model diagnostics.
-	RequestedModel      string `json:"requested_model,omitempty"`
-	MappedModel         string `json:"mapped_model,omitempty"`
-	KiroModelID         string `json:"kiro_model_id,omitempty"`
-	HasTools            bool   `json:"has_tools,omitempty"`
-	HasAdaptiveThinking bool   `json:"has_adaptive_thinking,omitempty"`
-	HasContext1MBeta    bool   `json:"has_context_1m_beta,omitempty"`
-
 	// Outcome
 	UpstreamStatusCode int    `json:"upstream_status_code,omitempty"`
 	UpstreamRequestID  string `json:"upstream_request_id,omitempty"`
@@ -381,11 +212,13 @@ type OpsUpstreamErrorEvent struct {
 	// Best-effort upstream response capture (sanitized+trimmed).
 	UpstreamResponseBody string `json:"upstream_response_body,omitempty"`
 
-	// Best-effort upstream request capture for retrying the exact upstream attempt.
-	UpstreamRequestBody string `json:"upstream_request_body,omitempty"`
-
 	// Kind: http_error | request_error | retry_exhausted | failover
 	Kind string `json:"kind,omitempty"`
+	// Stage/Scope/Reason distinguish credential acquisition from inference
+	// without overloading upstream_status_code with a synthetic HTTP status.
+	Stage  string `json:"stage,omitempty"`
+	Scope  string `json:"scope,omitempty"`
+	Reason string `json:"reason,omitempty"`
 
 	Message string `json:"message,omitempty"`
 	Detail  string `json:"detail,omitempty"`
@@ -401,55 +234,15 @@ func appendOpsUpstreamError(c *gin.Context, ev OpsUpstreamErrorEvent) {
 	ev.Platform = strings.TrimSpace(ev.Platform)
 	ev.UpstreamRequestID = strings.TrimSpace(ev.UpstreamRequestID)
 	ev.UpstreamResponseBody = strings.TrimSpace(ev.UpstreamResponseBody)
-	ev.UpstreamRequestBody = strings.TrimSpace(ev.UpstreamRequestBody)
 	ev.Kind = strings.TrimSpace(ev.Kind)
+	ev.Stage = strings.TrimSpace(ev.Stage)
+	ev.Scope = strings.TrimSpace(ev.Scope)
+	ev.Reason = strings.TrimSpace(ev.Reason)
 	ev.UpstreamURL = strings.TrimSpace(ev.UpstreamURL)
-	ev.AccountName = strings.TrimSpace(ev.AccountName)
-	ev.RequestedModel = strings.TrimSpace(ev.RequestedModel)
-	ev.MappedModel = strings.TrimSpace(ev.MappedModel)
-	ev.KiroModelID = strings.TrimSpace(ev.KiroModelID)
 	ev.Message = strings.TrimSpace(ev.Message)
 	ev.Detail = strings.TrimSpace(ev.Detail)
 	if ev.Message != "" {
 		ev.Message = sanitizeUpstreamErrorMessage(ev.Message)
-	}
-
-	snapshot := GetOpsSelectedAccountSnapshot(c)
-	if ev.AccountID <= 0 && snapshot.ID > 0 {
-		ev.AccountID = snapshot.ID
-	}
-	if ev.AccountName == "" && snapshot.Name != "" {
-		ev.AccountName = snapshot.Name
-	}
-	if ev.Platform == "" && snapshot.Platform != "" {
-		ev.Platform = snapshot.Platform
-	}
-	if ev.RequestedModel == "" {
-		if v, ok := c.Get(OpsRequestedModelKey); ok {
-			if s, ok := v.(string); ok {
-				ev.RequestedModel = strings.TrimSpace(s)
-			}
-		}
-	}
-	if ev.MappedModel == "" {
-		if v, ok := c.Get(OpsMappedModelKey); ok {
-			if s, ok := v.(string); ok {
-				ev.MappedModel = strings.TrimSpace(s)
-			}
-		}
-	}
-
-	// If the caller didn't explicitly pass upstream request body but the gateway
-	// stored it on the context, attach it so ops can retry this specific attempt.
-	if ev.UpstreamRequestBody == "" {
-		if v, ok := c.Get(OpsUpstreamRequestBodyKey); ok {
-			switch raw := v.(type) {
-			case string:
-				ev.UpstreamRequestBody = strings.TrimSpace(raw)
-			case []byte:
-				ev.UpstreamRequestBody = strings.TrimSpace(string(raw))
-			}
-		}
 	}
 
 	var existing []*OpsUpstreamErrorEvent

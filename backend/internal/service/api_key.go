@@ -28,25 +28,24 @@ func IsWindowExpired(windowStart *time.Time, duration time.Duration) bool {
 }
 
 type APIKey struct {
-	ID      int64
-	UserID  int64
-	Key     string
-	Name    string
-	GroupID *int64
-	// PersonalAccountScope is retained for backward-compatible API responses.
-	// Scheduling is group-based and no longer uses this flag.
-	PersonalAccountScope bool
-	Status               string
-	IPWhitelist          []string
-	IPBlacklist          []string
+	ID          int64
+	UserID      int64
+	Key         string
+	Name        string
+	GroupID     *int64
+	Status      string
+	IPWhitelist []string
+	IPBlacklist []string
 	// 预编译的 IP 规则，用于认证热路径避免重复 ParseIP/ParseCIDR。
 	CompiledIPWhitelist *ip.CompiledIPRules `json:"-"`
 	CompiledIPBlacklist *ip.CompiledIPRules `json:"-"`
 	LastUsedAt          *time.Time
+	LastUsedIP          *string
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 	User                *User
 	Group               *Group
+	CurrentConcurrency  int
 
 	// Quota fields
 	Quota     float64    // Quota limit in USD (0 = unlimited)
@@ -140,8 +139,7 @@ func (k *APIKey) EffectiveUsage7d() float64 {
 
 // APIKeyListFilters holds optional filtering parameters for listing API keys.
 type APIKeyListFilters struct {
-	Search               string
-	Status               string
-	GroupID              *int64 // nil=不筛选, 0=无分组, >0=指定分组
-	PersonalAccountScope *bool
+	Search  string
+	Status  string
+	GroupID *int64 // nil=不筛选, 0=无分组, >0=指定分组
 }

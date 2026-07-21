@@ -10,16 +10,12 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/kiro"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/dgraph-io/ristretto"
@@ -27,14 +23,14 @@ import (
 )
 
 var (
-	ErrAPIKeyNotFound      = infraerrors.NotFound("API_KEY_NOT_FOUND", "api key not found")
-	ErrGroupNotAllowed     = infraerrors.Forbidden("GROUP_NOT_ALLOWED", "user is not allowed to bind this group")
-	ErrAPIKeyExists        = infraerrors.Conflict("API_KEY_EXISTS", "api key already exists")
-	ErrAPIKeyTooShort      = infraerrors.BadRequest("API_KEY_TOO_SHORT", "api key must be at least 16 characters")
-	ErrAPIKeyInvalidChars  = infraerrors.BadRequest("API_KEY_INVALID_CHARS", "api key can only contain letters, numbers, underscores, and hyphens")
-	ErrAPIKeyRateLimited   = infraerrors.TooManyRequests("API_KEY_RATE_LIMITED", "too many failed attempts, please try again later")
-	ErrInvalidIPPattern    = infraerrors.BadRequest("INVALID_IP_PATTERN", "invalid IP or CIDR pattern")
-	ErrAPIKeyScopeConflict = infraerrors.BadRequest("API_KEY_SCOPE_CONFLICT", "personal account scope cannot be combined with a group")
+	ErrAPIKeyNotFound       = infraerrors.NotFound("API_KEY_NOT_FOUND", "api key not found")
+	ErrGroupNotAllowed      = infraerrors.Forbidden("GROUP_NOT_ALLOWED", "user is not allowed to bind this group")
+	ErrAPIKeyExists         = infraerrors.Conflict("API_KEY_EXISTS", "api key already exists")
+	ErrAPIKeyTooShort       = infraerrors.BadRequest("API_KEY_TOO_SHORT", "api key must be at least 16 characters")
+	ErrAPIKeyInvalidChars   = infraerrors.BadRequest("API_KEY_INVALID_CHARS", "api key can only contain letters, numbers, underscores, and hyphens")
+	ErrAPIKeyRateLimited    = infraerrors.TooManyRequests("API_KEY_RATE_LIMITED", "too many failed attempts, please try again later")
+	ErrAPIKeyAuthOverloaded = infraerrors.ServiceUnavailable("API_KEY_AUTH_OVERLOADED", "api key authentication is temporarily overloaded")
+	ErrInvalidIPPattern     = infraerrors.BadRequest("INVALID_IP_PATTERN", "invalid IP or CIDR pattern")
 	// ErrAPIKeyExpired        = infraerrors.Forbidden("API_KEY_EXPIRED", "api key has expired")
 	ErrAPIKeyExpired = infraerrors.Forbidden("API_KEY_EXPIRED", "api key 已过期")
 	// ErrAPIKeyQuotaExhausted = infraerrors.TooManyRequests("API_KEY_QUOTA_EXHAUSTED", "api key quota exhausted")
@@ -47,8 +43,12 @@ var (
 )
 
 const (
-	apiKeyMaxErrorsPerHour = 20
-	apiKeyLastUsedMinTouch = 30 * time.Second
+	MaxAPIKeyCredentialBytes     = 128
+	defaultAuthLookupConcurrency = 64
+	defaultNegativeAuthCacheSize = 16384
+	apiKeyMaxErrorsPerHour       = 20
+	apiKeyLastUsedMinTouch       = 30 * time.Second
+	apiKeySortCurrentConcurrency = "current_concurrency"
 	// DB 写失败后的短退避，避免请求路径持续同步重试造成写风暴与高延迟。
 	apiKeyLastUsedFailBackoff = 5 * time.Second
 )
@@ -63,7 +63,9 @@ type APIKeyRepository interface {
 	GetByKeyForAuth(ctx context.Context, key string) (*APIKey, error)
 	Update(ctx context.Context, key *APIKey) error
 	Delete(ctx context.Context, id int64) error
-	// DeleteWithAudit 在同一事务内先写 deleted_api_key_audits 审计、再软删除该 key。
+	// DeleteWithAudit keeps the legacy interface name for rolling-upgrade compatibility.
+	// Implementations must tombstone the key and soft-delete it atomically without
+	// retaining the deleted credential material.
 	DeleteWithAudit(ctx context.Context, id int64) error
 
 	ListByUserID(ctx context.Context, userID int64, params pagination.PaginationParams, filters APIKeyListFilters) ([]APIKey, *pagination.PaginationResult, error)
@@ -87,6 +89,10 @@ type APIKeyRepository interface {
 	IncrementRateLimitUsage(ctx context.Context, id int64, cost float64) error
 	ResetRateLimitWindows(ctx context.Context, id int64) error
 	GetRateLimitData(ctx context.Context, id int64) (*APIKeyRateLimitData, error)
+}
+
+type apiKeyAllByUserIDLister interface {
+	ListAllByUserID(ctx context.Context, userID int64, filters APIKeyListFilters) ([]APIKey, error)
 }
 
 // APIKeyRateLimitData holds rate limit usage and window state for an API key.
@@ -150,6 +156,20 @@ type APIKeyCache interface {
 	SubscribeAuthCacheInvalidation(ctx context.Context, handler func(cacheKey string)) error
 }
 
+type authCacheSubscriptionReadyKey struct{}
+
+func withAuthCacheSubscriptionReady(ctx context.Context, ready func()) context.Context {
+	return context.WithValue(ctx, authCacheSubscriptionReadyKey{}, ready)
+}
+
+// NotifyAuthCacheSubscriptionReady lets cache implementations report that the
+// server acknowledged the subscription without widening the public cache API.
+func NotifyAuthCacheSubscriptionReady(ctx context.Context) {
+	if ready, ok := ctx.Value(authCacheSubscriptionReadyKey{}).(func()); ok && ready != nil {
+		ready()
+	}
+}
+
 // APIKeyAuthCacheInvalidator 提供认证缓存失效能力
 type APIKeyAuthCacheInvalidator interface {
 	InvalidateAuthCacheByKey(ctx context.Context, key string)
@@ -159,12 +179,11 @@ type APIKeyAuthCacheInvalidator interface {
 
 // CreateAPIKeyRequest 创建API Key请求
 type CreateAPIKeyRequest struct {
-	Name                 string   `json:"name"`
-	GroupID              *int64   `json:"group_id"`
-	PersonalAccountScope bool     `json:"personal_account_scope"`
-	CustomKey            *string  `json:"custom_key"`   // 可选的自定义key
-	IPWhitelist          []string `json:"ip_whitelist"` // IP 白名单
-	IPBlacklist          []string `json:"ip_blacklist"` // IP 黑名单
+	Name        string   `json:"name"`
+	GroupID     *int64   `json:"group_id"`
+	CustomKey   *string  `json:"custom_key"`   // 可选的自定义key
+	IPWhitelist []string `json:"ip_whitelist"` // IP 白名单
+	IPBlacklist []string `json:"ip_blacklist"` // IP 黑名单
 
 	// Quota fields
 	Quota         float64 `json:"quota"`           // Quota limit in USD (0 = unlimited)
@@ -178,12 +197,11 @@ type CreateAPIKeyRequest struct {
 
 // UpdateAPIKeyRequest 更新API Key请求
 type UpdateAPIKeyRequest struct {
-	Name                 *string  `json:"name"`
-	GroupID              *int64   `json:"group_id"`
-	PersonalAccountScope *bool    `json:"personal_account_scope"`
-	Status               *string  `json:"status"`
-	IPWhitelist          []string `json:"ip_whitelist"` // IP 白名单（空数组清空）
-	IPBlacklist          []string `json:"ip_blacklist"` // IP 黑名单（空数组清空）
+	Name        *string   `json:"name"`
+	GroupID     *int64    `json:"group_id"`
+	Status      *string   `json:"status"`
+	IPWhitelist *[]string `json:"ip_whitelist"` // IP 白名单（nil 不修改，空数组清空）
+	IPBlacklist *[]string `json:"ip_blacklist"` // IP 黑名单（nil 不修改，空数组清空）
 
 	// Quota fields
 	Quota           *float64   `json:"quota"`       // Quota limit in USD (nil = no change, 0 = unlimited)
@@ -205,20 +223,51 @@ type RateLimitCacheInvalidator interface {
 }
 
 type APIKeyService struct {
-	apiKeyRepo            APIKeyRepository
-	accountRepo           AccountRepository
-	userRepo              UserRepository
-	groupRepo             GroupRepository
-	userSubRepo           UserSubscriptionRepository
-	userGroupRateRepo     UserGroupRateRepository
-	cache                 APIKeyCache
-	rateLimitCacheInvalid RateLimitCacheInvalidator // optional: invalidate Redis rate limit cache
-	cfg                   *config.Config
-	authCacheL1           *ristretto.Cache
-	authCfg               apiKeyAuthCacheConfig
-	authGroup             singleflight.Group
-	lastUsedTouchL1       sync.Map // keyID -> nextAllowedAt(time.Time)
-	lastUsedTouchSF       singleflight.Group
+	apiKeyRepo                APIKeyRepository
+	userRepo                  UserRepository
+	groupRepo                 GroupRepository
+	userSubRepo               UserSubscriptionRepository
+	userGroupRateRepo         UserGroupRateRepository
+	cache                     APIKeyCache
+	rateLimitCacheInvalid     RateLimitCacheInvalidator // optional: invalidate Redis rate limit cache
+	concurrencyService        *ConcurrencyService
+	cfg                       *config.Config
+	authCacheL1               *ristretto.Cache
+	authNegativeCacheL1       *ristretto.Cache
+	authCfg                   apiKeyAuthCacheConfig
+	authGroup                 singleflight.Group
+	authLookupSlots           chan struct{}
+	authLookupTotal           atomic.Uint64
+	authLookupRejected        atomic.Uint64
+	authLookupInFlight        atomic.Int64
+	invalidAuthAbuse          *invalidAuthAbuseLimiter
+	authInvalidationStart     sync.Once
+	authInvalidationStop      sync.Once
+	authInvalidationCancel    context.CancelFunc
+	authInvalidationWG        sync.WaitGroup
+	authInvalidationConnected atomic.Bool
+	authInvalidationFailures  atomic.Uint64
+	lastUsedTouchL1           sync.Map // keyID -> nextAllowedAt(time.Time)
+	lastUsedTouchSF           singleflight.Group
+}
+
+type APIKeyAuthLookupMetrics struct {
+	Total    uint64 `json:"total"`
+	Rejected uint64 `json:"rejected"`
+	InFlight int64  `json:"in_flight"`
+	Capacity int    `json:"capacity"`
+}
+
+func (s *APIKeyService) AuthLookupMetrics() APIKeyAuthLookupMetrics {
+	if s == nil {
+		return APIKeyAuthLookupMetrics{}
+	}
+	return APIKeyAuthLookupMetrics{
+		Total:    s.authLookupTotal.Load(),
+		Rejected: s.authLookupRejected.Load(),
+		InFlight: s.authLookupInFlight.Load(),
+		Capacity: cap(s.authLookupSlots),
+	}
 }
 
 // NewAPIKeyService 创建API Key服务实例
@@ -241,6 +290,12 @@ func NewAPIKeyService(
 		cfg:               cfg,
 	}
 	svc.initAuthCache(cfg)
+	lookupConcurrency := defaultAuthLookupConcurrency
+	if cfg != nil && cfg.APIKeyAuth.LookupConcurrency > 0 {
+		lookupConcurrency = cfg.APIKeyAuth.LookupConcurrency
+	}
+	svc.authLookupSlots = make(chan struct{}, lookupConcurrency)
+	svc.invalidAuthAbuse = newInvalidAuthAbuseLimiter(cfg)
 	return svc
 }
 
@@ -250,9 +305,8 @@ func (s *APIKeyService) SetRateLimitCacheInvalidator(inv RateLimitCacheInvalidat
 	s.rateLimitCacheInvalid = inv
 }
 
-// SetAccountRepository connects account lookups used by user-facing setup helpers.
-func (s *APIKeyService) SetAccountRepository(repo AccountRepository) {
-	s.accountRepo = repo
+func (s *APIKeyService) SetConcurrencyService(concurrencyService *ConcurrencyService) {
+	s.concurrencyService = concurrencyService
 }
 
 func (s *APIKeyService) compileAPIKeyIPRules(apiKey *APIKey) {
@@ -351,10 +405,6 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		return nil, fmt.Errorf("get user: %w", err)
 	}
 
-	if req.PersonalAccountScope && req.GroupID != nil {
-		return nil, ErrAPIKeyScopeConflict
-	}
-
 	// 验证 IP 白名单格式
 	if len(req.IPWhitelist) > 0 {
 		if invalid := ip.ValidateIPPatterns(req.IPWhitelist); len(invalid) > 0 {
@@ -419,19 +469,18 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 
 	// 创建API Key记录
 	apiKey := &APIKey{
-		UserID:               userID,
-		Key:                  key,
-		Name:                 html.EscapeString(req.Name),
-		GroupID:              req.GroupID,
-		PersonalAccountScope: req.PersonalAccountScope,
-		Status:               StatusActive,
-		IPWhitelist:          req.IPWhitelist,
-		IPBlacklist:          req.IPBlacklist,
-		Quota:                req.Quota,
-		QuotaUsed:            0,
-		RateLimit5h:          req.RateLimit5h,
-		RateLimit1d:          req.RateLimit1d,
-		RateLimit7d:          req.RateLimit7d,
+		UserID:      userID,
+		Key:         key,
+		Name:        html.EscapeString(req.Name),
+		GroupID:     req.GroupID,
+		Status:      StatusActive,
+		IPWhitelist: req.IPWhitelist,
+		IPBlacklist: req.IPBlacklist,
+		Quota:       req.Quota,
+		QuotaUsed:   0,
+		RateLimit5h: req.RateLimit5h,
+		RateLimit1d: req.RateLimit1d,
+		RateLimit7d: req.RateLimit7d,
 	}
 
 	// Set expiration time if specified
@@ -452,11 +501,115 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 
 // List 获取用户的API Key列表
 func (s *APIKeyService) List(ctx context.Context, userID int64, params pagination.PaginationParams, filters APIKeyListFilters) ([]APIKey, *pagination.PaginationResult, error) {
+	if normalizedAPIKeySortBy(params.SortBy) == apiKeySortCurrentConcurrency {
+		return s.listByCurrentConcurrency(ctx, userID, params, filters)
+	}
+
 	keys, pagination, err := s.apiKeyRepo.ListByUserID(ctx, userID, params, filters)
 	if err != nil {
 		return nil, nil, fmt.Errorf("list api keys: %w", err)
 	}
+	s.fillCurrentConcurrency(ctx, keys)
 	return keys, pagination, nil
+}
+
+func (s *APIKeyService) listByCurrentConcurrency(ctx context.Context, userID int64, params pagination.PaginationParams, filters APIKeyListFilters) ([]APIKey, *pagination.PaginationResult, error) {
+	repo, ok := s.apiKeyRepo.(apiKeyAllByUserIDLister)
+	if !ok {
+		return nil, nil, fmt.Errorf("list api keys by current concurrency: repository does not support unpaginated API key listing")
+	}
+
+	keys, err := repo.ListAllByUserID(ctx, userID, filters)
+	if err != nil {
+		return nil, nil, fmt.Errorf("list api keys: %w", err)
+	}
+	s.fillCurrentConcurrency(ctx, keys)
+	sortAPIKeysByCurrentConcurrency(keys, params.NormalizedSortOrder(pagination.SortOrderDesc))
+	return paginateAPIKeys(keys, params), apiKeyPaginationResult(int64(len(keys)), params), nil
+}
+
+func normalizedAPIKeySortBy(sortBy string) string {
+	return strings.ToLower(strings.TrimSpace(sortBy))
+}
+
+func sortAPIKeysByCurrentConcurrency(keys []APIKey, sortOrder string) {
+	desc := sortOrder != pagination.SortOrderAsc
+	sort.SliceStable(keys, func(i, j int) bool {
+		if keys[i].CurrentConcurrency == keys[j].CurrentConcurrency {
+			if desc {
+				return keys[i].ID > keys[j].ID
+			}
+			return keys[i].ID < keys[j].ID
+		}
+		if desc {
+			return keys[i].CurrentConcurrency > keys[j].CurrentConcurrency
+		}
+		return keys[i].CurrentConcurrency < keys[j].CurrentConcurrency
+	})
+}
+
+func paginateAPIKeys(keys []APIKey, params pagination.PaginationParams) []APIKey {
+	if len(keys) == 0 {
+		return []APIKey{}
+	}
+	limit := params.Limit()
+	page := params.Page
+	if page < 1 {
+		page = 1
+	}
+	offset := (page - 1) * limit
+	if offset >= len(keys) {
+		return []APIKey{}
+	}
+	end := offset + limit
+	if end > len(keys) {
+		end = len(keys)
+	}
+	return keys[offset:end]
+}
+
+func apiKeyPaginationResult(total int64, params pagination.PaginationParams) *pagination.PaginationResult {
+	limit := params.Limit()
+	pages := int(total) / limit
+	if int(total)%limit > 0 {
+		pages++
+	}
+	return &pagination.PaginationResult{
+		Total:    total,
+		Page:     params.Page,
+		PageSize: limit,
+		Pages:    pages,
+	}
+}
+
+func (s *APIKeyService) fillCurrentConcurrency(ctx context.Context, keys []APIKey) {
+	if s == nil || s.concurrencyService == nil || len(keys) == 0 {
+		return
+	}
+	ids := make([]int64, 0, len(keys))
+	for i := range keys {
+		if keys[i].ID > 0 {
+			ids = append(ids, keys[i].ID)
+		}
+	}
+	counts, err := s.concurrencyService.GetAPIKeyConcurrencyBatch(ctx, ids)
+	if err != nil {
+		return
+	}
+	for i := range keys {
+		keys[i].CurrentConcurrency = counts[keys[i].ID]
+	}
+}
+
+func (s *APIKeyService) currentConcurrencyForAPIKey(ctx context.Context, apiKeyID int64) int {
+	if s == nil || s.concurrencyService == nil || apiKeyID <= 0 {
+		return 0
+	}
+	counts, err := s.concurrencyService.GetAPIKeyConcurrencyBatch(ctx, []int64{apiKeyID})
+	if err != nil {
+		return 0
+	}
+	return counts[apiKeyID]
 }
 
 func (s *APIKeyService) VerifyOwnership(ctx context.Context, userID int64, apiKeyIDs []int64) ([]int64, error) {
@@ -478,285 +631,17 @@ func (s *APIKeyService) GetByID(ctx context.Context, id int64) (*APIKey, error) 
 		return nil, fmt.Errorf("get api key: %w", err)
 	}
 	s.compileAPIKeyIPRules(apiKey)
+	if apiKey != nil {
+		apiKey.CurrentConcurrency = s.currentConcurrencyForAPIKey(ctx, apiKey.ID)
+	}
 	return apiKey, nil
-}
-
-type CodexModelCatalogModel struct {
-	Slug                          string                            `json:"slug"`
-	DisplayName                   string                            `json:"display_name"`
-	Description                   string                            `json:"description"`
-	DefaultReasoningLevel         string                            `json:"default_reasoning_level"`
-	SupportedReasoningLevels      []CodexModelCatalogReasoningLevel `json:"supported_reasoning_levels"`
-	ShellType                     string                            `json:"shell_type"`
-	Visibility                    string                            `json:"visibility"`
-	SupportedInAPI                bool                              `json:"supported_in_api"`
-	Priority                      int                               `json:"priority"`
-	AdditionalSpeedTiers          []string                          `json:"additional_speed_tiers,omitempty"`
-	AvailabilityNUX               any                               `json:"availability_nux"`
-	Upgrade                       any                               `json:"upgrade"`
-	DefaultReasoningSummary       string                            `json:"default_reasoning_summary"`
-	SupportVerbosity              bool                              `json:"support_verbosity"`
-	DefaultVerbosity              string                            `json:"default_verbosity"`
-	ApplyPatchToolType            string                            `json:"apply_patch_tool_type"`
-	WebSearchToolType             string                            `json:"web_search_tool_type"`
-	TruncationPolicy              CodexModelCatalogTruncationPolicy `json:"truncation_policy"`
-	SupportsParallelToolCalls     bool                              `json:"supports_parallel_tool_calls"`
-	SupportsImageDetailOriginal   bool                              `json:"supports_image_detail_original"`
-	ContextWindow                 int                               `json:"context_window"`
-	MaxContextWindow              int                               `json:"max_context_window"`
-	EffectiveContextWindowPercent int                               `json:"effective_context_window_percent"`
-	ExperimentalSupportedTools    []any                             `json:"experimental_supported_tools"`
-	InputModalities               []string                          `json:"input_modalities"`
-	SupportsSearchTool            bool                              `json:"supports_search_tool"`
-	SupportsReasoningSummaries    bool                              `json:"supports_reasoning_summaries"`
-	BaseInstructions              string                            `json:"base_instructions"`
-	ModelMessages                 CodexModelCatalogModelMessages    `json:"model_messages"`
-}
-
-type CodexModelCatalogReasoningLevel struct {
-	Effort      string `json:"effort"`
-	Description string `json:"description"`
-}
-
-type CodexModelCatalogTruncationPolicy struct {
-	Mode  string `json:"mode"`
-	Limit int    `json:"limit"`
-}
-
-type CodexModelCatalogModelMessages struct {
-	InstructionsTemplate  string            `json:"instructions_template"`
-	InstructionsVariables map[string]string `json:"instructions_variables"`
-}
-
-type CodexModelCatalog struct {
-	Models []CodexModelCatalogModel `json:"models"`
-}
-
-// GetCodexModelCatalog returns a Codex model catalog derived from the
-// schedulable accounts visible through the API key's bound group.
-func (s *APIKeyService) GetCodexModelCatalog(ctx context.Context, id int64, userID int64) (*CodexModelCatalog, error) {
-	apiKey, err := s.apiKeyRepo.GetByID(ctx, id)
-	if err != nil {
-		return nil, fmt.Errorf("get api key: %w", err)
-	}
-	if apiKey.UserID != userID {
-		return nil, ErrInsufficientPerms
-	}
-	if apiKey.GroupID == nil || apiKey.Group == nil {
-		return &CodexModelCatalog{Models: []CodexModelCatalogModel{}}, nil
-	}
-	if s.accountRepo == nil {
-		return &CodexModelCatalog{Models: []CodexModelCatalogModel{}}, nil
-	}
-
-	platform := strings.TrimSpace(apiKey.Group.Platform)
-	if platform == "" {
-		return &CodexModelCatalog{Models: []CodexModelCatalogModel{}}, nil
-	}
-
-	var accounts []Account
-	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
-		accounts, err = s.accountRepo.ListSchedulableByPlatform(ctx, platform)
-	} else {
-		accounts, err = s.accountRepo.ListSchedulableByGroupIDAndPlatform(ctx, *apiKey.GroupID, platform)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("list schedulable accounts: %w", err)
-	}
-
-	models := codexCatalogModelsFromAccounts(accounts)
-	return &CodexModelCatalog{Models: models}, nil
-}
-
-func codexCatalogModelsFromAccounts(accounts []Account) []CodexModelCatalogModel {
-	seen := make(map[string]struct{})
-	slugs := make([]string, 0)
-	for i := range accounts {
-		for _, model := range codexCatalogCandidateModelsForAccount(&accounts[i]) {
-			model = strings.TrimSpace(model)
-			if !codexCatalogModelSlugAllowed(model) || !accounts[i].IsModelSupported(model) {
-				continue
-			}
-			if _, ok := seen[model]; ok {
-				continue
-			}
-			seen[model] = struct{}{}
-			slugs = append(slugs, model)
-		}
-
-		mapping := accounts[i].GetModelMapping()
-		for model := range mapping {
-			model = strings.TrimSpace(model)
-			if !codexCatalogModelSlugAllowed(model) {
-				continue
-			}
-			if _, ok := seen[model]; ok {
-				continue
-			}
-			seen[model] = struct{}{}
-			slugs = append(slugs, model)
-		}
-	}
-	sort.Strings(slugs)
-
-	const contextWindow = 272000
-	models := make([]CodexModelCatalogModel, 0, len(slugs))
-	for i, slug := range slugs {
-		displayName := codexCatalogDisplayName(slug)
-		models = append(models, CodexModelCatalogModel{
-			Slug:                          slug,
-			DisplayName:                   displayName,
-			Description:                   fmt.Sprintf("Custom %s model routed through the configured Codex provider.", displayName),
-			DefaultReasoningLevel:         "medium",
-			SupportedReasoningLevels:      codexCatalogSupportedReasoningLevels(),
-			ShellType:                     "shell_command",
-			Visibility:                    "list",
-			SupportedInAPI:                true,
-			Priority:                      1000 + i,
-			AdditionalSpeedTiers:          []string{"fast"},
-			AvailabilityNUX:               nil,
-			Upgrade:                       nil,
-			DefaultReasoningSummary:       "none",
-			SupportVerbosity:              true,
-			DefaultVerbosity:              "low",
-			ApplyPatchToolType:            "freeform",
-			WebSearchToolType:             "text_and_image",
-			TruncationPolicy:              CodexModelCatalogTruncationPolicy{Mode: "tokens", Limit: 10000},
-			SupportsParallelToolCalls:     true,
-			SupportsImageDetailOriginal:   true,
-			ContextWindow:                 contextWindow,
-			MaxContextWindow:              contextWindow,
-			EffectiveContextWindowPercent: 95,
-			ExperimentalSupportedTools:    []any{},
-			InputModalities:               []string{"text", "image"},
-			SupportsSearchTool:            true,
-			SupportsReasoningSummaries:    true,
-			BaseInstructions:              codexCatalogBaseInstructions,
-			ModelMessages:                 codexCatalogModelMessages(),
-		})
-	}
-	return models
-}
-
-const (
-	codexCatalogBaseInstructions = `You are Codex, a coding agent. You and the user share one workspace, and your job is to collaborate with them until their goal is genuinely handled.
-
-# Personality
-
-You are a deeply pragmatic, effective software engineer. You communicate directly, keep the user informed, and prioritize verifiable outcomes.
-
-# General
-
-Read the codebase before making assumptions. Prefer existing project patterns. Keep edits scoped. Verify changes with focused tests or commands when feasible.`
-
-	codexCatalogInstructionsTemplate = `You are Codex, a coding agent. You and the user share one workspace, and your job is to collaborate with them until their goal is genuinely handled.
-
-{{ personality }}
-
-# General
-
-Read the codebase before making assumptions. Prefer existing project patterns. Keep edits scoped. Verify changes with focused tests or commands when feasible.`
-
-	codexCatalogFriendlyPersonality = `# Personality
-
-You are warm, curious, and collaborative. You keep the user informed, ask good questions when context is missing, and become decisive once the path is clear.`
-
-	codexCatalogPragmaticPersonality = `# Personality
-
-You are a deeply pragmatic, effective software engineer. You communicate directly, keep the user informed, and prioritize verifiable outcomes.`
-)
-
-func codexCatalogModelMessages() CodexModelCatalogModelMessages {
-	return CodexModelCatalogModelMessages{
-		InstructionsTemplate: codexCatalogInstructionsTemplate,
-		InstructionsVariables: map[string]string{
-			"personality_default":   "",
-			"personality_friendly":  codexCatalogFriendlyPersonality,
-			"personality_pragmatic": codexCatalogPragmaticPersonality,
-		},
-	}
-}
-
-func codexCatalogSupportedReasoningLevels() []CodexModelCatalogReasoningLevel {
-	return []CodexModelCatalogReasoningLevel{
-		{Effort: "low", Description: "Fast responses with lighter reasoning"},
-		{Effort: "medium", Description: "Balances speed and reasoning depth for everyday tasks"},
-		{Effort: "high", Description: "Greater reasoning depth for complex problems"},
-		{Effort: "xhigh", Description: "Extra high reasoning depth for complex problems"},
-	}
-}
-
-func codexCatalogCandidateModelsForAccount(account *Account) []string {
-	if account == nil {
-		return nil
-	}
-	switch account.Platform {
-	case PlatformOpenAI:
-		return openai.DefaultModelIDs()
-	case PlatformGemini:
-		models := make([]string, 0, len(geminicli.DefaultModels))
-		for _, model := range geminicli.DefaultModels {
-			models = append(models, model.ID)
-		}
-		return models
-	case PlatformAntigravity:
-		models := antigravity.DefaultModels()
-		ids := make([]string, 0, len(models))
-		for _, model := range models {
-			ids = append(ids, model.ID)
-		}
-		return ids
-	case PlatformKiro:
-		models := make([]string, 0, len(kiro.DefaultModels))
-		for _, model := range kiro.DefaultModels {
-			models = append(models, model.ID)
-		}
-		return models
-	case PlatformAnthropic:
-		return claude.DefaultModelIDs()
-	default:
-		return nil
-	}
-}
-
-func codexCatalogModelSlugAllowed(model string) bool {
-	if model == "" || strings.Contains(model, "*") {
-		return false
-	}
-	return true
-}
-
-func codexCatalogDisplayName(slug string) string {
-	trimmed := strings.TrimSpace(slug)
-	if trimmed == "" {
-		return trimmed
-	}
-	parts := strings.FieldsFunc(trimmed, func(r rune) bool {
-		return r == '-' || r == '_' || r == ':' || r == '/'
-	})
-	for i := range parts {
-		if parts[i] == "" {
-			continue
-		}
-		lower := strings.ToLower(parts[i])
-		switch lower {
-		case "gpt", "api", "ai":
-			parts[i] = strings.ToUpper(lower)
-		default:
-			runes := []rune(lower)
-			runes[0] = []rune(strings.ToUpper(string(runes[0])))[0]
-			parts[i] = string(runes)
-		}
-	}
-	display := strings.Join(parts, " ")
-	if display == "" {
-		return trimmed
-	}
-	return display
 }
 
 // GetByKey 根据Key字符串获取API Key（用于认证）
 func (s *APIKeyService) GetByKey(ctx context.Context, key string) (*APIKey, error) {
+	if len(key) == 0 || len(key) > MaxAPIKeyCredentialBytes {
+		return nil, ErrAPIKeyNotFound
+	}
 	cacheKey := s.authCacheKey(key)
 
 	if entry, ok := s.getAuthCacheEntry(ctx, cacheKey); ok {
@@ -798,7 +683,7 @@ func (s *APIKeyService) GetByKey(ctx context.Context, key string) (*APIKey, erro
 		}
 	}
 
-	apiKey, err := s.apiKeyRepo.GetByKeyForAuth(ctx, key)
+	apiKey, err := s.lookupAPIKeyForAuth(ctx, key)
 	if err != nil {
 		return nil, fmt.Errorf("get api key: %w", err)
 	}
@@ -820,15 +705,15 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 	}
 
 	// 验证 IP 白名单格式
-	if len(req.IPWhitelist) > 0 {
-		if invalid := ip.ValidateIPPatterns(req.IPWhitelist); len(invalid) > 0 {
+	if req.IPWhitelist != nil && len(*req.IPWhitelist) > 0 {
+		if invalid := ip.ValidateIPPatterns(*req.IPWhitelist); len(invalid) > 0 {
 			return nil, fmt.Errorf("%w: %v", ErrInvalidIPPattern, invalid)
 		}
 	}
 
 	// 验证 IP 黑名单格式
-	if len(req.IPBlacklist) > 0 {
-		if invalid := ip.ValidateIPPatterns(req.IPBlacklist); len(invalid) > 0 {
+	if req.IPBlacklist != nil && len(*req.IPBlacklist) > 0 {
+		if invalid := ip.ValidateIPPatterns(*req.IPBlacklist); len(invalid) > 0 {
 			return nil, fmt.Errorf("%w: %v", ErrInvalidIPPattern, invalid)
 		}
 	}
@@ -836,17 +721,6 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 	// 更新字段
 	if req.Name != nil {
 		apiKey.Name = html.EscapeString(*req.Name)
-	}
-
-	if req.PersonalAccountScope != nil && *req.PersonalAccountScope && req.GroupID != nil {
-		return nil, ErrAPIKeyScopeConflict
-	}
-
-	if req.PersonalAccountScope != nil {
-		apiKey.PersonalAccountScope = *req.PersonalAccountScope
-		if *req.PersonalAccountScope {
-			apiKey.GroupID = nil
-		}
 	}
 
 	if req.GroupID != nil {
@@ -866,7 +740,6 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		}
 
 		apiKey.GroupID = req.GroupID
-		apiKey.PersonalAccountScope = false
 	}
 
 	if req.Status != nil {
@@ -880,8 +753,8 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 	// Update quota fields
 	if req.Quota != nil {
 		apiKey.Quota = *req.Quota
-		// If quota is increased and status was quota_exhausted, reactivate
-		if apiKey.Status == StatusAPIKeyQuotaExhausted && *req.Quota > apiKey.QuotaUsed {
+		// If quota now has room, or is changed to unlimited, reactivate exhausted keys.
+		if apiKey.Status == StatusAPIKeyQuotaExhausted && (*req.Quota <= 0 || *req.Quota > apiKey.QuotaUsed) {
 			apiKey.Status = StatusActive
 		}
 	}
@@ -906,9 +779,13 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		}
 	}
 
-	// 更新 IP 限制（空数组会清空设置）
-	apiKey.IPWhitelist = req.IPWhitelist
-	apiKey.IPBlacklist = req.IPBlacklist
+	// 更新 IP 限制（nil 不修改，空数组清空设置）
+	if req.IPWhitelist != nil {
+		apiKey.IPWhitelist = *req.IPWhitelist
+	}
+	if req.IPBlacklist != nil {
+		apiKey.IPBlacklist = *req.IPBlacklist
+	}
 
 	// Update rate limit configuration
 	if req.RateLimit5h != nil {

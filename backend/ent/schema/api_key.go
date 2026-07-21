@@ -44,9 +44,6 @@ func (APIKey) Fields() []ent.Field {
 		field.Int64("group_id").
 			Optional().
 			Nillable(),
-		field.Bool("personal_account_scope").
-			Default(false).
-			Comment("Dispatch this API key only to private accounts owned by the key user"),
 		field.String("status").
 			MaxLen(20).
 			Default(domain.StatusActive),

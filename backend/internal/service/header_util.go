@@ -143,27 +143,6 @@ func getHeaderRaw(h http.Header, key string) string {
 	return h.Get(key)
 }
 
-func getHeaderCI(h http.Header, key string) string {
-	if h == nil || key == "" {
-		return ""
-	}
-	if value := strings.TrimSpace(h.Get(key)); value != "" {
-		return value
-	}
-	lowerKey := strings.ToLower(key)
-	for actual, values := range h {
-		if !strings.EqualFold(actual, lowerKey) {
-			continue
-		}
-		for _, value := range values {
-			if trimmed := strings.TrimSpace(value); trimmed != "" {
-				return trimmed
-			}
-		}
-	}
-	return ""
-}
-
 // sortHeadersByWireOrder 按照真实 Claude CLI 的 header 顺序返回排序后的 key 列表。
 // 在 headerWireOrder 中定义的 key 按其顺序排列，未定义的 key 追加到末尾。
 func sortHeadersByWireOrder(h http.Header) []string {

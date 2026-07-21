@@ -68,6 +68,15 @@
           color="purple"
         />
 
+        <!-- 7d Fable Window (7d_oi) -->
+        <UsageProgressBar
+          v-if="usageInfo.seven_day_fable"
+          label="7d F"
+          :utilization="usageInfo.seven_day_fable.utilization"
+          :resets-at="usageInfo.seven_day_fable.resets_at"
+          color="amber"
+        />
+
         <!-- Passive sampling label + active query button -->
         <div class="flex items-center gap-1.5 mt-0.5">
           <span
@@ -102,7 +111,11 @@
       </div>
 
       <!-- No data yet -->
-      <div v-else class="text-xs text-gray-400">-</div>
+      <div v-else class="space-y-1">
+        <div class="text-xs text-gray-400">-</div>
+        <!-- Always allow on-demand upstream quota probe, even before passive headers exist. -->
+        <GrokQuotaProbeCell :account="account" />
+      </div>
     </template>
 
     <!-- OpenAI OAuth accounts: single source from /usage API -->
@@ -126,30 +139,37 @@
           :show-now-when-idle="true"
           color="emerald"
         />
-        <div class="flex items-center gap-1.5 mt-0.5">
-          <button
-            type="button"
-            class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[9px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors"
-            :disabled="activeQueryLoading"
-            @click="loadActiveUsage"
-          >
-            <svg
-              class="h-2.5 w-2.5"
-              :class="{ 'animate-spin': activeQueryLoading }"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
+        <!--
+          Upstream codex /wham/usage quota query + reset. The local active-sampling
+          refresh button is rendered via the pre-actions slot so the user sees a
+          single row of related buttons instead of two stacked rows.
+        -->
+        <OpenAIQuotaResetCell :account="account">
+          <template #pre-actions>
+            <button
+              type="button"
+              class="inline-flex items-center gap-0.5 rounded px-1.5 py-0.5 text-[10px] font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="activeQueryLoading"
+              @click="loadActiveUsage"
             >
-              <path
-                stroke-linecap="round"
-                stroke-linejoin="round"
-                stroke-width="2"
-                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-              />
-            </svg>
-            {{ t('admin.accounts.usageWindow.activeQuery') }}
-          </button>
-        </div>
+              <svg
+                class="h-2.5 w-2.5"
+                :class="{ 'animate-spin': activeQueryLoading }"
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                  stroke-width="2"
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+                />
+              </svg>
+              {{ t('admin.accounts.usageWindow.activeQuery') }}
+            </button>
+          </template>
+        </OpenAIQuotaResetCell>
       </div>
       <div v-else-if="loading" class="space-y-1.5">
         <div class="flex items-center gap-1">
@@ -163,7 +183,11 @@
           <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
         </div>
       </div>
-      <div v-else class="text-xs text-gray-400">-</div>
+      <div v-else>
+        <div class="text-xs text-gray-400">-</div>
+        <!-- Always allow on-demand upstream quota query, even before local data exists. -->
+        <OpenAIQuotaResetCell :account="account" class="mt-1" />
+      </div>
     </template>
 
     <!-- Antigravity OAuth accounts: fetch usage from API -->
@@ -309,6 +333,103 @@
       <div v-else class="text-xs text-gray-400">-</div>
     </template>
 
+    <!-- Grok OAuth accounts: passive xAI quota headers + local Sub2API usage -->
+    <template v-else-if="account.platform === 'grok' && account.type === 'oauth'">
+      <div v-if="loading" class="space-y-1.5">
+        <div class="flex items-center gap-1">
+          <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
+          <div class="h-1.5 w-8 animate-pulse rounded-full bg-gray-200 dark:bg-gray-700"></div>
+          <div class="h-3 w-[32px] animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
+        </div>
+      </div>
+      <div v-else-if="error" class="text-xs text-red-500">
+        {{ error }}
+      </div>
+      <div v-else-if="needsReauth" class="space-y-1">
+        <span class="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300">
+          {{ t('admin.accounts.needsReauth') }}
+        </span>
+      </div>
+      <div v-else-if="isForbidden" class="space-y-1">
+        <span class="inline-block rounded px-1.5 py-0.5 text-[10px] font-medium bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">
+          {{ grokEntitlementLabel || t('admin.accounts.forbidden') }}
+        </span>
+      </div>
+      <div v-else-if="usageInfo" class="space-y-1">
+        <div v-if="grokEntitlementLabel" class="mb-0.5">
+          <span class="inline-block rounded bg-zinc-100 px-1.5 py-0.5 text-[10px] font-medium text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200">
+            {{ grokEntitlementLabel }}
+          </span>
+        </div>
+        <div v-if="grokLocalUsage" class="mb-0.5 flex items-center">
+          <div class="flex items-center gap-1.5 text-[9px] text-gray-500 dark:text-gray-400">
+            <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
+              {{ formatWindowRequests(grokLocalUsage) }} req
+            </span>
+            <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
+              {{ formatWindowTokens(grokLocalUsage) }}
+            </span>
+            <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800" :title="t('usage.accountBilled')">
+              A ${{ formatWindowCost(grokLocalUsage) }}
+            </span>
+            <span
+              v-if="grokLocalUsage.user_cost != null"
+              class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800"
+              :title="t('usage.userBilled')"
+            >
+              U ${{ formatWindowUserCost(grokLocalUsage) }}
+            </span>
+          </div>
+        </div>
+        <UsageProgressBar
+          v-if="grokWeeklyBillingBar"
+          label="7d"
+          :utilization="grokWeeklyBillingBar.utilization"
+          :resets-at="grokWeeklyBillingBar.resetsAt"
+          :show-now-when-idle="true"
+          color="indigo"
+        />
+        <UsageProgressBar
+          v-if="!grokWeeklyBillingBar && !grokIsFree && grokRequestQuotaBar"
+          :label="t('admin.accounts.usageWindow.grokRequests')"
+          :utilization="grokRequestQuotaBar.utilization"
+          :resets-at="grokRequestQuotaBar.resetsAt"
+          :remaining-capacity="true"
+          color="indigo"
+        />
+        <UsageProgressBar
+          v-if="!grokWeeklyBillingBar && !grokIsFree && grokTokenQuotaBar"
+          :label="t('admin.accounts.usageWindow.grokTokens')"
+          :utilization="grokTokenQuotaBar.utilization"
+          :resets-at="grokTokenQuotaBar.resetsAt"
+          :remaining-capacity="true"
+          color="emerald"
+        />
+        <UsageProgressBar
+          v-if="grokFreeTokenBar"
+          label="24h"
+          :title="t('admin.accounts.usageWindow.grokFreeQuota24hHint', { limit: formatCompactNumber(grokFreeTokenBar.limit) })"
+          :utilization="grokFreeTokenBar.utilization"
+          :show-now-when-idle="true"
+          color="emerald"
+        />
+        <div v-if="grokRetryAfterLabel" class="text-[10px] text-amber-600 dark:text-amber-400">
+          {{ t('admin.accounts.usageWindow.grokRetryAfter', { time: grokRetryAfterLabel }) }}
+        </div>
+        <div v-if="grokQuotaUnknown" class="text-[10px] text-gray-500 dark:text-gray-400">
+          {{ grokQuotaUnknownLabel }}
+        </div>
+        <div v-else-if="usageInfo.error" class="truncate text-xs text-amber-600 dark:text-amber-400 max-w-[200px]" :title="usageInfo.error">
+          {{ usageErrorLabel }}
+        </div>
+        <div v-if="grokQuotaStatusLine" class="text-[10px] text-gray-500 dark:text-gray-400">
+          {{ grokQuotaStatusLine }}
+        </div>
+        <GrokQuotaProbeCell :account="account" @probed="handleGrokProbed" />
+      </div>
+      <div v-else class="text-xs text-gray-400">-</div>
+    </template>
+
     <!-- Gemini platform: show quota + local usage window -->
     <template v-else-if="account.platform === 'gemini'">
       <!-- Auth Type + Tier Badge (first line) -->
@@ -419,72 +540,6 @@
       </div>
     </template>
 
-    <!-- Kiro platform: show credits + bonus + overage summary -->
-    <template v-else-if="account.platform === 'kiro' && account.type === 'oauth'">
-      <div v-if="loading" class="space-y-1.5">
-        <div class="h-4 w-24 animate-pulse rounded bg-gray-200 dark:bg-gray-700"></div>
-        <div class="space-y-1">
-          <div class="h-1.5 w-32 animate-pulse rounded-full bg-gray-200 dark:bg-gray-700"></div>
-          <div class="h-1.5 w-28 animate-pulse rounded-full bg-gray-200 dark:bg-gray-700"></div>
-        </div>
-      </div>
-      <div v-else-if="error" class="text-xs text-red-500">
-        {{ error }}
-      </div>
-      <div v-else-if="kiroUsageAvailable || kiroStatusBadgeLabel" class="space-y-2">
-        <div v-if="kiroStatusBadgeLabel" class="flex flex-wrap items-center gap-x-2 gap-y-1">
-          <span
-            :class="[
-              'inline-flex items-center gap-1 text-[10px] font-medium',
-              kiroStatusToneClass
-            ]"
-            :title="usageInfo?.error || undefined"
-          >
-            <span class="h-1.5 w-1.5 rounded-full bg-current opacity-80"></span>
-            {{ kiroStatusBadgeLabel }}
-          </span>
-        </div>
-
-        <div v-if="kiroStatusHint" class="text-[9px] leading-tight text-gray-500 dark:text-gray-400">
-          {{ kiroStatusHint }}
-        </div>
-
-        <div v-if="usageInfo?.kiro_credit" class="space-y-1">
-          <div class="flex items-baseline justify-between gap-2 text-[11px] text-gray-600 dark:text-gray-300">
-            <span class="font-medium tracking-[0.01em]">{{ t('admin.accounts.usageWindow.kiroCredits') }}</span>
-            <span class="font-semibold tabular-nums text-gray-700 dark:text-gray-200">{{ formatKiroAmount(usageInfo.kiro_credit.current_usage) }} / {{ formatKiroAmount(usageInfo.kiro_credit.usage_limit) }}</span>
-          </div>
-          <div class="h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
-            <div class="h-full rounded-full bg-amber-500 transition-all" :style="{ width: `${kiroCreditPercent}%` }"></div>
-          </div>
-        </div>
-
-        <div v-if="usageInfo?.kiro_bonus" class="space-y-1">
-          <div class="flex items-baseline justify-between gap-2 text-[11px] text-gray-600 dark:text-gray-300">
-            <span class="font-medium tracking-[0.01em]">{{ t('admin.accounts.usageWindow.kiroBonus') }}</span>
-            <span class="font-semibold tabular-nums text-gray-700 dark:text-gray-200">{{ formatKiroAmount(usageInfo.kiro_bonus.current_usage) }} / {{ formatKiroAmount(usageInfo.kiro_bonus.usage_limit) }}</span>
-          </div>
-          <div class="h-1.5 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
-            <div class="h-full rounded-full bg-emerald-500 transition-all" :style="{ width: `${kiroBonusPercent}%` }"></div>
-          </div>
-          <div v-if="kiroBonusMeta" class="text-[9px] leading-tight text-gray-500 dark:text-gray-400">
-            {{ kiroBonusMeta }}
-          </div>
-        </div>
-
-        <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-gray-500 dark:text-gray-400">
-          <span v-if="kiroResetDisplay" class="inline-flex items-center gap-1">
-            <span class="text-gray-400 dark:text-gray-500">{{ t('admin.accounts.usageWindow.kiroReset') }}</span>
-            <span class="font-medium tabular-nums text-gray-600 dark:text-gray-300">{{ kiroResetDisplay }}</span>
-          </span>
-          <span v-if="kiroOverageSummary" class="inline-flex items-center gap-1 font-medium">
-            {{ kiroOverageSummary }}
-          </span>
-        </div>
-      </div>
-      <div v-else class="text-xs text-gray-400">-</div>
-    </template>
-
     <!-- Other accounts: no usage window -->
     <template v-else>
       <div class="text-xs text-gray-400">-</div>
@@ -563,12 +618,15 @@
 import { ref, computed, onMounted, onBeforeUnmount, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
+import type { GrokQuotaProbeResult } from '@/api/admin/grok'
 import type { Account, AccountUsageInfo, GeminiCredentials, WindowStats } from '@/types'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { enqueueUsageRequest } from '@/utils/usageLoadQueue'
-import { formatCompactNumber } from '@/utils/format'
+import { formatCompactNumber, formatRelativeTime } from '@/utils/format'
 import UsageProgressBar from './UsageProgressBar.vue'
 import AccountQuotaInfo from './AccountQuotaInfo.vue'
+import OpenAIQuotaResetCell from './OpenAIQuotaResetCell.vue'
+import GrokQuotaProbeCell from './GrokQuotaProbeCell.vue'
 
 // Module-level cache shared across all AccountUsageCell instances
 const _usageCache = new Map<number, { data: AccountUsageInfo; ts: number }>()
@@ -588,10 +646,6 @@ const props = withDefaults(
   }
 )
 
-const emit = defineEmits<{
-  kiroUsageMeta: [meta: { plan_type?: string; kiro_overages_enabled: boolean }]
-}>()
-
 const { t } = useI18n()
 const desktopViewportQuery = '(min-width: 768px)'
 
@@ -604,9 +658,7 @@ const error = ref<string | null>(null)
 const usageInfo = ref<AccountUsageInfo | null>(null)
 const rootRef = ref<HTMLElement | null>(null)
 const isDesktopViewport = ref(
-  typeof window === 'undefined' || typeof window.matchMedia !== 'function'
-    ? true
-    : window.matchMedia(desktopViewportQuery).matches
+  typeof window === 'undefined' ? true : window.matchMedia(desktopViewportQuery).matches
 )
 const hasEnteredViewport = ref(false)
 const pendingAutoLoad = ref(false)
@@ -627,13 +679,13 @@ const shouldFetchUsage = computed(() => {
   if (props.account.platform === 'anthropic') {
     return props.account.type === 'oauth' || props.account.type === 'setup-token'
   }
-  if (props.account.platform === 'kiro') {
-    return props.account.type === 'oauth'
-  }
   if (props.account.platform === 'gemini') {
     return true
   }
   if (props.account.platform === 'antigravity') {
+    return props.account.type === 'oauth'
+  }
+  if (props.account.platform === 'grok') {
     return props.account.type === 'oauth'
   }
   if (props.account.platform === 'openai') {
@@ -737,6 +789,7 @@ const antigravity3ImageUsageFromAPI = computed(() =>
 // Claude from API (all Claude model variants)
 const antigravityClaudeUsageFromAPI = computed(() =>
   getAntigravityUsageFromAPI([
+    'claude-fable-5',
     'claude-sonnet-4-5', 'claude-opus-4-5-thinking',
     'claude-sonnet-4-6', 'claude-opus-4-6', 'claude-opus-4-6-thinking',
     'claude-opus-4-7', 'claude-opus-4-8',
@@ -995,6 +1048,123 @@ const geminiUsageBars = computed(() => {
   return bars
 })
 
+interface GrokQuotaBarInfo {
+  utilization: number
+  resetsAt: string | null
+}
+
+const makeGrokQuotaBar = (quota?: { limit?: number | null; remaining?: number | null; reset_at?: string | null } | null): GrokQuotaBarInfo | null => {
+  if (!quota || quota.limit == null || quota.remaining == null || quota.limit <= 0) return null
+  const remaining = Math.min(quota.limit, Math.max(0, quota.remaining))
+  return {
+    utilization: (remaining / quota.limit) * 100,
+    resetsAt: quota.reset_at || null
+  }
+}
+
+const grokRequestQuotaBar = computed(() => makeGrokQuotaBar(usageInfo.value?.grok_request_quota))
+const grokTokenQuotaBar = computed(() => makeGrokQuotaBar(usageInfo.value?.grok_token_quota))
+const grokBilling = computed(() => usageInfo.value?.grok_billing || null)
+const grokWeeklyBillingBar = computed((): GrokQuotaBarInfo | null => {
+  const billing = grokBilling.value
+  if (billing?.period_type?.toLowerCase() !== 'weekly' || billing.usage_percent == null) {
+    return null
+  }
+  return {
+    utilization: Math.min(100, Math.max(0, billing.usage_percent)),
+    resetsAt: billing.period_end || null
+  }
+})
+const grokPlanLabelIsFree = (value: string) => value.includes('free') || value.includes('basic')
+const grokPlanLabelIsPaid = (value: string) => {
+  return value !== '' && !grokPlanLabelIsFree(value) && !value.includes('unknown')
+}
+const grokIsFree = computed(() => {
+  if (props.account.platform !== 'grok' || props.account.type !== 'oauth') return false
+  const billing = grokBilling.value
+  if (
+    billing?.usage_percent != null ||
+    billing?.used_percent != null ||
+    (billing?.monthly_limit_cents != null && billing.monthly_limit_cents > 0)
+  ) return false
+
+  const plan = (billing?.plan || '').trim().toLowerCase()
+  const tier = (usageInfo.value?.subscription_tier || '').trim().toLowerCase()
+  const entitlement = (usageInfo.value?.grok_entitlement_status || '').toLowerCase()
+  if (grokPlanLabelIsPaid(plan) || grokPlanLabelIsPaid(tier)) return false
+  if (
+    grokPlanLabelIsFree(plan) ||
+    grokPlanLabelIsFree(tier) ||
+    grokPlanLabelIsFree(entitlement)
+  ) return true
+  return billing != null
+})
+const grokFreeQuotaUsage = computed(() => usageInfo.value?.grok_local_usage_24h || null)
+const grokLocalUsage = computed(() => {
+  if (grokIsFree.value) return grokFreeQuotaUsage.value
+  return props.todayStats ||
+    usageInfo.value?.grok_local_usage ||
+    usageInfo.value?.grok_local_usage_7d ||
+    usageInfo.value?.grok_local_usage_monthly ||
+    null
+})
+const grokFreeTokenBar = computed(() => {
+  if (!grokIsFree.value || !grokFreeQuotaUsage.value) return null
+  const limit = usageInfo.value?.grok_free_token_limit
+  if (typeof limit !== 'number' || limit <= 0) return null
+  const used = Math.max(0, grokFreeQuotaUsage.value.tokens || 0)
+  return { utilization: Math.min(100, (used / limit) * 100), limit }
+})
+const grokQuotaUnknown = computed(() => {
+  if (props.account.platform !== 'grok') return false
+  if (grokBilling.value || grokFreeTokenBar.value || grokRequestQuotaBar.value || grokTokenQuotaBar.value) return false
+  return usageInfo.value?.grok_quota_snapshot_state !== 'observed'
+})
+const grokQuotaUnknownLabel = computed(() => {
+  return usageInfo.value?.grok_quota_snapshot_state === 'no_headers'
+    ? t('admin.accounts.usageWindow.grokNoHeaders')
+    : t('admin.accounts.usageWindow.grokUnknown')
+})
+const grokQuotaStatusLine = computed(() => {
+  if (props.account.platform !== 'grok') return null
+  const parts: string[] = []
+  const status = usageInfo.value?.grok_last_status_code
+  if (status) {
+    parts.push(t('admin.accounts.usageWindow.grokLastStatus', { status }))
+  }
+  if (usageInfo.value?.grok_last_quota_probe_at) {
+    parts.push(
+      t('admin.accounts.usageWindow.grokLastProbe', {
+        time: formatRelativeTime(usageInfo.value.grok_last_quota_probe_at)
+      })
+    )
+  }
+  if (usageInfo.value?.grok_last_headers_seen_at) {
+    parts.push(
+      t('admin.accounts.usageWindow.grokLastHeadersSeen', {
+        time: formatRelativeTime(usageInfo.value.grok_last_headers_seen_at)
+      })
+    )
+  }
+  return parts.length > 0 ? parts.join(' | ') : null
+})
+const grokEntitlementLabel = computed(() => {
+  const status = (usageInfo.value?.grok_entitlement_status || '').trim()
+  return status || null
+})
+const grokRetryAfterLabel = computed(() => {
+  const seconds = usageInfo.value?.grok_retry_after_seconds
+  if (seconds == null || seconds <= 0) return null
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.ceil(seconds / 60)
+  return `${minutes}m`
+})
+
+const formatWindowRequests = (stats: WindowStats) => formatCompactNumber(stats.requests, { allowBillions: false })
+const formatWindowTokens = (stats: WindowStats) => formatCompactNumber(stats.tokens)
+const formatWindowCost = (stats: WindowStats) => stats.cost.toFixed(2)
+const formatWindowUserCost = (stats: WindowStats) => (stats.user_cost ?? 0).toFixed(2)
+
 // 账户类型显示标签
 const antigravityTierLabel = computed(() => {
   switch (antigravityTier.value) {
@@ -1084,179 +1254,6 @@ const isAnthropicOAuthOrSetupToken = computed(() => {
   return props.account.platform === 'anthropic' && (props.account.type === 'oauth' || props.account.type === 'setup-token')
 })
 
-const isKiroOAuth = computed(() => {
-  return props.account.platform === 'kiro' && props.account.type === 'oauth'
-})
-
-const defaultUsageSource = computed<'passive' | 'active' | undefined>(() => {
-  if (isAnthropicOAuthOrSetupToken.value || isKiroOAuth.value) {
-    return 'passive'
-  }
-  return undefined
-})
-
-const manualRefreshUsageSource = computed<'passive' | 'active' | undefined>(() => {
-  if (isKiroOAuth.value) {
-    return 'active'
-  }
-  return defaultUsageSource.value
-})
-
-const kiroUsageAvailable = computed(() => {
-  return !!(
-    usageInfo.value?.kiro_credit ||
-    usageInfo.value?.kiro_bonus ||
-    usageInfo.value?.kiro_overage ||
-    usageInfo.value?.kiro_reset_at ||
-    usageInfo.value?.kiro_overages_enabled
-  )
-})
-
-const syncKiroUsageMeta = (info?: AccountUsageInfo | null) => {
-  if (!isKiroOAuth.value) return
-
-  const planType = (
-    info?.kiro_subscription_name ||
-    info?.kiro_subscription_type ||
-    ''
-  ).trim()
-
-  emit('kiroUsageMeta', {
-    ...(planType ? { plan_type: planType } : {}),
-    kiro_overages_enabled: info?.kiro_overages_enabled === true
-  })
-}
-
-const clampPercent = (value?: number | null) => {
-  if (value == null || !Number.isFinite(value)) return 0
-  return Math.max(0, Math.min(100, value))
-}
-
-const kiroCreditPercent = computed(() => clampPercent(usageInfo.value?.kiro_credit?.percentage_used))
-const kiroBonusPercent = computed(() => clampPercent(usageInfo.value?.kiro_bonus?.percentage_used))
-
-const formatKiroAmount = (value?: number | null) => {
-  if (value == null || !Number.isFinite(value)) return '0'
-  if (Math.abs(value) >= 1000 || Number.isInteger(value)) {
-    return formatCompactNumber(value, { allowBillions: false })
-  }
-  return value.toFixed(2).replace(/\.?0+$/, '')
-}
-
-const kiroResetDisplay = computed(() => {
-  const raw = usageInfo.value?.kiro_reset_at
-  if (!raw) return ''
-  const parsed = new Date(raw)
-  if (Number.isNaN(parsed.getTime())) return ''
-  return parsed.toLocaleDateString()
-})
-
-const kiroBonusMeta = computed(() => {
-  const bonus = usageInfo.value?.kiro_bonus
-  if (!bonus) return ''
-  if ((bonus.days_remaining ?? 0) > 0) {
-    return t('admin.accounts.usageWindow.kiroDaysLeft', { days: bonus.days_remaining })
-  }
-  if (bonus.expiry_date) {
-    const parsed = new Date(bonus.expiry_date)
-    if (!Number.isNaN(parsed.getTime())) {
-      return `${t('admin.accounts.usageWindow.kiroExpires')} ${parsed.toLocaleDateString()}`
-    }
-  }
-  return ''
-})
-
-const kiroRuntimeResetDisplay = computed(() => {
-  const raw = usageInfo.value?.kiro_runtime_reset_at
-  if (!raw) return ''
-  const parsed = new Date(raw)
-  if (Number.isNaN(parsed.getTime())) return ''
-  return parsed.toLocaleString()
-})
-
-const kiroQuotaResetDisplay = computed(() => {
-  const raw = usageInfo.value?.kiro_quota_reset_at
-  if (!raw) return ''
-  const parsed = new Date(raw)
-  if (Number.isNaN(parsed.getTime())) return ''
-  return parsed.toLocaleString()
-})
-
-const isKiroProfileError = computed(() => {
-  if (!isKiroOAuth.value) return false
-  const err = (usageInfo.value?.error || '').toLowerCase()
-  return err.includes('profilearn is required') ||
-    (err.includes('profile arn') && err.includes('required')) ||
-    err.includes('profilearn') ||
-    err.includes('listavailableprofiles')
-})
-
-const isKiroUsageForbidden = computed(() => {
-  if (!isKiroOAuth.value) return false
-  return usageInfo.value?.error_code === 'forbidden' && !usageInfo.value?.needs_reauth && !isKiroProfileError.value
-})
-
-const kiroQuotaState = computed(() => usageInfo.value?.kiro_quota_state || '')
-
-const kiroStatusBadgeLabel = computed(() => {
-  const runtimeState = usageInfo.value?.kiro_runtime_state
-  if (runtimeState === 'suspended') return t('admin.accounts.forbidden')
-  if (runtimeState === 'cooldown') return t('admin.accounts.status.rateLimited')
-  if (usageInfo.value?.needs_reauth) return t('admin.accounts.needsReauth')
-  if (isKiroProfileError.value) return t('admin.accounts.usageError')
-  if (isKiroUsageForbidden.value) return t('admin.accounts.forbidden')
-  if (kiroQuotaState.value === 'overage_active') return t('admin.accounts.status.overageActive')
-  if (kiroQuotaState.value === 'credits_exhausted') return t('admin.accounts.status.creditsExhausted')
-  if (kiroQuotaState.value === 'overage_exhausted') return t('admin.accounts.status.overageExhausted')
-  return ''
-})
-
-const kiroStatusToneClass = computed(() => {
-  const runtimeState = usageInfo.value?.kiro_runtime_state
-  if (runtimeState === 'suspended') return 'text-red-700 dark:text-red-300'
-  if (runtimeState === 'cooldown') return 'text-amber-700 dark:text-amber-300'
-  if (usageInfo.value?.needs_reauth) return 'text-orange-700 dark:text-orange-300'
-  if (isKiroProfileError.value) return 'text-yellow-700 dark:text-yellow-300'
-  if (isKiroUsageForbidden.value) return 'text-rose-700 dark:text-rose-300'
-  if (kiroQuotaState.value === 'overage_active') return 'text-amber-700 dark:text-amber-300'
-  if (kiroQuotaState.value === 'credits_exhausted' || kiroQuotaState.value === 'overage_exhausted') {
-    return 'text-red-700 dark:text-red-300'
-  }
-  return 'text-gray-600 dark:text-gray-300'
-})
-
-const kiroStatusHint = computed(() => {
-  const runtimeState = usageInfo.value?.kiro_runtime_state
-  if (runtimeState === 'cooldown' && kiroRuntimeResetDisplay.value) {
-    return t('admin.accounts.status.rateLimitedUntil', { time: kiroRuntimeResetDisplay.value })
-  }
-  if (kiroQuotaState.value === 'credits_exhausted' && kiroQuotaResetDisplay.value) {
-    return t('admin.accounts.status.creditsExhaustedUntil', { time: kiroQuotaResetDisplay.value })
-  }
-  if (kiroQuotaState.value === 'overage_exhausted' && kiroQuotaResetDisplay.value) {
-    return t('admin.accounts.status.overageExhaustedUntil', { time: kiroQuotaResetDisplay.value })
-  }
-  return ''
-})
-
-const kiroOverageSummary = computed(() => {
-  const overage = usageInfo.value?.kiro_overage
-  if (!overage) return ''
-  const hasOverageCount = (overage.current_overages ?? 0) > 0
-  const hasCharges = (overage.overage_charges ?? 0) > 0
-  if (!hasOverageCount && !hasCharges) return ''
-
-  const parts: string[] = [t('admin.accounts.usageWindow.kiroOverage')]
-  if (hasOverageCount) {
-    parts.push(formatKiroAmount(overage.current_overages))
-  }
-  if (hasCharges) {
-    const symbol = overage.currency_symbol || overage.currency_code || ''
-    parts.push(`(${symbol}${(overage.overage_charges ?? 0).toFixed(2)})`)
-  }
-  return parts.join(' ')
-})
-
 const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?: boolean }) => {
   if (!shouldFetchUsage.value) return
 
@@ -1265,7 +1262,6 @@ const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?
     const cached = _usageCache.get(props.account.id)
     if (cached && Date.now() - cached.ts < USAGE_CACHE_TTL) {
       usageInfo.value = cached.data
-      syncKiroUsageMeta(cached.data)
       loading.value = false
       return
     }
@@ -1281,7 +1277,6 @@ const loadUsage = async (options?: { source?: 'passive' | 'active'; bypassCache?
     const result = await enqueueUsageRequest(props.account, fetchFn)
     if (!unmounted.value) {
       usageInfo.value = result
-      syncKiroUsageMeta(result)
       _usageCache.set(props.account.id, { data: result, ts: Date.now() })
     }
   } catch (e: any) {
@@ -1347,15 +1342,62 @@ const attachVisibilityObserver = () => {
 const loadActiveUsage = async () => {
   activeQueryLoading.value = true
   try {
-    const result = await adminAPI.accounts.getUsage(props.account.id, 'active', true)
-    usageInfo.value = result
-    syncKiroUsageMeta(result)
-    _usageCache.set(props.account.id, { data: result, ts: Date.now() })
+    usageInfo.value = await adminAPI.accounts.getUsage(props.account.id, 'active', true)
   } catch (e: any) {
     console.error('Failed to load active usage:', e)
   } finally {
     activeQueryLoading.value = false
   }
+}
+
+const handleGrokProbed = (result: GrokQuotaProbeResult) => {
+  const current = usageInfo.value
+  if (!current) return
+  const snapshot = result.snapshot
+  const statusCode = snapshot?.status_code ?? result.status_code
+  const hasActiveProbeSnapshot = snapshot != null && (
+    result.source === 'active_probe' ||
+    result.source === 'hybrid_probe' ||
+    snapshot.observation_source === 'active_probe'
+  )
+  const probeSucceeded = hasActiveProbeSnapshot &&
+    statusCode != null && statusCode >= 200 && statusCode < 300
+  const snapshotEntitlement = snapshot?.entitlement_status?.trim()
+  const currentEntitlement = current.grok_entitlement_status?.trim()
+  const entitlementStatus = snapshotEntitlement || (
+    probeSucceeded && currentEntitlement?.toLowerCase() === 'forbidden'
+      ? undefined
+      : current.grok_entitlement_status
+  )
+  const merged: AccountUsageInfo = {
+    ...current,
+    grok_billing: result.billing ?? current.grok_billing,
+    grok_local_usage_24h: result.local_usage_24h ?? current.grok_local_usage_24h,
+    grok_local_usage_7d: result.local_usage_7d ?? current.grok_local_usage_7d,
+    grok_local_usage_monthly: result.local_usage_monthly ?? current.grok_local_usage_monthly,
+    grok_request_quota: snapshot?.requests ?? current.grok_request_quota,
+    grok_token_quota: snapshot?.tokens ?? current.grok_token_quota,
+    grok_retry_after_seconds: snapshot?.retry_after_seconds ?? current.grok_retry_after_seconds,
+    grok_entitlement_status: entitlementStatus,
+    grok_quota_snapshot_state: result.billing
+      ? 'billing_observed'
+      : snapshot?.headers_observed
+        ? 'observed'
+        : current.grok_quota_snapshot_state,
+    grok_last_quota_probe_at: result.billing?.fetched_at ?? snapshot?.last_probe_at ?? current.grok_last_quota_probe_at,
+    grok_last_headers_seen_at: snapshot?.last_headers_seen_at ?? current.grok_last_headers_seen_at,
+    grok_last_status_code: result.status_code ?? snapshot?.status_code ?? current.grok_last_status_code,
+    is_forbidden: probeSucceeded ? false : current.is_forbidden,
+    forbidden_reason: probeSucceeded ? undefined : current.forbidden_reason,
+    forbidden_type: probeSucceeded ? undefined : current.forbidden_type,
+    validation_url: probeSucceeded ? undefined : current.validation_url,
+    needs_verify: probeSucceeded ? false : current.needs_verify,
+    is_banned: probeSucceeded ? false : current.is_banned,
+    error: result.billing || snapshot ? undefined : current.error,
+    error_code: result.billing || snapshot ? undefined : current.error_code
+  }
+  usageInfo.value = merged
+  _usageCache.set(props.account.id, { data: merged, ts: Date.now() })
 }
 
 // ===== API Key quota progress bars =====
@@ -1446,7 +1488,7 @@ const formatKeyUserCost = computed(() => {
 })
 
 onMounted(() => {
-  if (typeof window !== 'undefined' && typeof window.matchMedia === 'function') {
+  if (typeof window !== 'undefined') {
     desktopViewportMediaQuery = window.matchMedia(desktopViewportQuery)
     isDesktopViewport.value = desktopViewportMediaQuery.matches
     desktopViewportListener = (event: MediaQueryListEvent) => {
@@ -1460,7 +1502,8 @@ onMounted(() => {
   }
 
   if (!shouldAutoLoadUsageOnMount.value) return
-  requestAutoLoad(defaultUsageSource.value)
+  const source = isAnthropicOAuthOrSetupToken.value ? 'passive' : undefined
+  requestAutoLoad(source)
 })
 
 watch(openAIUsageRefreshKey, (nextKey, prevKey) => {
@@ -1468,9 +1511,7 @@ watch(openAIUsageRefreshKey, (nextKey, prevKey) => {
   if (props.account.platform !== 'openai' || props.account.type !== 'oauth') return
 
   _usageCache.delete(props.account.id)
-  loadUsage({ bypassCache: true }).catch((e) => {
-    console.error('Failed to reload OpenAI usage after row refresh:', e)
-  })
+  requestAutoLoad()
 })
 
 watch(
@@ -1479,8 +1520,9 @@ watch(
     if (nextToken === prevToken) return
     if (!shouldFetchUsage.value) return
 
+    const source = isAnthropicOAuthOrSetupToken.value ? 'passive' : undefined
     _usageCache.delete(props.account.id)
-    loadUsage({ source: manualRefreshUsageSource.value, bypassCache: true }).catch((e) => {
+    loadUsage({ source, bypassCache: true }).catch((e) => {
       console.error('Failed to refresh usage after manual refresh:', e)
     })
   }

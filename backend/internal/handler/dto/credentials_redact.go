@@ -9,18 +9,6 @@ import "github.com/Wei-Shaw/sub2api/internal/service"
 // 输入 nil 时返回 nil, nil（避免响应里出现空对象）。
 // 不修改入参；调用方拿到的 out 可安全序列化进 JSON 返回前端。
 func RedactCredentials(in map[string]any) (out map[string]any, status map[string]bool) {
-	return redactCredentials(in, nil)
-}
-
-func RedactCredentialsAllowing(in map[string]any, allowedSensitiveKeys ...string) (out map[string]any, status map[string]bool) {
-	allowed := make(map[string]struct{}, len(allowedSensitiveKeys))
-	for _, key := range allowedSensitiveKeys {
-		allowed[key] = struct{}{}
-	}
-	return redactCredentials(in, allowed)
-}
-
-func redactCredentials(in map[string]any, allowedSensitiveKeys map[string]struct{}) (out map[string]any, status map[string]bool) {
 	if in == nil {
 		return nil, nil
 	}
@@ -33,9 +21,7 @@ func redactCredentials(in map[string]any, allowedSensitiveKeys map[string]struct
 				}
 				status["has_"+k] = true
 			}
-			if _, allowed := allowedSensitiveKeys[k]; !allowed {
-				continue
-			}
+			continue
 		}
 		out[k] = v
 	}

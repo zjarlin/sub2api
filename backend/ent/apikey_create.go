@@ -99,20 +99,6 @@ func (_c *APIKeyCreate) SetNillableGroupID(v *int64) *APIKeyCreate {
 	return _c
 }
 
-// SetPersonalAccountScope sets the "personal_account_scope" field.
-func (_c *APIKeyCreate) SetPersonalAccountScope(v bool) *APIKeyCreate {
-	_c.mutation.SetPersonalAccountScope(v)
-	return _c
-}
-
-// SetNillablePersonalAccountScope sets the "personal_account_scope" field if the given value is not nil.
-func (_c *APIKeyCreate) SetNillablePersonalAccountScope(v *bool) *APIKeyCreate {
-	if v != nil {
-		_c.SetPersonalAccountScope(*v)
-	}
-	return _c
-}
-
 // SetStatus sets the "status" field.
 func (_c *APIKeyCreate) SetStatus(v string) *APIKeyCreate {
 	_c.mutation.SetStatus(v)
@@ -397,10 +383,6 @@ func (_c *APIKeyCreate) defaults() error {
 		v := apikey.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
-	if _, ok := _c.mutation.PersonalAccountScope(); !ok {
-		v := apikey.DefaultPersonalAccountScope
-		_c.mutation.SetPersonalAccountScope(v)
-	}
 	if _, ok := _c.mutation.Status(); !ok {
 		v := apikey.DefaultStatus
 		_c.mutation.SetStatus(v)
@@ -466,9 +448,6 @@ func (_c *APIKeyCreate) check() error {
 		if err := apikey.NameValidator(v); err != nil {
 			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "APIKey.name": %w`, err)}
 		}
-	}
-	if _, ok := _c.mutation.PersonalAccountScope(); !ok {
-		return &ValidationError{Name: "personal_account_scope", err: errors.New(`ent: missing required field "APIKey.personal_account_scope"`)}
 	}
 	if _, ok := _c.mutation.Status(); !ok {
 		return &ValidationError{Name: "status", err: errors.New(`ent: missing required field "APIKey.status"`)}
@@ -551,10 +530,6 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.Name(); ok {
 		_spec.SetField(apikey.FieldName, field.TypeString, value)
 		_node.Name = value
-	}
-	if value, ok := _c.mutation.PersonalAccountScope(); ok {
-		_spec.SetField(apikey.FieldPersonalAccountScope, field.TypeBool, value)
-		_node.PersonalAccountScope = value
 	}
 	if value, ok := _c.mutation.Status(); ok {
 		_spec.SetField(apikey.FieldStatus, field.TypeString, value)
@@ -803,18 +778,6 @@ func (u *APIKeyUpsert) UpdateGroupID() *APIKeyUpsert {
 // ClearGroupID clears the value of the "group_id" field.
 func (u *APIKeyUpsert) ClearGroupID() *APIKeyUpsert {
 	u.SetNull(apikey.FieldGroupID)
-	return u
-}
-
-// SetPersonalAccountScope sets the "personal_account_scope" field.
-func (u *APIKeyUpsert) SetPersonalAccountScope(v bool) *APIKeyUpsert {
-	u.Set(apikey.FieldPersonalAccountScope, v)
-	return u
-}
-
-// UpdatePersonalAccountScope sets the "personal_account_scope" field to the value that was provided on create.
-func (u *APIKeyUpsert) UpdatePersonalAccountScope() *APIKeyUpsert {
-	u.SetExcluded(apikey.FieldPersonalAccountScope)
 	return u
 }
 
@@ -1240,20 +1203,6 @@ func (u *APIKeyUpsertOne) UpdateGroupID() *APIKeyUpsertOne {
 func (u *APIKeyUpsertOne) ClearGroupID() *APIKeyUpsertOne {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.ClearGroupID()
-	})
-}
-
-// SetPersonalAccountScope sets the "personal_account_scope" field.
-func (u *APIKeyUpsertOne) SetPersonalAccountScope(v bool) *APIKeyUpsertOne {
-	return u.Update(func(s *APIKeyUpsert) {
-		s.SetPersonalAccountScope(v)
-	})
-}
-
-// UpdatePersonalAccountScope sets the "personal_account_scope" field to the value that was provided on create.
-func (u *APIKeyUpsertOne) UpdatePersonalAccountScope() *APIKeyUpsertOne {
-	return u.Update(func(s *APIKeyUpsert) {
-		s.UpdatePersonalAccountScope()
 	})
 }
 
@@ -1892,20 +1841,6 @@ func (u *APIKeyUpsertBulk) UpdateGroupID() *APIKeyUpsertBulk {
 func (u *APIKeyUpsertBulk) ClearGroupID() *APIKeyUpsertBulk {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.ClearGroupID()
-	})
-}
-
-// SetPersonalAccountScope sets the "personal_account_scope" field.
-func (u *APIKeyUpsertBulk) SetPersonalAccountScope(v bool) *APIKeyUpsertBulk {
-	return u.Update(func(s *APIKeyUpsert) {
-		s.SetPersonalAccountScope(v)
-	})
-}
-
-// UpdatePersonalAccountScope sets the "personal_account_scope" field to the value that was provided on create.
-func (u *APIKeyUpsertBulk) UpdatePersonalAccountScope() *APIKeyUpsertBulk {
-	return u.Update(func(s *APIKeyUpsert) {
-		s.UpdatePersonalAccountScope()
 	})
 }
 

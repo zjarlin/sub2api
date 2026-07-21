@@ -27,8 +27,9 @@ func TestAccountTestService_TestAccountConnection_OpenAICompactOAuthSuccessPersi
 		Schedulable: true,
 		Concurrency: 1,
 		Credentials: map[string]any{
-			"access_token":       "oauth-token",
-			"chatgpt_account_id": "chatgpt-acc",
+			"access_token":               "oauth-token",
+			"chatgpt_account_id":         "chatgpt-acc",
+			"chatgpt_account_is_fedramp": true,
 		},
 	}
 	repo := &snapshotUpdateAccountRepo{
@@ -60,6 +61,7 @@ func TestAccountTestService_TestAccountConnection_OpenAICompactOAuthSuccessPersi
 	require.Equal(t, HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileFromContext(upstream.lastReq.Context()))
 	require.Equal(t, codexCLIUserAgent, upstream.lastReq.Header.Get("User-Agent"))
 	require.Equal(t, "chatgpt-acc", upstream.lastReq.Header.Get("chatgpt-account-id"))
+	require.Equal(t, "true", upstream.lastReq.Header.Get("x-openai-fedramp"))
 	require.Equal(t, "gpt-5.4", gjson.GetBytes(upstream.lastBody, "model").String())
 
 	updates := <-updateCalls
@@ -156,61 +158,6 @@ func TestAccountTestService_TestAccountConnection_OpenAICompactAPIKeyUsesCompact
 	require.Equal(t, "gpt-5.4-openai-compact", gjson.GetBytes(upstream.lastBody, "model").String())
 	updates := <-updateCalls
 	require.Equal(t, true, updates["openai_compact_supported"])
-}
-
-func TestAccountTestService_TestAccountConnection_OpenAICompactLocalOpenCodeUsesSessionAPI(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	updateCalls := make(chan map[string]any, 1)
-	account := Account{
-		ID:          30,
-		Name:        "local-opencode",
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Status:      StatusActive,
-		Schedulable: true,
-		Concurrency: 1,
-		Credentials: map[string]any{
-			"api_key":  "local-opencode",
-			"vendor":   "opencode-go",
-			"base_url": "http://host.docker.internal:4096",
-			"model_mapping": map[string]any{
-				"gpt-5.4-mini": "minimax-m3",
-				"minimax-m3":   "minimax-m3",
-			},
-		},
-		Extra: map[string]any{"openai_compact_mode": OpenAICompactModeForceOff},
-	}
-	repo := &snapshotUpdateAccountRepo{
-		stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
-		updateExtraCalls:      updateCalls,
-	}
-	upstream := &httpUpstreamRecorder{responses: []*http.Response{
-		newJSONResponse(http.StatusOK, `{"id":"ses_compact_local","model":{"id":"minimax-m3","providerID":"opencode-go"}}`),
-		newJSONResponse(http.StatusOK, `{"info":{"id":"msg_compact_local","modelID":"minimax-m3","providerID":"opencode-go","finish":"stop","tokens":{"input":5,"output":1,"reasoning":0,"cache":{"read":0,"write":0}},"time":{"created":1781610521583,"completed":1781610526394},"error":null},"parts":[{"type":"text","text":"OK"}]}`),
-	}}
-	svc := &AccountTestService{
-		accountRepo:  repo,
-		httpUpstream: upstream,
-		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false, AllowInsecureHTTP: true}}},
-	}
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/30/test", bytes.NewReader(nil))
-
-	err := svc.TestAccountConnection(c, account.ID, "gpt-5.4-mini", "", AccountTestModeCompact)
-	require.NoError(t, err)
-	require.Len(t, upstream.requests, 2)
-	require.Equal(t, "http://host.docker.internal:4096/session", upstream.requests[0].URL.String())
-	require.Equal(t, "http://host.docker.internal:4096/session/ses_compact_local/message", upstream.requests[1].URL.String())
-	require.Equal(t, "minimax-m3", gjson.GetBytes(upstream.bodies[0], "model.id").String())
-	require.Equal(t, "minimax-m3", gjson.GetBytes(upstream.bodies[1], "model.modelID").String())
-	require.Contains(t, rec.Body.String(), `"success":true`)
-
-	updates := <-updateCalls
-	require.Equal(t, true, updates["openai_compact_supported"])
-	require.Equal(t, http.StatusOK, updates["openai_compact_last_status"])
 }
 
 func TestAccountTestService_TestAccountConnection_OpenAICompactAPIKeyDefaultBaseURLUsesV1Path(t *testing.T) {

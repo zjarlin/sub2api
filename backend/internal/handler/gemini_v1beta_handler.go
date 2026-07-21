@@ -172,8 +172,6 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 
 	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 	if err != nil {
-		setOpsRequestBodyReadError(c, err)
-		reqLog.Warn("gemini_v1beta.request_body_read_failed", zap.Error(err))
 		if maxErr, ok := extractMaxBytesError(err); ok {
 			googleError(c, http.StatusRequestEntityTooLarge, buildBodyTooLargeMessage(maxErr.Limit))
 			return
@@ -189,8 +187,8 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	setOpsRequestContext(c, modelName, stream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(stream, false)))
 
-	if decision := h.checkContentModeration(c, reqLog, apiKey, authSubject, service.ContentModerationProtocolGemini, modelName, body); decision != nil && decision.Blocked {
-		googleError(c, contentModerationStatus(decision), decision.Message)
+	if decision := h.checkSecurityAudit(c, reqLog, apiKey, authSubject, service.ContentModerationProtocolGemini, modelName, body); decision != nil && !decision.AllowNextStage {
+		googleSecurityAuditError(c, decision)
 		return
 	}
 
@@ -207,26 +205,6 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	// For Gemini native API, do not send Claude-style ping frames.
 	geminiConcurrency := NewConcurrencyHelper(h.concurrencyHelper.concurrencyService, SSEPingFormatNone, 0)
 
-	// 0) wait queue check
-	maxWait := service.CalculateMaxWait(authSubject.Concurrency)
-	canWait, err := geminiConcurrency.IncrementWaitCount(c.Request.Context(), authSubject.UserID, maxWait)
-	waitCounted := false
-	if err != nil {
-		reqLog.Warn("gemini.user_wait_counter_increment_failed", zap.Error(err))
-	} else if !canWait {
-		reqLog.Info("gemini.user_wait_queue_full", zap.Int("max_wait", maxWait))
-		googleError(c, http.StatusTooManyRequests, "Too many pending requests, please retry later")
-		return
-	}
-	if err == nil && canWait {
-		waitCounted = true
-	}
-	defer func() {
-		if waitCounted {
-			geminiConcurrency.DecrementWaitCount(c.Request.Context(), authSubject.UserID)
-		}
-	}()
-
 	// 1) user concurrency slot
 	streamStarted := false
 	if h.errorPassthroughService != nil {
@@ -237,10 +215,6 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		reqLog.Warn("gemini.user_slot_acquire_failed", zap.Error(err))
 		googleError(c, http.StatusTooManyRequests, err.Error())
 		return
-	}
-	if waitCounted {
-		geminiConcurrency.DecrementWaitCount(c.Request.Context(), authSubject.UserID)
-		waitCounted = false
 	}
 	// 确保请求取消时也会释放槽位，避免长连接被动中断造成泄漏
 	userReleaseFunc = wrapReleaseOnDone(c.Request.Context(), userReleaseFunc)
@@ -376,8 +350,15 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, modelName, fs.FailedAccountIDs, "", int64(0)) // Gemini 不使用会话限制
 		if err != nil {
 			if len(fs.FailedAccountIDs) == 0 {
-				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-				googleError(c, http.StatusServiceUnavailable, "No available Gemini accounts: "+err.Error())
+				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, modelName, modelName, service.PlatformGemini)
+				if !cls.ModelNotFound {
+					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
+				}
+				message := cls.Message
+				if !cls.ModelNotFound {
+					message = "No available Gemini accounts: " + err.Error()
+				}
+				googleError(c, cls.Status, message)
 				return
 			}
 			action := fs.HandleSelectionExhausted(c.Request.Context())
@@ -387,6 +368,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 				c.Request = c.Request.WithContext(ctx)
 				continue
 			case FailoverCanceled:
+				failoverClientGone(c)
 				return
 			default: // FailoverExhausted
 				h.handleGeminiFailoverExhausted(c, fs.LastFailoverErr)
@@ -394,7 +376,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			}
 		}
 		account := selection.Account
-		setOpsSelectedAccount(c, account.ID, account.Name, account.Platform)
+		setOpsSelectedAccount(c, account.ID, account.Platform)
 
 		// 检测账号切换：如果粘性会话绑定的账号与当前选择的账号不同，清除 thoughtSignature
 		// 注意：Gemini 原生 API 的 thoughtSignature 与具体上游账号强相关；跨账号透传会导致 400。
@@ -501,7 +483,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
-				failoverAction := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, failoverErr)
+				failoverAction := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
 				switch failoverAction {
 				case FailoverContinue:
 					continue
@@ -509,6 +491,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 					h.handleGeminiFailoverExhausted(c, fs.LastFailoverErr)
 					return
 				case FailoverCanceled:
+					failoverClientGone(c)
 					return
 				}
 			}

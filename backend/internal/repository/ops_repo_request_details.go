@@ -101,10 +101,8 @@ WITH combined AS (
     ul.user_id AS user_id,
     ul.api_key_id AS api_key_id,
     ul.account_id AS account_id,
-    COALESCE(a.name, '') AS account_name,
     ul.group_id AS group_id,
-    ul.stream AS stream,
-    ''::TEXT AS upstream_errors
+    ul.stream AS stream
   FROM usage_logs ul
   LEFT JOIN groups g ON g.id = ul.group_id
   LEFT JOIN accounts a ON a.id = ul.account_id
@@ -127,10 +125,8 @@ WITH combined AS (
     o.user_id AS user_id,
     o.api_key_id AS api_key_id,
     o.account_id AS account_id,
-    COALESCE(a.name, '') AS account_name,
     o.group_id AS group_id,
-    o.stream AS stream,
-    COALESCE(o.upstream_errors::text, '') AS upstream_errors
+    o.stream AS stream
   FROM ops_error_logs o
   LEFT JOIN groups g ON g.id = o.group_id
   LEFT JOIN accounts a ON a.id = o.account_id
@@ -178,10 +174,8 @@ SELECT
   user_id,
   api_key_id,
   account_id,
-  account_name,
   group_id,
-  stream,
-  upstream_errors
+  stream
 FROM combined
 %s
 %s
@@ -227,14 +221,12 @@ LIMIT $%d OFFSET $%d
 			severity sql.NullString
 			message  sql.NullString
 
-			userID      sql.NullInt64
-			apiKeyID    sql.NullInt64
-			accountID   sql.NullInt64
-			accountName sql.NullString
-			groupID     sql.NullInt64
+			userID    sql.NullInt64
+			apiKeyID  sql.NullInt64
+			accountID sql.NullInt64
+			groupID   sql.NullInt64
 
-			stream            bool
-			upstreamErrorsRaw string
+			stream bool
 		)
 
 		if err := rows.Scan(
@@ -252,10 +244,8 @@ LIMIT $%d OFFSET $%d
 			&userID,
 			&apiKeyID,
 			&accountID,
-			&accountName,
 			&groupID,
 			&stream,
-			&upstreamErrorsRaw,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -274,15 +264,13 @@ LIMIT $%d OFFSET $%d
 			Severity:   severity.String,
 			Message:    message.String,
 
-			UserID:      toInt64Ptr(userID),
-			APIKeyID:    toInt64Ptr(apiKeyID),
-			AccountID:   toInt64Ptr(accountID),
-			AccountName: strings.TrimSpace(accountName.String),
-			GroupID:     toInt64Ptr(groupID),
+			UserID:    toInt64Ptr(userID),
+			APIKeyID:  toInt64Ptr(apiKeyID),
+			AccountID: toInt64Ptr(accountID),
+			GroupID:   toInt64Ptr(groupID),
 
 			Stream: stream,
 		}
-		item.ScheduledAccountID, item.ScheduledAccountName = service.ResolveOpsScheduledAccount(item.AccountID, item.AccountName, upstreamErrorsRaw)
 
 		if item.Platform == "" {
 			item.Platform = "unknown"

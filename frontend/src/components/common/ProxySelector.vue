@@ -321,22 +321,18 @@ onUnmounted(() => {
 <style scoped>
 .select-trigger {
   @apply flex w-full items-center justify-between gap-2;
-  @apply px-4 py-2.5 text-sm;
-  @apply border-2;
+  @apply rounded-xl px-4 py-2.5 text-sm;
+  @apply bg-white dark:bg-dark-800;
+  @apply border border-gray-200 dark:border-dark-600;
   @apply text-gray-900 dark:text-gray-100;
-  @apply transition-all duration-150;
-  @apply focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white;
+  @apply transition-all duration-200;
+  @apply focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30;
+  @apply hover:border-gray-300 dark:hover:border-dark-500;
   @apply cursor-pointer;
-  border-radius: var(--neo-radius);
-  background: var(--liquid-panel-strong);
-  border-color: var(--liquid-border);
-  box-shadow: var(--neo-shadow-sm);
 }
 
 .select-trigger-open {
-  border-color: var(--liquid-border);
-  background: var(--neo-main);
-  box-shadow: var(--neo-shadow-sm);
+  @apply border-primary-500 ring-2 ring-primary-500/30;
 }
 
 .select-trigger-disabled {
@@ -353,18 +349,16 @@ onUnmounted(() => {
 
 .select-dropdown {
   @apply absolute z-[100] mt-2 w-full;
-  @apply border-2;
+  @apply bg-white dark:bg-dark-800;
+  @apply rounded-xl;
+  @apply border border-gray-200 dark:border-dark-700;
+  @apply shadow-lg shadow-black/10 dark:shadow-black/30;
   @apply overflow-hidden;
-  border-radius: var(--neo-radius);
-  background: var(--liquid-panel-strong);
-  border-color: var(--liquid-border);
-  box-shadow: var(--liquid-shadow-hover);
 }
 
 .select-header {
   @apply flex items-center gap-2 px-3 py-2;
-  @apply border-b-2;
-  border-color: var(--liquid-border-soft);
+  @apply border-b border-gray-100 dark:border-dark-700;
 }
 
 .select-search {
@@ -379,12 +373,10 @@ onUnmounted(() => {
 }
 
 .batch-test-btn {
-  @apply flex-shrink-0 p-1.5;
+  @apply flex-shrink-0 rounded-lg p-1.5;
   @apply text-gray-500 hover:text-emerald-600 dark:hover:text-emerald-400;
   @apply hover:bg-emerald-50 dark:hover:bg-emerald-900/20;
   @apply transition-colors disabled:cursor-not-allowed disabled:opacity-50;
-  border: 2px solid transparent;
-  border-radius: var(--neo-radius);
 }
 
 .select-options {
@@ -396,17 +388,12 @@ onUnmounted(() => {
   @apply px-4 py-2.5 text-sm;
   @apply text-gray-700 dark:text-gray-300;
   @apply cursor-pointer transition-colors duration-150;
-}
-
-.select-option:hover {
-  background: var(--neo-main);
-  color: var(--neo-ink);
+  @apply hover:bg-gray-50 dark:hover:bg-dark-700;
 }
 
 .select-option-selected {
-  background: var(--neo-cyan);
-  color: var(--neo-ink);
-  font-weight: 800;
+  @apply bg-primary-50 dark:bg-primary-900/20;
+  @apply text-primary-700 dark:text-primary-300;
 }
 
 .select-option-label {
@@ -419,12 +406,10 @@ onUnmounted(() => {
 }
 
 .test-btn {
-  @apply flex-shrink-0 p-1;
+  @apply flex-shrink-0 rounded p-1;
   @apply text-gray-400 hover:text-emerald-600 dark:hover:text-emerald-400;
   @apply hover:bg-emerald-50 dark:hover:bg-emerald-900/20;
   @apply transition-colors disabled:cursor-not-allowed disabled:opacity-50;
-  border: 2px solid transparent;
-  border-radius: var(--neo-radius);
 }
 
 /* Dropdown animation */

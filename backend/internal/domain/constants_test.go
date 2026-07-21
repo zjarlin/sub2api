@@ -1,9 +1,6 @@
 package domain
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
 func TestDefaultAntigravityModelMapping_ImageCompatibilityAliases(t *testing.T) {
 	t.Parallel()
@@ -28,80 +25,60 @@ func TestDefaultAntigravityModelMapping_ImageCompatibilityAliases(t *testing.T) 
 	}
 }
 
-func TestDefaultKiroModelMapping_MatchesKiroReferenceModels(t *testing.T) {
+func TestDefaultAntigravityModelMapping_ContainsNewClaudeModels(t *testing.T) {
 	t.Parallel()
 
-	expected := map[string]string{
-		"claude-opus-4-7":                    "claude-opus-4.7",
-		"claude-opus-4-7-thinking":           "claude-opus-4.7",
-		"claude-sonnet-4-6":                  "claude-sonnet-4.6",
-		"claude-sonnet-4-6-thinking":         "claude-sonnet-4.6",
-		"claude-haiku-4-5-20251001":          "claude-haiku-4.5",
-		"claude-haiku-4-5-20251001-thinking": "claude-haiku-4.5",
+	cases := map[string]string{
+		"claude-fable-5":  "claude-fable-5",
+		"claude-opus-4-8": "claude-opus-4-8",
 	}
-
-	if len(DefaultKiroModelMapping) != len(expected) {
-		t.Fatalf("expected %d Kiro mappings, got %d", len(expected), len(DefaultKiroModelMapping))
-	}
-	for model, want := range expected {
-		if got := DefaultKiroModelMapping[model]; got != want {
-			t.Fatalf("unexpected Kiro mapping for %q: got %q want %q", model, got, want)
+	for from, want := range cases {
+		got, ok := DefaultAntigravityModelMapping[from]
+		if !ok {
+			t.Fatalf("expected mapping for %q to exist", from)
 		}
-	}
-
-	for _, model := range []string{
-		"claude-opus-4-5",
-		"claude-opus-4-6",
-		"claude-opus-4-6-thinking",
-		"claude-opus-4-5-20251101",
-		"claude-opus-4-5-20251101-thinking",
-		"claude-sonnet-4-5",
-		"claude-sonnet-4-5-20250929",
-		"claude-sonnet-4-5-20250929-thinking",
-		"claude-sonnet-4",
-		"claude-3-5-sonnet-20241022",
-		"claude-3-5-haiku-20241022",
-		"gpt-4o",
-		"gpt-4",
-		"deepseek-3-2",
-		"minimax-m2-1",
-		"qwen3-coder-next",
-		"claude-sonnet-4-6-chat",
-	} {
-		if _, ok := DefaultKiroModelMapping[model]; ok {
-			t.Fatalf("did not expect %q to remain in DefaultKiroModelMapping", model)
-		}
-	}
-	for model := range DefaultKiroModelMapping {
-		if strings.HasSuffix(model, "-agentic") {
-			t.Fatalf("did not expect agentic Kiro mapping %q", model)
-		}
-		if strings.HasSuffix(model, "-chat") {
-			t.Fatalf("did not expect chat-only Kiro mapping %q", model)
+		if got != want {
+			t.Fatalf("unexpected mapping for %q: got %q want %q", from, got, want)
 		}
 	}
 }
 
-func TestDefaultAntigravityModelMapping_ContainsOpus48(t *testing.T) {
+func TestDefaultAntigravityModelMapping_Gemini31ProAliases(t *testing.T) {
 	t.Parallel()
 
-	got, ok := DefaultAntigravityModelMapping["claude-opus-4-8"]
-	if !ok {
-		t.Fatal("expected mapping for claude-opus-4-8 to exist")
+	cases := map[string]string{
+		AntigravityGemini31ProAgentModel: AntigravityGemini31ProAgentModel,
+		"gemini-3.1-pro":                 AntigravityGemini31ProAgentModel,
+		"gemini-3.1-pro-high":            AntigravityGemini31ProAgentModel,
+		"gemini-3.1-pro-preview":         AntigravityGemini31ProAgentModel,
+		"gemini-3.1-pro-low":             "gemini-3.1-pro-low",
 	}
-	if got != "claude-opus-4-8" {
-		t.Fatalf("unexpected claude-opus-4-8 mapping: got %q", got)
+
+	for from, want := range cases {
+		got, ok := DefaultAntigravityModelMapping[from]
+		if !ok {
+			t.Fatalf("expected mapping for %q to exist", from)
+		}
+		if got != want {
+			t.Fatalf("unexpected mapping for %q: got %q want %q", from, got, want)
+		}
 	}
 }
 
-func TestDefaultBedrockModelMapping_ContainsOpus48(t *testing.T) {
+func TestDefaultBedrockModelMapping_ContainsNewClaudeModels(t *testing.T) {
 	t.Parallel()
 
-	got, ok := DefaultBedrockModelMapping["claude-opus-4-8"]
-	if !ok {
-		t.Fatal("expected Bedrock mapping for claude-opus-4-8 to exist")
+	cases := map[string]string{
+		"claude-fable-5":  "anthropic.claude-fable-5",
+		"claude-opus-4-8": "us.anthropic.claude-opus-4-8-v1",
 	}
-	if got != "us.anthropic.claude-opus-4-8-v1" {
-		t.Fatalf("unexpected Bedrock claude-opus-4-8 mapping: got %q", got)
+	for from, want := range cases {
+		got, ok := DefaultBedrockModelMapping[from]
+		if !ok {
+			t.Fatalf("expected Bedrock mapping for %q to exist", from)
+		}
+		if got != want {
+			t.Fatalf("unexpected Bedrock mapping for %q: got %q want %q", from, got, want)
+		}
 	}
 }

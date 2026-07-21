@@ -6,51 +6,6 @@
 import { apiClient } from './client'
 import type { ApiKey, CreateApiKeyRequest, UpdateApiKeyRequest, PaginatedResponse } from '@/types'
 
-export interface CodexModelCatalogModel {
-  slug: string
-  display_name: string
-  description: string
-  default_reasoning_level: string
-  supported_reasoning_levels: Array<{
-    effort: string
-    description: string
-  }>
-  shell_type: string
-  context_window: number
-  max_context_window: number
-  visibility: string
-  supported_in_api: boolean
-  priority: number
-  additional_speed_tiers?: string[]
-  availability_nux?: unknown
-  upgrade?: unknown
-  default_reasoning_summary?: string
-  support_verbosity?: boolean
-  default_verbosity?: string
-  apply_patch_tool_type?: string
-  web_search_tool_type?: string
-  truncation_policy?: {
-    mode: string
-    limit: number
-  }
-  supports_parallel_tool_calls?: boolean
-  supports_image_detail_original?: boolean
-  effective_context_window_percent?: number
-  experimental_supported_tools?: unknown[]
-  input_modalities?: string[]
-  supports_search_tool?: boolean
-  supports_reasoning_summaries?: boolean
-  base_instructions: string
-  model_messages: {
-    instructions_template: string
-    instructions_variables: Record<string, string>
-  }
-}
-
-export interface CodexModelCatalog {
-  models: CodexModelCatalogModel[]
-}
-
 /**
  * List all API keys for current user
  * @param page - Page number (default: 1)
@@ -66,7 +21,6 @@ export async function list(
     search?: string
     status?: string
     group_id?: number | string
-    personal_account_scope?: boolean
     sort_by?: string
     sort_order?: 'asc' | 'desc'
   },
@@ -92,16 +46,6 @@ export async function getById(id: number): Promise<ApiKey> {
 }
 
 /**
- * Get Codex model catalog generated from the API key's schedulable account group.
- * @param id - API key ID
- * @returns Codex model catalog payload
- */
-export async function getCodexModelCatalog(id: number): Promise<CodexModelCatalog> {
-  const { data } = await apiClient.get<CodexModelCatalog>(`/keys/${id}/codex-model-catalog`)
-  return data
-}
-
-/**
  * Create new API key
  * @param name - Key name
  * @param groupId - Optional group ID
@@ -116,7 +60,6 @@ export async function getCodexModelCatalog(id: number): Promise<CodexModelCatalo
 export async function create(
   name: string,
   groupId?: number | null,
-  personalAccountScope: boolean = false,
   customKey?: string,
   ipWhitelist?: string[],
   ipBlacklist?: string[],
@@ -127,9 +70,6 @@ export async function create(
   const payload: CreateApiKeyRequest = { name }
   if (groupId !== undefined) {
     payload.group_id = groupId
-  }
-  if (personalAccountScope) {
-    payload.personal_account_scope = true
   }
   if (customKey) {
     payload.custom_key = customKey
@@ -194,7 +134,6 @@ export async function toggleStatus(id: number, status: 'active' | 'inactive'): P
 export const keysAPI = {
   list,
   getById,
-  getCodexModelCatalog,
   create,
   update,
   delete: deleteKey,

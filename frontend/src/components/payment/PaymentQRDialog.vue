@@ -45,11 +45,11 @@
           </div>
           <div class="flex justify-between">
             <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.amount') }}</span>
-            <span class="font-medium text-gray-900 dark:text-white">{{ paidOrder.order_type === 'balance' ? '$' : '¥' }}{{ paidOrder.amount.toFixed(2) }}</span>
+            <span class="font-medium text-gray-900 dark:text-white">{{ creditedAmountSymbol }}{{ paidOrder.amount.toFixed(2) }}</span>
           </div>
           <div class="flex justify-between">
             <span class="text-gray-500 dark:text-gray-400">{{ t('payment.orders.payAmount') }}</span>
-            <span class="font-medium text-gray-900 dark:text-white">¥{{ paidOrder.pay_amount.toFixed(2) }}</span>
+            <span class="font-medium text-gray-900 dark:text-white">{{ paymentAmountSymbol(paidOrder) }}{{ paidOrder.pay_amount.toFixed(2) }}</span>
           </div>
         </div>
       </div>
@@ -79,9 +79,9 @@ import { usePaymentStore } from '@/stores/payment'
 import { useAppStore } from '@/stores'
 import { paymentAPI } from '@/api/payment'
 import { extractI18nErrorMessage } from '@/utils/apiError'
-import { getPaymentPopupFeatures } from '@/components/payment/providerConfig'
-import { PAYMENT_STATUS_POLL_INTERVAL_MS } from '@/components/payment/constants'
+import { getPaymentPopupFeatures, isBuiltInAlipayMethod, isBuiltInWxpayMethod } from '@/components/payment/providerConfig'
 import type { PaymentOrder } from '@/types/payment'
+import { currencySymbol } from '@/components/payment/currency'
 import QRCode from 'qrcode'
 import alipayIcon from '@/assets/icons/alipay.svg'
 import wxpayIcon from '@/assets/icons/wxpay.svg'
@@ -112,6 +112,7 @@ const expired = ref(false)
 const cancelling = ref(false)
 const success = ref(false)
 const paidOrder = ref<PaymentOrder | null>(null)
+const creditedAmountSymbol = currencySymbol('USD')
 
 let pollTimer: ReturnType<typeof setInterval> | null = null
 let countdownTimer: ReturnType<typeof setInterval> | null = null
@@ -121,8 +122,8 @@ let lastVerifyAt = 0
 const VERIFY_RETRY_INTERVAL_MS = 15000
 const VERIFY_RETRY_MAX_ATTEMPTS = 6
 
-const isAlipay = computed(() => props.paymentType.includes('alipay'))
-const isWxpay = computed(() => props.paymentType.includes('wxpay'))
+const isAlipay = computed(() => isBuiltInAlipayMethod(props.paymentType))
+const isWxpay = computed(() => isBuiltInWxpayMethod(props.paymentType))
 
 const dialogTitle = computed(() => {
   if (success.value) return t('payment.result.success')
@@ -137,6 +138,10 @@ const scanHint = computed(() => {
   if (isWxpay.value) return t('payment.qr.scanWxpayHint')
   return ''
 })
+
+function paymentAmountSymbol(order: PaymentOrder): string {
+  return currencySymbol(order.currency)
+}
 
 const countdownDisplay = computed(() => {
   const m = Math.floor(remainingSeconds.value / 60)
@@ -287,7 +292,7 @@ function init() {
     seconds = Math.floor((expiresAt.getTime() - Date.now()) / 1000)
   }
   startCountdown(seconds)
-  pollTimer = setInterval(pollStatus, PAYMENT_STATUS_POLL_INTERVAL_MS)
+  pollTimer = setInterval(pollStatus, 3000)
   renderQR()
 }
 

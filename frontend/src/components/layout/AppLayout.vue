@@ -1,7 +1,7 @@
 <template>
-  <div class="liquid-page min-h-screen">
+  <div class="min-h-screen bg-gray-50 dark:bg-dark-950">
     <!-- Background Decoration -->
-    <div class="liquid-field pointer-events-none fixed inset-0"></div>
+    <div class="pointer-events-none fixed inset-0 bg-mesh-gradient"></div>
 
     <!-- Sidebar -->
     <AppSidebar />
@@ -15,7 +15,7 @@
       <AppHeader />
 
       <!-- Main Content -->
-      <main class="relative p-4 md:p-6 lg:p-8">
+      <main class="p-4 md:p-6 lg:p-8">
         <slot />
       </main>
     </div>
@@ -50,21 +50,3 @@ onMounted(() => {
 
 defineExpose({ replayTour })
 </script>
-
-<style scoped>
-.liquid-field {
-  background:
-    linear-gradient(to right, rgba(0, 0, 0, 0.16) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(0, 0, 0, 0.16) 1px, transparent 1px),
-    radial-gradient(110% 80% at 84% 10%, rgba(255, 95, 162, 0.18), transparent 58%);
-  background-size: 70px 70px, 70px 70px, auto;
-}
-
-:global(.dark) .liquid-field {
-  background:
-    linear-gradient(to right, rgba(255, 255, 255, 0.14) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.14) 1px, transparent 1px),
-    radial-gradient(110% 80% at 84% 10%, rgba(255, 220, 88, 0.16), transparent 58%);
-  background-size: 70px 70px, 70px 70px, auto;
-}
-</style>

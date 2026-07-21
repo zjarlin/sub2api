@@ -11,19 +11,35 @@ import (
 )
 
 type snapshotHydrationCache struct {
-	snapshot         []*Account
-	accounts         map[int64]*Account
-	getSnapshotCalls int
-	setSnapshotCalls int
+	snapshot []*Account
+	accounts map[int64]*Account
 }
 
 func (c *snapshotHydrationCache) GetSnapshot(ctx context.Context, bucket SchedulerBucket) ([]*Account, bool, error) {
-	c.getSnapshotCalls++
 	return c.snapshot, true, nil
 }
 
-func (c *snapshotHydrationCache) SetSnapshot(ctx context.Context, bucket SchedulerBucket, accounts []Account) error {
-	c.setSnapshotCalls++
+func (c *snapshotHydrationCache) CaptureBucketWriteToken(ctx context.Context, bucket SchedulerBucket) (SchedulerBucketWriteToken, error) {
+	return SchedulerBucketWriteToken{Bucket: bucket, Epoch: 1}, nil
+}
+
+func (c *snapshotHydrationCache) SetSnapshot(ctx context.Context, bucket SchedulerBucket, token SchedulerBucketWriteToken, accounts []Account) error {
+	return nil
+}
+
+func (c *snapshotHydrationCache) RetireBucket(ctx context.Context, bucket SchedulerBucket) error {
+	return nil
+}
+
+func (c *snapshotHydrationCache) ReopenBucket(ctx context.Context, bucket SchedulerBucket) (SchedulerBucketWriteToken, error) {
+	return SchedulerBucketWriteToken{Bucket: bucket, Epoch: 1}, nil
+}
+
+func (c *snapshotHydrationCache) TryAcquireGroupLifecycleLease(context.Context, int64, time.Duration) (SchedulerGroupLifecycleLease, bool, error) {
+	return SchedulerGroupLifecycleLease{}, false, nil
+}
+
+func (c *snapshotHydrationCache) ReleaseGroupLifecycleLease(context.Context, SchedulerGroupLifecycleLease) error {
 	return nil
 }
 
@@ -64,114 +80,6 @@ func (c *snapshotHydrationCache) GetOutboxWatermark(ctx context.Context) (int64,
 
 func (c *snapshotHydrationCache) SetOutboxWatermark(ctx context.Context, id int64) error {
 	return nil
-}
-
-func TestSchedulerSnapshotListSchedulableAccountsUsesSharedSnapshotForOwnerContext(t *testing.T) {
-	ownerID := int64(42)
-	cache := &snapshotHydrationCache{
-		snapshot: []*Account{
-			{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1},
-			{ID: 2, OwnerUserID: &ownerID, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1},
-		},
-	}
-	repo := stubOpenAIAccountRepo{accounts: []Account{
-		{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1},
-		{ID: 2, OwnerUserID: &ownerID, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1},
-	}}
-	schedulerSnapshot := NewSchedulerSnapshotService(cache, nil, repo, nil, nil)
-
-	accounts, _, err := schedulerSnapshot.ListSchedulableAccounts(context.Background(), nil, PlatformOpenAI, false)
-	if err != nil {
-		t.Fatalf("ListSchedulableAccounts error: %v", err)
-	}
-
-	ids := make(map[int64]bool, len(accounts))
-	for _, account := range accounts {
-		ids[account.ID] = true
-	}
-	if !ids[1] || !ids[2] {
-		t.Fatalf("expected global and owner accounts from shared snapshot, got ids=%v", ids)
-	}
-	if cache.getSnapshotCalls != 1 {
-		t.Fatalf("expected shared snapshot read, got %d", cache.getSnapshotCalls)
-	}
-	if cache.setSnapshotCalls != 0 {
-		t.Fatalf("expected cache hit to skip snapshot writes, got %d", cache.setSnapshotCalls)
-	}
-}
-
-func TestSchedulerSnapshotLoadAccountsFromDBForcedGlobalUsesAllPlatformAccounts(t *testing.T) {
-	repo := &schedulerForcedGlobalRepo{
-		allAccounts: []Account{
-			{ID: 307, Name: "zjarlin_gemini_aistudio", Platform: PlatformGemini, Status: StatusActive, Schedulable: true},
-		},
-	}
-	schedulerSnapshot := &SchedulerSnapshotService{accountRepo: repo}
-
-	accounts, err := schedulerSnapshot.loadAccountsFromDB(context.Background(), SchedulerBucket{
-		GroupID:  0,
-		Platform: PlatformGemini,
-		Mode:     SchedulerModeForced,
-	}, false)
-
-	if err != nil {
-		t.Fatalf("loadAccountsFromDB error: %v", err)
-	}
-	if repo.allPlatformCalls != 1 {
-		t.Fatalf("expected forced global bucket to query all platform accounts, got %d calls", repo.allPlatformCalls)
-	}
-	if repo.ungroupedCalls != 0 {
-		t.Fatalf("expected forced global bucket not to query ungrouped accounts, got %d calls", repo.ungroupedCalls)
-	}
-	if len(accounts) != 1 || accounts[0].ID != 307 {
-		t.Fatalf("expected account 307, got %#v", accounts)
-	}
-}
-
-func TestSchedulerSnapshotLoadAccountsFromDBNonForcedGlobalKeepsUngroupedIsolation(t *testing.T) {
-	repo := &schedulerForcedGlobalRepo{
-		ungroupedAccounts: []Account{
-			{ID: 100, Name: "ungrouped_gemini", Platform: PlatformGemini, Status: StatusActive, Schedulable: true},
-		},
-	}
-	schedulerSnapshot := &SchedulerSnapshotService{accountRepo: repo}
-
-	accounts, err := schedulerSnapshot.loadAccountsFromDB(context.Background(), SchedulerBucket{
-		GroupID:  0,
-		Platform: PlatformGemini,
-		Mode:     SchedulerModeSingle,
-	}, false)
-
-	if err != nil {
-		t.Fatalf("loadAccountsFromDB error: %v", err)
-	}
-	if repo.allPlatformCalls != 0 {
-		t.Fatalf("expected non-forced global bucket not to query all platform accounts, got %d calls", repo.allPlatformCalls)
-	}
-	if repo.ungroupedCalls != 1 {
-		t.Fatalf("expected non-forced global bucket to query ungrouped accounts, got %d calls", repo.ungroupedCalls)
-	}
-	if len(accounts) != 1 || accounts[0].ID != 100 {
-		t.Fatalf("expected ungrouped account 100, got %#v", accounts)
-	}
-}
-
-type schedulerForcedGlobalRepo struct {
-	AccountRepository
-	allAccounts       []Account
-	ungroupedAccounts []Account
-	allPlatformCalls  int
-	ungroupedCalls    int
-}
-
-func (r *schedulerForcedGlobalRepo) ListSchedulableByPlatform(ctx context.Context, platform string) ([]Account, error) {
-	r.allPlatformCalls++
-	return r.allAccounts, nil
-}
-
-func (r *schedulerForcedGlobalRepo) ListSchedulableUngroupedByPlatform(ctx context.Context, platform string) ([]Account, error) {
-	r.ungroupedCalls++
-	return r.ungroupedAccounts, nil
 }
 
 func TestOpenAISelectAccountWithLoadAwareness_HydratesSelectedAccountFromSchedulerSnapshot(t *testing.T) {

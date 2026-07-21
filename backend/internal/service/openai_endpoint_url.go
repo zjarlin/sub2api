@@ -6,37 +6,29 @@ import (
 )
 
 func buildOpenAIEndpointURL(base string, endpoint string) string {
-	normalized := strings.TrimRight(strings.TrimSpace(base), "/")
+	normalized := strings.TrimSpace(base)
 	endpoint = "/" + strings.TrimLeft(strings.TrimSpace(endpoint), "/")
 	relative := strings.TrimPrefix(endpoint, "/v1")
-	if strings.HasSuffix(normalized, endpoint) || strings.HasSuffix(normalized, relative) {
-		return normalized
+	parsed, err := url.Parse(normalized)
+	if err != nil {
+		return strings.TrimRight(normalized, "/") + endpoint
 	}
-	if root := trimOpenAIEndpointSuffix(normalized); root != normalized {
-		return root + relative
-	}
-	if openAIBaseURLHasVersionSuffix(normalized) || openAIBaseURLLooksLikeAPIRoot(normalized) {
-		return normalized + relative
-	}
-	return normalized + endpoint
-}
-
-func trimOpenAIEndpointSuffix(normalized string) string {
-	lower := strings.ToLower(strings.TrimRight(strings.TrimSpace(normalized), "/"))
-	for _, suffix := range []string{
-		"/chat/completions",
-		"/responses",
-		"/embeddings",
-		"/images/generations",
-		"/images/edits",
-		"/images/variations",
-		"/contents/generations/tasks",
-	} {
-		if strings.HasSuffix(lower, suffix) {
-			return normalized[:len(normalized)-len(suffix)]
+	path := strings.TrimRight(parsed.Path, "/")
+	if !strings.HasSuffix(path, endpoint) && !strings.HasSuffix(path, relative) {
+		if openAIBaseURLHasVersionSuffix(path) {
+			path += relative
+		} else {
+			path += endpoint
 		}
 	}
-	return normalized
+	parsed.Path = path
+	parsed.RawPath = ""
+	parsed.Fragment = ""
+	return parsed.String()
+}
+
+func buildOpenAIResponsesInputTokensURL(base string) string {
+	return buildOpenAIEndpointURL(base, "/v1/responses/input_tokens")
 }
 
 func openAIBaseURLHasVersionSuffix(raw string) bool {

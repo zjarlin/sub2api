@@ -30,14 +30,13 @@ func NewAPIKeyHandler(apiKeyService *service.APIKeyService) *APIKeyHandler {
 
 // CreateAPIKeyRequest represents the create API key request payload
 type CreateAPIKeyRequest struct {
-	Name                 string   `json:"name" binding:"required"`
-	GroupID              *int64   `json:"group_id"`               // nullable
-	PersonalAccountScope bool     `json:"personal_account_scope"` // legacy: no longer affects scheduling
-	CustomKey            *string  `json:"custom_key"`             // 可选的自定义key
-	IPWhitelist          []string `json:"ip_whitelist"`           // IP 白名单
-	IPBlacklist          []string `json:"ip_blacklist"`           // IP 黑名单
-	Quota                *float64 `json:"quota"`                  // 配额限制 (USD)
-	ExpiresInDays        *int     `json:"expires_in_days"`        // 过期天数
+	Name          string   `json:"name" binding:"required"`
+	GroupID       *int64   `json:"group_id"`        // nullable
+	CustomKey     *string  `json:"custom_key"`      // 可选的自定义key
+	IPWhitelist   []string `json:"ip_whitelist"`    // IP 白名单
+	IPBlacklist   []string `json:"ip_blacklist"`    // IP 黑名单
+	Quota         *float64 `json:"quota"`           // 配额限制 (USD)
+	ExpiresInDays *int     `json:"expires_in_days"` // 过期天数
 
 	// Rate limit fields (0 = unlimited)
 	RateLimit5h *float64 `json:"rate_limit_5h"`
@@ -47,15 +46,14 @@ type CreateAPIKeyRequest struct {
 
 // UpdateAPIKeyRequest represents the update API key request payload
 type UpdateAPIKeyRequest struct {
-	Name                 string   `json:"name"`
-	GroupID              *int64   `json:"group_id"`
-	PersonalAccountScope *bool    `json:"personal_account_scope"`
-	Status               string   `json:"status" binding:"omitempty,oneof=active inactive"`
-	IPWhitelist          []string `json:"ip_whitelist"` // IP 白名单
-	IPBlacklist          []string `json:"ip_blacklist"` // IP 黑名单
-	Quota                *float64 `json:"quota"`        // 配额限制 (USD), 0=无限制
-	ExpiresAt            *string  `json:"expires_at"`   // 过期时间 (ISO 8601)
-	ResetQuota           *bool    `json:"reset_quota"`  // 重置已用配额
+	Name        string    `json:"name"`
+	GroupID     *int64    `json:"group_id"`
+	Status      string    `json:"status" binding:"omitempty,oneof=active inactive"`
+	IPWhitelist *[]string `json:"ip_whitelist"` // IP 白名单（nil 不修改，空数组清空）
+	IPBlacklist *[]string `json:"ip_blacklist"` // IP 黑名单（nil 不修改，空数组清空）
+	Quota       *float64  `json:"quota"`        // 配额限制 (USD), 0=无限制
+	ExpiresAt   *string   `json:"expires_at"`   // 过期时间 (ISO 8601)
+	ResetQuota  *bool     `json:"reset_quota"`  // 重置已用配额
 
 	// Rate limit fields (nil = no change, 0 = unlimited)
 	RateLimit5h         *float64 `json:"rate_limit_5h"`
@@ -94,12 +92,6 @@ func (h *APIKeyHandler) List(c *gin.Context) {
 		gid, err := strconv.ParseInt(groupIDStr, 10, 64)
 		if err == nil {
 			filters.GroupID = &gid
-		}
-	}
-	if scopeStr := strings.TrimSpace(c.Query("personal_account_scope")); scopeStr != "" {
-		scope, err := strconv.ParseBool(scopeStr)
-		if err == nil {
-			filters.PersonalAccountScope = &scope
 		}
 	}
 
@@ -146,29 +138,6 @@ func (h *APIKeyHandler) GetByID(c *gin.Context) {
 	response.Success(c, dto.APIKeyFromService(key))
 }
 
-// GetCodexModelCatalog returns the Codex model catalog for a user's API key.
-// GET /api/v1/keys/:id/codex-model-catalog
-func (h *APIKeyHandler) GetCodexModelCatalog(c *gin.Context) {
-	subject, ok := middleware2.GetAuthSubjectFromContext(c)
-	if !ok {
-		response.Unauthorized(c, "User not authenticated")
-		return
-	}
-
-	keyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
-	if err != nil {
-		response.BadRequest(c, "Invalid key ID")
-		return
-	}
-
-	catalog, err := h.apiKeyService.GetCodexModelCatalog(c.Request.Context(), keyID, subject.UserID)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, catalog)
-}
-
 // Create handles creating a new API key
 // POST /api/v1/api-keys
 func (h *APIKeyHandler) Create(c *gin.Context) {
@@ -185,13 +154,12 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 	}
 
 	svcReq := service.CreateAPIKeyRequest{
-		Name:                 req.Name,
-		GroupID:              req.GroupID,
-		PersonalAccountScope: req.PersonalAccountScope,
-		CustomKey:            req.CustomKey,
-		IPWhitelist:          req.IPWhitelist,
-		IPBlacklist:          req.IPBlacklist,
-		ExpiresInDays:        req.ExpiresInDays,
+		Name:          req.Name,
+		GroupID:       req.GroupID,
+		CustomKey:     req.CustomKey,
+		IPWhitelist:   req.IPWhitelist,
+		IPBlacklist:   req.IPBlacklist,
+		ExpiresInDays: req.ExpiresInDays,
 	}
 	if req.Quota != nil {
 		svcReq.Quota = *req.Quota
@@ -237,15 +205,14 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 	}
 
 	svcReq := service.UpdateAPIKeyRequest{
-		PersonalAccountScope: req.PersonalAccountScope,
-		IPWhitelist:          req.IPWhitelist,
-		IPBlacklist:          req.IPBlacklist,
-		Quota:                req.Quota,
-		ResetQuota:           req.ResetQuota,
-		RateLimit5h:          req.RateLimit5h,
-		RateLimit1d:          req.RateLimit1d,
-		RateLimit7d:          req.RateLimit7d,
-		ResetRateLimitUsage:  req.ResetRateLimitUsage,
+		IPWhitelist:         req.IPWhitelist,
+		IPBlacklist:         req.IPBlacklist,
+		Quota:               req.Quota,
+		ResetQuota:          req.ResetQuota,
+		RateLimit5h:         req.RateLimit5h,
+		RateLimit1d:         req.RateLimit1d,
+		RateLimit7d:         req.RateLimit7d,
+		ResetRateLimitUsage: req.ResetRateLimitUsage,
 	}
 	if req.Name != "" {
 		svcReq.Name = &req.Name

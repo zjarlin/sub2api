@@ -4,6 +4,8 @@ package service
 
 import (
 	"testing"
+
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
 func TestMatchWildcard(t *testing.T) {
@@ -151,20 +153,6 @@ func TestAccountIsModelSupported(t *testing.T) {
 			requestedModel: "any-model",
 			expected:       true,
 		},
-		{
-			name:           "kiro no mapping falls back to default whitelist",
-			platform:       PlatformKiro,
-			credentials:    nil,
-			requestedModel: "claude-sonnet-4-6",
-			expected:       true,
-		},
-		{
-			name:           "kiro no mapping rejects model outside default whitelist",
-			platform:       PlatformKiro,
-			credentials:    nil,
-			requestedModel: "auto",
-			expected:       false,
-		},
 
 		// 精确匹配
 		{
@@ -258,13 +246,6 @@ func TestAccountGetMappedModel(t *testing.T) {
 			requestedModel: "gemini-3.1-pro-preview-customtools",
 			expected:       "gemini-3.1-pro-preview-customtools",
 		},
-		{
-			name:           "kiro no mapping uses default upstream mapping",
-			platform:       PlatformKiro,
-			credentials:    nil,
-			requestedModel: "claude-sonnet-4-6",
-			expected:       "claude-sonnet-4.6",
-		},
 
 		// 精确匹配
 		{
@@ -341,11 +322,90 @@ func TestAccountGetMappedModel(t *testing.T) {
 	}
 }
 
+func TestAccountGetModelMapping_AntigravityNormalizesGemini31ProAliases(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{
+		Platform: PlatformAntigravity,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				domain.AntigravityGemini31ProAgentModel: domain.AntigravityGemini31ProAgentModel,
+				"gemini-3.1-pro-high":                   "gemini-3.1-pro-high",
+				"gemini-3.1-pro-preview":                "gemini-3.1-pro-high",
+			},
+		},
+	}
+
+	mapping := account.GetModelMapping()
+
+	if got := mapping["gemini-3.1-pro"]; got != domain.AntigravityGemini31ProAgentModel {
+		t.Fatalf("expected gemini-3.1-pro to map to %q, got %q", domain.AntigravityGemini31ProAgentModel, got)
+	}
+	if got := mapping["gemini-3.1-pro-high"]; got != domain.AntigravityGemini31ProAgentModel {
+		t.Fatalf("expected gemini-3.1-pro-high to map to %q, got %q", domain.AntigravityGemini31ProAgentModel, got)
+	}
+	if got := mapping["gemini-3.1-pro-preview"]; got != domain.AntigravityGemini31ProAgentModel {
+		t.Fatalf("expected gemini-3.1-pro-preview to map to %q, got %q", domain.AntigravityGemini31ProAgentModel, got)
+	}
+}
+
+func TestAccountGetModelMapping_AntigravityPreservesGemini31ProOverrides(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{
+		Platform: PlatformAntigravity,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				domain.AntigravityGemini31ProAgentModel: domain.AntigravityGemini31ProAgentModel,
+				"gemini-3.1-pro-high":                   "custom-high",
+				"gemini-3.1-pro-preview":                "custom-preview",
+			},
+		},
+	}
+
+	mapping := account.GetModelMapping()
+
+	if got := mapping["gemini-3.1-pro-high"]; got != "custom-high" {
+		t.Fatalf("expected gemini-3.1-pro-high override to be preserved, got %q", got)
+	}
+	if got := mapping["gemini-3.1-pro-preview"]; got != "custom-preview" {
+		t.Fatalf("expected gemini-3.1-pro-preview override to be preserved, got %q", got)
+	}
+	if got := mapping["gemini-3.1-pro"]; got != domain.AntigravityGemini31ProAgentModel {
+		t.Fatalf("expected gemini-3.1-pro alias to default to %q, got %q", domain.AntigravityGemini31ProAgentModel, got)
+	}
+}
+
+func TestAccountGetModelMapping_AntigravityGemini31ProAliasesRespectWildcard(t *testing.T) {
+	t.Parallel()
+
+	account := &Account{
+		Platform: PlatformAntigravity,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				domain.AntigravityGemini31ProAgentModel: domain.AntigravityGemini31ProAgentModel,
+				"gemini-3.1-*":                          "custom-wildcard",
+			},
+		},
+	}
+
+	mapping := account.GetModelMapping()
+
+	if got := mapping["gemini-3.1-pro"]; got != "" {
+		t.Fatalf("expected gemini-3.1-pro exact alias to stay unset when wildcard exists, got %q", got)
+	}
+	if got := mapping["gemini-3.1-pro-high"]; got != "" {
+		t.Fatalf("expected gemini-3.1-pro-high exact alias to stay unset when wildcard exists, got %q", got)
+	}
+	if got := mapping["gemini-3.1-pro-preview"]; got != "" {
+		t.Fatalf("expected gemini-3.1-pro-preview exact alias to stay unset when wildcard exists, got %q", got)
+	}
+}
+
 func TestAccountResolveMappedModel(t *testing.T) {
 	tests := []struct {
 		name           string
 		platform       string
-		accountType    string
 		credentials    map[string]any
 		requestedModel string
 		expectedModel  string
@@ -416,41 +476,12 @@ func TestAccountResolveMappedModel(t *testing.T) {
 			expectedModel:  "gpt-5.4",
 			expectedMatch:  false,
 		},
-		{
-			name:        "opencode go vendor alias resolves through explicitly allowed target",
-			platform:    PlatformOpenAI,
-			accountType: AccountTypeAPIKey,
-			credentials: map[string]any{
-				"vendor": "opencode-go",
-				"model_mapping": map[string]any{
-					"minimax-m3": "minimax-m3",
-				},
-			},
-			requestedModel: "opencode-go/minimax-m3",
-			expectedModel:  "minimax-m3",
-			expectedMatch:  true,
-		},
-		{
-			name:        "opencode go vendor alias does not unlock other default targets",
-			platform:    PlatformOpenAI,
-			accountType: AccountTypeAPIKey,
-			credentials: map[string]any{
-				"vendor": "opencode-go",
-				"model_mapping": map[string]any{
-					"minimax-m3": "minimax-m3",
-				},
-			},
-			requestedModel: "opencode-go/kimi-k2.7",
-			expectedModel:  "opencode-go/kimi-k2.7",
-			expectedMatch:  false,
-		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			account := &Account{
 				Platform:    tt.platform,
-				Type:        tt.accountType,
 				Credentials: tt.credentials,
 			}
 			mappedModel, matched := account.ResolveMappedModel(tt.requestedModel)
@@ -458,47 +489,6 @@ func TestAccountResolveMappedModel(t *testing.T) {
 				t.Fatalf("ResolveMappedModel(%q) = (%q, %v), want (%q, %v)", tt.requestedModel, mappedModel, matched, tt.expectedModel, tt.expectedMatch)
 			}
 		})
-	}
-}
-
-func TestAccountIsModelSupported_OpenCodeGoAliasRequiresExplicitTarget(t *testing.T) {
-	account := &Account{
-		Platform: PlatformOpenAI,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"vendor": "opencode-go",
-			"model_mapping": map[string]any{
-				"minimax-m3": "minimax-m3",
-			},
-		},
-	}
-
-	if !account.IsModelSupported("opencode-go/minimax-m3") {
-		t.Fatal("expected opencode-go/minimax-m3 to be supported through explicit minimax-m3 target")
-	}
-	if account.IsModelSupported("opencode-go/kimi-k2.7") {
-		t.Fatal("did not expect opencode-go/kimi-k2.7 to be supported without explicit kimi target")
-	}
-}
-
-func TestAccountIsModelSupported_OpenCodeGoAliasWithStringModelMapping(t *testing.T) {
-	account := &Account{
-		Platform: PlatformOpenAI,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"vendor": "opencode-go",
-			"model_mapping": map[string]string{
-				"minimax-m3": "minimax-m3",
-			},
-		},
-	}
-
-	if !account.IsModelSupported("opencode-go/minimax-m3") {
-		t.Fatal("expected opencode-go/minimax-m3 to be supported when model_mapping is map[string]string")
-	}
-	mappedModel, matched := account.ResolveMappedModel("opencode-go/minimax-m3")
-	if !matched || mappedModel != "minimax-m3" {
-		t.Fatalf("ResolveMappedModel(opencode-go/minimax-m3) = (%q, %v), want (minimax-m3, true)", mappedModel, matched)
 	}
 }
 

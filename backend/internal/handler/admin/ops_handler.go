@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -15,165 +14,7 @@ import (
 )
 
 type OpsHandler struct {
-	opsService            *service.OpsService
-	groupVisibilityReader opsGroupVisibilityReader
-}
-
-type opsGroupVisibilityReader interface {
-	GetByIDLite(ctx context.Context, id int64) (*service.Group, error)
-}
-
-func isAdminOpsViewer(c *gin.Context) bool {
-	role, ok := middleware.GetUserRoleFromContext(c)
-	return ok && strings.EqualFold(strings.TrimSpace(role), service.RoleAdmin)
-}
-
-func (h *OpsHandler) canViewScheduledAccountForGroup(ctx context.Context, c *gin.Context, groupID *int64) bool {
-	if isAdminOpsViewer(c) {
-		return true
-	}
-	return h.groupAllowsScheduledAccountInLogs(ctx, groupID)
-}
-
-func (h *OpsHandler) groupAllowsScheduledAccountInLogs(ctx context.Context, groupID *int64) bool {
-	if h == nil || h.groupVisibilityReader == nil || groupID == nil || *groupID <= 0 {
-		return false
-	}
-	group, err := h.groupVisibilityReader.GetByIDLite(ctx, *groupID)
-	if err != nil || group == nil {
-		return false
-	}
-	return group.ExposeScheduledAccountInLogs
-}
-
-func (h *OpsHandler) buildGroupScheduledAccountVisibility(ctx context.Context, ids []int64) map[int64]bool {
-	out := make(map[int64]bool, len(ids))
-	if h == nil || h.groupVisibilityReader == nil {
-		return out
-	}
-	seen := make(map[int64]struct{}, len(ids))
-	for _, id := range ids {
-		if id <= 0 {
-			continue
-		}
-		if _, exists := seen[id]; exists {
-			continue
-		}
-		seen[id] = struct{}{}
-		out[id] = h.groupAllowsScheduledAccountInLogs(ctx, &id)
-	}
-	return out
-}
-
-func groupAllowsScheduledAccountFromVisibility(groupID *int64, visibility map[int64]bool) bool {
-	if groupID == nil || *groupID <= 0 {
-		return false
-	}
-	return visibility[*groupID]
-}
-
-func scrubScheduledAccountFields(log *service.OpsErrorLog) {
-	if log == nil {
-		return
-	}
-	log.ScheduledAccountID = nil
-	log.ScheduledAccountName = ""
-}
-
-func scrubScheduledAccountFromDetail(detail *service.OpsErrorLogDetail) {
-	if detail == nil {
-		return
-	}
-	scrubScheduledAccountFields(&detail.OpsErrorLog)
-}
-
-func scrubScheduledAccountFromLogs(logs []*service.OpsErrorLog) {
-	for _, log := range logs {
-		scrubScheduledAccountFields(log)
-	}
-}
-
-func scrubScheduledAccountFromDetails(details []*service.OpsErrorLogDetail) {
-	for _, detail := range details {
-		scrubScheduledAccountFromDetail(detail)
-	}
-}
-
-func scrubScheduledAccountFromRequestDetail(item *service.OpsRequestDetail) {
-	if item == nil {
-		return
-	}
-	item.ScheduledAccountID = nil
-	item.ScheduledAccountName = ""
-}
-
-func scrubScheduledAccountFromRequestDetails(items []*service.OpsRequestDetail) {
-	for _, item := range items {
-		scrubScheduledAccountFromRequestDetail(item)
-	}
-}
-
-func (h *OpsHandler) scrubScheduledAccountLogsForViewer(ctx context.Context, c *gin.Context, logs []*service.OpsErrorLog) {
-	if isAdminOpsViewer(c) {
-		return
-	}
-	groupIDs := make([]int64, 0, len(logs))
-	for _, log := range logs {
-		if log != nil && log.GroupID != nil && *log.GroupID > 0 {
-			groupIDs = append(groupIDs, *log.GroupID)
-		}
-	}
-	visibility := h.buildGroupScheduledAccountVisibility(ctx, groupIDs)
-	for _, log := range logs {
-		if log == nil {
-			continue
-		}
-		if !groupAllowsScheduledAccountFromVisibility(log.GroupID, visibility) {
-			scrubScheduledAccountFields(log)
-		}
-	}
-}
-
-func (h *OpsHandler) scrubScheduledAccountDetailsForViewer(ctx context.Context, c *gin.Context, details []*service.OpsErrorLogDetail) {
-	if isAdminOpsViewer(c) {
-		return
-	}
-	groupIDs := make([]int64, 0, len(details))
-	for _, detail := range details {
-		if detail != nil && detail.GroupID != nil && *detail.GroupID > 0 {
-			groupIDs = append(groupIDs, *detail.GroupID)
-		}
-	}
-	visibility := h.buildGroupScheduledAccountVisibility(ctx, groupIDs)
-	for _, detail := range details {
-		if detail == nil {
-			continue
-		}
-		if !groupAllowsScheduledAccountFromVisibility(detail.GroupID, visibility) {
-			scrubScheduledAccountFromDetail(detail)
-		}
-	}
-}
-
-func (h *OpsHandler) scrubScheduledAccountRequestDetailsForViewer(ctx context.Context, c *gin.Context, items []*service.OpsRequestDetail) {
-	if isAdminOpsViewer(c) {
-		return
-	}
-	groupIDs := make([]int64, 0, len(items))
-	for _, item := range items {
-		if item != nil && item.GroupID != nil && *item.GroupID > 0 {
-			groupIDs = append(groupIDs, *item.GroupID)
-		}
-	}
-	visibility := h.buildGroupScheduledAccountVisibility(ctx, groupIDs)
-	for _, item := range items {
-		if item == nil {
-			continue
-		}
-		if !groupAllowsScheduledAccountFromVisibility(item.GroupID, visibility) {
-			scrubScheduledAccountFromRequestDetail(item)
-		}
-	}
+	opsService *service.OpsService
 }
 
 // GetErrorLogByID returns ops error log detail.
@@ -199,9 +40,6 @@ func (h *OpsHandler) GetErrorLogByID(c *gin.Context) {
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
-	}
-	if !h.canViewScheduledAccountForGroup(c.Request.Context(), c, detail.GroupID) {
-		scrubScheduledAccountFromDetail(detail)
 	}
 
 	response.Success(c, detail)
@@ -230,18 +68,18 @@ func parseOpsViewParam(c *gin.Context) string {
 	}
 }
 
-func NewOpsHandler(opsService *service.OpsService, groupReaders ...opsGroupVisibilityReader) *OpsHandler {
-	var groupReader opsGroupVisibilityReader
-	if len(groupReaders) > 0 {
-		groupReader = groupReaders[0]
-	}
-	return &OpsHandler{
-		opsService:            opsService,
-		groupVisibilityReader: groupReader,
-	}
+func NewOpsHandler(opsService *service.OpsService) *OpsHandler {
+	return &OpsHandler{opsService: opsService}
 }
 
 // GetErrorLogs lists ops error logs.
+// applyOpsErrorSortParams reads sort_by/sort_order query params into the filter.
+// Column whitelist and order normalization live in the repository; unknown
+// values degrade to the default (created_at DESC), mirroring the usage list.
+func applyOpsErrorSortParams(c *gin.Context, filter *service.OpsErrorLogFilter) {
+	filter.SetSort(c.Query("sort_by"), c.Query("sort_order"))
+}
+
 // GET /api/v1/admin/ops/errors
 func (h *OpsHandler) GetErrorLogs(c *gin.Context) {
 	if h.opsService == nil {
@@ -283,10 +121,17 @@ func (h *OpsHandler) GetErrorLogs(c *gin.Context) {
 	// buildOpsErrorLogsWhere 以 COALESCE(requested_model, model) 比对。
 	filter.Model = strings.TrimSpace(c.Query("model"))
 
-	// Force request errors: client-visible status >= 400.
-	// buildOpsErrorLogsWhere already applies this for non-upstream phase.
-	if strings.EqualFold(strings.TrimSpace(filter.Phase), "upstream") {
-		filter.Phase = ""
+	// 请求错误语义:client-visible status>=400 守卫恒生效（未设
+	// IncludeRecoveredUpstream 时 phase=upstream 不再绕过守卫），故
+	// phase=upstream 作为普通过滤条件保留——此前这里清空该值，导致
+	// 错误类型下拉选「上游」等于不过滤。
+
+	// 分类(用户侧粗分类码)→ phase/type ANY 条件,与用户端 /usage/errors 同一映射;
+	// 未知分类返回空切片 = 不过滤。与 phase 参数可同时设置(AND 语义)。
+	if cat := strings.TrimSpace(c.Query("category")); cat != "" {
+		phases, types := service.CategoryToFilter(cat)
+		filter.ErrorPhasesAny = phases
+		filter.ErrorTypesAny = types
 	}
 
 	if platform := strings.TrimSpace(c.Query("platform")); platform != "" {
@@ -356,12 +201,13 @@ func (h *OpsHandler) GetErrorLogs(c *gin.Context) {
 		filter.StatusCodes = out
 	}
 
+	applyOpsErrorSortParams(c, filter)
+
 	result, err := h.opsService.GetErrorLogs(c.Request.Context(), filter)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	h.scrubScheduledAccountLogsForViewer(c.Request.Context(), c, result.Errors)
 	response.Paginated(c, result.Errors, int64(result.Total), result.Page, result.PageSize)
 }
 
@@ -404,10 +250,17 @@ func (h *OpsHandler) ListRequestErrors(c *gin.Context) {
 	// buildOpsErrorLogsWhere 以 COALESCE(requested_model, model) 比对。
 	filter.Model = strings.TrimSpace(c.Query("model"))
 
-	// Force request errors: client-visible status >= 400.
-	// buildOpsErrorLogsWhere already applies this for non-upstream phase.
-	if strings.EqualFold(strings.TrimSpace(filter.Phase), "upstream") {
-		filter.Phase = ""
+	// 请求错误语义:client-visible status>=400 守卫恒生效（未设
+	// IncludeRecoveredUpstream 时 phase=upstream 不再绕过守卫），故
+	// phase=upstream 作为普通过滤条件保留——此前这里清空该值，导致
+	// 错误类型下拉选「上游」等于不过滤。
+
+	// 分类(用户侧粗分类码)→ phase/type ANY 条件,与用户端 /usage/errors 同一映射;
+	// 未知分类返回空切片 = 不过滤。与 phase 参数可同时设置(AND 语义)。
+	if cat := strings.TrimSpace(c.Query("category")); cat != "" {
+		phases, types := service.CategoryToFilter(cat)
+		filter.ErrorPhasesAny = phases
+		filter.ErrorTypesAny = types
 	}
 
 	if platform := strings.TrimSpace(c.Query("platform")); platform != "" {
@@ -461,12 +314,13 @@ func (h *OpsHandler) ListRequestErrors(c *gin.Context) {
 		filter.StatusCodes = out
 	}
 
+	applyOpsErrorSortParams(c, filter)
+
 	result, err := h.opsService.GetErrorLogs(c.Request.Context(), filter)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	h.scrubScheduledAccountLogsForViewer(c.Request.Context(), c, result.Errors)
 	response.Paginated(c, result.Errors, int64(result.Total), result.Page, result.PageSize)
 }
 
@@ -502,9 +356,6 @@ func (h *OpsHandler) ListRequestErrorUpstreamErrors(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	if !h.canViewScheduledAccountForGroup(c.Request.Context(), c, detail.GroupID) {
-		scrubScheduledAccountFromDetail(detail)
-	}
 
 	// Correlate by request_id/client_request_id.
 	requestID := strings.TrimSpace(detail.RequestID)
@@ -535,7 +386,9 @@ func (h *OpsHandler) ListRequestErrorUpstreamErrors(c *gin.Context) {
 		filter.EndTime = &endTime
 	}
 	filter.View = "all"
-	filter.Phase = "upstream"
+	filter.ErrorPhasesAny = []string{"upstream", "account_auth"}
+	// Provider-health list includes recovered inference and credential rows.
+	filter.IncludeRecoveredUpstream = true
 	filter.Owner = "provider"
 	filter.Source = strings.TrimSpace(c.Query("error_source"))
 	filter.Query = strings.TrimSpace(c.Query("q"))
@@ -550,6 +403,8 @@ func (h *OpsHandler) ListRequestErrorUpstreamErrors(c *gin.Context) {
 	} else {
 		filter.ClientRequestID = clientRequestID
 	}
+
+	applyOpsErrorSortParams(c, filter)
 
 	result, err := h.opsService.GetErrorLogs(c.Request.Context(), filter)
 	if err != nil {
@@ -571,11 +426,9 @@ func (h *OpsHandler) ListRequestErrorUpstreamErrors(c *gin.Context) {
 			}
 			details = append(details, d)
 		}
-		h.scrubScheduledAccountDetailsForViewer(c.Request.Context(), c, details)
 		response.Paginated(c, details, int64(result.Total), result.Page, result.PageSize)
 		return
 	}
-	h.scrubScheduledAccountLogsForViewer(c.Request.Context(), c, result.Errors)
 
 	response.Paginated(c, result.Errors, int64(result.Total), result.Page, result.PageSize)
 }
@@ -617,7 +470,9 @@ func (h *OpsHandler) ListUpstreamErrors(c *gin.Context) {
 	}
 
 	filter.View = parseOpsViewParam(c)
-	filter.Phase = "upstream"
+	filter.ErrorPhasesAny = []string{"upstream", "account_auth"}
+	// Provider-health list includes recovered inference and credential rows.
+	filter.IncludeRecoveredUpstream = true
 	filter.Owner = "provider"
 	filter.Source = strings.TrimSpace(c.Query("error_source"))
 	filter.Query = strings.TrimSpace(c.Query("q"))
@@ -673,12 +528,13 @@ func (h *OpsHandler) ListUpstreamErrors(c *gin.Context) {
 		filter.StatusCodes = out
 	}
 
+	applyOpsErrorSortParams(c, filter)
+
 	result, err := h.opsService.GetErrorLogs(c.Request.Context(), filter)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
-	h.scrubScheduledAccountLogsForViewer(c.Request.Context(), c, result.Errors)
 	response.Paginated(c, result.Errors, int64(result.Total), result.Page, result.PageSize)
 }
 
@@ -793,7 +649,6 @@ func (h *OpsHandler) ListRequestDetails(c *gin.Context) {
 		response.Error(c, http.StatusInternalServerError, "Failed to list request details")
 		return
 	}
-	h.scrubScheduledAccountRequestDetailsForViewer(c.Request.Context(), c, out.Items)
 
 	response.Paginated(c, out.Items, out.Total, out.Page, out.PageSize)
 }

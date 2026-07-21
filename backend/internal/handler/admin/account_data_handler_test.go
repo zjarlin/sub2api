@@ -18,10 +18,11 @@ type dataResponse struct {
 }
 
 type dataPayload struct {
-	Type     string        `json:"type"`
-	Version  int           `json:"version"`
-	Proxies  []dataProxy   `json:"proxies"`
-	Accounts []dataAccount `json:"accounts"`
+	Type           string        `json:"type"`
+	Version        int           `json:"version"`
+	Proxies        []dataProxy   `json:"proxies"`
+	Accounts       []dataAccount `json:"accounts"`
+	SkippedShadows int           `json:"skipped_shadows"`
 }
 
 type dataProxy struct {
@@ -53,6 +54,7 @@ func setupAccountDataRouter() (*gin.Engine, *stubAdminService) {
 
 	h := NewAccountHandler(
 		adminSvc,
+		nil,
 		nil,
 		nil,
 		nil,
@@ -172,6 +174,46 @@ func TestExportDataWithoutProxies(t *testing.T) {
 	require.Nil(t, resp.Data.Accounts[0].ProxyKey)
 }
 
+// TestExportDataExcludesSparkShadow 验证外审第5轮 P1/P2:导出时排除 spark 影子账号
+// (影子无凭据、导入侧强制 credentials 非空,混入会产出无法还原的坏备份),并透出跳过计数。
+func TestExportDataExcludesSparkShadow(t *testing.T) {
+	router, adminSvc := setupAccountDataRouter()
+
+	parentID := int64(21)
+	adminSvc.accounts = []service.Account{
+		{
+			ID:          parentID,
+			Name:        "mother",
+			Platform:    service.PlatformOpenAI,
+			Type:        service.AccountTypeOAuth,
+			Credentials: map[string]any{"token": "secret"},
+			Status:      service.StatusActive,
+		},
+		{
+			ID:              22,
+			Name:            "mother (Spark)",
+			Platform:        service.PlatformOpenAI,
+			Type:            service.AccountTypeOAuth,
+			Credentials:     map[string]any{}, // 影子恒空凭据
+			ParentAccountID: &parentID,        // 影子标记
+			QuotaDimension:  service.QuotaDimensionSpark,
+			Status:          service.StatusActive,
+		},
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/data?include_proxies=false", nil)
+	router.ServeHTTP(rec, req)
+	require.Equal(t, http.StatusOK, rec.Code)
+
+	var resp dataResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Equal(t, 0, resp.Code)
+	require.Len(t, resp.Data.Accounts, 1, "影子应被排除,仅导出母账号")
+	require.Equal(t, "mother", resp.Data.Accounts[0].Name)
+	require.Equal(t, 1, resp.Data.SkippedShadows, "跳过的影子数量应透出")
+}
+
 func TestExportDataPassesAccountFiltersAndSort(t *testing.T) {
 	router, adminSvc := setupAccountDataRouter()
 	adminSvc.accounts = []service.Account{
@@ -181,7 +223,7 @@ func TestExportDataPassesAccountFiltersAndSort(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(
 		http.MethodGet,
-		"/api/v1/admin/accounts/data?platform=openai&type=oauth&status=active&schedulable=false&group=12&privacy_mode=blocked&display_group=pool-a&name_prefix=prod&search=keyword&search_regex=claude&sort_by=priority&sort_order=desc",
+		"/api/v1/admin/accounts/data?platform=openai&type=oauth&status=active&group=12&privacy_mode=blocked&search=keyword&sort_by=priority&sort_order=desc",
 		nil,
 	)
 	router.ServeHTTP(rec, req)
@@ -191,13 +233,9 @@ func TestExportDataPassesAccountFiltersAndSort(t *testing.T) {
 	require.Equal(t, "openai", adminSvc.lastListAccounts.platform)
 	require.Equal(t, "oauth", adminSvc.lastListAccounts.accountType)
 	require.Equal(t, "active", adminSvc.lastListAccounts.status)
-	require.Equal(t, "false", adminSvc.lastListAccounts.schedulable)
 	require.Equal(t, int64(12), adminSvc.lastListAccounts.groupID)
 	require.Equal(t, "blocked", adminSvc.lastListAccounts.privacyMode)
-	require.Equal(t, "pool-a", adminSvc.lastListAccounts.displayGroup)
-	require.Equal(t, "prod", adminSvc.lastListAccounts.namePrefix)
 	require.Equal(t, "keyword", adminSvc.lastListAccounts.search)
-	require.Equal(t, "claude", adminSvc.lastListAccounts.searchRegex)
 	require.Equal(t, "priority", adminSvc.lastListAccounts.sortBy)
 	require.Equal(t, "desc", adminSvc.lastListAccounts.sortOrder)
 }

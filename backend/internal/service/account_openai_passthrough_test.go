@@ -49,48 +49,6 @@ func TestAccount_IsOpenAIPassthroughEnabled(t *testing.T) {
 	})
 }
 
-func TestAccount_IsModelSupported_OpenAIAPIKeyPassthroughRequiresModelMapping(t *testing.T) {
-	t.Run("API Key 透传空映射不再支持所有模型", func(t *testing.T) {
-		account := &Account{
-			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
-			Credentials: map[string]any{},
-			Extra: map[string]any{
-				"openai_passthrough": true,
-			},
-		}
-
-		require.False(t, account.IsModelSupported("minimax-m3"))
-		require.True(t, account.IsModelSupported("gpt-5.4"))
-	})
-
-	t.Run("API Key 透传显式映射仍按白名单支持", func(t *testing.T) {
-		account := &Account{
-			Platform: PlatformOpenAI,
-			Type:     AccountTypeAPIKey,
-			Credentials: map[string]any{
-				"model_mapping": map[string]any{"minimax-m3": "minimax-m3"},
-			},
-			Extra: map[string]any{
-				"openai_passthrough": true,
-			},
-		}
-
-		require.True(t, account.IsModelSupported("minimax-m3"))
-		require.False(t, account.IsModelSupported("gpt-5.4"))
-	})
-
-	t.Run("非透传 API Key 空映射保持历史允许所有行为", func(t *testing.T) {
-		account := &Account{
-			Platform:    PlatformOpenAI,
-			Type:        AccountTypeAPIKey,
-			Credentials: map[string]any{},
-		}
-
-		require.True(t, account.IsModelSupported("minimax-m3"))
-	})
-}
-
 func TestAccount_IsOpenAIOAuthPassthroughEnabled(t *testing.T) {
 	t.Run("仅OAuth类型允许返回开启", func(t *testing.T) {
 		oauthAccount := &Account{
@@ -269,6 +227,17 @@ func TestAccount_ResolveOpenAIResponsesWebSocketV2Mode(t *testing.T) {
 			},
 		}
 		require.Equal(t, OpenAIWSIngressModePassthrough, account.ResolveOpenAIResponsesWebSocketV2Mode(OpenAIWSIngressModeCtxPool))
+	})
+
+	t.Run("oauth mode supports http_bridge", func(t *testing.T) {
+		account := &Account{
+			Platform: PlatformOpenAI,
+			Type:     AccountTypeOAuth,
+			Extra: map[string]any{
+				"openai_oauth_responses_websockets_v2_mode": OpenAIWSIngressModeHTTPBridge,
+			},
+		}
+		require.Equal(t, OpenAIWSIngressModeHTTPBridge, account.ResolveOpenAIResponsesWebSocketV2Mode(OpenAIWSIngressModeCtxPool))
 	})
 
 	t.Run("legacy enabled maps to ctx_pool", func(t *testing.T) {
