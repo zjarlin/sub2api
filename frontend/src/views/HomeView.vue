@@ -13,27 +13,12 @@
   </div>
 
   <!-- Default Home Page -->
-  <div
-    v-else
-    class="relative flex min-h-screen flex-col overflow-hidden bg-gradient-to-br from-gray-50 via-primary-50/30 to-gray-100 dark:from-dark-950 dark:via-dark-900 dark:to-dark-950"
-  >
-    <!-- Background Decorations -->
+  <div v-else class="liquid-page relative flex min-h-screen flex-col overflow-hidden">
     <div class="pointer-events-none absolute inset-0 overflow-hidden">
-      <div
-        class="absolute -right-40 -top-40 h-96 w-96 rounded-full bg-primary-400/20 blur-3xl"
-      ></div>
-      <div
-        class="absolute -bottom-40 -left-40 h-96 w-96 rounded-full bg-primary-500/15 blur-3xl"
-      ></div>
-      <div
-        class="absolute left-1/3 top-1/4 h-72 w-72 rounded-full bg-primary-300/10 blur-3xl"
-      ></div>
-      <div
-        class="absolute bottom-1/4 right-1/4 h-64 w-64 rounded-full bg-primary-400/10 blur-3xl"
-      ></div>
-      <div
-        class="absolute inset-0 bg-[linear-gradient(rgba(20,184,166,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(20,184,166,0.03)_1px,transparent_1px)] bg-[size:64px_64px]"
-      ></div>
+      <div class="hero-sheet hero-sheet-a"></div>
+      <div class="hero-sheet hero-sheet-b"></div>
+      <div class="hero-sheet hero-sheet-c"></div>
+      <div class="hero-grid absolute inset-0"></div>
     </div>
 
     <!-- Header -->
@@ -57,7 +42,7 @@
             :href="docUrl"
             target="_blank"
             rel="noopener noreferrer"
-            class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white"
+            class="home-icon-button"
             :title="t('home.viewDocs')"
           >
             <Icon name="book" size="md" />
@@ -66,7 +51,7 @@
           <!-- Theme Toggle -->
           <button
             @click="toggleTheme"
-            class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white"
+            class="home-icon-button"
             :title="isDark ? t('home.switchToLight') : t('home.switchToDark')"
           >
             <Icon v-if="isDark" name="sun" size="md" />
@@ -77,7 +62,7 @@
           <router-link
             v-if="isAuthenticated"
             :to="dashboardPath"
-            class="inline-flex items-center gap-1.5 rounded-full bg-gray-900 py-1 pl-1 pr-2.5 transition-colors hover:bg-gray-800 dark:bg-gray-800 dark:hover:bg-gray-700"
+            class="home-pill-action py-1 pl-1 pr-2.5"
           >
             <span
               class="flex h-5 w-5 items-center justify-center rounded-full bg-gradient-to-br from-primary-400 to-primary-600 text-[10px] font-semibold text-white"
@@ -102,7 +87,7 @@
           <router-link
             v-else
             to="/login"
-            class="inline-flex items-center rounded-full bg-gray-900 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-gray-800 dark:bg-gray-800 dark:hover:bg-gray-700"
+            class="home-pill-action px-3 py-1"
           >
             {{ t('home.login') }}
           </router-link>
@@ -118,23 +103,32 @@
           <!-- Left: Text Content -->
           <div class="flex-1 text-center lg:text-left">
             <h1
-              class="mb-4 text-4xl font-bold text-gray-900 dark:text-white md:text-5xl lg:text-6xl"
+              class="mb-5 text-4xl font-black uppercase text-gray-950 dark:text-white md:text-5xl lg:text-6xl"
             >
               {{ siteName }}
             </h1>
-            <p class="mb-8 text-lg text-gray-600 dark:text-dark-300 md:text-xl">
+            <p class="mb-8 max-w-xl text-lg font-medium text-gray-700 dark:text-dark-200 md:text-xl">
               {{ siteSubtitle }}
             </p>
 
             <!-- CTA Button -->
-            <div>
+            <div class="flex flex-col items-center gap-3 sm:flex-row lg:justify-start">
               <router-link
                 :to="isAuthenticated ? dashboardPath : '/login'"
-                class="btn btn-primary px-8 py-3 text-base shadow-lg shadow-primary-500/30"
+                class="home-hero-cta px-8 py-3 text-base"
               >
                 {{ isAuthenticated ? t('home.goToDashboard') : t('home.getStarted') }}
                 <Icon name="arrowRight" size="md" class="ml-2" :stroke-width="2" />
               </router-link>
+              <a
+                v-if="docUrl"
+                :href="docUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="home-secondary-cta px-8 py-3 text-base"
+              >
+                {{ t('home.docs') }}
+              </a>
             </div>
           </div>
 
@@ -179,26 +173,26 @@
         <!-- Feature Tags - Centered -->
         <div class="mb-12 flex flex-wrap items-center justify-center gap-4 md:gap-6">
           <div
-            class="inline-flex items-center gap-2.5 rounded-full border border-gray-200/50 bg-white/80 px-5 py-2.5 shadow-sm backdrop-blur-sm dark:border-dark-700/50 dark:bg-dark-800/80"
+            class="home-chip"
           >
             <Icon name="swap" size="sm" class="text-primary-500" />
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{
+            <span class="text-sm font-medium text-gray-700 dark:text-[#edf8f5]">{{
               t('home.tags.subscriptionToApi')
             }}</span>
           </div>
           <div
-            class="inline-flex items-center gap-2.5 rounded-full border border-gray-200/50 bg-white/80 px-5 py-2.5 shadow-sm backdrop-blur-sm dark:border-dark-700/50 dark:bg-dark-800/80"
+            class="home-chip"
           >
             <Icon name="shield" size="sm" class="text-primary-500" />
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{
+            <span class="text-sm font-medium text-gray-700 dark:text-[#edf8f5]">{{
               t('home.tags.stickySession')
             }}</span>
           </div>
           <div
-            class="inline-flex items-center gap-2.5 rounded-full border border-gray-200/50 bg-white/80 px-5 py-2.5 shadow-sm backdrop-blur-sm dark:border-dark-700/50 dark:bg-dark-800/80"
+            class="home-chip"
           >
             <Icon name="chart" size="sm" class="text-primary-500" />
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{
+            <span class="text-sm font-medium text-gray-700 dark:text-[#edf8f5]">{{
               t('home.tags.realtimeBilling')
             }}</span>
           </div>
@@ -208,7 +202,7 @@
         <div class="mb-12 grid gap-6 md:grid-cols-3">
           <!-- Feature 1: Unified Gateway -->
           <div
-            class="group rounded-2xl border border-gray-200/50 bg-white/60 p-6 backdrop-blur-sm transition-all duration-300 hover:shadow-xl hover:shadow-primary-500/10 dark:border-dark-700/50 dark:bg-dark-800/60"
+            class="home-feature-card group"
           >
             <div
               class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 shadow-lg shadow-blue-500/30 transition-transform group-hover:scale-110"
@@ -218,14 +212,14 @@
             <h3 class="mb-2 text-lg font-semibold text-gray-900 dark:text-white">
               {{ t('home.features.unifiedGateway') }}
             </h3>
-            <p class="text-sm leading-relaxed text-gray-600 dark:text-dark-400">
+            <p class="text-sm leading-relaxed text-gray-600 dark:text-[#cfe2dd]">
               {{ t('home.features.unifiedGatewayDesc') }}
             </p>
           </div>
 
           <!-- Feature 2: Account Pool -->
           <div
-            class="group rounded-2xl border border-gray-200/50 bg-white/60 p-6 backdrop-blur-sm transition-all duration-300 hover:shadow-xl hover:shadow-primary-500/10 dark:border-dark-700/50 dark:bg-dark-800/60"
+            class="home-feature-card group"
           >
             <div
               class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 shadow-lg shadow-primary-500/30 transition-transform group-hover:scale-110"
@@ -247,14 +241,14 @@
             <h3 class="mb-2 text-lg font-semibold text-gray-900 dark:text-white">
               {{ t('home.features.multiAccount') }}
             </h3>
-            <p class="text-sm leading-relaxed text-gray-600 dark:text-dark-400">
+            <p class="text-sm leading-relaxed text-gray-600 dark:text-[#cfe2dd]">
               {{ t('home.features.multiAccountDesc') }}
             </p>
           </div>
 
           <!-- Feature 3: Billing & Quota -->
           <div
-            class="group rounded-2xl border border-gray-200/50 bg-white/60 p-6 backdrop-blur-sm transition-all duration-300 hover:shadow-xl hover:shadow-primary-500/10 dark:border-dark-700/50 dark:bg-dark-800/60"
+            class="home-feature-card group"
           >
             <div
               class="mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 shadow-lg shadow-purple-500/30 transition-transform group-hover:scale-110"
@@ -276,7 +270,7 @@
             <h3 class="mb-2 text-lg font-semibold text-gray-900 dark:text-white">
               {{ t('home.features.balanceQuota') }}
             </h3>
-            <p class="text-sm leading-relaxed text-gray-600 dark:text-dark-400">
+            <p class="text-sm leading-relaxed text-gray-600 dark:text-[#cfe2dd]">
               {{ t('home.features.balanceQuotaDesc') }}
             </p>
           </div>
@@ -295,14 +289,14 @@
         <div class="mb-16 flex flex-wrap items-center justify-center gap-4">
           <!-- Claude - Supported -->
           <div
-            class="flex items-center gap-2 rounded-xl border border-primary-200 bg-white/60 px-5 py-3 ring-1 ring-primary-500/20 backdrop-blur-sm dark:border-primary-800 dark:bg-dark-800/60"
+            class="home-provider-card"
           >
             <div
               class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-orange-400 to-orange-500"
             >
               <span class="text-xs font-bold text-white">C</span>
             </div>
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{ t('home.providers.claude') }}</span>
+            <span class="text-sm font-medium text-gray-700 dark:text-[#edf8f5]">{{ t('home.providers.claude') }}</span>
             <span
               class="rounded bg-primary-100 px-1.5 py-0.5 text-[10px] font-medium text-primary-600 dark:bg-primary-900/30 dark:text-primary-400"
               >{{ t('home.providers.supported') }}</span
@@ -310,14 +304,14 @@
           </div>
           <!-- GPT - Supported -->
           <div
-            class="flex items-center gap-2 rounded-xl border border-primary-200 bg-white/60 px-5 py-3 ring-1 ring-primary-500/20 backdrop-blur-sm dark:border-primary-800 dark:bg-dark-800/60"
+            class="home-provider-card"
           >
             <div
               class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-green-500 to-green-600"
             >
               <span class="text-xs font-bold text-white">G</span>
             </div>
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">GPT</span>
+            <span class="text-sm font-medium text-gray-700 dark:text-[#edf8f5]">GPT</span>
             <span
               class="rounded bg-primary-100 px-1.5 py-0.5 text-[10px] font-medium text-primary-600 dark:bg-primary-900/30 dark:text-primary-400"
               >{{ t('home.providers.supported') }}</span
@@ -325,14 +319,14 @@
           </div>
           <!-- Gemini - Supported -->
           <div
-            class="flex items-center gap-2 rounded-xl border border-primary-200 bg-white/60 px-5 py-3 ring-1 ring-primary-500/20 backdrop-blur-sm dark:border-primary-800 dark:bg-dark-800/60"
+            class="home-provider-card"
           >
             <div
               class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-blue-500 to-blue-600"
             >
               <span class="text-xs font-bold text-white">G</span>
             </div>
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{ t('home.providers.gemini') }}</span>
+            <span class="text-sm font-medium text-gray-700 dark:text-[#edf8f5]">{{ t('home.providers.gemini') }}</span>
             <span
               class="rounded bg-primary-100 px-1.5 py-0.5 text-[10px] font-medium text-primary-600 dark:bg-primary-900/30 dark:text-primary-400"
               >{{ t('home.providers.supported') }}</span
@@ -340,14 +334,14 @@
           </div>
           <!-- Antigravity - Supported -->
           <div
-            class="flex items-center gap-2 rounded-xl border border-primary-200 bg-white/60 px-5 py-3 ring-1 ring-primary-500/20 backdrop-blur-sm dark:border-primary-800 dark:bg-dark-800/60"
+            class="home-provider-card"
           >
             <div
               class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-rose-500 to-pink-600"
             >
               <span class="text-xs font-bold text-white">A</span>
             </div>
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{ t('home.providers.antigravity') }}</span>
+            <span class="text-sm font-medium text-gray-700 dark:text-[#edf8f5]">{{ t('home.providers.antigravity') }}</span>
             <span
               class="rounded bg-primary-100 px-1.5 py-0.5 text-[10px] font-medium text-primary-600 dark:bg-primary-900/30 dark:text-primary-400"
               >{{ t('home.providers.supported') }}</span
@@ -355,14 +349,14 @@
           </div>
           <!-- More - Coming Soon -->
           <div
-            class="flex items-center gap-2 rounded-xl border border-gray-200/50 bg-white/40 px-5 py-3 opacity-60 backdrop-blur-sm dark:border-dark-700/50 dark:bg-dark-800/40"
+            class="home-provider-card opacity-60"
           >
             <div
               class="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-gray-500 to-gray-600"
             >
               <span class="text-xs font-bold text-white">+</span>
             </div>
-            <span class="text-sm font-medium text-gray-700 dark:text-dark-200">{{ t('home.providers.more') }}</span>
+            <span class="text-sm font-medium text-gray-700 dark:text-[#edf8f5]">{{ t('home.providers.more') }}</span>
             <span
               class="rounded bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-500 dark:bg-dark-700 dark:text-dark-400"
               >{{ t('home.providers.soon') }}</span
@@ -373,7 +367,7 @@
     </main>
 
     <!-- Footer -->
-    <footer class="relative z-10 border-t border-gray-200/50 px-6 py-8 dark:border-dark-800/50">
+    <footer class="relative z-10 border-t px-6 py-8 liquid-border">
       <div
         class="mx-auto flex max-w-6xl flex-col items-center justify-center gap-4 text-center sm:flex-row sm:text-left"
       >
@@ -482,6 +476,199 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.hero-sheet {
+  position: absolute;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background:
+    linear-gradient(135deg, rgba(0, 95, 255, 0.92), rgba(255, 51, 102, 0.86) 54%, rgba(255, 138, 0, 0.86)),
+    #111318;
+  box-shadow: 0 30px 80px rgba(17, 19, 24, 0.2);
+  clip-path: polygon(8% 0, 100% 0, 92% 100%, 0 100%);
+}
+
+.hero-sheet-a {
+  top: -14rem;
+  right: -12rem;
+  width: 36rem;
+  height: 46rem;
+  border-radius: 0;
+  transform: rotate(-17deg);
+}
+
+.hero-sheet-b {
+  bottom: -18rem;
+  left: -14rem;
+  width: 36rem;
+  height: 40rem;
+  border-radius: 0;
+  opacity: 0.88;
+  transform: rotate(20deg);
+}
+
+.hero-sheet-c {
+  left: 42%;
+  top: 18%;
+  width: 26rem;
+  height: 16rem;
+  border-radius: 0;
+  opacity: 0.34;
+  background:
+    linear-gradient(135deg, rgba(0, 200, 255, 0.9), rgba(183, 255, 0, 0.64)),
+    #111318;
+  transform: rotate(31deg);
+}
+
+.hero-grid {
+  opacity: 0.65;
+  background-image:
+    linear-gradient(rgba(17, 19, 24, 0.06) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(17, 19, 24, 0.045) 1px, transparent 1px);
+  background-size: 64px 64px;
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), transparent 78%);
+}
+
+.home-icon-button {
+  @apply rounded-lg border p-2 text-gray-600 transition-colors hover:text-gray-950 dark:text-dark-300 dark:hover:text-white;
+  background: rgba(255, 255, 255, 0.78);
+  border-color: var(--liquid-border);
+}
+
+.home-icon-button:hover {
+  background: #ffffff;
+}
+
+.home-pill-action {
+  @apply inline-flex items-center rounded-lg text-xs font-bold text-white transition-all;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.18), transparent 42%),
+    linear-gradient(135deg, var(--product-blue), var(--product-magenta) 58%, var(--product-orange));
+  box-shadow: 0 14px 34px rgba(0, 95, 255, 0.24), 0 8px 28px rgba(255, 51, 102, 0.2);
+}
+
+.home-pill-action:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 18px 46px rgba(0, 95, 255, 0.3), 0 10px 34px rgba(255, 51, 102, 0.24);
+}
+
+.home-hero-cta,
+.home-secondary-cta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-weight: 800;
+  transition:
+    transform 0.18s ease,
+    box-shadow 0.18s ease,
+    background 0.18s ease;
+}
+
+.home-hero-cta {
+  color: #fff;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.2), transparent 34%),
+    linear-gradient(135deg, var(--product-blue), var(--product-magenta) 55%, var(--product-orange));
+  box-shadow: 0 18px 44px rgba(0, 95, 255, 0.26), 0 12px 34px rgba(255, 51, 102, 0.2);
+}
+
+.home-secondary-cta {
+  color: var(--liquid-ink);
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid var(--liquid-border);
+}
+
+.home-hero-cta:hover,
+.home-secondary-cta:hover {
+  transform: translateY(-2px);
+}
+
+.home-secondary-cta:hover {
+  background: #fff;
+  box-shadow: 0 16px 34px rgba(17, 19, 24, 0.1);
+}
+
+.home-chip,
+.home-provider-card,
+.home-feature-card {
+  border: 1px solid var(--liquid-border);
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(255, 255, 255, 0.84)),
+    var(--liquid-panel);
+  box-shadow: var(--liquid-shadow);
+  backdrop-filter: blur(10px) saturate(1.08);
+}
+
+.home-chip {
+  @apply inline-flex items-center gap-2.5 rounded-lg px-5 py-2.5;
+}
+
+.home-feature-card {
+  @apply rounded-xl p-6 transition-all duration-300;
+  position: relative;
+  overflow: hidden;
+}
+
+.home-feature-card::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--product-blue), var(--product-magenta), var(--product-orange));
+}
+
+.home-feature-card:hover,
+.home-provider-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(0, 95, 255, 0.24);
+  box-shadow: var(--liquid-shadow-hover);
+}
+
+.home-provider-card {
+  @apply flex items-center gap-2 rounded-lg px-5 py-3 transition-all;
+}
+
+:global(.dark) .hero-sheet,
+:global(.dark) .home-chip,
+:global(.dark) .home-provider-card,
+:global(.dark) .home-feature-card {
+  background:
+    linear-gradient(145deg, rgba(35, 39, 52, 0.94), rgba(13, 15, 22, 0.88)),
+    var(--liquid-panel);
+  box-shadow: var(--liquid-shadow);
+}
+
+:global(.dark) .hero-sheet {
+  background:
+    linear-gradient(135deg, rgba(0, 95, 255, 0.94), rgba(255, 51, 102, 0.88) 54%, rgba(255, 138, 0, 0.88)),
+    #111318;
+}
+
+:global(.dark) .home-feature-card p {
+  color: #cfe2dd;
+}
+
+:global(.dark) .home-chip span,
+:global(.dark) .home-provider-card span {
+  color: #edf8f5;
+}
+
+:global(.dark) .hero-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.055) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+}
+
+:global(.dark) .home-icon-button:hover {
+  background: rgba(35, 39, 52, 0.94);
+}
+
+:global(.dark) .home-icon-button,
+:global(.dark) .home-secondary-cta {
+  background: rgba(17, 19, 24, 0.82);
+  border-color: rgba(255, 255, 255, 0.14);
+  color: #f7f8fb;
+}
+
 /* Terminal Container */
 .terminal-container {
   position: relative;
@@ -491,12 +678,14 @@ onMounted(() => {
 /* Terminal Window */
 .terminal-window {
   width: 420px;
-  background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
-  border-radius: 14px;
+  background:
+    linear-gradient(135deg, rgba(0, 200, 255, 0.1), transparent 42%),
+    linear-gradient(145deg, #141824 0%, #05060a 100%);
+  border-radius: 10px;
   box-shadow:
-    0 25px 50px -12px rgba(0, 0, 0, 0.4),
-    0 0 0 1px rgba(255, 255, 255, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    0 28px 60px -20px rgba(0, 95, 255, 0.42),
+    0 20px 52px -26px rgba(255, 51, 102, 0.38),
+    0 0 0 1px rgba(255, 255, 255, 0.16);
   overflow: hidden;
   transform: perspective(1000px) rotateX(2deg) rotateY(-2deg);
   transition: transform 0.3s ease;
@@ -511,8 +700,8 @@ onMounted(() => {
   display: flex;
   align-items: center;
   padding: 12px 16px;
-  background: rgba(30, 41, 59, 0.8);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  background: linear-gradient(90deg, rgba(0, 95, 255, 0.26), rgba(255, 51, 102, 0.2));
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .terminal-buttons {
@@ -523,17 +712,17 @@ onMounted(() => {
 .terminal-buttons span {
   width: 12px;
   height: 12px;
-  border-radius: 50%;
+  border-radius: 3px;
 }
 
 .btn-close {
-  background: #ef4444;
+  background: #ff3366;
 }
 .btn-minimize {
-  background: #eab308;
+  background: #ff8a00;
 }
 .btn-maximize {
-  background: #22c55e;
+  background: #00c8ff;
 }
 
 .terminal-title {
@@ -541,7 +730,7 @@ onMounted(() => {
   text-align: center;
   font-size: 12px;
   font-family: ui-monospace, monospace;
-  color: #64748b;
+  color: #d8deea;
   margin-right: 52px;
 }
 
@@ -587,31 +776,31 @@ onMounted(() => {
 }
 
 .code-prompt {
-  color: #22c55e;
+  color: #b7ff00;
   font-weight: bold;
 }
 .code-cmd {
-  color: #38bdf8;
+  color: #00c8ff;
 }
 .code-flag {
-  color: #a78bfa;
+  color: #ff6fb0;
 }
 .code-url {
-  color: #14b8a6;
+  color: #f7f8fb;
 }
 .code-comment {
-  color: #64748b;
+  color: #858da0;
   font-style: italic;
 }
 .code-success {
-  color: #22c55e;
-  background: rgba(34, 197, 94, 0.15);
+  color: #b7ff00;
+  background: rgba(183, 255, 0, 0.13);
   padding: 2px 8px;
   border-radius: 4px;
   font-weight: 600;
 }
 .code-response {
-  color: #fbbf24;
+  color: #ffb25b;
 }
 
 /* Blinking Cursor */
@@ -619,7 +808,7 @@ onMounted(() => {
   display: inline-block;
   width: 8px;
   height: 16px;
-  background: #22c55e;
+  background: #b7ff00;
   animation: blink 1s step-end infinite;
 }
 
@@ -637,9 +826,8 @@ onMounted(() => {
 /* Dark mode adjustments */
 :deep(.dark) .terminal-window {
   box-shadow:
-    0 25px 50px -12px rgba(0, 0, 0, 0.6),
-    0 0 0 1px rgba(20, 184, 166, 0.2),
-    0 0 40px rgba(20, 184, 166, 0.1),
-    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+    0 28px 60px -20px rgba(0, 95, 255, 0.42),
+    0 20px 52px -26px rgba(255, 51, 102, 0.38),
+    0 0 0 1px rgba(255, 255, 255, 0.16);
 }
 </style>
