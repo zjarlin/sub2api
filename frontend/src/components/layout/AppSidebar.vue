@@ -11,7 +11,7 @@
       <!-- Custom Logo or Default Logo -->
       <router-link
         :to="homePath"
-        class="sidebar-logo flex h-9 w-9 items-center justify-center overflow-hidden rounded-xl shadow-glow transition-opacity hover:opacity-80"
+        class="sidebar-logo flex h-9 w-9 items-center justify-center overflow-hidden rounded-md border-2 border-black bg-[#ffdc58] shadow-[4px_4px_0_#000] transition-all hover:translate-x-1 hover:translate-y-1 hover:shadow-none dark:border-white"
         @click="handleMenuItemClick(homePath)"
       >
         <img v-if="settingsLoaded" :src="siteLogo || '/logo.svg'" alt="Logo" class="h-full w-full object-contain" />
@@ -914,7 +914,7 @@ function handleGroupClick(item: NavItem) {
 
 // Initialize theme
 const savedTheme = localStorage.getItem('theme')
-const shouldUseDark = savedTheme === 'light' ? false : true
+const shouldUseDark = savedTheme === 'dark'
 isDark.value = shouldUseDark
 document.documentElement.classList.toggle('dark', shouldUseDark)
 
@@ -955,10 +955,10 @@ onBeforeUnmount(() => {
 .sidebar-logo {
   flex: 0 0 2.25rem;
   min-width: 2.25rem;
-  border-radius: 3px !important;
-  border: 1px solid var(--product-orange);
-  background: rgba(255, 138, 0, 0.1);
-  box-shadow: none !important;
+  border-radius: var(--neo-radius) !important;
+  border: 2px solid var(--liquid-border);
+  background: var(--neo-main);
+  box-shadow: var(--neo-shadow-sm) !important;
 }
 
 .sidebar-header-collapsed {

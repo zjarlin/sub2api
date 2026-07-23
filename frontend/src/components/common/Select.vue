@@ -463,19 +463,21 @@ onUnmounted(() => {
 .select-trigger {
   @apply flex w-full items-center justify-between gap-2;
   @apply px-4 py-2.5 text-sm;
-  @apply border;
+  @apply border-2;
   @apply text-gray-900 dark:text-gray-100;
   @apply transition-all duration-150;
-  @apply focus:outline-none focus:ring-2 focus:ring-orange-500/30;
+  @apply focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white;
   @apply cursor-pointer;
-  border-radius: 3px;
+  border-radius: var(--neo-radius);
   background: var(--liquid-panel-strong);
   border-color: var(--liquid-border);
+  box-shadow: var(--neo-shadow-sm);
 }
 
 .select-trigger-open {
-  border-color: var(--product-orange);
-  box-shadow: 0 0 0 2px rgba(255, 138, 0, 0.18);
+  border-color: var(--liquid-border);
+  background: var(--neo-main);
+  box-shadow: var(--neo-shadow-sm);
 }
 
 .select-trigger-error {
@@ -504,9 +506,9 @@ onUnmounted(() => {
 <style>
 .select-dropdown-portal {
   @apply w-max min-w-[200px];
-  @apply border;
+  @apply border-2;
   @apply overflow-hidden;
-  border-radius: 3px;
+  border-radius: var(--neo-radius);
   background: var(--liquid-panel-strong);
   border-color: var(--liquid-border);
   box-shadow: var(--liquid-shadow-hover);
@@ -515,7 +517,7 @@ onUnmounted(() => {
 
 .select-dropdown-portal .select-search {
   @apply flex items-center gap-2 px-3 py-2;
-  @apply border-b;
+  @apply border-b-2;
   border-color: var(--liquid-border-soft);
 }
 
@@ -539,16 +541,19 @@ onUnmounted(() => {
 }
 
 .select-dropdown-portal .select-option:hover {
-  background: rgba(255, 138, 0, 0.08);
+  background: var(--neo-main);
+  color: var(--neo-ink);
 }
 
 .select-dropdown-portal .select-option-selected {
-  background: rgba(255, 138, 0, 0.12);
-  color: var(--product-orange);
+  background: var(--neo-cyan);
+  color: var(--neo-ink);
+  font-weight: 800;
 }
 
 .select-dropdown-portal .select-option-focused {
-  background: rgba(255, 138, 0, 0.1);
+  background: var(--neo-main);
+  color: var(--neo-ink);
 }
 
 .select-dropdown-portal .select-option-disabled {
@@ -559,11 +564,12 @@ onUnmounted(() => {
   @apply cursor-default select-none;
   @apply text-[11px] font-bold uppercase;
   @apply text-gray-500 dark:text-gray-400;
-  background: rgba(146, 164, 174, 0.08);
+  background: var(--neo-green);
+  color: var(--neo-ink);
 }
 
 .select-dropdown-portal .select-option-group:hover {
-  background: rgba(146, 164, 174, 0.08);
+  background: var(--neo-green);
 }
 
 .select-dropdown-portal .select-option-label {

@@ -3,21 +3,21 @@
     <!-- Mini Progress Display -->
     <button
       @click="toggleTooltip"
-      class="flex cursor-pointer items-center gap-2 rounded-xl bg-purple-50 px-3 py-1.5 transition-colors hover:bg-purple-100 dark:bg-purple-900/20 dark:hover:bg-purple-900/30"
+      class="flex cursor-pointer items-center gap-2 rounded-md border-2 border-black bg-[#ffdc58] px-3 py-1.5 font-bold text-black shadow-[3px_3px_0_#000] transition-all hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-none dark:border-white dark:bg-[#7084ff]"
       :title="t('subscriptionProgress.viewDetails')"
     >
-      <Icon name="creditCard" size="sm" class="text-purple-600 dark:text-purple-400" />
+      <Icon name="creditCard" size="sm" class="text-black" />
       <div class="flex items-center gap-1.5">
         <!-- Combined progress indicator -->
         <div class="flex items-center gap-0.5">
           <div
             v-for="(sub, index) in displaySubscriptions.slice(0, 3)"
             :key="index"
-            class="h-2 w-2 rounded-full"
+            class="h-2 w-2 rounded-full border border-black"
             :class="getProgressDotClass(sub)"
           ></div>
         </div>
-        <span class="text-xs font-medium text-purple-700 dark:text-purple-300">
+        <span class="text-xs font-black text-black">
           {{ activeSubscriptions.length }}
         </span>
       </div>
@@ -27,9 +27,9 @@
     <transition name="dropdown">
       <div
         v-if="tooltipOpen"
-        class="absolute right-0 z-50 mt-2 w-[340px] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-dark-700 dark:bg-dark-800"
+        class="absolute right-0 z-50 mt-2 w-[340px] overflow-hidden rounded-md border-2 border-black bg-white shadow-[6px_6px_0_#000] dark:border-white dark:bg-dark-800 dark:shadow-[6px_6px_0_#fff]"
       >
-        <div class="border-b border-gray-100 p-3 dark:border-dark-700">
+        <div class="border-b-2 border-black bg-[#35d9ff] p-3 dark:border-white">
           <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
             {{ t('subscriptionProgress.title') }}
           </h3>
@@ -62,7 +62,7 @@
               <!-- Unlimited subscription badge -->
               <div
                 v-if="isUnlimited(subscription)"
-                class="flex items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-50 to-teal-50 px-2.5 py-1.5 dark:from-emerald-900/20 dark:to-teal-900/20"
+                class="flex items-center gap-2 rounded-md border-2 border-black bg-[#8fff6a] px-2.5 py-1.5 dark:border-white"
               >
                 <span class="text-lg text-emerald-600 dark:text-emerald-400">∞</span>
                 <span class="text-xs font-medium text-emerald-700 dark:text-emerald-300">

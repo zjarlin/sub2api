@@ -53,18 +53,10 @@ defineExpose({ replayTour })
 
 <style scoped>
 .liquid-field {
-  background:
-    linear-gradient(rgba(146, 164, 174, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(146, 164, 174, 0.045) 1px, transparent 1px),
-    radial-gradient(110% 80% at 84% 10%, rgba(255, 138, 0, 0.08), transparent 58%);
-  background-size: 44px 44px, 44px 44px, auto;
+  background: var(--neo-page);
 }
 
 :global(.dark) .liquid-field {
-  background:
-    linear-gradient(rgba(146, 164, 174, 0.06) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(146, 164, 174, 0.045) 1px, transparent 1px),
-    radial-gradient(110% 80% at 84% 10%, rgba(255, 138, 0, 0.1), transparent 58%);
-  background-size: 44px 44px, 44px 44px, auto;
+  background: var(--neo-page);
 }
 </style>

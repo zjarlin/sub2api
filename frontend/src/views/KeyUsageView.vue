@@ -429,14 +429,14 @@ import { sanitizeUrl } from '@/utils/url'
 const { t, locale } = useI18n()
 const appStore = useAppStore()
 
-// ==================== Site Settings (same as HomeView) ====================
+// ==================== 站点设置（与首页一致） ====================
 
-const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || 'Sub2API')
+const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || '++0 的 API')
 const siteLogo = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '', { allowRelative: true, allowDataUrl: true }))
 const docUrl = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl || ''))
-const githubUrl = 'https://github.com/Wei-Shaw/sub2api'
+const githubUrl = 'https://github.com/zjarlin/sub2api'
 
-// ==================== Theme (same as HomeView) ====================
+// ==================== 主题（与首页一致） ====================
 
 const isDark = ref(document.documentElement.classList.contains('dark'))
 
@@ -448,7 +448,7 @@ function toggleTheme() {
 
 const currentYear = computed(() => new Date().getFullYear())
 
-// ==================== Key Query State ====================
+// ==================== 密钥查询状态 ====================
 
 const apiKey = ref('')
 const keyVisible = ref(false)
@@ -461,7 +461,7 @@ const resultData = ref<any>(null)
 const now = ref(new Date())
 let resetTimer: ReturnType<typeof setInterval> | null = null
 
-// ==================== Date Range State ====================
+// ==================== 日期范围状态 ====================
 
 type DateRangeKey = 'today' | '7d' | '30d' | 'custom'
 const currentRange = ref<DateRangeKey>('today')
@@ -523,7 +523,7 @@ function setDailyUsageDays(days: 7 | 30 | 90) {
   }
 }
 
-// ==================== Ring Animation ====================
+// ==================== 环形图动画 ====================
 
 const CIRCUMFERENCE = 2 * Math.PI * 68
 const RING_GRADIENTS = [
@@ -580,7 +580,7 @@ function triggerRingAnimation(items: RingItem[]) {
   })
 }
 
-// ==================== Computed Data ====================
+// ==================== 派生数据 ====================
 
 const statusInfo = computed(() => {
   const data = resultData.value
@@ -827,7 +827,7 @@ const dailyUsageRows = computed<DailyUsageRow[]>(() => {
 
 const showDailyUsage = computed(() => Boolean(resultData.value && Array.isArray(resultData.value.daily_usage)))
 
-// ==================== Utility Functions ====================
+// ==================== 工具函数 ====================
 
 function usd(value: number | null | undefined): string {
   if (value == null || value < 0) return '-'
@@ -854,7 +854,7 @@ function getBrowserTimezone(): string {
   }
 }
 
-// ==================== API Query ====================
+// ==================== 接口查询 ====================
 
 async function fetchUsage(key: string) {
   const dateParams = getDateParams()
@@ -904,11 +904,11 @@ async function queryKey() {
   }
 }
 
-// ==================== Lifecycle ====================
+// ==================== 生命周期 ====================
 
 function initTheme() {
   const savedTheme = localStorage.getItem('theme')
-  const shouldUseDark = savedTheme === 'light' ? false : true
+  const shouldUseDark = savedTheme === 'dark'
   isDark.value = shouldUseDark
   document.documentElement.classList.toggle('dark', shouldUseDark)
 }
@@ -962,13 +962,12 @@ onUnmounted(() => {
   100% { background-position: 200% 0; }
 }
 .skeleton {
-  background: linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%);
-  background-size: 200% 100%;
+  background: #e5e7eb;
   animation: shimmer-kv 1.8s ease-in-out infinite;
   border-radius: 8px;
 }
 :global(.dark) .skeleton {
-  background: linear-gradient(90deg, #334155 25%, #1e293b 50%, #334155 75%);
+  background: #334155;
   background-size: 200% 100%;
 }
 

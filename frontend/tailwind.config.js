@@ -5,19 +5,19 @@ export default {
   theme: {
     extend: {
       colors: {
-        // Terminal Brutal primary - amber/lime status energy
+        // Neobrutalism primary - yellow blocks with black borders
         primary: {
-          50: '#fff7ed',
-          100: '#ffedd5',
-          200: '#fed7aa',
-          300: '#fdba74',
-          400: '#fb923c',
-          500: '#ff8a00',
-          600: '#ea580c',
-          700: '#c2410c',
-          800: '#9a3412',
-          900: '#7c2d12',
-          950: '#431407'
+          50: '#fffdf0',
+          100: '#fff7c7',
+          200: '#ffef8f',
+          300: '#ffe562',
+          400: '#ffdc58',
+          500: '#f7c600',
+          600: '#d69c00',
+          700: '#a86f00',
+          800: '#805100',
+          900: '#633f00',
+          950: '#382100'
         },
         // 辅助色 - 深蓝灰
         accent: {
@@ -65,21 +65,21 @@ export default {
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Monaco', 'Consolas', 'monospace']
       },
       boxShadow: {
-        glass: '0 1px 0 rgba(255, 255, 255, 0.06), 0 18px 0 rgba(0, 0, 0, 0.16)',
-        'glass-sm': '0 1px 0 rgba(255, 255, 255, 0.05)',
-        glow: '0 0 20px rgba(255, 138, 0, 0.25)',
-        'glow-lg': '0 0 40px rgba(255, 138, 0, 0.35)',
-        card: '0 1px 0 rgba(255, 255, 255, 0.05), 0 18px 0 rgba(0, 0, 0, 0.12)',
-        'card-hover': '0 1px 0 rgba(255, 255, 255, 0.08), 0 22px 0 rgba(0, 0, 0, 0.18)',
-        'inner-glow': 'inset 0 1px 0 rgba(255, 255, 255, 0.1)'
+        glass: '5px 5px 0 #000',
+        'glass-sm': '3px 3px 0 #000',
+        glow: '5px 5px 0 #000',
+        'glow-lg': '8px 8px 0 #000',
+        card: '5px 5px 0 #000',
+        'card-hover': '8px 8px 0 #000',
+        'inner-glow': 'inset 0 0 0 2px #000'
       },
       backgroundImage: {
         'gradient-radial': 'radial-gradient(var(--tw-gradient-stops))',
-        'gradient-primary': 'linear-gradient(90deg, #ff8a00 0%, #b7ff00 100%)',
-        'gradient-dark': 'linear-gradient(135deg, #030507 0%, #0b1115 100%)',
-        'gradient-glass': 'linear-gradient(135deg, rgba(255,138,0,0.12) 0%, rgba(183,255,0,0.06) 100%)',
+        'gradient-primary': 'linear-gradient(90deg, #ffdc58 0%, #35d9ff 100%)',
+        'gradient-dark': 'linear-gradient(135deg, #101010 0%, #1a1a1a 100%)',
+        'gradient-glass': 'linear-gradient(135deg, rgba(255,220,88,0.45) 0%, rgba(53,217,255,0.32) 100%)',
         'mesh-gradient':
-          'radial-gradient(at 40% 20%, rgba(255, 138, 0, 0.12) 0px, transparent 50%), radial-gradient(at 80% 0%, rgba(183, 255, 0, 0.08) 0px, transparent 50%), radial-gradient(at 0% 50%, rgba(0, 200, 255, 0.08) 0px, transparent 50%)'
+          'radial-gradient(at 40% 20%, rgba(255, 220, 88, 0.45) 0px, transparent 50%), radial-gradient(at 80% 0%, rgba(255, 95, 162, 0.3) 0px, transparent 50%), radial-gradient(at 0% 50%, rgba(53, 217, 255, 0.3) 0px, transparent 50%)'
       },
       animation: {
         'fade-in': 'fadeIn 0.3s ease-out',
@@ -117,8 +117,8 @@ export default {
           '100%': { backgroundPosition: '200% 0' }
         },
         glow: {
-          '0%': { boxShadow: '0 0 20px rgba(255, 138, 0, 0.25)' },
-          '100%': { boxShadow: '0 0 30px rgba(183, 255, 0, 0.35)' }
+          '0%': { boxShadow: '4px 4px 0 #000' },
+          '100%': { boxShadow: '8px 8px 0 #000' }
         }
       },
       backdropBlur: {

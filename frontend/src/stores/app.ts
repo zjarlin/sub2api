@@ -26,7 +26,7 @@ export const useAppStore = defineStore('app', () => {
   // Public settings cache state
   const publicSettingsLoaded = ref<boolean>(false)
   const publicSettingsLoading = ref<boolean>(false)
-  const siteName = ref<string>('Sub2API')
+  const siteName = ref<string>('++0 的 API')
   const siteLogo = ref<string>('')
   const siteVersion = ref<string>('')
   const contactInfo = ref<string>('')
@@ -294,7 +294,7 @@ export const useAppStore = defineStore('app', () => {
       window.__APP_CONFIG__ = { ...config }
     }
     cachedPublicSettings.value = config
-    siteName.value = config.site_name || 'Sub2API'
+    siteName.value = config.site_name || '++0 的 API'
     siteLogo.value = config.site_logo || ''
     siteVersion.value = config.version || ''
     contactInfo.value = config.contact_info || ''
@@ -337,7 +337,13 @@ export const useAppStore = defineStore('app', () => {
         turnstile_site_key: '',
         site_name: siteName.value,
         site_logo: siteLogo.value,
-        site_subtitle: '',
+        site_subtitle: '一个接口，接上主流 AI 模型和上游账号池',
+        home_feature_1_title: '一键接入',
+        home_feature_1_description: '获取一个 API 密钥，即可调用所有已接入的 AI 模型，无需分别申请。',
+        home_feature_2_title: '稳定可靠',
+        home_feature_2_description: '智能调度多个上游账号，自动切换和负载均衡，告别频繁报错。',
+        home_feature_3_title: '用多少付多少',
+        home_feature_3_description: '按实际使用量计费，支持设置配额上限，团队用量一目了然。',
         api_base_url: apiBaseUrl.value,
         contact_info: contactInfo.value,
         doc_url: docUrl.value,

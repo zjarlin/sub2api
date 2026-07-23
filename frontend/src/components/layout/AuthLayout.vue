@@ -68,27 +68,21 @@ onMounted(() => {
 
 <style scoped>
 .text-gradient {
-  background: linear-gradient(100deg, #ff5fa2, #ffdc58 52%, #35d9ff);
-  background-clip: text;
-  color: transparent;
-  -webkit-background-clip: text;
+  color: var(--liquid-text);
 }
 
 .auth-shell {
-  background: #fff3bf;
+  background: var(--neo-page);
 }
 
 .auth-grid {
-  background-image:
-    linear-gradient(to right, rgb(0 0 0 / 16%) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(0 0 0 / 16%) 1px, transparent 1px);
-  background-size: 70px 70px;
+  background: var(--neo-page);
 }
 
 .auth-sheet {
   position: absolute;
-  border: 3px solid #000;
-  box-shadow: 12px 12px 0 #000;
+  border: 3px solid var(--liquid-border);
+  box-shadow: 12px 12px 0 var(--liquid-border);
   clip-path: polygon(8% 0, 100% 0, 92% 100%, 0 100%);
 }
 
@@ -97,7 +91,7 @@ onMounted(() => {
   top: -10rem;
   width: 26rem;
   height: 42rem;
-  background: #ffdc58;
+  background: var(--neo-main);
   transform: rotate(-12deg);
 }
 
@@ -106,7 +100,7 @@ onMounted(() => {
   left: -8rem;
   width: 30rem;
   height: 36rem;
-  background: #35d9ff;
+  background: var(--neo-cyan);
   transform: rotate(17deg);
 }
 
@@ -115,7 +109,7 @@ onMounted(() => {
   top: 45%;
   width: 22rem;
   height: 22rem;
-  background: #ff5fa2;
+  background: var(--neo-pink);
   opacity: 0.5;
   transform: translate(-50%, -50%) rotate(28deg);
 }
@@ -125,9 +119,7 @@ onMounted(() => {
 }
 
 :global(.dark) .auth-grid {
-  background-image:
-    linear-gradient(to right, rgb(255 255 255 / 14%) 1px, transparent 1px),
-    linear-gradient(to bottom, rgb(255 255 255 / 14%) 1px, transparent 1px);
+  background: #080808;
 }
 
 :global(.dark) .auth-sheet {

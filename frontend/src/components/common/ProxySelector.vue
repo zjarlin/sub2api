@@ -322,19 +322,21 @@ onUnmounted(() => {
 .select-trigger {
   @apply flex w-full items-center justify-between gap-2;
   @apply px-4 py-2.5 text-sm;
-  @apply border;
+  @apply border-2;
   @apply text-gray-900 dark:text-gray-100;
   @apply transition-all duration-150;
-  @apply focus:outline-none focus:ring-2 focus:ring-orange-500/30;
+  @apply focus:outline-none focus:ring-2 focus:ring-black dark:focus:ring-white;
   @apply cursor-pointer;
-  border-radius: 3px;
+  border-radius: var(--neo-radius);
   background: var(--liquid-panel-strong);
   border-color: var(--liquid-border);
+  box-shadow: var(--neo-shadow-sm);
 }
 
 .select-trigger-open {
-  border-color: var(--product-orange);
-  box-shadow: 0 0 0 2px rgba(255, 138, 0, 0.18);
+  border-color: var(--liquid-border);
+  background: var(--neo-main);
+  box-shadow: var(--neo-shadow-sm);
 }
 
 .select-trigger-disabled {
@@ -351,9 +353,9 @@ onUnmounted(() => {
 
 .select-dropdown {
   @apply absolute z-[100] mt-2 w-full;
-  @apply border;
+  @apply border-2;
   @apply overflow-hidden;
-  border-radius: 3px;
+  border-radius: var(--neo-radius);
   background: var(--liquid-panel-strong);
   border-color: var(--liquid-border);
   box-shadow: var(--liquid-shadow-hover);
@@ -361,7 +363,7 @@ onUnmounted(() => {
 
 .select-header {
   @apply flex items-center gap-2 px-3 py-2;
-  @apply border-b;
+  @apply border-b-2;
   border-color: var(--liquid-border-soft);
 }
 
@@ -381,7 +383,8 @@ onUnmounted(() => {
   @apply text-gray-500 hover:text-emerald-600 dark:hover:text-emerald-400;
   @apply hover:bg-emerald-50 dark:hover:bg-emerald-900/20;
   @apply transition-colors disabled:cursor-not-allowed disabled:opacity-50;
-  border-radius: 3px;
+  border: 2px solid transparent;
+  border-radius: var(--neo-radius);
 }
 
 .select-options {
@@ -396,12 +399,14 @@ onUnmounted(() => {
 }
 
 .select-option:hover {
-  background: rgba(255, 138, 0, 0.08);
+  background: var(--neo-main);
+  color: var(--neo-ink);
 }
 
 .select-option-selected {
-  background: rgba(255, 138, 0, 0.12);
-  color: var(--product-orange);
+  background: var(--neo-cyan);
+  color: var(--neo-ink);
+  font-weight: 800;
 }
 
 .select-option-label {
@@ -414,10 +419,12 @@ onUnmounted(() => {
 }
 
 .test-btn {
-  @apply flex-shrink-0 rounded p-1;
+  @apply flex-shrink-0 p-1;
   @apply text-gray-400 hover:text-emerald-600 dark:hover:text-emerald-400;
   @apply hover:bg-emerald-50 dark:hover:bg-emerald-900/20;
   @apply transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  border: 2px solid transparent;
+  border-radius: var(--neo-radius);
 }
 
 /* Dropdown animation */
