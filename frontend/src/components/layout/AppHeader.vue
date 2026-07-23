@@ -371,15 +371,11 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .app-topbar {
-  background:
-    linear-gradient(90deg, rgba(255, 255, 255, 0.94), rgba(248, 249, 252, 0.9)),
-    var(--liquid-panel);
+  background: var(--liquid-panel-strong);
 }
 
 :global(.dark) .app-topbar {
-  background:
-    linear-gradient(90deg, rgba(12, 14, 21, 0.96), rgba(20, 23, 32, 0.92)),
-    var(--liquid-panel);
+  background: #05090c;
 }
 </style>
 

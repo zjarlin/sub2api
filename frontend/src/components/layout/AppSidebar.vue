@@ -914,13 +914,9 @@ function handleGroupClick(item: NavItem) {
 
 // Initialize theme
 const savedTheme = localStorage.getItem('theme')
-if (
-  savedTheme === 'dark' ||
-  (!savedTheme && window.matchMedia('(prefers-color-scheme: dark)').matches)
-) {
-  isDark.value = true
-  document.documentElement.classList.add('dark')
-}
+const shouldUseDark = savedTheme === 'light' ? false : true
+isDark.value = shouldUseDark
+document.documentElement.classList.toggle('dark', shouldUseDark)
 
 // Fetch admin settings (for feature-gated nav items like Ops).
 watch(
@@ -959,6 +955,10 @@ onBeforeUnmount(() => {
 .sidebar-logo {
   flex: 0 0 2.25rem;
   min-width: 2.25rem;
+  border-radius: 3px !important;
+  border: 1px solid var(--product-orange);
+  background: rgba(255, 138, 0, 0.1);
+  box-shadow: none !important;
 }
 
 .sidebar-header-collapsed {
@@ -991,6 +991,10 @@ onBeforeUnmount(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-weight: 950;
+  letter-spacing: 0;
+  text-transform: uppercase;
 }
 
 .sidebar-link-collapsed {
@@ -1025,14 +1029,14 @@ onBeforeUnmount(() => {
   right: 0.75rem;
   top: 50%;
   height: 1px;
-  background: rgb(229 231 235);
+  background: var(--liquid-border);
   opacity: 0;
   transform: translateY(-50%);
   transition: opacity 0.18s ease;
 }
 
 .dark .sidebar-section-title::after {
-  background: rgb(55 65 81);
+  background: var(--liquid-border);
 }
 
 .sidebar-section-title-text-collapsed {
