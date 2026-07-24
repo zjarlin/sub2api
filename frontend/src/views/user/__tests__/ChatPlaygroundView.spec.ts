@@ -183,4 +183,21 @@ describe('ChatPlaygroundView', () => {
     expect(wrapper.text()).toContain('streamed response')
     expect(wrapper.text()).toContain('12 tokens')
   })
+
+  it('重试失败请求时不重复发送失败轮次', async () => {
+    streamCompletion.mockRejectedValueOnce(new Error('upstream unavailable'))
+    const wrapper = await mountView()
+
+    await wrapper.get('.chat-composer__input').setValue('same prompt')
+    await wrapper.get('.chat-composer').trigger('submit')
+    await flushPromises()
+
+    await wrapper.get('.chat-composer__input').setValue('same prompt')
+    await wrapper.get('.chat-composer').trigger('submit')
+    await flushPromises()
+
+    expect(streamCompletion).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      messages: [{ role: 'user', content: 'same prompt' }],
+    }))
+  })
 })

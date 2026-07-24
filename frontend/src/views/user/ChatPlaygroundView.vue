@@ -205,6 +205,7 @@ interface DisplayMessage {
   id: number
   role: 'user' | 'assistant'
   content: string
+  excludedFromContext?: boolean
   error?: string
   stopped?: boolean
   usage?: ChatPlaygroundUsage | null
@@ -352,12 +353,17 @@ function buildRequestMessages(): ChatPlaygroundMessage[] {
     result.push({ role: 'system', content: normalizedSystemPrompt })
   }
   result.push(...messages.value
-    .filter((message) => message.content.trim())
+    .filter((message) => !message.excludedFromContext && message.content.trim())
     .map((message) => ({
       role: message.role,
       content: message.content,
     })))
   return result
+}
+
+function excludeTurnFromContext(userMessage: DisplayMessage, assistantMessage: DisplayMessage): void {
+  userMessage.excludedFromContext = true
+  assistantMessage.excludedFromContext = true
 }
 
 async function sendMessage(): Promise<void> {
@@ -403,14 +409,17 @@ async function sendMessage(): Promise<void> {
     assistantMessage.usage = result.usage
     if (!assistantMessage.content) {
       assistantMessage.error = t('chatPlayground.emptyResponse')
+      excludeTurnFromContext(userMessage, assistantMessage)
     }
   } catch (error) {
     if (requestController.signal.aborted) {
       assistantMessage.stopped = true
+      excludeTurnFromContext(userMessage, assistantMessage)
       return
     }
     const message = error instanceof Error ? error.message : t('chatPlayground.requestFailed')
     assistantMessage.error = message
+    excludeTurnFromContext(userMessage, assistantMessage)
     appStore.showError(message)
   } finally {
     if (generationController === requestController) {
