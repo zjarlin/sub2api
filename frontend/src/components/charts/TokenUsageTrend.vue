@@ -49,10 +49,14 @@ ChartJS.register(
 
 const { t } = useI18n()
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   trendData: TrendDataPoint[]
   loading?: boolean
-}>()
+  currencySymbol?: string
+}>(), {
+  loading: false,
+  currencySymbol: '$',
+})
 
 const isDarkMode = computed(() => {
   return document.documentElement.classList.contains('dark')
@@ -155,7 +159,7 @@ const lineOptions = computed(() => ({
           const dataIndex = tooltipItems[0]?.dataIndex
           if (dataIndex !== undefined && props.trendData[dataIndex]) {
             const data = props.trendData[dataIndex]
-            return `Actual: $${formatCost(data.actual_cost)} | Standard: $${formatCost(data.cost)}`
+            return `Actual: ${props.currencySymbol}${formatCost(data.actual_cost)} | Standard: ${props.currencySymbol}${formatCost(data.cost)}`
           }
           return ''
         }

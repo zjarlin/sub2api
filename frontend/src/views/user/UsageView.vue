@@ -1,7 +1,7 @@
 <template>
   <AppLayout>
     <div class="space-y-6">
-      <UsageStatsCards :stats="usageStats" :show-account-cost="false" :strike-standard-cost="true" />
+      <UsageStatsCards :stats="usageStats" :show-account-cost="false" :strike-standard-cost="true" :currency-symbol="USER_CURRENCY_SYMBOL" />
 
       <div class="space-y-4">
         <div class="card p-4">
@@ -32,6 +32,7 @@
             :show-metric-toggle="true"
             :enable-breakdown="false"
             :show-account-cost="false"
+            :currency-symbol="USER_CURRENCY_SYMBOL"
             :start-date="startDate"
             :end-date="endDate"
           />
@@ -42,6 +43,7 @@
             :show-metric-toggle="true"
             :enable-breakdown="false"
             :show-account-cost="false"
+            :currency-symbol="USER_CURRENCY_SYMBOL"
             :start-date="startDate"
             :end-date="endDate"
           />
@@ -58,11 +60,12 @@
             :show-source-toggle="false"
             :show-metric-toggle="true"
             :enable-breakdown="false"
+            :currency-symbol="USER_CURRENCY_SYMBOL"
             :title="t('usage.endpointDistribution')"
             :start-date="startDate"
             :end-date="endDate"
           />
-          <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" />
+          <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" :currency-symbol="USER_CURRENCY_SYMBOL" />
         </div>
       </div>
 
@@ -178,6 +181,7 @@
           :server-side-sort="true"
           :show-account-billing="false"
           :show-upstream-endpoint="false"
+          :currency-symbol="USER_CURRENCY_SYMBOL"
           default-sort-key="created_at"
           default-sort-order="desc"
           @sort="handleSort"
@@ -247,6 +251,7 @@ import type {
 } from '@/types'
 import type { Column } from '@/components/common/types'
 import { COMMON_ERROR_STATUS_CODES } from '@/utils/errorBadges'
+import { USER_CURRENCY_SYMBOL } from '@/utils/userCurrency'
 
 const { t } = useI18n()
 const appStore = useAppStore()

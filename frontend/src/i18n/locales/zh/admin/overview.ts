@@ -733,9 +733,9 @@ export default {
         subtitle: '为用户 {email} 配置各上游平台的日 / 周 / 月用量上限',
         columns: {
           platform: '平台',
-          daily: '日 (USD)',
-          weekly: '周 (USD)',
-          monthly: '月 (USD, 30天滚动)',
+          daily: '日 (CNY)',
+          weekly: '周 (CNY)',
+          monthly: '月 (CNY, 30天滚动)',
           usage: '当前用量',
         },
         placeholder: '不限制',

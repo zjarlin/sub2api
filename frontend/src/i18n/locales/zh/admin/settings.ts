@@ -295,9 +295,9 @@ export default {
       },
       platformQuota: {
         platform:    '平台',
-        daily:       '日限额 (USD)',
-        weekly:      '周限额 (USD)',
-        monthly:     '月限额 (USD, 30天滚动)',
+        daily:       '日限额 (CNY)',
+        weekly:      '周限额 (CNY)',
+        monthly:     '月限额 (CNY, 30天滚动)',
         placeholder: '不限',
       },
       claudeCode: {

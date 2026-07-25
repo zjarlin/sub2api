@@ -300,9 +300,9 @@ export default {
       },
       platformQuota: {
         platform:    'Platform',
-        daily:       'Daily (USD)',
-        weekly:      'Weekly (USD)',
-        monthly:     'Monthly (USD, 30d rolling)',
+        daily:       'Daily (CNY)',
+        weekly:      'Weekly (CNY)',
+        monthly:     'Monthly (CNY, 30d rolling)',
         placeholder: 'Unlimited',
       },
       claudeCode: {

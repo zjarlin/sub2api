@@ -91,14 +91,14 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import PlanEditDialog from './PlanEditDialog.vue'
-import { currencySymbol } from '@/components/payment/currency'
+import { DEFAULT_PAYMENT_CURRENCY, currencySymbol } from '@/components/payment/currency'
 import { platformTextClass } from '@/utils/platformColors'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 
 function planCurrencySymbol(currency?: string): string {
-  return currencySymbol(currency || 'USD')
+  return currencySymbol(currency || DEFAULT_PAYMENT_CURRENCY)
 }
 
 // ==================== Groups ====================
