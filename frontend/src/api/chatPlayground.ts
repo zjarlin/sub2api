@@ -34,7 +34,7 @@ export interface GenerateChatPlaygroundImageOptions {
   apiKey: string
   model: string
   prompt: string
-  referenceImage?: File | null
+  referenceImages?: File[]
   signal?: AbortSignal
 }
 
@@ -206,13 +206,16 @@ export async function generateChatPlaygroundImage(
   }
   let endpoint = '/v1/images/generations'
   let body: BodyInit
+  const referenceImages = options.referenceImages ?? []
 
-  if (options.referenceImage) {
+  if (referenceImages.length > 0) {
     endpoint = '/v1/images/edits'
     const formData = new FormData()
     formData.append('model', options.model)
     formData.append('prompt', options.prompt)
-    formData.append('image', options.referenceImage, options.referenceImage.name)
+    referenceImages.forEach((referenceImage) => {
+      formData.append('image', referenceImage, referenceImage.name)
+    })
     formData.append('input_fidelity', 'high')
     formData.append('n', '1')
     formData.append('response_format', 'b64_json')

@@ -108,7 +108,7 @@ describe('chatPlayground API', () => {
     })).rejects.toThrow('image upstream unavailable')
   })
 
-  it('上传参考图时通过 multipart Images Edits API 生成', async () => {
+  it('上传多张参考图时通过 multipart Images Edits API 生成', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       data: [{ b64_json: 'ZWRpdGVk' }],
     }), {
@@ -116,13 +116,14 @@ describe('chatPlayground API', () => {
       headers: { 'Content-Type': 'application/json' },
     }))
     vi.stubGlobal('fetch', fetchMock)
-    const referenceImage = new File(['source'], 'source.png', { type: 'image/png' })
+    const firstReferenceImage = new File(['first'], 'first.png', { type: 'image/png' })
+    const secondReferenceImage = new File(['second'], 'second.webp', { type: 'image/webp' })
 
     await generateChatPlaygroundImage({
       apiKey: 'sk-user-key',
       model: 'gpt-image-2',
       prompt: 'replace the background',
-      referenceImage,
+      referenceImages: [firstReferenceImage, secondReferenceImage],
     })
 
     const [url, request] = fetchMock.mock.calls[0]
@@ -132,11 +133,14 @@ describe('chatPlayground API', () => {
     const formData = request.body as FormData
     expect(formData.get('model')).toBe('gpt-image-2')
     expect(formData.get('prompt')).toBe('replace the background')
-    const uploadedImage = formData.get('image') as File
-    expect(uploadedImage).toBeInstanceOf(File)
-    expect(uploadedImage.name).toBe('source.png')
-    expect(uploadedImage.type).toBe('image/png')
-    expect(uploadedImage.size).toBe(referenceImage.size)
+    const uploadedImages = formData.getAll('image') as File[]
+    expect(uploadedImages).toHaveLength(2)
+    expect(uploadedImages.map((image) => image.name)).toEqual(['first.png', 'second.webp'])
+    expect(uploadedImages.map((image) => image.type)).toEqual(['image/png', 'image/webp'])
+    expect(uploadedImages.map((image) => image.size)).toEqual([
+      firstReferenceImage.size,
+      secondReferenceImage.size,
+    ])
     expect(formData.get('input_fidelity')).toBe('high')
     expect(formData.get('response_format')).toBe('b64_json')
   })

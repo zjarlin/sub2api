@@ -70,30 +70,40 @@
               class="chat-reference__input"
               type="file"
               accept="image/png,image/jpeg,image/webp"
+              multiple
               :disabled="isGenerating"
               @change="handleReferenceImageChange"
             />
-            <div v-if="referenceImage && referenceImagePreview" class="chat-reference__preview">
-              <img :src="referenceImagePreview" :alt="referenceImage.name" />
-              <div class="chat-reference__meta">
-                <strong :title="referenceImage.name">{{ referenceImage.name }}</strong>
-                <span>{{ formatReferenceImageSize(referenceImage.size) }}</span>
-                <div class="chat-reference__actions">
-                  <button
-                    type="button"
-                    class="chat-icon-button"
-                    :title="t('chatPlayground.replaceReferenceImage')"
-                    :disabled="isGenerating"
-                    @click="openReferenceImagePicker"
-                  >
-                    <Icon name="upload" size="sm" />
-                  </button>
+            <div v-if="referenceImages.length > 0" class="chat-reference__preview">
+              <div class="chat-reference__toolbar">
+                <span>{{ t('chatPlayground.selectedReferenceImages', { count: referenceImages.length }) }}</span>
+                <button
+                  type="button"
+                  class="chat-icon-button"
+                  :title="t('chatPlayground.addReferenceImages')"
+                  :disabled="isGenerating"
+                  @click="openReferenceImagePicker"
+                >
+                  <Icon name="upload" size="sm" />
+                </button>
+              </div>
+              <div class="chat-reference__list">
+                <div
+                  v-for="(referenceImage, index) in referenceImages"
+                  :key="referenceImageKey(referenceImage.file)"
+                  class="chat-reference__item"
+                >
+                  <img :src="referenceImage.previewUrl" :alt="referenceImage.file.name" />
+                  <div class="chat-reference__meta">
+                    <strong :title="referenceImage.file.name">{{ referenceImage.file.name }}</strong>
+                    <span>{{ formatReferenceImageSize(referenceImage.file.size) }}</span>
+                  </div>
                   <button
                     type="button"
                     class="chat-icon-button"
                     :title="t('chatPlayground.removeReferenceImage')"
                     :disabled="isGenerating"
-                    @click="clearReferenceImage"
+                    @click="removeReferenceImage(index)"
                   >
                     <Icon name="x" size="sm" />
                   </button>
@@ -108,7 +118,7 @@
               @click="openReferenceImagePicker"
             >
               <Icon name="upload" />
-              <span>{{ t('chatPlayground.selectReferenceImage') }}</span>
+              <span>{{ t('chatPlayground.selectReferenceImages') }}</span>
             </button>
           </div>
 
@@ -307,6 +317,11 @@ interface DisplayMessage {
   usage?: ChatPlaygroundUsage | null
 }
 
+interface ReferenceImage {
+  file: File
+  previewUrl: string
+}
+
 const KEY_SELECTION_STORAGE = 'sub2api-chat-api-key-id'
 const MODEL_SELECTION_PREFIX = 'sub2api-chat-model:'
 const MAX_REFERENCE_IMAGE_BYTES = 20 * 1024 * 1024
@@ -330,8 +345,7 @@ const isGenerating = ref(false)
 const messageListRef = ref<HTMLElement | null>(null)
 const composerRef = ref<HTMLTextAreaElement | null>(null)
 const referenceImageInputRef = ref<HTMLInputElement | null>(null)
-const referenceImage = ref<File | null>(null)
-const referenceImagePreview = ref('')
+const referenceImages = ref<ReferenceImage[]>([])
 
 let messageSequence = 0
 let modelRequestController: AbortController | null = null
@@ -361,7 +375,7 @@ const canSend = computed(() => Boolean(
 ))
 
 const isImageMode = computed(() => isImageGenerationModel(selectedModel.value || ''))
-const isImageEditMode = computed(() => isImageMode.value && referenceImage.value !== null)
+const isImageEditMode = computed(() => isImageMode.value && referenceImages.value.length > 0)
 
 function readStoredKeyID(): number | null {
   const value = localStorage.getItem(KEY_SELECTION_STORAGE)
@@ -504,7 +518,7 @@ async function sendMessage(): Promise<void> {
         apiKey: apiKey.key,
         model,
         prompt: content,
-        referenceImage: referenceImage.value,
+        referenceImages: referenceImages.value.map((referenceImage) => referenceImage.file),
         signal: requestController.signal,
       })
       assistantMessage.images = result.images
@@ -583,40 +597,65 @@ function openReferenceImagePicker(): void {
   referenceImageInputRef.value?.click()
 }
 
-function clearReferenceImage(): void {
-  if (referenceImagePreview.value) {
-    URL.revokeObjectURL(referenceImagePreview.value)
-  }
-  referenceImage.value = null
-  referenceImagePreview.value = ''
+function referenceImageKey(file: File): string {
+  return `${file.name}:${file.size}:${file.lastModified}`
+}
+
+function clearReferenceImages(): void {
+  referenceImages.value.forEach((referenceImage) => {
+    URL.revokeObjectURL(referenceImage.previewUrl)
+  })
+  referenceImages.value = []
   if (referenceImageInputRef.value) {
     referenceImageInputRef.value.value = ''
   }
 }
 
+function removeReferenceImage(index: number): void {
+  const [removedImage] = referenceImages.value.splice(index, 1)
+  if (removedImage) {
+    URL.revokeObjectURL(removedImage.previewUrl)
+  }
+}
+
 function handleReferenceImageChange(event: Event): void {
   const input = event.currentTarget as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) {
+  const files = Array.from(input.files ?? [])
+  input.value = ''
+  if (files.length === 0) {
     return
   }
-  if (!REFERENCE_IMAGE_TYPES.has(file.type)) {
-    input.value = ''
+  if (files.some((file) => !REFERENCE_IMAGE_TYPES.has(file.type))) {
     appStore.showError(t('chatPlayground.invalidReferenceImage'))
     return
   }
-  if (file.size > MAX_REFERENCE_IMAGE_BYTES) {
-    input.value = ''
+  if (files.some((file) => file.size > MAX_REFERENCE_IMAGE_BYTES)) {
     appStore.showError(t('chatPlayground.referenceImageTooLarge'))
     return
   }
 
-  clearReferenceImage()
-  referenceImage.value = file
-  referenceImagePreview.value = URL.createObjectURL(file)
+  const existingKeys = new Set(referenceImages.value.map((referenceImage) => (
+    referenceImageKey(referenceImage.file)
+  )))
+  const newReferenceImages: ReferenceImage[] = []
+  files.forEach((file) => {
+    const key = referenceImageKey(file)
+    if (existingKeys.has(key)) {
+      return
+    }
+    existingKeys.add(key)
+    newReferenceImages.push({
+      file,
+      previewUrl: URL.createObjectURL(file),
+    })
+  })
+  referenceImages.value.push(...newReferenceImages)
 }
 
 function formatReferenceImageSize(bytes: number): string {
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(2)} KB`
+  }
   return `${(bytes / 1024 / 1024).toFixed(2)} MB`
 }
 
@@ -634,7 +673,7 @@ watch(selectedApiKeyId, (apiKeyID) => {
 
 watch(selectedModel, (model) => {
   if (!isImageGenerationModel(model || '')) {
-    clearReferenceImage()
+    clearReferenceImages()
   }
   const apiKeyID = selectedApiKeyId.value
   if (!apiKeyID || !model) {
@@ -652,7 +691,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   modelRequestController?.abort()
   generationController?.abort()
-  clearReferenceImage()
+  clearReferenceImages()
 })
 </script>
 
@@ -848,23 +887,49 @@ onBeforeUnmount(() => {
 }
 
 .chat-reference__preview {
-  display: grid;
+  display: flex;
   min-height: 7rem;
+  max-height: 14rem;
   flex: 1;
-  grid-template-columns: 5.5rem minmax(0, 1fr);
-  gap: 0.75rem;
+  flex-direction: column;
   border: 2px solid var(--neo-border);
   border-radius: var(--neo-radius);
-  padding: 0.65rem;
   background: var(--neo-panel-strong);
   box-shadow: var(--neo-shadow-sm);
 }
 
-.chat-reference__preview > img {
+.chat-reference__toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  border-bottom: 2px solid var(--neo-border);
+  padding: 0.45rem 0.55rem;
+  font-size: 0.7rem;
+  font-weight: 900;
+}
+
+.chat-reference__list {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.chat-reference__item {
+  display: grid;
+  grid-template-columns: 3.5rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.5rem;
+}
+
+.chat-reference__item + .chat-reference__item {
+  border-top: 2px solid var(--neo-border);
+}
+
+.chat-reference__item > img {
   display: block;
-  width: 5.5rem;
-  height: 5.5rem;
-  align-self: center;
+  width: 3.5rem;
+  height: 3.5rem;
   border: 2px solid var(--neo-border);
   border-radius: var(--neo-radius);
   object-fit: cover;
@@ -890,12 +955,6 @@ onBeforeUnmount(() => {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.65rem;
   font-weight: 800;
-}
-
-.chat-reference__actions {
-  display: flex;
-  gap: 0.5rem;
-  margin-top: 0.5rem;
 }
 
 .chat-alert {

@@ -136,7 +136,7 @@ describe('ChatPlaygroundView', () => {
   beforeEach(() => {
     Object.defineProperty(URL, 'createObjectURL', {
       configurable: true,
-      value: vi.fn(() => 'blob:reference-image'),
+      value: vi.fn((file: File) => `blob:${file.name}`),
     })
     Object.defineProperty(URL, 'revokeObjectURL', {
       configurable: true,
@@ -242,19 +242,31 @@ describe('ChatPlaygroundView', () => {
     expect(wrapper.text()).toContain('9 tokens')
   })
 
-  it('选择参考图后切换为 Images Edits 图生图请求', async () => {
+  it('选择多张参考图后通过 Images Edits 一并提交', async () => {
     listModels.mockResolvedValue([{ id: 'gpt-image-2', owned_by: 'openai' }])
     const wrapper = await mountView()
-    const referenceImage = new File(['source'], 'source.png', { type: 'image/png' })
+    const firstReferenceImage = new File(['first'], 'first.png', {
+      type: 'image/png',
+      lastModified: 1,
+    })
+    const secondReferenceImage = new File(['second'], 'second.webp', {
+      type: 'image/webp',
+      lastModified: 2,
+    })
     const input = wrapper.get('#chat-reference-image')
     Object.defineProperty(input.element, 'files', {
       configurable: true,
-      value: [referenceImage],
+      value: [firstReferenceImage, secondReferenceImage],
     })
 
     await input.trigger('change')
 
-    expect(wrapper.get('.chat-reference__preview img').attributes('src')).toBe('blob:reference-image')
+    expect(input.attributes()).toHaveProperty('multiple')
+    expect(wrapper.findAll('.chat-reference__item')).toHaveLength(2)
+    expect(wrapper.findAll('.chat-reference__item img').map((image) => image.attributes('src'))).toEqual([
+      'blob:first.png',
+      'blob:second.webp',
+    ])
     expect(wrapper.get('.chat-composer__input').attributes('placeholder')).toBe(
       'chatPlayground.imageEditPromptPlaceholder',
     )
@@ -267,8 +279,39 @@ describe('ChatPlaygroundView', () => {
     expect(generateImage).toHaveBeenCalledWith(expect.objectContaining({
       model: 'gpt-image-2',
       prompt: 'replace the background',
-      referenceImage,
+      referenceImages: [firstReferenceImage, secondReferenceImage],
     }))
+  })
+
+  it('可以继续追加并逐张移除参考图', async () => {
+    listModels.mockResolvedValue([{ id: 'gpt-image-2', owned_by: 'openai' }])
+    const wrapper = await mountView()
+    const firstReferenceImage = new File(['first'], 'first.png', {
+      type: 'image/png',
+      lastModified: 1,
+    })
+    const secondReferenceImage = new File(['second'], 'second.png', {
+      type: 'image/png',
+      lastModified: 2,
+    })
+    const input = wrapper.get('#chat-reference-image')
+
+    Object.defineProperty(input.element, 'files', {
+      configurable: true,
+      value: [firstReferenceImage],
+    })
+    await input.trigger('change')
+    Object.defineProperty(input.element, 'files', {
+      configurable: true,
+      value: [secondReferenceImage],
+    })
+    await input.trigger('change')
+
+    expect(wrapper.findAll('.chat-reference__item')).toHaveLength(2)
+    await wrapper.findAll('.chat-reference__item button')[0].trigger('click')
+    expect(wrapper.findAll('.chat-reference__item')).toHaveLength(1)
+    expect(wrapper.text()).not.toContain('first.png')
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:first.png')
   })
 
   it('拒绝不支持的参考图文件类型', async () => {
