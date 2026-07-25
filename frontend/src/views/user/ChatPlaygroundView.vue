@@ -98,7 +98,9 @@
               <strong>{{ selectedModel || t('chatPlayground.noModelSelected') }}</strong>
             </div>
             <span :class="['chat-run-state', isGenerating ? 'is-running' : '']">
-              {{ isGenerating ? t('chatPlayground.streaming') : t('chatPlayground.ready') }}
+              {{ isGenerating
+                ? t(isImageMode ? 'chatPlayground.generatingImage' : 'chatPlayground.streaming')
+                : t('chatPlayground.ready') }}
             </span>
           </div>
 
@@ -129,11 +131,29 @@
                 </button>
               </header>
 
-              <div
-                v-if="message.role === 'assistant'"
-                class="chat-message__content chat-markdown"
-                v-html="renderMarkdown(message.content || (isGenerating ? '▌' : ''))"
-              ></div>
+              <template v-if="message.role === 'assistant'">
+                <div v-if="message.images?.length" class="chat-message__images">
+                  <a
+                    v-for="(image, imageIndex) in message.images"
+                    :key="`${message.id}-${imageIndex}`"
+                    :href="image.url"
+                    class="chat-message__image-link"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <img
+                      :src="image.url"
+                      :alt="image.revisedPrompt || t('chatPlayground.generatedImage')"
+                      loading="lazy"
+                    />
+                  </a>
+                </div>
+                <div
+                  v-if="message.content || (isGenerating && message.id === messages[messages.length - 1]?.id)"
+                  class="chat-message__content chat-markdown"
+                  v-html="renderMarkdown(message.content || '▌')"
+                ></div>
+              </template>
               <div v-else class="chat-message__content chat-message__plain">{{ message.content }}</div>
 
               <footer v-if="message.error || message.stopped || message.usage?.total_tokens">
@@ -151,7 +171,9 @@
               ref="composerRef"
               v-model="draft"
               class="chat-composer__input"
-              :placeholder="t('chatPlayground.messagePlaceholder')"
+              :placeholder="t(isImageMode
+                ? 'chatPlayground.imagePromptPlaceholder'
+                : 'chatPlayground.messagePlaceholder')"
               :disabled="!selectedApiKey || !selectedModel"
               rows="3"
               @keydown="handleComposerKeydown"
@@ -171,8 +193,8 @@
               class="btn btn-primary chat-composer__action"
               :disabled="!canSend"
             >
-              <Icon name="arrowUp" />
-              {{ t('chatPlayground.send') }}
+              <Icon :name="isImageMode ? 'sparkles' : 'arrowUp'" />
+              {{ t(isImageMode ? 'chatPlayground.generateImage' : 'chatPlayground.send') }}
             </button>
           </form>
         </div>
@@ -191,8 +213,11 @@ import Icon from '@/components/icons/Icon.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
 import { keysAPI } from '@/api/keys'
 import {
+  generateChatPlaygroundImage,
+  isImageGenerationModel,
   listChatPlaygroundModels,
   streamChatCompletion,
+  type ChatPlaygroundImage,
   type ChatPlaygroundMessage,
   type ChatPlaygroundModel,
   type ChatPlaygroundUsage,
@@ -205,6 +230,7 @@ interface DisplayMessage {
   id: number
   role: 'user' | 'assistant'
   content: string
+  images?: ChatPlaygroundImage[]
   excludedFromContext?: boolean
   error?: string
   stopped?: boolean
@@ -258,6 +284,8 @@ const canSend = computed(() => Boolean(
   && draft.value.trim()
   && !isGenerating.value,
 ))
+
+const isImageMode = computed(() => isImageGenerationModel(selectedModel.value || ''))
 
 function readStoredKeyID(): number | null {
   const value = localStorage.getItem(KEY_SELECTION_STORAGE)
@@ -382,7 +410,6 @@ async function sendMessage(): Promise<void> {
   messages.value.push(userMessage)
   draft.value = ''
 
-  const requestMessages = buildRequestMessages()
   const assistantMessage: DisplayMessage = {
     id: ++messageSequence,
     role: 'assistant',
@@ -396,6 +423,21 @@ async function sendMessage(): Promise<void> {
   isGenerating.value = true
 
   try {
+    if (isImageGenerationModel(model)) {
+      const result = await generateChatPlaygroundImage({
+        apiKey: apiKey.key,
+        model,
+        prompt: content,
+        signal: requestController.signal,
+      })
+      assistantMessage.images = result.images
+      assistantMessage.content = result.images.find((image) => image.revisedPrompt)?.revisedPrompt || ''
+      assistantMessage.usage = result.usage
+      excludeTurnFromContext(userMessage, assistantMessage)
+      return
+    }
+
+    const requestMessages = buildRequestMessages()
     const result = await streamChatCompletion({
       apiKey: apiKey.key,
       model,
@@ -845,6 +887,28 @@ onBeforeUnmount(() => {
 
 .chat-message__plain {
   white-space: pre-wrap;
+}
+
+.chat-message__images {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+}
+
+.chat-message__image-link {
+  display: block;
+  overflow: hidden;
+  aspect-ratio: 1;
+  border: 2px solid var(--neo-border);
+  border-radius: var(--neo-radius);
+  background: var(--neo-panel);
+}
+
+.chat-message__image-link img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .chat-message > footer {

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  generateChatPlaygroundImage,
+  isImageGenerationModel,
   listChatPlaygroundModels,
   streamChatCompletion,
 } from '@/api/chatPlayground'
@@ -48,6 +50,62 @@ describe('chatPlayground API', () => {
     expect(fetchMock).toHaveBeenCalledOnce()
     const [, request] = fetchMock.mock.calls[0]
     expect(request.headers.Authorization).toBe('Bearer sk-user-key')
+  })
+
+  it('识别网关支持的图片生成模型', () => {
+    expect(isImageGenerationModel('gpt-image-2')).toBe(true)
+    expect(isImageGenerationModel('grok-imagine-image-quality')).toBe(true)
+    expect(isImageGenerationModel('gpt-5.6-sol')).toBe(false)
+  })
+
+  it('通过 Images API 生成并规范化 base64 图片', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      data: [{
+        b64_json: 'aW1hZ2U=',
+        revised_prompt: 'a friendly cat',
+        output_format: 'webp',
+      }],
+      usage: { input_tokens: 3, output_tokens: 7 },
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await generateChatPlaygroundImage({
+      apiKey: 'sk-user-key',
+      model: 'gpt-image-2',
+      prompt: 'draw a cat',
+    })
+
+    expect(result.images).toEqual([{
+      url: 'data:image/webp;base64,aW1hZ2U=',
+      revisedPrompt: 'a friendly cat',
+    }])
+    expect(result.usage?.total_tokens).toBe(10)
+    const [url, request] = fetchMock.mock.calls[0]
+    expect(url).toContain('/v1/images/generations')
+    expect(JSON.parse(request.body)).toEqual({
+      model: 'gpt-image-2',
+      prompt: 'draw a cat',
+      n: 1,
+      response_format: 'b64_json',
+    })
+  })
+
+  it('透传 Images keepalive 已提交状态码后的响应体错误', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      error: { message: 'image upstream unavailable' },
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    })))
+
+    await expect(generateChatPlaygroundImage({
+      apiKey: 'sk-user-key',
+      model: 'gpt-image-2',
+      prompt: 'draw a cat',
+    })).rejects.toThrow('image upstream unavailable')
   })
 
   it('解析跨网络分片的 Chat Completions SSE', async () => {

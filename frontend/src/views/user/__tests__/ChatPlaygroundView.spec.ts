@@ -6,12 +6,14 @@ import ChatPlaygroundView from '../ChatPlaygroundView.vue'
 const {
   listKeys,
   listModels,
+  generateImage,
   streamCompletion,
   showError,
   copyToClipboard,
 } = vi.hoisted(() => ({
   listKeys: vi.fn(),
   listModels: vi.fn(),
+  generateImage: vi.fn(),
   streamCompletion: vi.fn(),
   showError: vi.fn(),
   copyToClipboard: vi.fn(),
@@ -24,6 +26,8 @@ vi.mock('@/api/keys', () => ({
 }))
 
 vi.mock('@/api/chatPlayground', () => ({
+  generateChatPlaygroundImage: generateImage,
+  isImageGenerationModel: (model: string) => model.startsWith('gpt-image-'),
   listChatPlaygroundModels: listModels,
   streamChatCompletion: streamCompletion,
 }))
@@ -133,6 +137,7 @@ describe('ChatPlaygroundView', () => {
     localStorage.clear()
     listKeys.mockReset()
     listModels.mockReset()
+    generateImage.mockReset()
     streamCompletion.mockReset()
     showError.mockReset()
     copyToClipboard.mockReset()
@@ -148,6 +153,10 @@ describe('ChatPlaygroundView', () => {
       { id: 'gpt-5.4', owned_by: 'openai' },
       { id: 'grok-4', owned_by: 'xai' },
     ])
+    generateImage.mockResolvedValue({
+      images: [{ url: 'data:image/png;base64,aW1hZ2U=', revisedPrompt: 'a friendly cat' }],
+      usage: { total_tokens: 9 },
+    })
     streamCompletion.mockImplementation(async (options) => {
       options.onDelta('streamed ')
       options.onDelta('response')
@@ -199,5 +208,26 @@ describe('ChatPlaygroundView', () => {
     expect(streamCompletion).toHaveBeenNthCalledWith(2, expect.objectContaining({
       messages: [{ role: 'user', content: 'same prompt' }],
     }))
+  })
+
+  it('图片模型使用 Images API 并展示生成结果', async () => {
+    listModels.mockResolvedValue([{ id: 'gpt-image-2', owned_by: 'openai' }])
+    const wrapper = await mountView()
+
+    await wrapper.get('.chat-composer__input').setValue('draw a cat')
+    await wrapper.get('.chat-composer').trigger('submit')
+    await flushPromises()
+
+    expect(generateImage).toHaveBeenCalledWith(expect.objectContaining({
+      apiKey: 'sk-private-chat-key',
+      model: 'gpt-image-2',
+      prompt: 'draw a cat',
+    }))
+    expect(streamCompletion).not.toHaveBeenCalled()
+    expect(wrapper.get('.chat-message__image-link img').attributes('src')).toBe(
+      'data:image/png;base64,aW1hZ2U=',
+    )
+    expect(wrapper.text()).toContain('a friendly cat')
+    expect(wrapper.text()).toContain('9 tokens')
   })
 })

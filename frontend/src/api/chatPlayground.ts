@@ -15,7 +15,26 @@ export interface ChatPlaygroundModel {
 export interface ChatPlaygroundUsage {
   prompt_tokens?: number
   completion_tokens?: number
+  input_tokens?: number
+  output_tokens?: number
   total_tokens?: number
+}
+
+export interface ChatPlaygroundImage {
+  url: string
+  revisedPrompt: string
+}
+
+export interface GenerateChatPlaygroundImageResult {
+  images: ChatPlaygroundImage[]
+  usage: ChatPlaygroundUsage | null
+}
+
+export interface GenerateChatPlaygroundImageOptions {
+  apiKey: string
+  model: string
+  prompt: string
+  signal?: AbortSignal
 }
 
 export interface StreamChatCompletionResult {
@@ -53,6 +72,27 @@ interface ChatCompletionChunk {
   error?: {
     message?: string
   }
+}
+
+interface ImageGenerationResponse {
+  data?: Array<{
+    b64_json?: unknown
+    url?: unknown
+    revised_prompt?: unknown
+    output_format?: unknown
+  }>
+  usage?: ChatPlaygroundUsage | null
+  error?: {
+    message?: string
+  }
+}
+
+export function isImageGenerationModel(model: string): boolean {
+  const normalized = model.trim().toLowerCase()
+  return normalized.startsWith('gpt-image-')
+    || normalized === 'grok-imagine'
+    || normalized === 'grok-imagine-edit'
+    || normalized.startsWith('grok-imagine-image')
 }
 
 function extractContentText(content: unknown): string {
@@ -118,6 +158,80 @@ export async function listChatPlaygroundModels(
   return payload.data
     .filter((model) => typeof model.id === 'string' && model.id.trim())
     .sort((left, right) => left.id.localeCompare(right.id))
+}
+
+function normalizeImageMimeType(outputFormat: unknown): string {
+  if (typeof outputFormat !== 'string') {
+    return 'image/png'
+  }
+  switch (outputFormat.trim().toLowerCase()) {
+    case 'jpeg':
+    case 'jpg':
+      return 'image/jpeg'
+    case 'webp':
+      return 'image/webp'
+    default:
+      return 'image/png'
+  }
+}
+
+function normalizeGeneratedImage(
+  item: NonNullable<ImageGenerationResponse['data']>[number],
+): ChatPlaygroundImage | null {
+  const revisedPrompt = typeof item.revised_prompt === 'string' ? item.revised_prompt.trim() : ''
+  if (typeof item.b64_json === 'string' && item.b64_json.trim()) {
+    const base64 = item.b64_json.trim()
+    const mimeType = normalizeImageMimeType(item.output_format)
+    return {
+      url: base64.startsWith('data:') ? base64 : `data:${mimeType};base64,${base64}`,
+      revisedPrompt,
+    }
+  }
+  if (typeof item.url !== 'string') {
+    return null
+  }
+  const url = item.url.trim()
+  if (!/^(https?:\/\/|\/)/i.test(url)) {
+    return null
+  }
+  return { url, revisedPrompt }
+}
+
+export async function generateChatPlaygroundImage(
+  options: GenerateChatPlaygroundImageOptions,
+): Promise<GenerateChatPlaygroundImageResult> {
+  const response = await fetch(buildGatewayUrl('/v1/images/generations'), {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${options.apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      model: options.model,
+      prompt: options.prompt,
+      n: 1,
+      response_format: 'b64_json',
+    }),
+    signal: options.signal,
+  })
+  await assertGatewayResponse(response)
+
+  const payload = await response.json() as ImageGenerationResponse
+  if (payload.error?.message) {
+    throw new Error(payload.error.message)
+  }
+  const images = (payload.data || [])
+    .map(normalizeGeneratedImage)
+    .filter((image): image is ChatPlaygroundImage => image !== null)
+  if (images.length === 0) {
+    throw new Error('Gateway returned no generated images')
+  }
+
+  const usage = payload.usage || null
+  if (usage && usage.total_tokens === undefined) {
+    usage.total_tokens = (usage.input_tokens || 0) + (usage.output_tokens || 0)
+  }
+  return { images, usage }
 }
 
 function parseChatCompletionChunk(
