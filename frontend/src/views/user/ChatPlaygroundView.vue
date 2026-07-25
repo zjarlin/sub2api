@@ -62,7 +62,57 @@
             />
           </div>
 
-          <div class="chat-field chat-field--grow">
+          <div v-if="isImageMode" class="chat-field chat-field--grow">
+            <label for="chat-reference-image">{{ t('chatPlayground.referenceImage') }}</label>
+            <input
+              id="chat-reference-image"
+              ref="referenceImageInputRef"
+              class="chat-reference__input"
+              type="file"
+              accept="image/png,image/jpeg,image/webp"
+              :disabled="isGenerating"
+              @change="handleReferenceImageChange"
+            />
+            <div v-if="referenceImage && referenceImagePreview" class="chat-reference__preview">
+              <img :src="referenceImagePreview" :alt="referenceImage.name" />
+              <div class="chat-reference__meta">
+                <strong :title="referenceImage.name">{{ referenceImage.name }}</strong>
+                <span>{{ formatReferenceImageSize(referenceImage.size) }}</span>
+                <div class="chat-reference__actions">
+                  <button
+                    type="button"
+                    class="chat-icon-button"
+                    :title="t('chatPlayground.replaceReferenceImage')"
+                    :disabled="isGenerating"
+                    @click="openReferenceImagePicker"
+                  >
+                    <Icon name="upload" size="sm" />
+                  </button>
+                  <button
+                    type="button"
+                    class="chat-icon-button"
+                    :title="t('chatPlayground.removeReferenceImage')"
+                    :disabled="isGenerating"
+                    @click="clearReferenceImage"
+                  >
+                    <Icon name="x" size="sm" />
+                  </button>
+                </div>
+              </div>
+            </div>
+            <button
+              v-else
+              type="button"
+              class="chat-reference__select"
+              :disabled="isGenerating"
+              @click="openReferenceImagePicker"
+            >
+              <Icon name="upload" />
+              <span>{{ t('chatPlayground.selectReferenceImage') }}</span>
+            </button>
+          </div>
+
+          <div v-else class="chat-field chat-field--grow">
             <label for="chat-system-prompt">{{ t('chatPlayground.systemPrompt') }}</label>
             <textarea
               id="chat-system-prompt"
@@ -188,7 +238,9 @@
               v-model="draft"
               class="chat-composer__input"
               :placeholder="t(isImageMode
-                ? 'chatPlayground.imagePromptPlaceholder'
+                ? (isImageEditMode
+                  ? 'chatPlayground.imageEditPromptPlaceholder'
+                  : 'chatPlayground.imagePromptPlaceholder')
                 : 'chatPlayground.messagePlaceholder')"
               :disabled="!selectedApiKey || !selectedModel"
               rows="3"
@@ -209,8 +261,10 @@
               class="btn btn-primary chat-composer__action"
               :disabled="!canSend"
             >
-              <Icon :name="isImageMode ? 'sparkles' : 'arrowUp'" />
-              {{ t(isImageMode ? 'chatPlayground.generateImage' : 'chatPlayground.send') }}
+              <Icon :name="isImageEditMode ? 'edit' : (isImageMode ? 'sparkles' : 'arrowUp')" />
+              {{ t(isImageEditMode
+                ? 'chatPlayground.editImage'
+                : (isImageMode ? 'chatPlayground.generateImage' : 'chatPlayground.send')) }}
             </button>
           </form>
         </div>
@@ -255,6 +309,8 @@ interface DisplayMessage {
 
 const KEY_SELECTION_STORAGE = 'sub2api-chat-api-key-id'
 const MODEL_SELECTION_PREFIX = 'sub2api-chat-model:'
+const MAX_REFERENCE_IMAGE_BYTES = 20 * 1024 * 1024
+const REFERENCE_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/webp'])
 
 const { t } = useI18n()
 const appStore = useAppStore()
@@ -273,6 +329,9 @@ const modelError = ref('')
 const isGenerating = ref(false)
 const messageListRef = ref<HTMLElement | null>(null)
 const composerRef = ref<HTMLTextAreaElement | null>(null)
+const referenceImageInputRef = ref<HTMLInputElement | null>(null)
+const referenceImage = ref<File | null>(null)
+const referenceImagePreview = ref('')
 
 let messageSequence = 0
 let modelRequestController: AbortController | null = null
@@ -302,6 +361,7 @@ const canSend = computed(() => Boolean(
 ))
 
 const isImageMode = computed(() => isImageGenerationModel(selectedModel.value || ''))
+const isImageEditMode = computed(() => isImageMode.value && referenceImage.value !== null)
 
 function readStoredKeyID(): number | null {
   const value = localStorage.getItem(KEY_SELECTION_STORAGE)
@@ -444,6 +504,7 @@ async function sendMessage(): Promise<void> {
         apiKey: apiKey.key,
         model,
         prompt: content,
+        referenceImage: referenceImage.value,
         signal: requestController.signal,
       })
       assistantMessage.images = result.images
@@ -518,6 +579,47 @@ function generatedImageFilename(messageId: number, imageUrl: string): string {
   return `generated-image-${messageId}.${extension}`
 }
 
+function openReferenceImagePicker(): void {
+  referenceImageInputRef.value?.click()
+}
+
+function clearReferenceImage(): void {
+  if (referenceImagePreview.value) {
+    URL.revokeObjectURL(referenceImagePreview.value)
+  }
+  referenceImage.value = null
+  referenceImagePreview.value = ''
+  if (referenceImageInputRef.value) {
+    referenceImageInputRef.value.value = ''
+  }
+}
+
+function handleReferenceImageChange(event: Event): void {
+  const input = event.currentTarget as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) {
+    return
+  }
+  if (!REFERENCE_IMAGE_TYPES.has(file.type)) {
+    input.value = ''
+    appStore.showError(t('chatPlayground.invalidReferenceImage'))
+    return
+  }
+  if (file.size > MAX_REFERENCE_IMAGE_BYTES) {
+    input.value = ''
+    appStore.showError(t('chatPlayground.referenceImageTooLarge'))
+    return
+  }
+
+  clearReferenceImage()
+  referenceImage.value = file
+  referenceImagePreview.value = URL.createObjectURL(file)
+}
+
+function formatReferenceImageSize(bytes: number): string {
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`
+}
+
 watch(selectedApiKeyId, (apiKeyID) => {
   stopGeneration()
   if (apiKeyID) {
@@ -531,6 +633,9 @@ watch(selectedApiKeyId, (apiKeyID) => {
 })
 
 watch(selectedModel, (model) => {
+  if (!isImageGenerationModel(model || '')) {
+    clearReferenceImage()
+  }
   const apiKeyID = selectedApiKeyId.value
   if (!apiKeyID || !model) {
     return
@@ -547,6 +652,7 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   modelRequestController?.abort()
   generationController?.abort()
+  clearReferenceImage()
 })
 </script>
 
@@ -706,6 +812,90 @@ onBeforeUnmount(() => {
 .chat-textarea:focus {
   transform: translate(3px, 3px);
   box-shadow: none;
+}
+
+.chat-reference__input {
+  display: none;
+}
+
+.chat-reference__select {
+  display: flex;
+  width: 100%;
+  min-height: 7rem;
+  flex: 1;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 0.55rem;
+  border: 2px solid var(--neo-border);
+  border-radius: var(--neo-radius);
+  background: var(--neo-panel-strong);
+  color: var(--neo-ink);
+  cursor: pointer;
+  box-shadow: var(--neo-shadow-sm);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.chat-reference__select:hover:not(:disabled) {
+  transform: translate(3px, 3px);
+  box-shadow: none;
+}
+
+.chat-reference__select:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.chat-reference__preview {
+  display: grid;
+  min-height: 7rem;
+  flex: 1;
+  grid-template-columns: 5.5rem minmax(0, 1fr);
+  gap: 0.75rem;
+  border: 2px solid var(--neo-border);
+  border-radius: var(--neo-radius);
+  padding: 0.65rem;
+  background: var(--neo-panel-strong);
+  box-shadow: var(--neo-shadow-sm);
+}
+
+.chat-reference__preview > img {
+  display: block;
+  width: 5.5rem;
+  height: 5.5rem;
+  align-self: center;
+  border: 2px solid var(--neo-border);
+  border-radius: var(--neo-radius);
+  object-fit: cover;
+}
+
+.chat-reference__meta {
+  display: flex;
+  min-width: 0;
+  justify-content: center;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.chat-reference__meta > strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 0.78rem;
+}
+
+.chat-reference__meta > span {
+  color: var(--neo-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.65rem;
+  font-weight: 800;
+}
+
+.chat-reference__actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
 }
 
 .chat-alert {

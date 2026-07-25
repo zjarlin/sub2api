@@ -134,6 +134,14 @@ async function mountView() {
 
 describe('ChatPlaygroundView', () => {
   beforeEach(() => {
+    Object.defineProperty(URL, 'createObjectURL', {
+      configurable: true,
+      value: vi.fn(() => 'blob:reference-image'),
+    })
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      configurable: true,
+      value: vi.fn(),
+    })
     localStorage.clear()
     listKeys.mockReset()
     listModels.mockReset()
@@ -232,5 +240,49 @@ describe('ChatPlaygroundView', () => {
     expect(downloadLink.attributes('download')).toMatch(/^generated-image-\d+\.png$/)
     expect(wrapper.text()).toContain('a friendly cat')
     expect(wrapper.text()).toContain('9 tokens')
+  })
+
+  it('选择参考图后切换为 Images Edits 图生图请求', async () => {
+    listModels.mockResolvedValue([{ id: 'gpt-image-2', owned_by: 'openai' }])
+    const wrapper = await mountView()
+    const referenceImage = new File(['source'], 'source.png', { type: 'image/png' })
+    const input = wrapper.get('#chat-reference-image')
+    Object.defineProperty(input.element, 'files', {
+      configurable: true,
+      value: [referenceImage],
+    })
+
+    await input.trigger('change')
+
+    expect(wrapper.get('.chat-reference__preview img').attributes('src')).toBe('blob:reference-image')
+    expect(wrapper.get('.chat-composer__input').attributes('placeholder')).toBe(
+      'chatPlayground.imageEditPromptPlaceholder',
+    )
+    expect(wrapper.text()).toContain('chatPlayground.editImage')
+
+    await wrapper.get('.chat-composer__input').setValue('replace the background')
+    await wrapper.get('.chat-composer').trigger('submit')
+    await flushPromises()
+
+    expect(generateImage).toHaveBeenCalledWith(expect.objectContaining({
+      model: 'gpt-image-2',
+      prompt: 'replace the background',
+      referenceImage,
+    }))
+  })
+
+  it('拒绝不支持的参考图文件类型', async () => {
+    listModels.mockResolvedValue([{ id: 'gpt-image-2', owned_by: 'openai' }])
+    const wrapper = await mountView()
+    const input = wrapper.get('#chat-reference-image')
+    Object.defineProperty(input.element, 'files', {
+      configurable: true,
+      value: [new File(['text'], 'source.txt', { type: 'text/plain' })],
+    })
+
+    await input.trigger('change')
+
+    expect(wrapper.find('.chat-reference__preview').exists()).toBe(false)
+    expect(showError).toHaveBeenCalledWith('chatPlayground.invalidReferenceImage')
   })
 })

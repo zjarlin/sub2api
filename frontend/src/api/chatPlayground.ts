@@ -34,6 +34,7 @@ export interface GenerateChatPlaygroundImageOptions {
   apiKey: string
   model: string
   prompt: string
+  referenceImage?: File | null
   signal?: AbortSignal
 }
 
@@ -200,18 +201,36 @@ function normalizeGeneratedImage(
 export async function generateChatPlaygroundImage(
   options: GenerateChatPlaygroundImageOptions,
 ): Promise<GenerateChatPlaygroundImageResult> {
-  const response = await fetch(buildGatewayUrl('/v1/images/generations'), {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${options.apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${options.apiKey}`,
+  }
+  let endpoint = '/v1/images/generations'
+  let body: BodyInit
+
+  if (options.referenceImage) {
+    endpoint = '/v1/images/edits'
+    const formData = new FormData()
+    formData.append('model', options.model)
+    formData.append('prompt', options.prompt)
+    formData.append('image', options.referenceImage, options.referenceImage.name)
+    formData.append('input_fidelity', 'high')
+    formData.append('n', '1')
+    formData.append('response_format', 'b64_json')
+    body = formData
+  } else {
+    headers['Content-Type'] = 'application/json'
+    body = JSON.stringify({
       model: options.model,
       prompt: options.prompt,
       n: 1,
       response_format: 'b64_json',
-    }),
+    })
+  }
+
+  const response = await fetch(buildGatewayUrl(endpoint), {
+    method: 'POST',
+    headers,
+    body,
     signal: options.signal,
   })
   await assertGatewayResponse(response)
