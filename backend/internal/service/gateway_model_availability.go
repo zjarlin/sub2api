@@ -7,12 +7,9 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
-// ModelAvailabilityDiagnosis describes whether the requested model can be
-// served by any persistently eligible account in the group (active with its
-// schedulable setting enabled), ignoring transient state such as rate limits,
-// overload, temporary unschedulability, and runtime blocks. Handlers use this
-// on the "no available accounts" error path to distinguish 404
-// model_not_found from 503 service_unavailable.
+// ModelAvailabilityDiagnosis 描述分组中是否配置过请求模型。
+// 错误状态账号仍算已配置，handler 据此区分“模型未配置”的 404 与
+// “模型已配置但当前没有可用账号”的 503。
 type ModelAvailabilityDiagnosis struct {
 	// HasAccountsInPool is true if the group has at least one persistently
 	// eligible account on the queried platform (or, for Anthropic/Gemini, on
@@ -36,11 +33,8 @@ type ModelAvailabilityDiagnoser interface {
 	) ModelAvailabilityDiagnosis
 }
 
-// DiagnoseModelAvailabilityForPlatform inspects accounts enabled for scheduling
-// by persistent configuration and returns whether the requested model is
-// configured to be served by any of them. The dedicated repository query
-// bypasses scheduler snapshots and deliberately ignores transient rate-limit,
-// overload, temporary-unschedulable, expiry, quota, and runtime-block state.
+// DiagnoseModelAvailabilityForPlatform 检查分组中是否配置过请求模型。
+// 专用查询绕过调度快照，并保留因上游错误而退出调度的账号。
 //
 // Safe to call on the error path: returns {true,true} on any internal failure
 // or when the inputs preclude meaningful diagnosis (empty model, etc.), so

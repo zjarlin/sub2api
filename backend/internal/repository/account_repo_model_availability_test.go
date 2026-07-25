@@ -15,7 +15,7 @@ import (
 	entsql "entgo.io/ent/dialect/sql"
 )
 
-func TestListModelAvailabilityCandidates_GroupQueryIgnoresTransientState(t *testing.T) {
+func TestListModelAvailabilityCandidates_GroupQueryIncludesErrorStatusAndIgnoresTransientState(t *testing.T) {
 	var capturedSQL string
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(captureEntQueryMatcher{actual: &capturedSQL}))
 	require.NoError(t, err)
@@ -46,6 +46,7 @@ func TestListModelAvailabilityCandidates_GroupQueryIgnoresTransientState(t *test
 	for _, configuredPredicate := range []string{"group_id", "status", "schedulable", "platform"} {
 		require.Contains(t, whereClause, configuredPredicate)
 	}
+	require.Contains(t, whereClause, " OR ", "配置诊断必须包含 error 状态账号")
 	for _, transientPredicate := range []string{
 		"rate_limit_reset_at",
 		"overload_until",

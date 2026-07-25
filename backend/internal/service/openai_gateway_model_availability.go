@@ -7,12 +7,9 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
-// DiagnoseModelAvailabilityForPlatform reports whether the requested model
-// is configured to be served by any persistently eligible OpenAI-compatible
-// account in the group for the given platform (e.g. PlatformOpenAI,
-// PlatformGrok). The platform scopes the candidate pool so distinct
-// OpenAI-compatible platforms do not cross-contaminate diagnosis results.
-// The query bypasses scheduler snapshots and ignores transient runtime state.
+// DiagnoseModelAvailabilityForPlatform 检查指定平台的分组中是否配置过请求模型。
+// 平台条件防止不同 OpenAI 兼容平台互相污染；查询绕过调度快照，并保留
+// 因上游错误而退出调度的账号。
 //
 // Safe to call on the error path: returns {true,true} on any internal
 // failure or when the inputs preclude meaningful diagnosis (empty model,

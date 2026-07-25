@@ -223,6 +223,31 @@ func TestOpenAIDiagnoseModelAvailabilityForPlatform_RateLimitedSupportingAccount
 	require.True(t, diag.HasModelSupport, "OpenAI-compatible diagnosis must keep transiently limited supporting accounts in the configured pool")
 }
 
+func TestOpenAIDiagnoseModelAvailabilityForPlatform_ErrorAccountRemainsConfigured(t *testing.T) {
+	groupID := int64(43)
+	repo := &mockAccountRepoForPlatform{
+		accounts: []Account{
+			{
+				ID:            2,
+				Platform:      PlatformOpenAI,
+				Status:        StatusError,
+				Schedulable:   false,
+				AccountGroups: []AccountGroup{{GroupID: groupID}},
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{"gpt-5.6-sol": "gpt-5.6-sol"},
+				},
+			},
+		},
+		accountsByID: map[int64]*Account{},
+	}
+	svc := &OpenAIGatewayService{accountRepo: repo, cfg: testConfig()}
+
+	diag := svc.DiagnoseModelAvailabilityForPlatform(context.Background(), &groupID, "gpt-5.6-sol", PlatformOpenAI)
+
+	require.True(t, diag.HasAccountsInPool)
+	require.True(t, diag.HasModelSupport, "error 状态账号仍表示分组已配置该模型")
+}
+
 func TestDiagnoseModelAvailabilityForPlatform_WrongPlatformFiltersOut(t *testing.T) {
 	// Group has only Anthropic accounts; user routes to OpenAI gateway.
 	// Diagnosis must NOT see Anthropic accounts (listSchedulableAccounts filters

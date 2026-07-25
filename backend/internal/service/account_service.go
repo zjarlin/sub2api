@@ -91,12 +91,9 @@ type AccountRepository interface {
 	ListSchedulableByGroupIDAndPlatforms(ctx context.Context, groupID int64, platforms []string) ([]Account, error)
 	ListSchedulableUngroupedByPlatform(ctx context.Context, platform string) ([]Account, error)
 	ListSchedulableUngroupedByPlatforms(ctx context.Context, platforms []string) ([]Account, error)
-	// ListModelAvailabilityCandidates returns accounts that are enabled by
-	// persistent configuration (active + schedulable) for model-support
-	// diagnosis. It deliberately does not filter transient runtime state such
-	// as rate-limit, overload, temporary-unschedulable, or expiry windows.
-	// When groupID is nil, includeGrouped controls whether the query scans all
-	// matching accounts or only accounts without a group binding.
+	// ListModelAvailabilityCandidates 返回用于模型支持诊断的配置账号。
+	// 结果包含正常可调度账号和错误状态账号，但排除 inactive/disabled 账号；
+	// groupID 为空时，includeGrouped 决定是否包含已绑定分组的账号。
 	ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error)
 
 	SetRateLimited(ctx context.Context, id int64, resetAt time.Time) error

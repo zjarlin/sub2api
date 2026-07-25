@@ -1925,10 +1925,9 @@ func (r *accountRepository) ListSchedulableByGroupIDAndPlatforms(ctx context.Con
 	})
 }
 
-// ListModelAvailabilityCandidates returns the persistently configured account
-// pool used to decide whether a model is supported. Unlike scheduling queries,
-// it intentionally ignores transient runtime state (rate limits, overload,
-// temporary unschedulability, and expiry windows).
+// ListModelAvailabilityCandidates 返回用于判断模型是否配置过的账号池。
+// 正常可调度账号和错误状态账号都保留在诊断池中，避免上游余额或凭据错误
+// 把“暂时没有可用账号”误判为“模型未配置”。实际调度仍只选择可用账号。
 func (r *accountRepository) ListModelAvailabilityCandidates(
 	ctx context.Context,
 	groupID *int64,
@@ -1940,16 +1939,14 @@ func (r *accountRepository) ListModelAvailabilityCandidates(
 	}
 	if groupID != nil {
 		return r.queryAccountsByGroup(ctx, *groupID, accountGroupQueryOptions{
-			status:               service.StatusActive,
-			schedulable:          true,
-			ignoreTransientState: true,
-			platforms:            platforms,
+			modelAvailability: true,
+			platforms:         platforms,
 		})
 	}
 
 	preds := []dbpredicate.Account{
-		dbaccount.StatusEQ(service.StatusActive),
-		dbaccount.SchedulableEQ(true),
+		dbaccount.DeletedAtIsNil(),
+		modelAvailabilityConfiguredPredicate(),
 		dbaccount.PlatformIn(platforms...),
 	}
 	if !includeGrouped {
@@ -1963,6 +1960,18 @@ func (r *accountRepository) ListModelAvailabilityCandidates(
 		return nil, err
 	}
 	return r.accountsToService(ctx, accounts)
+}
+
+// modelAvailabilityConfiguredPredicate 保留正常可调度账号与错误状态账号。
+// inactive/disabled 账号是明确退出配置的账号，不参与模型支持诊断。
+func modelAvailabilityConfiguredPredicate() dbpredicate.Account {
+	return dbaccount.Or(
+		dbaccount.And(
+			dbaccount.StatusEQ(service.StatusActive),
+			dbaccount.SchedulableEQ(true),
+		),
+		dbaccount.StatusEQ(service.StatusError),
+	)
 }
 
 func (r *accountRepository) SetRateLimited(ctx context.Context, id int64, resetAt time.Time) error {
@@ -2779,6 +2788,7 @@ type accountGroupQueryOptions struct {
 	status               string
 	schedulable          bool
 	ignoreTransientState bool
+	modelAvailability    bool
 	platforms            []string // 允许的多个平台，空切片表示不进行平台过滤
 }
 
@@ -2789,23 +2799,27 @@ func (r *accountRepository) queryAccountsByGroup(ctx context.Context, groupID in
 	// 通过 account_groups 中间表查询账号，并按需叠加状态/平台/调度能力过滤。
 	preds := make([]dbpredicate.Account, 0, 6)
 	preds = append(preds, dbaccount.DeletedAtIsNil())
-	if opts.status != "" {
-		preds = append(preds, dbaccount.StatusEQ(opts.status))
+	if opts.modelAvailability {
+		preds = append(preds, modelAvailabilityConfiguredPredicate())
+	} else {
+		if opts.status != "" {
+			preds = append(preds, dbaccount.StatusEQ(opts.status))
+		}
+		if opts.schedulable {
+			preds = append(preds, dbaccount.SchedulableEQ(true))
+			if !opts.ignoreTransientState {
+				now := time.Now()
+				preds = append(preds,
+					tempUnschedulablePredicate(),
+					notExpiredPredicate(now),
+					dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
+					dbaccount.Or(dbaccount.RateLimitResetAtIsNil(), dbaccount.RateLimitResetAtLTE(now)),
+				)
+			}
+		}
 	}
 	if len(opts.platforms) > 0 {
 		preds = append(preds, dbaccount.PlatformIn(opts.platforms...))
-	}
-	if opts.schedulable {
-		preds = append(preds, dbaccount.SchedulableEQ(true))
-		if !opts.ignoreTransientState {
-			now := time.Now()
-			preds = append(preds,
-				tempUnschedulablePredicate(),
-				notExpiredPredicate(now),
-				dbaccount.Or(dbaccount.OverloadUntilIsNil(), dbaccount.OverloadUntilLTE(now)),
-				dbaccount.Or(dbaccount.RateLimitResetAtIsNil(), dbaccount.RateLimitResetAtLTE(now)),
-			)
-		}
 	}
 
 	if len(preds) > 0 {

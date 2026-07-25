@@ -35,15 +35,9 @@ type noAccountErrorClassification struct {
 // classifyNoAccountError decides between 404 model_not_found and 503
 // api_error for "no available accounts" failures.
 //
-// The classifier intentionally does not consume the original error: the
-// selection layer never tells us *why* the pool came up empty (rate-limited
-// vs. unsupported model are both wrapped as ErrNoAvailableAccounts). Instead
-// we re-check pool composition through DiagnoseModelAvailabilityForPlatform.
-// Its dedicated database query considers only persistent eligibility
-// (active status + schedulable setting) and model_mapping, bypassing scheduler
-// snapshots and transient filters. That guarantees a 404 is only returned
-// when persistent account/group/model configuration must change before the
-// request can succeed.
+// 分类器不依赖原始选号错误，而是通过 DiagnoseModelAvailabilityForPlatform
+// 重新检查分组配置。诊断池包含正常可调度账号和错误状态账号，因此上游余额、
+// 凭据或临时限流导致的全池不可用会返回 503；只有确实没有配置该模型时才返回 404。
 //
 // routingModel is the model name that account selection actually compared
 // against (i.e. after group-level dispatch mapping). displayModel is the

@@ -163,7 +163,9 @@ func (m *mockAccountRepoForPlatform) ListModelAvailabilityCandidates(_ context.C
 	}
 	result := make([]Account, 0, len(m.accounts))
 	for _, acc := range m.accounts {
-		if _, ok := platformSet[acc.Platform]; !ok || acc.Status != StatusActive || !acc.Schedulable {
+		_, platformMatched := platformSet[acc.Platform]
+		configured := (acc.Status == StatusActive && acc.Schedulable) || acc.Status == StatusError
+		if !platformMatched || !configured {
 			continue
 		}
 		if groupID != nil {
