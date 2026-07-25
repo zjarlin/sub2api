@@ -227,6 +227,9 @@ describe('ChatPlaygroundView', () => {
     expect(wrapper.get('.chat-message__image-link img').attributes('src')).toBe(
       'data:image/png;base64,aW1hZ2U=',
     )
+    const downloadLink = wrapper.get('.chat-message__download')
+    expect(downloadLink.attributes('href')).toBe('data:image/png;base64,aW1hZ2U=')
+    expect(downloadLink.attributes('download')).toMatch(/^generated-image-\d+\.png$/)
     expect(wrapper.text()).toContain('a friendly cat')
     expect(wrapper.text()).toContain('9 tokens')
   })

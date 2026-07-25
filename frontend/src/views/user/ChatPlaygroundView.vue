@@ -120,15 +120,31 @@
             >
               <header>
                 <span>{{ message.role === 'user' ? t('chatPlayground.you') : t('chatPlayground.assistant') }}</span>
-                <button
-                  v-if="message.role === 'assistant' && message.content"
-                  type="button"
-                  class="chat-icon-button"
-                  :title="t('chatPlayground.copyResponse')"
-                  @click="copyMessage(message.content)"
+                <div
+                  v-if="message.role === 'assistant' && (message.content || message.images?.length)"
+                  class="chat-message__actions"
                 >
-                  <Icon name="copy" size="sm" />
-                </button>
+                  <a
+                    v-if="message.images?.[0]"
+                    :href="message.images[0].url"
+                    :download="generatedImageFilename(message.id, message.images[0].url)"
+                    class="chat-icon-button chat-message__download"
+                    :title="t('chatPlayground.downloadImage')"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <Icon name="download" size="sm" />
+                  </a>
+                  <button
+                    v-if="message.content"
+                    type="button"
+                    class="chat-icon-button"
+                    :title="t('chatPlayground.copyResponse')"
+                    @click="copyMessage(message.content)"
+                  >
+                    <Icon name="copy" size="sm" />
+                  </button>
+                </div>
               </header>
 
               <template v-if="message.role === 'assistant'">
@@ -496,6 +512,12 @@ function copyMessage(content: string): void {
   void copyToClipboard(content, t('chatPlayground.responseCopied'))
 }
 
+function generatedImageFilename(messageId: number, imageUrl: string): string {
+  const mimeType = imageUrl.match(/^data:image\/(png|jpeg|webp);/i)?.[1]?.toLowerCase()
+  const extension = mimeType === 'jpeg' ? 'jpg' : mimeType || 'png'
+  return `generated-image-${messageId}.${extension}`
+}
+
 watch(selectedApiKeyId, (apiKeyID) => {
   stopGeneration()
   if (apiKeyID) {
@@ -650,7 +672,9 @@ onBeforeUnmount(() => {
   border-radius: var(--neo-radius);
   background: var(--neo-panel-strong);
   color: var(--neo-ink);
+  cursor: pointer;
   box-shadow: 2px 2px 0 var(--neo-border);
+  text-decoration: none;
   transition: transform 0.15s ease, box-shadow 0.15s ease;
 }
 
@@ -876,6 +900,12 @@ onBeforeUnmount(() => {
 .chat-message--assistant > header {
   background: var(--neo-cyan);
   color: #050505;
+}
+
+.chat-message__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .chat-message__content {

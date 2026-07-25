@@ -26,6 +26,7 @@ export default {
     emptyDescription: 'Select an API key and model, then send content. Model output appears here.',
     you: 'You',
     assistant: 'Assistant',
+    downloadImage: 'Download image',
     copyResponse: 'Copy response',
     responseCopied: 'Response copied',
     clearConversation: 'Clear conversation',

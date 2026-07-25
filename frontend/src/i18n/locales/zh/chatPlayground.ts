@@ -26,6 +26,7 @@ export default {
     emptyDescription: '选定 API 密钥和模型后发送内容，模型结果会显示在这里。',
     you: '你',
     assistant: '模型',
+    downloadImage: '下载图片',
     copyResponse: '复制回复',
     responseCopied: '回复已复制',
     clearConversation: '清空对话',
