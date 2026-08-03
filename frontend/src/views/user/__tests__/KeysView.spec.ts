@@ -52,6 +52,8 @@ const messages: Record<string, string> = {
   'keys.status.expired': 'Expired',
   'keys.status.inactive': 'Inactive',
   'keys.status.quota_exhausted': 'Quota exhausted',
+  'keys.today': 'Today',
+  'keys.month': 'This Month',
   'keys.usage': 'Usage',
 }
 
@@ -172,6 +174,9 @@ const DataTableStub = {
         <slot name="cell-name" :value="row.name" :row="row" />
         <div data-test="current-concurrency">
           <slot name="cell-current_concurrency" :value="row.current_concurrency" :row="row" />
+        </div>
+        <div data-test="usage">
+          <slot name="cell-usage" :row="row" />
         </div>
         <div
           v-if="columns.some((col) => col.key === 'last_used_ip')"
@@ -303,6 +308,23 @@ describe('user KeysView column settings', () => {
     expect(visibleColumnKeys(wrapper)).not.toContain('last_used_at')
     expect(visibleColumnKeys(wrapper)).not.toContain('last_used_ip')
     expect(visibleColumnKeys(wrapper)).not.toContain('id')
+  })
+
+  it('shows usage for the current calendar month', async () => {
+    getDashboardApiKeysUsage.mockResolvedValue({
+      stats: {
+        1: {
+          api_key_id: 1,
+          today_actual_cost: 1.25,
+          month_actual_cost: 7.5,
+        },
+      },
+    })
+
+    const wrapper = await mountView()
+
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('Today: ¥1.2500')
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('This Month: ¥7.5000')
   })
 
   it('shows a hidden column when toggled and persists the preference', async () => {

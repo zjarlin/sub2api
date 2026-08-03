@@ -122,7 +122,7 @@ export default {
     groupRequired: 'Please select a group',
     usage: 'Usage',
     today: 'Today',
-    total: 'Last 30d',
+    month: 'This Month',
     quota: 'Quota',
     lastUsedAt: 'Last Used',
     lastUsedIP: 'Last Used IP',

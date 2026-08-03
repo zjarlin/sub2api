@@ -1133,12 +1133,18 @@ func (s *UsageLogRepoSuite) TestGetBatchApiKeyUsageStats() {
 	apiKey2 := mustCreateApiKey(s.T(), s.client, &service.APIKey{UserID: user.ID, Key: "sk-batchkey2", Name: "k2"})
 	account := mustCreateAccount(s.T(), s.client, &service.Account{Name: "acc-batchkey"})
 
-	s.createUsageLog(user, apiKey1, account, 10, 20, 0.5, time.Now())
-	s.createUsageLog(user, apiKey2, account, 15, 25, 0.6, time.Now())
+	now := timezone.Now()
+	previousMonth := timezone.StartOfMonth(now).Add(-time.Second)
+	s.createUsageLog(user, apiKey1, account, 10, 20, 9.5, previousMonth)
+	s.createUsageLog(user, apiKey1, account, 10, 20, 0.5, now)
+	s.createUsageLog(user, apiKey2, account, 15, 25, 0.6, now)
 
 	stats, err := s.repo.GetBatchAPIKeyUsageStats(s.ctx, []int64{apiKey1.ID, apiKey2.ID}, time.Time{}, time.Time{})
 	s.Require().NoError(err, "GetBatchAPIKeyUsageStats")
 	s.Require().Len(stats, 2)
+	s.Require().InDelta(0.5, stats[apiKey1.ID].MonthActualCost, 1e-9)
+	s.Require().InDelta(0.5, stats[apiKey1.ID].TodayActualCost, 1e-9)
+	s.Require().InDelta(0.6, stats[apiKey2.ID].MonthActualCost, 1e-9)
 }
 
 func (s *UsageLogRepoSuite) TestGetBatchApiKeyUsageStats_Empty() {

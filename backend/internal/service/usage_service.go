@@ -426,7 +426,7 @@ func (s *UsageService) GetAPIKeyDailyUsage(ctx context.Context, userID, apiKeyID
 	return points, nil
 }
 
-// GetBatchAPIKeyUsageStats returns today/total actual_cost for given api keys.
+// GetBatchAPIKeyUsageStats 返回指定 API 密钥的今日及本月实际费用。
 func (s *UsageService) GetBatchAPIKeyUsageStats(ctx context.Context, apiKeyIDs []int64, startTime, endTime time.Time) (map[int64]*usagestats.BatchAPIKeyUsageStats, error) {
 	stats, err := s.usageRepo.GetBatchAPIKeyUsageStats(ctx, apiKeyIDs, startTime, endTime)
 	if err != nil {

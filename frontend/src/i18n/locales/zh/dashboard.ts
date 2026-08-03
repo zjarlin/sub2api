@@ -122,7 +122,7 @@ export default {
     groupRequired: '请选择分组',
     usage: '用量',
     today: '今日',
-    total: '近30天',
+    month: '本月',
     quota: '额度',
     lastUsedAt: '上次使用时间',
     lastUsedIP: '最近使用 IP',

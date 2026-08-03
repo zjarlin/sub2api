@@ -300,7 +300,7 @@ export async function getBatchUsersUsage(userIds: number[]): Promise<BatchUsersU
 export interface BatchApiKeyUsageStats {
   api_key_id: number
   today_actual_cost: number
-  total_actual_cost: number
+  month_actual_cost: number
 }
 
 export interface BatchApiKeysUsageResponse {

@@ -471,6 +471,17 @@ func normalizePositiveInt64IDs(ids []int64) []int64 {
 	return out
 }
 
+// normalizeAPIKeyUsageRange 将空范围归一化为服务器时区下的当前自然月。
+func normalizeAPIKeyUsageRange(startTime, endTime, now time.Time) (time.Time, time.Time) {
+	if startTime.IsZero() {
+		startTime = timezone.StartOfMonth(now)
+	}
+	if endTime.IsZero() {
+		endTime = now
+	}
+	return startTime, endTime
+}
+
 // GetBatchUserUsageStats gets today and total actual_cost for multiple users within a time range.
 // If startTime is zero, defaults to 30 days ago.
 func (r *usageLogRepository) GetBatchUserUsageStats(ctx context.Context, userIDs []int64, startTime, endTime time.Time) (map[int64]*BatchUserUsageStats, error) {
@@ -546,11 +557,11 @@ func (r *usageLogRepository) GetBatchUserUsageStats(ctx context.Context, userIDs
 	return result, nil
 }
 
-// BatchAPIKeyUsageStats represents usage stats for a single API key
+// BatchAPIKeyUsageStats 表示单个 API 密钥的今日及本月用量统计。
 type BatchAPIKeyUsageStats = usagestats.BatchAPIKeyUsageStats
 
-// GetBatchAPIKeyUsageStats gets today and total actual_cost for multiple API keys within a time range.
-// If startTime is zero, defaults to 30 days ago.
+// GetBatchAPIKeyUsageStats 获取多个 API 密钥在指定范围内的今日及本月实际费用。
+// 未指定范围时，使用服务器时区下本月第一天至当前时刻的自然月窗口。
 func (r *usageLogRepository) GetBatchAPIKeyUsageStats(ctx context.Context, apiKeyIDs []int64, startTime, endTime time.Time) (map[int64]*BatchAPIKeyUsageStats, error) {
 	result := make(map[int64]*BatchAPIKeyUsageStats)
 	normalizedAPIKeyIDs := normalizePositiveInt64IDs(apiKeyIDs)
@@ -558,13 +569,7 @@ func (r *usageLogRepository) GetBatchAPIKeyUsageStats(ctx context.Context, apiKe
 		return result, nil
 	}
 
-	// 默认最近 30 天
-	if startTime.IsZero() {
-		startTime = time.Now().AddDate(0, 0, -30)
-	}
-	if endTime.IsZero() {
-		endTime = time.Now()
-	}
+	startTime, endTime = normalizeAPIKeyUsageRange(startTime, endTime, timezone.Now())
 
 	for _, id := range normalizedAPIKeyIDs {
 		result[id] = &BatchAPIKeyUsageStats{APIKeyID: id}
@@ -573,7 +578,7 @@ func (r *usageLogRepository) GetBatchAPIKeyUsageStats(ctx context.Context, apiKe
 	query := `
 		SELECT
 			api_key_id,
-			COALESCE(SUM(actual_cost) FILTER (WHERE created_at >= $2 AND created_at < $3), 0) as total_cost,
+			COALESCE(SUM(actual_cost) FILTER (WHERE created_at >= $2 AND created_at < $3), 0) as month_cost,
 			COALESCE(SUM(actual_cost) FILTER (WHERE created_at >= $4), 0) as today_cost
 		FROM usage_logs
 		WHERE api_key_id = ANY($1)
@@ -587,14 +592,14 @@ func (r *usageLogRepository) GetBatchAPIKeyUsageStats(ctx context.Context, apiKe
 	}
 	for rows.Next() {
 		var apiKeyID int64
-		var total float64
+		var monthTotal float64
 		var todayTotal float64
-		if err := rows.Scan(&apiKeyID, &total, &todayTotal); err != nil {
+		if err := rows.Scan(&apiKeyID, &monthTotal, &todayTotal); err != nil {
 			_ = rows.Close()
 			return nil, err
 		}
 		if stats, ok := result[apiKeyID]; ok {
-			stats.TotalActualCost = total
+			stats.MonthActualCost = monthTotal
 			stats.TodayActualCost = todayTotal
 		}
 	}
