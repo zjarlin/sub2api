@@ -198,9 +198,18 @@
               <div class="mt-0.5 flex items-center gap-1.5">
                 <span class="text-gray-500 dark:text-gray-400">{{ t('keys.month') }}:</span>
                 <span class="font-medium text-gray-900 dark:text-white">
-                  ¥{{ (usageStats[row.id]?.month_actual_cost ?? 0).toFixed(4) }}
+                  ¥{{ getMonthActualCost(row.id).toFixed(4) }}
                 </span>
               </div>
+              <button
+                type="button"
+                data-test="daily-usage-button"
+                class="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+                @click.stop="openDailyUsageModal(row)"
+              >
+                <Icon name="calendar" size="xs" />
+                {{ t('keys.dailyDetail') }}
+              </button>
               <!-- Quota progress (if quota is set) -->
               <div v-if="row.quota > 0" class="mt-1.5">
                 <div class="flex items-center gap-1.5">
@@ -998,6 +1007,12 @@
       @close="closeUseKeyModal"
     />
 
+    <ApiKeyDailyUsageDialog
+      :show="showDailyUsageModal"
+      :api-key="selectedKey"
+      @close="closeDailyUsageModal"
+    />
+
     <!-- CCS Client Selection Dialog for Antigravity -->
     <BaseDialog
       :show="showCcsClientSelect"
@@ -1137,6 +1152,7 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import SearchInput from '@/components/common/SearchInput.vue'
 	import Icon from '@/components/icons/Icon.vue'
 	import UseKeyModal from '@/components/keys/UseKeyModal.vue'
+	import ApiKeyDailyUsageDialog from '@/components/keys/ApiKeyDailyUsageDialog.vue'
 	import EndpointPopover from '@/components/keys/EndpointPopover.vue'
 	import GroupBadge from '@/components/common/GroupBadge.vue'
 	import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
@@ -1300,6 +1316,7 @@ const showDeleteDialog = ref(false)
 const showResetQuotaDialog = ref(false)
 const showResetRateLimitDialog = ref(false)
 const showUseKeyModal = ref(false)
+const showDailyUsageModal = ref(false)
 const showCcsClientSelect = ref(false)
 const showColumnDropdown = ref(false)
 const pendingCcsRow = ref<ApiKey | null>(null)
@@ -1445,6 +1462,11 @@ const copyToClipboard = async (text: string, keyId: number) => {
   }
 }
 
+const getMonthActualCost = (keyId: number): number => {
+  const stats = usageStats.value[keyId]
+  return stats?.month_actual_cost ?? stats?.total_actual_cost ?? 0
+}
+
 const isAbortError = (error: unknown) => {
   if (!error || typeof error !== 'object') return false
   const { name, code } = error as { name?: string; code?: string }
@@ -1536,6 +1558,16 @@ const openUseKeyModal = (key: ApiKey) => {
 
 const closeUseKeyModal = () => {
   showUseKeyModal.value = false
+  selectedKey.value = null
+}
+
+const openDailyUsageModal = (key: ApiKey) => {
+  selectedKey.value = key
+  showDailyUsageModal.value = true
+}
+
+const closeDailyUsageModal = () => {
+  showDailyUsageModal.value = false
   selectedKey.value = null
 }
 

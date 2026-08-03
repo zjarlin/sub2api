@@ -415,6 +415,8 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 const (
 	defaultAPIKeyDailyUsageDays = 30
 	maxAPIKeyDailyUsageDays     = 90
+	apiKeyDailyUsagePeriodDays  = "days"
+	apiKeyDailyUsagePeriodMonth = "month"
 )
 
 func parseAPIKeyDailyUsageDays(raw string) (int, bool) {
@@ -433,6 +435,13 @@ func apiKeyDailyUsageRange(days int, userTZ string) (time.Time, time.Time) {
 	startTime := timezone.StartOfDayInUserLocation(now.AddDate(0, 0, -(days-1)), userTZ)
 	endTime := timezone.StartOfDayInUserLocation(now.AddDate(0, 0, 1), userTZ)
 	return startTime, endTime
+}
+
+func apiKeyMonthlyDailyUsageRange(userTZ string) (time.Time, time.Time, int) {
+	now := timezone.NowInUserLocation(userTZ)
+	startTime := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	endTime := timezone.StartOfDayInUserLocation(now.AddDate(0, 0, 1), userTZ)
+	return startTime, endTime, now.Day()
 }
 
 // DashboardStats handles getting user dashboard statistics
@@ -660,8 +669,8 @@ func (h *UsageHandler) DashboardAPIKeysUsage(c *gin.Context) {
 	response.Success(c, gin.H{"stats": stats})
 }
 
-// GetMyAPIKeyDailyUsage handles getting daily usage details for the current user's API key.
-// GET /api/v1/user/api-keys/:id/usage/daily?days=30
+// GetMyAPIKeyDailyUsage 获取当前用户指定 API 密钥的每日用量明细。
+// GET /api/v1/user/api-keys/:id/usage/daily?days=30 或 period=month
 func (h *UsageHandler) GetMyAPIKeyDailyUsage(c *gin.Context) {
 	subject, ok := middleware2.GetAuthSubjectFromContext(c)
 	if !ok {
@@ -675,10 +684,20 @@ func (h *UsageHandler) GetMyAPIKeyDailyUsage(c *gin.Context) {
 		return
 	}
 
-	days, ok := parseAPIKeyDailyUsageDays(c.DefaultQuery("days", ""))
-	if !ok {
-		response.BadRequest(c, "Invalid days, allowed range is 1-90")
+	period := strings.TrimSpace(c.Query("period"))
+	if period != "" && period != apiKeyDailyUsagePeriodMonth {
+		response.BadRequest(c, "Invalid period, allowed value is month")
 		return
+	}
+	days := 0
+	if period == "" {
+		var ok bool
+		days, ok = parseAPIKeyDailyUsageDays(c.DefaultQuery("days", ""))
+		if !ok {
+			response.BadRequest(c, "Invalid days, allowed range is 1-90")
+			return
+		}
+		period = apiKeyDailyUsagePeriodDays
 	}
 
 	if h.apiKeyService == nil {
@@ -697,7 +716,13 @@ func (h *UsageHandler) GetMyAPIKeyDailyUsage(c *gin.Context) {
 	}
 
 	userTZ := c.Query("timezone")
-	startTime, endTime := apiKeyDailyUsageRange(days, userTZ)
+	var startTime time.Time
+	var endTime time.Time
+	if period == apiKeyDailyUsagePeriodMonth {
+		startTime, endTime, days = apiKeyMonthlyDailyUsageRange(userTZ)
+	} else {
+		startTime, endTime = apiKeyDailyUsageRange(days, userTZ)
+	}
 	items, err := h.usageService.GetAPIKeyDailyUsage(c.Request.Context(), subject.UserID, apiKeyID, startTime, endTime)
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -707,6 +732,7 @@ func (h *UsageHandler) GetMyAPIKeyDailyUsage(c *gin.Context) {
 	response.Success(c, gin.H{
 		"items":      items,
 		"days":       days,
+		"period":     period,
 		"start_date": startTime.Format("2006-01-02"),
 		"end_date":   endTime.AddDate(0, 0, -1).Format("2006-01-02"),
 	})

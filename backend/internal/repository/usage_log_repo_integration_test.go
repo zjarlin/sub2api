@@ -1143,8 +1143,10 @@ func (s *UsageLogRepoSuite) TestGetBatchApiKeyUsageStats() {
 	s.Require().NoError(err, "GetBatchAPIKeyUsageStats")
 	s.Require().Len(stats, 2)
 	s.Require().InDelta(0.5, stats[apiKey1.ID].MonthActualCost, 1e-9)
+	s.Require().InDelta(stats[apiKey1.ID].MonthActualCost, stats[apiKey1.ID].TotalActualCost, 1e-9)
 	s.Require().InDelta(0.5, stats[apiKey1.ID].TodayActualCost, 1e-9)
 	s.Require().InDelta(0.6, stats[apiKey2.ID].MonthActualCost, 1e-9)
+	s.Require().InDelta(stats[apiKey2.ID].MonthActualCost, stats[apiKey2.ID].TotalActualCost, 1e-9)
 }
 
 func (s *UsageLogRepoSuite) TestGetBatchApiKeyUsageStats_Empty() {

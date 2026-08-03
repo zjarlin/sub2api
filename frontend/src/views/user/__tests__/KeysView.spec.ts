@@ -44,6 +44,7 @@ const messages: Record<string, string> = {
   'keys.group': 'Group',
   'keys.id': 'ID',
   'keys.currentConcurrency': 'Current Concurrency',
+  'keys.dailyDetail': 'Daily Detail',
   'keys.lastUsedAt': 'Last Used',
   'keys.lastUsedIP': 'Last Used IP',
   'keys.rateLimitColumn': 'Rate Limit',
@@ -220,6 +221,13 @@ const IconStub = {
   template: '<span data-test="icon">{{ name }}</span>',
 }
 
+const ApiKeyDailyUsageDialogStub = {
+  name: 'ApiKeyDailyUsageDialog',
+  props: ['show', 'apiKey'],
+  emits: ['close'],
+  template: '<div v-if="show" data-test="daily-usage-dialog-stub">{{ apiKey?.name }}</div>',
+}
+
 const mountView = async () => {
   const wrapper = mount(KeysView, {
     global: {
@@ -235,6 +243,7 @@ const mountView = async () => {
         SearchInput: SearchInputStub,
         Icon: IconStub,
         UseKeyModal: true,
+        ApiKeyDailyUsageDialog: ApiKeyDailyUsageDialogStub,
         EndpointPopover: true,
         GroupBadge: true,
         GroupOptionItem: true,
@@ -325,6 +334,31 @@ describe('user KeysView column settings', () => {
 
     expect(wrapper.get('[data-test="usage"]').text()).toContain('Today: ¥1.2500')
     expect(wrapper.get('[data-test="usage"]').text()).toContain('This Month: ¥7.5000')
+  })
+
+  it('uses the compatibility month value returned for an older frontend contract', async () => {
+    getDashboardApiKeysUsage.mockResolvedValue({
+      stats: {
+        1: {
+          api_key_id: 1,
+          today_actual_cost: 1.25,
+          total_actual_cost: 7.5,
+        },
+      },
+    })
+
+    const wrapper = await mountView()
+
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('This Month: ¥7.5000')
+  })
+
+  it('opens daily usage details for the selected API key', async () => {
+    const wrapper = await mountView()
+
+    await wrapper.get('[data-test="daily-usage-button"]').trigger('click')
+    await nextTick()
+
+    expect(wrapper.get('[data-test="daily-usage-dialog-stub"]').text()).toBe('test-key')
   })
 
   it('shows a hidden column when toggled and persists the preference', async () => {

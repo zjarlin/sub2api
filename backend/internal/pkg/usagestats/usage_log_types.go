@@ -322,6 +322,7 @@ type BatchAPIKeyUsageStats struct {
 	APIKeyID        int64   `json:"api_key_id"`
 	TodayActualCost float64 `json:"today_actual_cost"`
 	MonthActualCost float64 `json:"month_actual_cost"`
+	TotalActualCost float64 `json:"total_actual_cost"`
 }
 
 // AccountUsageHistory represents daily usage history for an account

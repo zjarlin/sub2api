@@ -600,6 +600,7 @@ func (r *usageLogRepository) GetBatchAPIKeyUsageStats(ctx context.Context, apiKe
 		}
 		if stats, ok := result[apiKeyID]; ok {
 			stats.MonthActualCost = monthTotal
+			stats.TotalActualCost = monthTotal
 			stats.TodayActualCost = todayTotal
 		}
 	}

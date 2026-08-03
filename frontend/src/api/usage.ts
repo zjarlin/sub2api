@@ -97,8 +97,14 @@ export interface ApiKeyDailyUsagePoint {
 export interface ApiKeyDailyUsageResponse {
   items: ApiKeyDailyUsagePoint[]
   days: number
+  period: 'days' | 'month'
   start_date: string
   end_date: string
+}
+
+export interface ApiKeyDailyUsageParams {
+  days?: number
+  period?: 'month'
 }
 
 export interface UsageDashboardSnapshotV2Params extends TrendParams {
@@ -293,19 +299,14 @@ export async function getDashboardModels(params?: {
   return data
 }
 
-/**
- * Get daily usage details for one API key owned by the current user.
- * @param apiKeyId - API key ID
- * @param days - Number of days to include (1-90)
- * @returns Daily usage detail rows
- */
+/** 获取当前用户单个 API 密钥的每日用量明细。 */
 export async function getMyApiKeyDailyUsage(
   apiKeyId: number,
-  days: number = 30
+  params: ApiKeyDailyUsageParams = { days: 30 }
 ): Promise<ApiKeyDailyUsageResponse> {
   const { data } = await apiClient.get<ApiKeyDailyUsageResponse>(
     `/user/api-keys/${apiKeyId}/usage/daily`,
-    { params: { days } }
+    { params }
   )
   return data
 }
@@ -324,6 +325,7 @@ export interface BatchApiKeyUsageStats {
   api_key_id: number
   today_actual_cost: number
   month_actual_cost: number
+  total_actual_cost?: number
 }
 
 export interface BatchApiKeysUsageResponse {
