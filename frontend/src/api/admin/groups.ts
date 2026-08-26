@@ -16,6 +16,11 @@ import type {
   PaginatedResponse
 } from '@/types'
 
+export interface LiveCapability {
+  supported: boolean
+  reason?: string
+}
+
 /**
  * List all groups with pagination
  * @param page - Page number (default: 1)
@@ -79,6 +84,12 @@ export async function getAllIncludingInactive(): Promise<AdminGroup[]> {
  */
 export async function getByPlatform(platform: GroupPlatform): Promise<AdminGroup[]> {
   return getAll(platform)
+}
+
+/** 获取当前 Sub2API 服务端的 Live 运行环境能力。 */
+export async function getLiveCapability(): Promise<LiveCapability> {
+  const { data } = await apiClient.get<LiveCapability>('/admin/groups/live-capability')
+  return data
 }
 
 /**
@@ -435,18 +446,15 @@ export async function clearGroupRPMOverrides(id: number): Promise<{ message: str
 }
 
 /**
- * Get usage summary (today + cumulative cost) for all groups
- * @param timezone - IANA timezone string (e.g. "Asia/Shanghai")
+ * Get usage summary (today + yesterday + cumulative cost) for all groups
  * @returns Array of group usage summaries
  */
-export async function getUsageSummary(
-  timezone?: string
-): Promise<{ group_id: number; today_cost: number; total_cost: number }[]> {
+export async function getUsageSummary(): Promise<
+  { group_id: number; today_cost: number; yesterday_cost: number; total_cost: number }[]
+> {
   const { data } = await apiClient.get<
-    { group_id: number; today_cost: number; total_cost: number }[]
-  >('/admin/groups/usage-summary', {
-    params: timezone ? { timezone } : undefined
-  })
+    { group_id: number; today_cost: number; yesterday_cost: number; total_cost: number }[]
+  >('/admin/groups/usage-summary')
   return data
 }
 
@@ -467,6 +475,7 @@ export const groupsAPI = {
   getAll,
   getByPlatform,
   getAllIncludingInactive,
+  getLiveCapability,
   getById,
   getModelsListCandidates,
   create,
