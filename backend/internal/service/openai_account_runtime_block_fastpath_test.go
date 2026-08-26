@@ -87,7 +87,7 @@ func TestOpenAITransientServiceBusy_DoesNotTrip503BurstState(t *testing.T) {
 	account := &Account{ID: 287, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
 	body := []byte(`{"code":"fail_to_fetch_task","message":"{\"error\":{\"message\":\"Service busy (tasks: 1)\",\"code\":\"503\"}}"}`)
 
-	for i := 0; i < openAI503BurstDisableThreshold; i++ {
+	for i := 0; i < openAI5xxBurstDisableThreshold; i++ {
 		shouldDisable := svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusServiceUnavailable, http.Header{}, body, "agnes-video-v2.0")
 		require.False(t, shouldDisable)
 	}

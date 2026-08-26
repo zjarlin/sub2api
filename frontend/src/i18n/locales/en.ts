@@ -5403,6 +5403,7 @@ export default {
           kind: 'Kind',
           platform: 'Platform',
           model: 'Model',
+          loginAccount: 'Login Account',
           scheduledAccount: 'Scheduled Account',
           duration: 'Duration',
           status: 'Status',

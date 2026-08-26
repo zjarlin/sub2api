@@ -33,6 +33,9 @@ type OpsRequestDetail struct {
 	Message  string `json:"message,omitempty"`
 
 	UserID               *int64 `json:"user_id,omitempty"`
+	UserEmail            string `json:"user_email,omitempty"`
+	Username             string `json:"username,omitempty"`
+	UserAccount          string `json:"user_account,omitempty"`
 	APIKeyID             *int64 `json:"api_key_id,omitempty"`
 	AccountID            *int64 `json:"account_id,omitempty"`
 	AccountName          string `json:"account_name,omitempty"`

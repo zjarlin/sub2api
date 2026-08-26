@@ -147,6 +147,25 @@ function displayScheduledAccount(row: OpsRequestDetail): string {
   return '-'
 }
 
+function displayLoginAccount(row: OpsRequestDetail): string {
+  const userAccount = String(row.user_account || '').trim()
+  if (userAccount) return userAccount
+  const username = String(row.username || '').trim()
+  if (username) return username
+  const email = String(row.user_email || '').trim()
+  if (email) return email
+  if (row.user_id != null) return String(row.user_id)
+  return '-'
+}
+
+function loginAccountTitle(row: OpsRequestDetail): string {
+  const parts = [
+    String(row.username || '').trim(),
+    String(row.user_email || '').trim()
+  ].filter(Boolean)
+  return parts.length > 0 ? parts.join(' / ') : displayLoginAccount(row)
+}
+
 function canTempDisableScheduledAccount(row: OpsRequestDetail): boolean {
   return row.kind === 'error' && row.scheduled_account_id != null
 }
@@ -268,6 +287,9 @@ const kindBadgeClass = (kind: string) => {
                     {{ t('admin.ops.requestDetails.table.model') }}
                   </th>
                   <th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                    {{ t('admin.ops.requestDetails.table.loginAccount') }}
+                  </th>
+                  <th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
                     {{ t('admin.ops.requestDetails.table.scheduledAccount') }}
                   </th>
                   <th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
@@ -299,6 +321,9 @@ const kindBadgeClass = (kind: string) => {
                   </td>
                   <td class="max-w-[240px] truncate px-4 py-3 text-xs text-gray-600 dark:text-gray-300" :title="row.model || ''">
                     {{ row.model || '-' }}
+                  </td>
+                  <td class="max-w-[220px] truncate px-4 py-3 text-xs font-medium text-gray-700 dark:text-gray-200" :title="loginAccountTitle(row)">
+                    {{ displayLoginAccount(row) }}
                   </td>
                   <td class="px-4 py-3 text-xs font-medium text-gray-700 dark:text-gray-200">
                     <div class="flex max-w-[260px] items-center gap-2">

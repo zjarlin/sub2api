@@ -5559,6 +5559,7 @@ export default {
           kind: '类型',
           platform: '平台',
           model: '模型',
+          loginAccount: '登录账号',
           scheduledAccount: '调度账号',
           duration: '耗时',
           status: '状态码',

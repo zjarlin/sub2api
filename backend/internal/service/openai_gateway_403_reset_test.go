@@ -25,7 +25,7 @@ func TestOpenAIGatewayServiceRecordUsage_ResetsOpenAI403CounterForZeroUsage(t *t
 	counter := &openAI403CounterResetStub{}
 	rateLimitSvc := NewRateLimitService(nil, nil, nil, nil, nil)
 	rateLimitSvc.SetOpenAI403CounterCache(counter)
-	rateLimitSvc.incrementTempUnschedCounter(777, openAI503BurstCounterScopeDefault, time.Minute)
+	rateLimitSvc.incrementTempUnschedCounter(777, openAI5xxBurstCounterPrefix+":503", time.Minute)
 
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	billingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}

@@ -88,10 +88,9 @@ const (
 )
 
 const (
-	openAI503BurstDisableThreshold    = 3
-	openAI503BurstWindowMinutes       = 10
-	openAI503BurstCooldownMinutes     = 30
-	openAI503BurstCounterScopeDefault = "builtin:openai:503"
+	openAI5xxBurstDisableThreshold = 3
+	openAI5xxBurstWindowMinutes    = 60
+	openAI5xxBurstCounterPrefix    = "builtin:openai:5xx"
 )
 
 const openAI400CapabilityKeyword = "unsupported responses tool type"
@@ -358,7 +357,7 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			shouldDisable = true
 			break
 		}
-		shouldDisable = s.handleOpenAI503Burst(ctx, account, upstreamMsg, responseBody)
+		shouldDisable = s.handleOpenAI5xxBurst(ctx, account, statusCode, upstreamMsg, responseBody)
 	case 529:
 		s.handle529(ctx, account)
 		shouldDisable = false
@@ -372,7 +371,12 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 			s.handleCustomErrorCode(ctx, account, statusCode, msg)
 			shouldDisable = true
 		} else if statusCode >= 500 {
-			// 未启用自定义错误码时：仅记录5xx错误
+			// 未启用自定义错误码时：OpenAI 上游 5xx 连续失败达到阈值后关闭调度；
+			// 未达到阈值仅记录错误，避免单次上游抖动误伤账号。
+			if s.handleOpenAI5xxBurst(ctx, account, statusCode, upstreamMsg, responseBody) {
+				shouldDisable = true
+				break
+			}
 			slog.Warn("account_upstream_error", "account_id", account.ID, "status_code", statusCode)
 			shouldDisable = false
 		}
@@ -969,67 +973,48 @@ func (s *RateLimitService) resetTempUnschedCounters(accountID int64) {
 	}
 }
 
-func (s *RateLimitService) handleOpenAI503Burst(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) bool {
-	if s == nil || account == nil || account.Platform != PlatformOpenAI {
+func (s *RateLimitService) handleOpenAI5xxBurst(ctx context.Context, account *Account, statusCode int, upstreamMsg string, responseBody []byte) bool {
+	if s == nil || account == nil || account.Platform != PlatformOpenAI || statusCode < 500 {
 		return false
 	}
 
+	scope := fmt.Sprintf("%s:%d", openAI5xxBurstCounterPrefix, statusCode)
 	count := s.incrementTempUnschedCounter(
 		account.ID,
-		openAI503BurstCounterScopeDefault,
-		time.Duration(openAI503BurstWindowMinutes)*time.Minute,
+		scope,
+		time.Duration(openAI5xxBurstWindowMinutes)*time.Minute,
 	)
-	if count < openAI503BurstDisableThreshold {
+	if count < openAI5xxBurstDisableThreshold {
 		slog.Info(
-			"openai_503_burst_pending",
+			"openai_5xx_burst_pending",
 			"account_id", account.ID,
+			"status_code", statusCode,
 			"count", count,
-			"threshold", openAI503BurstDisableThreshold,
+			"threshold", openAI5xxBurstDisableThreshold,
 		)
 		return false
 	}
-	s.clearTempUnschedCounter(account.ID, openAI503BurstCounterScopeDefault)
-
-	now := time.Now()
-	until := now.Add(time.Duration(openAI503BurstCooldownMinutes) * time.Minute)
-	state := &TempUnschedState{
-		UntilUnix:       until.Unix(),
-		TriggeredAtUnix: now.Unix(),
-		StatusCode:      http.StatusServiceUnavailable,
-		MatchedKeyword:  "service temporarily unavailable",
-		RuleIndex:       0,
-		HitCount:        count,
-		TriggerCount:    openAI503BurstDisableThreshold,
-		ErrorMessage:    truncateTempUnschedMessage(responseBody, tempUnschedMessageMaxBytes),
-	}
-	if strings.TrimSpace(upstreamMsg) != "" {
-		state.MatchedKeyword = truncateForLog([]byte(strings.TrimSpace(upstreamMsg)), 128)
+	s.clearTempUnschedCounter(account.ID, scope)
+	reason := "openai_5xx_burst"
+	if msg := strings.TrimSpace(upstreamMsg); msg != "" {
+		reason = reason + ": " + truncateForLog([]byte(msg), 160)
+	} else if body := truncateTempUnschedMessage(responseBody, 160); body != "" {
+		reason = reason + ": " + body
 	}
 
-	reason := ""
-	if raw, err := json.Marshal(state); err == nil {
-		reason = string(raw)
-	}
-	if reason == "" {
-		reason = truncateTempUnschedMessage(responseBody, tempUnschedMessageMaxBytes)
-	}
-
-	if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reason); err != nil {
-		slog.Warn("openai_503_set_temp_unschedulable_failed", "account_id", account.ID, "error", err)
+	s.notifyAccountSchedulingBlocked(account, time.Time{}, "openai_5xx_burst")
+	if err := s.accountRepo.SetSchedulable(ctx, account.ID, false); err != nil {
+		slog.Warn("openai_5xx_disable_schedulable_failed", "account_id", account.ID, "status_code", statusCode, "error", err)
 		return false
 	}
-	if s.tempUnschedCache != nil {
-		if err := s.tempUnschedCache.SetTempUnsched(ctx, account.ID, state); err != nil {
-			slog.Warn("openai_503_temp_unsched_cache_set_failed", "account_id", account.ID, "error", err)
-		}
-	}
-
+	s.resetTempUnschedCounters(account.ID)
 	slog.Warn(
-		"openai_503_temp_unschedulable",
+		"openai_5xx_schedulable_disabled",
 		"account_id", account.ID,
-		"until", until,
+		"status_code", statusCode,
 		"count", count,
-		"threshold", openAI503BurstDisableThreshold,
+		"threshold", openAI5xxBurstDisableThreshold,
+		"reason", reason,
 	)
 	return true
 }

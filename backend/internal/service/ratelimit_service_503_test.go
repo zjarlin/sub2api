@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRateLimitService_HandleUpstreamError_OpenAI503BurstTempUnschedulable(t *testing.T) {
+func TestRateLimitService_HandleUpstreamError_OpenAI503BurstDisablesScheduling(t *testing.T) {
 	repo := &rateLimitAccountRepoStub{}
 	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
 	account := &Account{
@@ -26,13 +26,30 @@ func TestRateLimitService_HandleUpstreamError_OpenAI503BurstTempUnschedulable(t 
 	require.False(t, service.HandleUpstreamError(context.Background(), account, http.StatusServiceUnavailable, http.Header{}, body))
 	require.True(t, service.HandleUpstreamError(context.Background(), account, http.StatusServiceUnavailable, http.Header{}, body))
 
-	require.Equal(t, 1, repo.tempCalls)
+	require.Equal(t, 0, repo.tempCalls)
+	require.Equal(t, 1, repo.setSchedulableCalls)
+	require.NotNil(t, repo.lastSchedulable)
+	require.False(t, *repo.lastSchedulable)
+}
 
-	var state TempUnschedState
-	require.NoError(t, json.Unmarshal([]byte(repo.lastTempReason), &state))
-	require.Equal(t, http.StatusServiceUnavailable, state.StatusCode)
-	require.Equal(t, 3, state.HitCount)
-	require.Equal(t, openAI503BurstDisableThreshold, state.TriggerCount)
+func TestRateLimitService_HandleUpstreamError_OpenAI500BurstDisablesScheduling(t *testing.T) {
+	repo := &rateLimitAccountRepoStub{}
+	service := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{
+		ID:       402,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+	}
+	body := []byte(`{"error":{"message":"Internal server error"}}`)
+
+	require.False(t, service.HandleUpstreamError(context.Background(), account, http.StatusInternalServerError, http.Header{}, body))
+	require.False(t, service.HandleUpstreamError(context.Background(), account, http.StatusInternalServerError, http.Header{}, body))
+	require.True(t, service.HandleUpstreamError(context.Background(), account, http.StatusInternalServerError, http.Header{}, body))
+
+	require.Equal(t, 0, repo.tempCalls)
+	require.Equal(t, 1, repo.setSchedulableCalls)
+	require.NotNil(t, repo.lastSchedulable)
+	require.False(t, *repo.lastSchedulable)
 }
 
 func TestRateLimitService_HandleUpstreamError_OpenAI400CapabilityTempUnschedulable(t *testing.T) {

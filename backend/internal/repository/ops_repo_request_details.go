@@ -64,10 +64,10 @@ func (r *opsRepository) ListRequestDetails(ctx context.Context, filter *service.
 			like := "%" + strings.ToLower(q) + "%"
 			startIdx := len(args) + 1
 			addCondition(
-				fmt.Sprintf("(LOWER(COALESCE(request_id,'')) LIKE $%d OR LOWER(COALESCE(model,'')) LIKE $%d OR LOWER(COALESCE(message,'')) LIKE $%d)",
-					startIdx, startIdx+1, startIdx+2,
+				fmt.Sprintf("(LOWER(COALESCE(request_id,'')) LIKE $%d OR LOWER(COALESCE(model,'')) LIKE $%d OR LOWER(COALESCE(message,'')) LIKE $%d OR LOWER(COALESCE(user_account,'')) LIKE $%d OR LOWER(COALESCE(user_email,'')) LIKE $%d OR LOWER(COALESCE(username,'')) LIKE $%d)",
+					startIdx, startIdx+1, startIdx+2, startIdx+3, startIdx+4, startIdx+5,
 				),
-				like, like, like,
+				like, like, like, like, like, like,
 			)
 		}
 
@@ -99,6 +99,9 @@ WITH combined AS (
     NULL::TEXT AS severity,
     NULL::TEXT AS message,
     ul.user_id AS user_id,
+    COALESCE(u.email, '') AS user_email,
+    COALESCE(u.username, '') AS username,
+    COALESCE(NULLIF(u.username, ''), NULLIF(u.email, ''), CASE WHEN ul.user_id IS NULL THEN '' ELSE ul.user_id::TEXT END) AS user_account,
     ul.api_key_id AS api_key_id,
     ul.account_id AS account_id,
     COALESCE(a.name, '') AS account_name,
@@ -108,6 +111,7 @@ WITH combined AS (
   FROM usage_logs ul
   LEFT JOIN groups g ON g.id = ul.group_id
   LEFT JOIN accounts a ON a.id = ul.account_id
+  LEFT JOIN users u ON u.id = ul.user_id
   WHERE ul.created_at >= $1 AND ul.created_at < $2
 
   UNION ALL
@@ -125,6 +129,9 @@ WITH combined AS (
     o.severity AS severity,
     o.error_message AS message,
     o.user_id AS user_id,
+    COALESCE(u.email, '') AS user_email,
+    COALESCE(u.username, '') AS username,
+    COALESCE(NULLIF(u.username, ''), NULLIF(u.email, ''), CASE WHEN o.user_id IS NULL THEN '' ELSE o.user_id::TEXT END) AS user_account,
     o.api_key_id AS api_key_id,
     o.account_id AS account_id,
     COALESCE(a.name, '') AS account_name,
@@ -134,6 +141,7 @@ WITH combined AS (
   FROM ops_error_logs o
   LEFT JOIN groups g ON g.id = o.group_id
   LEFT JOIN accounts a ON a.id = o.account_id
+  LEFT JOIN users u ON u.id = o.user_id
   WHERE o.created_at >= $1 AND o.created_at < $2
     AND COALESCE(o.status_code, 0) >= 400
 )
@@ -176,6 +184,9 @@ SELECT
   severity,
   message,
   user_id,
+  user_email,
+  username,
+  user_account,
   api_key_id,
   account_id,
   account_name,
@@ -228,6 +239,9 @@ LIMIT $%d OFFSET $%d
 			message  sql.NullString
 
 			userID      sql.NullInt64
+			userEmail   sql.NullString
+			username    sql.NullString
+			userAccount sql.NullString
 			apiKeyID    sql.NullInt64
 			accountID   sql.NullInt64
 			accountName sql.NullString
@@ -250,6 +264,9 @@ LIMIT $%d OFFSET $%d
 			&severity,
 			&message,
 			&userID,
+			&userEmail,
+			&username,
+			&userAccount,
 			&apiKeyID,
 			&accountID,
 			&accountName,
@@ -275,6 +292,9 @@ LIMIT $%d OFFSET $%d
 			Message:    message.String,
 
 			UserID:      toInt64Ptr(userID),
+			UserEmail:   strings.TrimSpace(userEmail.String),
+			Username:    strings.TrimSpace(username.String),
+			UserAccount: strings.TrimSpace(userAccount.String),
 			APIKeyID:    toInt64Ptr(apiKeyID),
 			AccountID:   toInt64Ptr(accountID),
 			AccountName: strings.TrimSpace(accountName.String),
