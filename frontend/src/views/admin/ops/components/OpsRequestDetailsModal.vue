@@ -1,15 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
+import { useMediaQuery } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { useClipboard } from '@/composables/useClipboard'
 import { useAppStore } from '@/stores'
-import { adminAPI } from '@/api/admin'
 import { opsAPI, type OpsRequestDetailsParams, type OpsRequestDetail } from '@/api/admin/ops'
 import { parseTimeRangeMinutes, formatDateTime } from '../utils/opsFormatters'
-
-const TEMP_UNSCHED_DURATION_MINUTES = 10
 
 export interface OpsRequestDetailsPreset {
   title: string
@@ -37,12 +35,14 @@ const { t } = useI18n()
 const appStore = useAppStore()
 const { copyToClipboard } = useClipboard()
 
+// 与 DataTable 一致：< 768px 切换为卡片视图，避免宽表在移动端被截断。
+const isDesktopViewport = useMediaQuery('(min-width: 768px)')
+
 const loading = ref(false)
 const items = ref<OpsRequestDetail[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
-const tempDisableLoadingKeys = ref<Set<string>>(new Set())
 
 const close = () => emit('update:modelValue', false)
 
@@ -140,13 +140,6 @@ async function handleCopyRequestId(requestId: string) {
   appStore.showWarning(t('admin.ops.requestDetails.copyFailed'))
 }
 
-function displayScheduledAccount(row: OpsRequestDetail): string {
-  const scheduledName = String(row.scheduled_account_name || '').trim()
-  if (scheduledName) return scheduledName
-  if (row.scheduled_account_id != null) return String(row.scheduled_account_id)
-  return '-'
-}
-
 function displayLoginAccount(row: OpsRequestDetail): string {
   const userAccount = String(row.user_account || '').trim()
   if (userAccount) return userAccount
@@ -164,58 +157,6 @@ function loginAccountTitle(row: OpsRequestDetail): string {
     String(row.user_email || '').trim()
   ].filter(Boolean)
   return parts.length > 0 ? parts.join(' / ') : displayLoginAccount(row)
-}
-
-function canTempDisableScheduledAccount(row: OpsRequestDetail): boolean {
-  return row.kind === 'error' && row.scheduled_account_id != null
-}
-
-function tempDisableKey(row: OpsRequestDetail, idx: number): string {
-  return `${row.scheduled_account_id || 0}:${row.error_id || row.request_id || idx}`
-}
-
-function isTempDisableLoading(row: OpsRequestDetail, idx: number): boolean {
-  return tempDisableLoadingKeys.value.has(tempDisableKey(row, idx))
-}
-
-function setTempDisableLoading(row: OpsRequestDetail, idx: number, loading: boolean) {
-  const key = tempDisableKey(row, idx)
-  const next = new Set(tempDisableLoadingKeys.value)
-  if (loading) next.add(key)
-  else next.delete(key)
-  tempDisableLoadingKeys.value = next
-}
-
-function buildTempDisableReason(row: OpsRequestDetail): string {
-  const parts = ['Ops request details error']
-  if (row.error_id) parts.push(`#${row.error_id}`)
-  if (row.request_id) parts.push(`request ${row.request_id}`)
-  if (row.status_code) parts.push(`status ${row.status_code}`)
-  const message = String(row.message || '').trim()
-  if (message) parts.push(message.length > 160 ? `${message.substring(0, 160)}...` : message)
-  return parts.join(': ')
-}
-
-async function handleTempDisableScheduledAccount(row: OpsRequestDetail, idx: number) {
-  const accountId = row.scheduled_account_id
-  if (accountId == null || isTempDisableLoading(row, idx)) return
-  setTempDisableLoading(row, idx, true)
-  try {
-    await adminAPI.accounts.setTempUnschedulable(accountId, {
-      duration_minutes: TEMP_UNSCHED_DURATION_MINUTES,
-      status_code: row.status_code ?? undefined,
-      reason: buildTempDisableReason(row)
-    })
-    appStore.showSuccess(t('admin.ops.requestDetails.tempDisableSuccess', {
-      id: accountId,
-      minutes: TEMP_UNSCHED_DURATION_MINUTES
-    }))
-  } catch (error: any) {
-    console.error('[OpsRequestDetailsModal] Failed to temp-disable scheduled account', error)
-    appStore.showError(error?.message || t('admin.ops.requestDetails.tempDisableFailed'))
-  } finally {
-    setTempDisableLoading(row, idx, false)
-  }
 }
 
 function openErrorDetail(errorId: number | null | undefined) {
@@ -271,7 +212,44 @@ const kindBadgeClass = (kind: string) => {
 
           <div v-else class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-xl border border-gray-200 dark:border-dark-700">
             <div class="min-h-0 flex-1 overflow-auto">
-              <table class="min-w-full divide-y divide-gray-200 dark:divide-dark-700">
+              <div v-if="!isDesktopViewport" class="divide-y divide-gray-100 dark:divide-dark-800">
+                <div v-for="(row, idx) in items" :key="idx" class="space-y-2 p-4">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <span class="rounded-full px-2 py-1 text-[10px] font-bold" :class="kindBadgeClass(row.kind)">
+                      {{ row.kind === 'error' ? t('admin.ops.requestDetails.kind.error') : t('admin.ops.requestDetails.kind.success') }}
+                    </span>
+                    <span class="text-xs font-medium text-gray-700 dark:text-gray-200">{{ (row.platform || 'unknown').toUpperCase() }}</span>
+                    <span class="ml-auto text-[11px] text-gray-500 dark:text-gray-400">{{ formatDateTime(row.created_at) }}</span>
+                  </div>
+                  <div class="break-all text-xs text-gray-600 dark:text-gray-300">{{ row.model || '-' }}</div>
+                  <div class="truncate text-xs font-medium text-gray-700 dark:text-gray-200" :title="loginAccountTitle(row)">
+                    {{ displayLoginAccount(row) }}
+                  </div>
+                  <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600 dark:text-gray-300">
+                    <span>{{ typeof row.duration_ms === 'number' ? `${row.duration_ms} ms` : '-' }}</span>
+                    <span>{{ row.status_code ?? '-' }}</span>
+                  </div>
+                  <div v-if="row.request_id" class="flex items-center gap-2">
+                    <span class="min-w-0 flex-1 truncate font-mono text-[11px] text-gray-700 dark:text-gray-200" :title="row.request_id">
+                      {{ row.request_id }}
+                    </span>
+                    <button
+                      class="shrink-0 rounded-md bg-gray-100 px-2 py-1 text-[10px] font-bold text-gray-600 hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-300 dark:hover:bg-dark-600"
+                      @click="handleCopyRequestId(row.request_id)"
+                    >
+                      {{ t('admin.ops.requestDetails.copy') }}
+                    </button>
+                  </div>
+                  <button
+                    v-if="row.kind === 'error' && row.error_id"
+                    class="w-full rounded-lg bg-red-50 px-3 py-1.5 text-xs font-bold text-red-600 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-300 dark:hover:bg-red-900/30"
+                    @click="openErrorDetail(row.error_id)"
+                  >
+                    {{ t('admin.ops.requestDetails.viewError') }}
+                  </button>
+                </div>
+              </div>
+              <table v-else class="min-w-full divide-y divide-gray-200 dark:divide-dark-700">
                 <thead class="sticky top-0 z-10 bg-gray-50 dark:bg-dark-900">
                 <tr>
                   <th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
@@ -288,9 +266,6 @@ const kindBadgeClass = (kind: string) => {
                   </th>
                   <th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
                     {{ t('admin.ops.requestDetails.table.loginAccount') }}
-                  </th>
-                  <th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
-                    {{ t('admin.ops.requestDetails.table.scheduledAccount') }}
                   </th>
                   <th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
                     {{ t('admin.ops.requestDetails.table.duration') }}
@@ -324,22 +299,6 @@ const kindBadgeClass = (kind: string) => {
                   </td>
                   <td class="max-w-[220px] truncate px-4 py-3 text-xs font-medium text-gray-700 dark:text-gray-200" :title="loginAccountTitle(row)">
                     {{ displayLoginAccount(row) }}
-                  </td>
-                  <td class="px-4 py-3 text-xs font-medium text-gray-700 dark:text-gray-200">
-                    <div class="flex max-w-[260px] items-center gap-2">
-                      <span class="min-w-0 flex-1 truncate" :title="displayScheduledAccount(row)">
-                        {{ displayScheduledAccount(row) }}
-                      </span>
-                      <button
-                        v-if="canTempDisableScheduledAccount(row)"
-                        type="button"
-                        class="shrink-0 rounded bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60 dark:bg-amber-900/20 dark:text-amber-300 dark:hover:bg-amber-900/30"
-                        :disabled="isTempDisableLoading(row, idx)"
-                        @click="handleTempDisableScheduledAccount(row, idx)"
-                      >
-                        {{ isTempDisableLoading(row, idx) ? t('admin.ops.requestDetails.tempDisableLoading') : t('admin.ops.requestDetails.tempDisable') }}
-                      </button>
-                    </div>
                   </td>
                   <td class="whitespace-nowrap px-4 py-3 text-xs text-gray-600 dark:text-gray-300">
                     {{ typeof row.duration_ms === 'number' ? `${row.duration_ms} ms` : '-' }}

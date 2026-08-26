@@ -1,6 +1,5 @@
 docs/claude-relay-service/
 .codex
-.playwright-mcp/
 
 # ===================
 # Go 后端
@@ -15,7 +14,6 @@ backend/bin/
 backend/server
 backend/sub2api
 backend/main
-/sub2api
 
 # Go 测试二进制
 *.test
@@ -118,9 +116,13 @@ backend/.installed
 # 其他
 # ===================
 tests
+!deploy/tests/
+!deploy/tests/**
 CLAUDE.md
 .claude
 scripts
+!backend/scripts/
+!backend/scripts/resolve-version.sh
 .code-review-state
 #openspec/
 code-reviews/
@@ -133,6 +135,9 @@ docs/*
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md
+!docs/ASYNC_IMAGE_TASKS.md
+!docs/legal/
+!docs/legal/*.md
 .serena/
 .codex/
 frontend/coverage/

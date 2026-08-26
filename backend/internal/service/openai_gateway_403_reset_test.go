@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -25,7 +24,6 @@ func TestOpenAIGatewayServiceRecordUsage_ResetsOpenAI403CounterForZeroUsage(t *t
 	counter := &openAI403CounterResetStub{}
 	rateLimitSvc := NewRateLimitService(nil, nil, nil, nil, nil)
 	rateLimitSvc.SetOpenAI403CounterCache(counter)
-	rateLimitSvc.incrementTempUnschedCounter(777, openAI5xxBurstCounterPrefix+":503", time.Minute)
 
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	billingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}
@@ -46,6 +44,5 @@ func TestOpenAIGatewayServiceRecordUsage_ResetsOpenAI403CounterForZeroUsage(t *t
 
 	require.NoError(t, err)
 	require.Equal(t, []int64{777}, counter.resetCalls)
-	require.Empty(t, rateLimitSvc.tempUnschedCounters)
 	require.Equal(t, 1, usageRepo.calls)
 }

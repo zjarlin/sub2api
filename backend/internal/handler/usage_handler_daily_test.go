@@ -77,8 +77,11 @@ func newDailyUsageTestRouter(usageRepo *dailyUsageRepoStub, apiKeyRepo *dailyUsa
 type dailyUsageHandlerResponse struct {
 	Code int `json:"code"`
 	Data struct {
-		Items []usagestats.APIKeyDailyUsagePoint `json:"items"`
-		Days  int                                `json:"days"`
+		Items     []usagestats.APIKeyDailyUsagePoint `json:"items"`
+		Days      int                                `json:"days"`
+		Period    string                             `json:"period"`
+		StartDate string                             `json:"start_date"`
+		EndDate   string                             `json:"end_date"`
 	} `json:"data"`
 }
 
@@ -123,6 +126,23 @@ func TestGetMyAPIKeyDailyUsageRejectsInvalidDays(t *testing.T) {
 	}
 }
 
+func TestGetMyAPIKeyDailyUsageRejectsInvalidPeriod(t *testing.T) {
+	usageRepo := &dailyUsageRepoStub{}
+	apiKeyRepo := &dailyUsageAPIKeyRepoStub{
+		keys: map[int64]*service.APIKey{
+			7: {ID: 7, UserID: 42, Status: service.StatusAPIKeyActive},
+		},
+	}
+	router := newDailyUsageTestRouter(usageRepo, apiKeyRepo, 42)
+
+	req := httptest.NewRequest(http.MethodGet, "/user/api-keys/7/usage/daily?period=week", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.False(t, usageRepo.called)
+}
+
 func TestGetMyAPIKeyDailyUsageReturnsEmptyData(t *testing.T) {
 	usageRepo := &dailyUsageRepoStub{trend: []usagestats.TrendDataPoint{}}
 	apiKeyRepo := &dailyUsageAPIKeyRepoStub{
@@ -140,7 +160,35 @@ func TestGetMyAPIKeyDailyUsageReturnsEmptyData(t *testing.T) {
 	var got dailyUsageHandlerResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	require.Equal(t, 30, got.Data.Days)
+	require.Equal(t, apiKeyDailyUsagePeriodDays, got.Data.Period)
 	require.Empty(t, got.Data.Items)
+}
+
+func TestGetMyAPIKeyDailyUsageReturnsCurrentMonthRange(t *testing.T) {
+	usageRepo := &dailyUsageRepoStub{trend: []usagestats.TrendDataPoint{}}
+	apiKeyRepo := &dailyUsageAPIKeyRepoStub{
+		keys: map[int64]*service.APIKey{
+			7: {ID: 7, UserID: 42, Status: service.StatusAPIKeyActive},
+		},
+	}
+	router := newDailyUsageTestRouter(usageRepo, apiKeyRepo, 42)
+
+	req := httptest.NewRequest(http.MethodGet, "/user/api-keys/7/usage/daily?period=month&timezone=Asia%2FShanghai", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.True(t, usageRepo.called)
+	require.Equal(t, 1, usageRepo.startTime.Day())
+	require.Equal(t, 0, usageRepo.startTime.Hour())
+	require.Equal(t, usageRepo.startTime.Location(), usageRepo.endTime.Location())
+
+	var got dailyUsageHandlerResponse
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Equal(t, apiKeyDailyUsagePeriodMonth, got.Data.Period)
+	require.Equal(t, got.Data.Days, usageRepo.endTime.AddDate(0, 0, -1).Day())
+	require.Equal(t, usageRepo.startTime.Format("2006-01-02"), got.Data.StartDate)
+	require.Equal(t, usageRepo.endTime.AddDate(0, 0, -1).Format("2006-01-02"), got.Data.EndDate)
 }
 
 func TestGetMyAPIKeyDailyUsageAggregatesByDayForOwnedKey(t *testing.T) {
@@ -180,6 +228,7 @@ func TestGetMyAPIKeyDailyUsageAggregatesByDayForOwnedKey(t *testing.T) {
 	var got dailyUsageHandlerResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	require.Equal(t, 7, got.Data.Days)
+	require.Equal(t, apiKeyDailyUsagePeriodDays, got.Data.Period)
 	require.Len(t, got.Data.Items, 1)
 	require.Equal(t, usagestats.APIKeyDailyUsagePoint{
 		Date:             "2026-05-19",

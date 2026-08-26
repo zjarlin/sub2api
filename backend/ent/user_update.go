@@ -11,7 +11,6 @@ import (
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
-	"github.com/Wei-Shaw/sub2api/ent/account"
 	"github.com/Wei-Shaw/sub2api/ent/announcementread"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
 	"github.com/Wei-Shaw/sub2api/ent/authidentity"
@@ -127,6 +126,27 @@ func (_u *UserUpdate) SetNillableBalance(v *float64) *UserUpdate {
 // AddBalance adds value to the "balance" field.
 func (_u *UserUpdate) AddBalance(v float64) *UserUpdate {
 	_u.mutation.AddBalance(v)
+	return _u
+}
+
+// SetFrozenBalance sets the "frozen_balance" field.
+func (_u *UserUpdate) SetFrozenBalance(v float64) *UserUpdate {
+	_u.mutation.ResetFrozenBalance()
+	_u.mutation.SetFrozenBalance(v)
+	return _u
+}
+
+// SetNillableFrozenBalance sets the "frozen_balance" field if the given value is not nil.
+func (_u *UserUpdate) SetNillableFrozenBalance(v *float64) *UserUpdate {
+	if v != nil {
+		_u.SetFrozenBalance(*v)
+	}
+	return _u
+}
+
+// AddFrozenBalance adds value to the "frozen_balance" field.
+func (_u *UserUpdate) AddFrozenBalance(v float64) *UserUpdate {
+	_u.mutation.AddFrozenBalance(v)
 	return _u
 }
 
@@ -607,21 +627,6 @@ func (_u *UserUpdate) AddPlatformQuotas(v ...*UserPlatformQuota) *UserUpdate {
 	return _u.AddPlatformQuotaIDs(ids...)
 }
 
-// AddOwnedAccountIDs adds the "owned_accounts" edge to the Account entity by IDs.
-func (_u *UserUpdate) AddOwnedAccountIDs(ids ...int64) *UserUpdate {
-	_u.mutation.AddOwnedAccountIDs(ids...)
-	return _u
-}
-
-// AddOwnedAccounts adds the "owned_accounts" edges to the Account entity.
-func (_u *UserUpdate) AddOwnedAccounts(v ...*Account) *UserUpdate {
-	ids := make([]int64, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _u.AddOwnedAccountIDs(ids...)
-}
-
 // Mutation returns the UserMutation object of the builder.
 func (_u *UserUpdate) Mutation() *UserMutation {
 	return _u.mutation
@@ -900,27 +905,6 @@ func (_u *UserUpdate) RemovePlatformQuotas(v ...*UserPlatformQuota) *UserUpdate 
 	return _u.RemovePlatformQuotaIDs(ids...)
 }
 
-// ClearOwnedAccounts clears all "owned_accounts" edges to the Account entity.
-func (_u *UserUpdate) ClearOwnedAccounts() *UserUpdate {
-	_u.mutation.ClearOwnedAccounts()
-	return _u
-}
-
-// RemoveOwnedAccountIDs removes the "owned_accounts" edge to Account entities by IDs.
-func (_u *UserUpdate) RemoveOwnedAccountIDs(ids ...int64) *UserUpdate {
-	_u.mutation.RemoveOwnedAccountIDs(ids...)
-	return _u
-}
-
-// RemoveOwnedAccounts removes "owned_accounts" edges to Account entities.
-func (_u *UserUpdate) RemoveOwnedAccounts(v ...*Account) *UserUpdate {
-	ids := make([]int64, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _u.RemoveOwnedAccountIDs(ids...)
-}
-
 // Save executes the query and returns the number of nodes affected by the update operation.
 func (_u *UserUpdate) Save(ctx context.Context) (int, error) {
 	if err := _u.defaults(); err != nil {
@@ -1033,6 +1017,12 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.AddedBalance(); ok {
 		_spec.AddField(user.FieldBalance, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.FrozenBalance(); ok {
+		_spec.SetField(user.FieldFrozenBalance, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedFrozenBalance(); ok {
+		_spec.AddField(user.FieldFrozenBalance, field.TypeFloat64, value)
 	}
 	if value, ok := _u.mutation.Concurrency(); ok {
 		_spec.SetField(user.FieldConcurrency, field.TypeInt, value)
@@ -1706,51 +1696,6 @@ func (_u *UserUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
-	if _u.mutation.OwnedAccountsCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   user.OwnedAccountsTable,
-			Columns: []string{user.OwnedAccountsColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.RemovedOwnedAccountsIDs(); len(nodes) > 0 && !_u.mutation.OwnedAccountsCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   user.OwnedAccountsTable,
-			Columns: []string{user.OwnedAccountsColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.OwnedAccountsIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   user.OwnedAccountsTable,
-			Columns: []string{user.OwnedAccountsColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{user.Label}
@@ -1857,6 +1802,27 @@ func (_u *UserUpdateOne) SetNillableBalance(v *float64) *UserUpdateOne {
 // AddBalance adds value to the "balance" field.
 func (_u *UserUpdateOne) AddBalance(v float64) *UserUpdateOne {
 	_u.mutation.AddBalance(v)
+	return _u
+}
+
+// SetFrozenBalance sets the "frozen_balance" field.
+func (_u *UserUpdateOne) SetFrozenBalance(v float64) *UserUpdateOne {
+	_u.mutation.ResetFrozenBalance()
+	_u.mutation.SetFrozenBalance(v)
+	return _u
+}
+
+// SetNillableFrozenBalance sets the "frozen_balance" field if the given value is not nil.
+func (_u *UserUpdateOne) SetNillableFrozenBalance(v *float64) *UserUpdateOne {
+	if v != nil {
+		_u.SetFrozenBalance(*v)
+	}
+	return _u
+}
+
+// AddFrozenBalance adds value to the "frozen_balance" field.
+func (_u *UserUpdateOne) AddFrozenBalance(v float64) *UserUpdateOne {
+	_u.mutation.AddFrozenBalance(v)
 	return _u
 }
 
@@ -2337,21 +2303,6 @@ func (_u *UserUpdateOne) AddPlatformQuotas(v ...*UserPlatformQuota) *UserUpdateO
 	return _u.AddPlatformQuotaIDs(ids...)
 }
 
-// AddOwnedAccountIDs adds the "owned_accounts" edge to the Account entity by IDs.
-func (_u *UserUpdateOne) AddOwnedAccountIDs(ids ...int64) *UserUpdateOne {
-	_u.mutation.AddOwnedAccountIDs(ids...)
-	return _u
-}
-
-// AddOwnedAccounts adds the "owned_accounts" edges to the Account entity.
-func (_u *UserUpdateOne) AddOwnedAccounts(v ...*Account) *UserUpdateOne {
-	ids := make([]int64, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _u.AddOwnedAccountIDs(ids...)
-}
-
 // Mutation returns the UserMutation object of the builder.
 func (_u *UserUpdateOne) Mutation() *UserMutation {
 	return _u.mutation
@@ -2630,27 +2581,6 @@ func (_u *UserUpdateOne) RemovePlatformQuotas(v ...*UserPlatformQuota) *UserUpda
 	return _u.RemovePlatformQuotaIDs(ids...)
 }
 
-// ClearOwnedAccounts clears all "owned_accounts" edges to the Account entity.
-func (_u *UserUpdateOne) ClearOwnedAccounts() *UserUpdateOne {
-	_u.mutation.ClearOwnedAccounts()
-	return _u
-}
-
-// RemoveOwnedAccountIDs removes the "owned_accounts" edge to Account entities by IDs.
-func (_u *UserUpdateOne) RemoveOwnedAccountIDs(ids ...int64) *UserUpdateOne {
-	_u.mutation.RemoveOwnedAccountIDs(ids...)
-	return _u
-}
-
-// RemoveOwnedAccounts removes "owned_accounts" edges to Account entities.
-func (_u *UserUpdateOne) RemoveOwnedAccounts(v ...*Account) *UserUpdateOne {
-	ids := make([]int64, len(v))
-	for i := range v {
-		ids[i] = v[i].ID
-	}
-	return _u.RemoveOwnedAccountIDs(ids...)
-}
-
 // Where appends a list predicates to the UserUpdate builder.
 func (_u *UserUpdateOne) Where(ps ...predicate.User) *UserUpdateOne {
 	_u.mutation.Where(ps...)
@@ -2793,6 +2723,12 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 	}
 	if value, ok := _u.mutation.AddedBalance(); ok {
 		_spec.AddField(user.FieldBalance, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.FrozenBalance(); ok {
+		_spec.SetField(user.FieldFrozenBalance, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedFrozenBalance(); ok {
+		_spec.AddField(user.FieldFrozenBalance, field.TypeFloat64, value)
 	}
 	if value, ok := _u.mutation.Concurrency(); ok {
 		_spec.SetField(user.FieldConcurrency, field.TypeInt, value)
@@ -3459,51 +3395,6 @@ func (_u *UserUpdateOne) sqlSave(ctx context.Context) (_node *User, err error) {
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(userplatformquota.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Add = append(_spec.Edges.Add, edge)
-	}
-	if _u.mutation.OwnedAccountsCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   user.OwnedAccountsTable,
-			Columns: []string{user.OwnedAccountsColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
-			},
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.RemovedOwnedAccountsIDs(); len(nodes) > 0 && !_u.mutation.OwnedAccountsCleared() {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   user.OwnedAccountsTable,
-			Columns: []string{user.OwnedAccountsColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
-			},
-		}
-		for _, k := range nodes {
-			edge.Target.Nodes = append(edge.Target.Nodes, k)
-		}
-		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
-	}
-	if nodes := _u.mutation.OwnedAccountsIDs(); len(nodes) > 0 {
-		edge := &sqlgraph.EdgeSpec{
-			Rel:     sqlgraph.O2M,
-			Inverse: false,
-			Table:   user.OwnedAccountsTable,
-			Columns: []string{user.OwnedAccountsColumn},
-			Bidi:    false,
-			Target: &sqlgraph.EdgeTarget{
-				IDSpec: sqlgraph.NewFieldSpec(account.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

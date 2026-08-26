@@ -14,8 +14,10 @@ export interface UserAvailableGroup {
   subscription_type: string
   /** 分组默认倍率。用户专属倍率（若有）通过 /groups/rates 获取后在前端 join。 */
   rate_multiplier: number
-  /** 模型级倍率覆盖（model_id → multiplier），覆盖分组/用户专属倍率。 */
-  model_rates?: Record<string, number>
+  peak_rate_enabled: boolean
+  peak_start: string
+  peak_end: string
+  peak_rate_multiplier: number
   /** true = 专属分组（小范围授权）；false = 公开分组。 */
   is_exclusive: boolean
 }
@@ -37,6 +39,7 @@ export interface UserSupportedModelPricing {
   output_price: number | null
   cache_write_price: number | null
   cache_read_price: number | null
+  image_input_price: number | null
   image_output_price: number | null
   per_request_price: number | null
   intervals: UserPricingInterval[]
@@ -45,8 +48,6 @@ export interface UserSupportedModelPricing {
 export interface UserSupportedModel {
   name: string
   platform: string
-  /** 当前用户可见分组中的模型级倍率覆盖（group_id → multiplier）。 */
-  rate_multipliers?: Record<number, number>
   pricing: UserSupportedModelPricing | null
 }
 

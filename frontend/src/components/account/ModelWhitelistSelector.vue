@@ -104,27 +104,26 @@
     </div>
 
     <!-- Custom Model Input -->
-    <div class="mb-3 rounded-lg border border-dashed border-gray-300 bg-gray-50 p-3 dark:border-dark-500 dark:bg-dark-800/60">
-      <div class="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.accounts.customModelName') }}</p>
-          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.bulkModelInputHint') }}</p>
-        </div>
+    <div class="mb-3">
+      <label class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.accounts.customModelName') }}</label>
+      <div class="flex gap-2">
+        <input
+          v-model="customModel"
+          type="text"
+          class="input flex-1"
+          :placeholder="t('admin.accounts.enterCustomModelName')"
+          @keydown.enter.prevent="handleEnter"
+          @compositionstart="isComposing = true"
+          @compositionend="isComposing = false"
+        />
         <button
           type="button"
-          class="btn btn-secondary btn-sm"
-          :disabled="!customModel.trim()"
           @click="addCustom"
+          class="rounded-lg bg-primary-50 px-4 py-2 text-sm font-medium text-primary-600 hover:bg-primary-100 dark:bg-primary-900/30 dark:text-primary-400 dark:hover:bg-primary-900/50"
         >
           {{ t('admin.accounts.addModel') }}
         </button>
       </div>
-      <textarea
-        v-model="customModel"
-        rows="4"
-        class="input mt-3 w-full font-mono text-sm"
-        :placeholder="t('admin.accounts.enterCustomModelName')"
-      />
     </div>
   </div>
 </template>
@@ -138,7 +137,6 @@ import type { SyncUpstreamPreviewParams } from '@/api/admin/accounts'
 import ModelIcon from '@/components/common/ModelIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { allModels, getModelsByPlatform } from '@/composables/useModelWhitelist'
-import { mergeDelimitedValues } from '@/utils/accountFormBulk'
 
 const { t } = useI18n()
 
@@ -164,6 +162,7 @@ const appStore = useAppStore()
 const showDropdown = ref(false)
 const searchQuery = ref('')
 const customModel = ref('')
+const isComposing = ref(false)
 const isSyncingUpstream = ref(false)
 const normalizedPlatforms = computed(() => {
   const rawPlatforms =
@@ -182,7 +181,7 @@ const normalizedPlatforms = computed(() => {
   )
 })
 
-const upstreamSyncPlatforms = new Set(['anthropic', 'openai', 'gemini', 'antigravity'])
+const upstreamSyncPlatforms = new Set(['anthropic', 'openai', 'gemini', 'antigravity', 'grok'])
 const canSyncUpstream = computed(() => {
   if (props.accountId) {
     if (normalizedPlatforms.value.length === 0) return true
@@ -235,15 +234,18 @@ const toggleModel = (model: string) => {
 }
 
 const addCustom = () => {
-  const merged = mergeDelimitedValues(props.modelValue, customModel.value)
-  if (merged.length === props.modelValue.length && customModel.value.trim()) {
+  const model = customModel.value.trim()
+  if (!model) return
+  if (props.modelValue.includes(model)) {
     appStore.showInfo(t('admin.accounts.modelExists'))
     return
   }
-  if (merged.length !== props.modelValue.length) {
-    emit('update:modelValue', merged)
-  }
+  emit('update:modelValue', [...props.modelValue, model])
   customModel.value = ''
+}
+
+const handleEnter = () => {
+  if (!isComposing.value) addCustom()
 }
 
 const fillRelated = () => {

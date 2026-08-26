@@ -316,14 +316,7 @@ onBeforeUnmount(dispose)
   position: absolute;
   inset: 0;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 54% 42%, rgba(255, 220, 88, 0.82), transparent 20rem),
-    radial-gradient(circle at 26% 34%, rgba(53, 217, 255, 0.58), transparent 21rem),
-    radial-gradient(circle at 74% 68%, rgba(255, 95, 162, 0.56), transparent 19rem),
-    linear-gradient(to right, rgba(0, 0, 0, 0.18) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(0, 0, 0, 0.18) 1px, transparent 1px),
-    #fff3bf;
-  background-size: auto, auto, auto, 70px 70px, 70px 70px, auto;
+  background: #fff3bf;
 }
 
 .home-gateway-scene :deep(canvas) {
@@ -336,10 +329,7 @@ onBeforeUnmount(dispose)
   position: absolute;
   inset: 0;
   opacity: 0;
-  background-image:
-    linear-gradient(rgba(0, 0, 0, 0.2) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(0, 0, 0, 0.2) 1px, transparent 1px);
-  background-size: 70px 70px;
+  background: #fff3bf;
   transition: opacity 0.2s ease;
 }
 

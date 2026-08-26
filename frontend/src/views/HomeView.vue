@@ -27,17 +27,16 @@
 
         <div class="terminal-home__actions">
           <LocaleSwitcher />
-          <component
-            :is="docsLinkComponent"
-            :to="isInternalDocsLink ? docsUrl : undefined"
-            :href="isInternalDocsLink ? undefined : docsUrl"
-            :target="isInternalDocsLink ? undefined : '_blank'"
-            :rel="isInternalDocsLink ? undefined : 'noopener noreferrer'"
+          <a
+            v-if="docUrl"
+            :href="docUrl"
+            target="_blank"
+            rel="noopener noreferrer"
             class="terminal-home__icon-button"
             :title="t('home.viewDocs')"
           >
             <Icon name="book" size="md" />
-          </component>
+          </a>
           <button
             type="button"
             class="terminal-home__icon-button"
@@ -65,16 +64,15 @@
             {{ isAuthenticated ? t('home.goToDashboard') : t('home.getStarted') }}
             <Icon name="arrowRight" size="md" />
           </router-link>
-          <component
-            :is="docsLinkComponent"
-            :to="isInternalDocsLink ? docsUrl : undefined"
-            :href="isInternalDocsLink ? undefined : docsUrl"
-            :target="isInternalDocsLink ? undefined : '_blank'"
-            :rel="isInternalDocsLink ? undefined : 'noopener noreferrer'"
+          <a
+            v-if="docUrl"
+            :href="docUrl"
+            target="_blank"
+            rel="noopener noreferrer"
             class="terminal-home__secondary-cta"
           >
             {{ t('home.docs') }}
-          </component>
+          </a>
         </div>
       </main>
 
@@ -113,15 +111,7 @@
     <footer class="terminal-home__footer">
       <span>&copy; {{ currentYear }} {{ siteName }}</span>
       <div>
-        <component
-          :is="docsLinkComponent"
-          :to="isInternalDocsLink ? docsUrl : undefined"
-          :href="isInternalDocsLink ? undefined : docsUrl"
-          :target="isInternalDocsLink ? undefined : '_blank'"
-          :rel="isInternalDocsLink ? undefined : 'noopener noreferrer'"
-        >
-          {{ t('home.docs') }}
-        </component>
+        <a v-if="docUrl" :href="docUrl" target="_blank" rel="noopener noreferrer">{{ t('home.docs') }}</a>
         <a :href="githubUrl" target="_blank" rel="noopener noreferrer">GitHub</a>
       </div>
     </footer>
@@ -135,18 +125,16 @@ import { useAppStore, useAuthStore } from '@/stores'
 import HomeGatewayScene from '@/components/home/HomeGatewayScene.vue'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { resolveDocsUrl } from '@/utils/docs'
+import { sanitizeUrl } from '@/utils/url'
 
 const { t } = useI18n()
 const authStore = useAuthStore()
 const appStore = useAppStore()
 
 const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || '++0 的 API')
-const siteLogo = computed(() => appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '')
+const siteLogo = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '', { allowRelative: true, allowDataUrl: true }))
 const siteSubtitle = computed(() => appStore.cachedPublicSettings?.site_subtitle || '一个接口，接上主流 AI 模型和上游账号池')
-const docsUrl = computed(() => resolveDocsUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl))
-const isInternalDocsLink = computed(() => docsUrl.value.startsWith('/'))
-const docsLinkComponent = computed(() => isInternalDocsLink.value ? 'router-link' : 'a')
+const docUrl = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl || ''))
 const homeContent = computed(() => appStore.cachedPublicSettings?.home_content || '')
 const homeFeatureText = (key: keyof NonNullable<typeof appStore.cachedPublicSettings>, fallback: string) => {
   const value = appStore.cachedPublicSettings?.[key]
@@ -164,7 +152,7 @@ const isAdmin = computed(() => authStore.isAdmin)
 const dashboardPath = computed(() => (isAdmin.value ? '/admin/dashboard' : '/dashboard'))
 const siteNameInitial = computed(() => siteName.value.trim().charAt(0).toUpperCase() || 'S')
 const currentYear = computed(() => new Date().getFullYear())
-const githubUrl = 'https://github.com/Wei-Shaw/sub2api'
+const githubUrl = 'https://github.com/zjarlin/sub2api'
 
 const telemetry = [
   { label: 'ROUTE LATENCY', value: '< 90MS' },
@@ -236,11 +224,7 @@ onMounted(() => {
   --home-shadow-lg: 12px 12px 0 #000000;
   --home-radius: 6px;
   color: var(--home-ink);
-  background:
-    linear-gradient(to right, rgba(0, 0, 0, 0.18) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(0, 0, 0, 0.18) 1px, transparent 1px),
-    var(--home-bg);
-  background-size: 70px 70px;
+  background: var(--home-bg);
   font-family:
     'Arial Black',
     'PingFang SC',
@@ -258,24 +242,7 @@ onMounted(() => {
   isolation: isolate;
   overflow: hidden;
   border-bottom: 4px solid var(--home-border);
-  background:
-    linear-gradient(to right, rgba(0, 0, 0, 0.2) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(0, 0, 0, 0.2) 1px, transparent 1px),
-    radial-gradient(circle at 82% 22%, rgba(255, 95, 162, 0.72) 0 7rem, transparent 7.1rem),
-    radial-gradient(circle at 14% 68%, rgba(53, 217, 255, 0.7) 0 6.2rem, transparent 6.3rem),
-    var(--home-bg);
-  background-size: 70px 70px, 70px 70px, auto, auto, auto;
-}
-
-.terminal-home__hero::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  pointer-events: none;
-  background:
-    linear-gradient(90deg, rgba(255, 243, 191, 0.9) 0%, rgba(255, 243, 191, 0.36) 45%, rgba(255, 243, 191, 0.76) 100%),
-    linear-gradient(180deg, rgba(255, 253, 242, 0.14) 0%, rgba(255, 243, 191, 0.1) 62%, var(--home-bg) 100%);
+  background: var(--home-bg);
 }
 
 .terminal-home__noise,
@@ -287,17 +254,11 @@ onMounted(() => {
 }
 
 .terminal-home__noise {
-  opacity: 0.34;
-  background-image:
-    linear-gradient(45deg, rgba(0, 0, 0, 0.08) 25%, transparent 25%),
-    linear-gradient(-45deg, rgba(0, 0, 0, 0.08) 25%, transparent 25%);
-  background-size: 18px 18px;
-  mask-image: linear-gradient(to bottom, black, transparent 88%);
+  display: none;
 }
 
 .terminal-home__scanline {
-  opacity: 0.14;
-  background: repeating-linear-gradient(180deg, #000 0 1px, transparent 1px 8px);
+  display: none;
 }
 
 .terminal-home__nav,
@@ -444,7 +405,7 @@ onMounted(() => {
   max-width: 11ch;
   margin: 0;
   color: var(--home-ink);
-  font-size: clamp(4.2rem, 12vw, 10.8rem);
+  font-size: 8.5rem;
   font-weight: 950;
   line-height: 0.82;
   text-transform: uppercase;
@@ -470,7 +431,7 @@ onMounted(() => {
     'SFMono-Regular',
     ui-monospace,
     monospace;
-  font-size: clamp(0.95rem, 1.8vw, 1.18rem);
+  font-size: 1.1rem;
   font-weight: 800;
   line-height: 1.55;
 }
@@ -568,11 +529,7 @@ onMounted(() => {
   position: relative;
   z-index: 1;
   padding: clamp(1.25rem, 3vw, 2.75rem);
-  background:
-    linear-gradient(to right, rgba(0, 0, 0, 0.18) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(0, 0, 0, 0.18) 1px, transparent 1px),
-    #ffffff;
-  background-size: 70px 70px;
+  background: #ffffff;
 }
 
 .terminal-home__strip-grid {
@@ -630,7 +587,7 @@ onMounted(() => {
 .terminal-home__strip h2 {
   margin: 0;
   color: var(--home-ink);
-  font-size: clamp(1.35rem, 2vw, 2.1rem);
+  font-size: 1.8rem;
   font-weight: 950;
   line-height: 1.05;
   text-transform: uppercase;
@@ -751,6 +708,10 @@ onMounted(() => {
 }
 
 @media (max-width: 1024px) {
+  .terminal-home__hero-content h1 {
+    font-size: 5.5rem;
+  }
+
   .terminal-home__telemetry {
     position: relative;
     right: auto;
@@ -791,7 +752,7 @@ onMounted(() => {
 
   .terminal-home__hero-content h1 {
     max-width: 100%;
-    font-size: clamp(3rem, 16vw, 5.2rem);
+    font-size: 3.2rem;
     line-height: 0.9;
     text-shadow:
       3px 3px 0 var(--home-main),

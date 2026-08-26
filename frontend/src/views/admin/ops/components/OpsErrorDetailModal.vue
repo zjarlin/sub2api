@@ -29,29 +29,23 @@
         </div>
 
         <div class="rounded-xl bg-gray-50 p-4 dark:bg-dark-900">
-          <div class="text-xs font-bold uppercase tracking-wider text-gray-400">{{ t('admin.ops.errorDetail.user') }}</div>
+          <div class="text-xs font-bold uppercase tracking-wider text-gray-400">
+            {{ isUpstreamError(detail) ? t('admin.ops.errorDetail.account') : t('admin.ops.errorDetail.user') }}
+          </div>
           <div class="mt-1 text-sm font-medium text-gray-900 dark:text-white">
-            {{ displayUser(detail) }}
-          </div>
-          <div class="mt-1 text-xs text-gray-400">
-            {{ userMeta(detail) }}
-          </div>
-        </div>
-
-        <div class="rounded-xl bg-gray-50 p-4 dark:bg-dark-900">
-          <div class="text-xs font-bold uppercase tracking-wider text-gray-400">{{ t('admin.ops.errorDetail.scheduledAccount') }}</div>
-          <div class="mt-1 text-sm font-medium text-gray-900 dark:text-white">
-            {{ displayScheduledAccount(detail) }}
-          </div>
-          <div class="mt-1 text-xs text-gray-400">
-            {{ scheduledAccountMeta(detail) }}
+            <template v-if="isUpstreamError(detail)">
+              {{ detail.account_name || (detail.account_id != null ? String(detail.account_id) : '—') }}
+            </template>
+            <template v-else>
+              {{ detail.user_email || (detail.user_id != null ? String(detail.user_id) : '—') }}
+            </template>
           </div>
         </div>
 
         <div class="rounded-xl bg-gray-50 p-4 dark:bg-dark-900">
           <div class="text-xs font-bold uppercase tracking-wider text-gray-400">{{ t('admin.ops.errorDetail.platform') }}</div>
           <div class="mt-1 text-sm font-medium text-gray-900 dark:text-white">
-            {{ displayPlatform(detail) }}
+            {{ detail.platform || '—' }}
           </div>
         </div>
 
@@ -86,10 +80,7 @@
         <div class="rounded-xl bg-gray-50 p-4 dark:bg-dark-900">
           <div class="text-xs font-bold uppercase tracking-wider text-gray-400">{{ t('admin.ops.errorDetail.upstreamEndpoint') }}</div>
           <div class="mt-1 break-all font-mono text-sm font-medium text-gray-900 dark:text-white">
-            {{ displayUpstreamEndpoint(detail) }}
-          </div>
-          <div v-if="showNoUpstreamCallHint(detail)" class="mt-1 text-xs text-gray-400">
-            {{ t('admin.ops.errorDetail.noUpstreamCall') }}
+            {{ detail.upstream_endpoint || '—' }}
           </div>
         </div>
 
@@ -123,23 +114,6 @@
           </div>
         </div>
 
-        <div v-if="detail.attempted_key_prefix" class="rounded-xl bg-gray-50 p-4 dark:bg-dark-900">
-          <div class="text-xs font-bold uppercase tracking-wider text-gray-400">{{ t('admin.ops.errorDetail.attemptedKeyPrefix') }}</div>
-          <div class="mt-1 font-mono text-sm font-medium text-gray-900 dark:text-white">
-            {{ detail.attempted_key_prefix }}
-          </div>
-        </div>
-
-        <div v-if="detail.deleted_key_owner_email" class="rounded-xl bg-gray-50 p-4 dark:bg-dark-900">
-          <div class="text-xs font-bold uppercase tracking-wider text-gray-400">{{ t('admin.ops.errorDetail.deletedKeyOwner') }}</div>
-          <div class="mt-1 text-sm font-medium text-gray-900 dark:text-white">
-            {{ detail.deleted_key_owner_email }}
-            <span v-if="detail.deleted_key_name" class="ml-1 text-xs text-gray-500 dark:text-gray-400">({{ detail.deleted_key_name }})</span>
-            <span class="ml-2 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-bold ring-1 ring-inset bg-red-50 text-red-700 ring-red-600/20 dark:bg-red-900/30 dark:text-red-400 dark:ring-red-500/30">
-              {{ t('admin.ops.errorDetail.keyDeletedBadge') }}
-            </span>
-          </div>
-        </div>
       </div>
 
       <!-- Response content (client request -> error_body; upstream -> upstream_error_detail/message) -->
@@ -156,7 +130,7 @@
         </div>
 
         <div v-if="!correlatedUpstreamLoading && !correlatedUpstreamErrors.length" class="mt-3 text-sm text-gray-500 dark:text-gray-400">
-          {{ showNoUpstreamCallHint(detail) ? t('admin.ops.errorDetail.noUpstreamCall') : t('common.noData') }}
+          {{ t('common.noData') }}
         </div>
 
         <div v-else class="mt-4 space-y-3">
@@ -199,10 +173,6 @@
 
             <div class="mt-3 grid grid-cols-1 gap-2 text-xs text-gray-600 dark:text-gray-300 sm:grid-cols-2">
               <div>
-                <span class="text-gray-400">{{ t('admin.ops.errorDetail.upstreamEvent.account') }}:</span>
-                <span class="ml-1 font-medium">{{ displayEventAccount(ev) }}</span>
-              </div>
-              <div>
                 <span class="text-gray-400">{{ t('admin.ops.errorDetail.upstreamEvent.status') }}:</span>
                 <span class="ml-1 font-mono">{{ ev.status_code ?? '—' }}</span>
               </div>
@@ -234,7 +204,6 @@ import { useAppStore } from '@/stores'
 import { opsAPI, type OpsErrorDetail } from '@/api/admin/ops'
 import { formatDateTime } from '@/utils/format'
 import { resolvePrimaryResponseBody, resolveUpstreamPayload } from '../utils/errorDetailResponse'
-import { isAuthFailureBeforeScheduling } from '../utils/opsErrorDisplay'
 
 interface Props {
   show: boolean
@@ -263,6 +232,9 @@ const primaryResponseBody = computed(() => {
   return resolvePrimaryResponseBody(detail.value, props.errorType)
 })
 
+
+
+
 const title = computed(() => {
   if (!props.errorId) return t('admin.ops.errorDetail.title')
   return t('admin.ops.errorDetail.titleWithId', { id: String(props.errorId) })
@@ -270,70 +242,11 @@ const title = computed(() => {
 
 const emptyText = computed(() => t('admin.ops.errorDetail.noErrorSelected'))
 
-function displayUser(d: OpsErrorDetail | null): string {
-  if (!d) return '—'
-  const email = String(d.user_email || '').trim()
-  if (email) return email
-  if (d.user_id != null) return String(d.user_id)
-  return '—'
-}
-
-function userMeta(d: OpsErrorDetail | null): string {
-  if (!d || d.user_id == null) return '—'
-  return `${t('admin.ops.errorLog.userId')} ${d.user_id}`
-}
-
-function displayScheduledAccount(d: OpsErrorDetail | null): string {
-  if (!d) return '—'
-  if (isAuthFailureBeforeScheduling(d)) {
-    return t('admin.ops.errorDetail.scheduledAccountNotEntered')
-  }
-  const scheduledName = String(d.scheduled_account_name || '').trim()
-  if (scheduledName) return scheduledName
-  if (d.scheduled_account_id != null) return String(d.scheduled_account_id)
-  return '—'
-}
-
-function displayEventAccount(d: OpsErrorDetail | null): string {
-  if (!d) return '—'
-
-  const scheduledName = String(d.scheduled_account_name || '').trim()
-  if (scheduledName) return scheduledName
-  if (d.scheduled_account_id != null) return String(d.scheduled_account_id)
-
-  const accountName = String(d.account_name || '').trim()
-  if (accountName) return accountName
-  if (d.account_id != null) return String(d.account_id)
-
-  return '—'
-}
-
-function scheduledAccountMeta(d: OpsErrorDetail | null): string {
-  if (!d || isAuthFailureBeforeScheduling(d)) return '—'
-  if (d.scheduled_account_id == null) return '—'
-  return `${t('admin.ops.errorLog.accountId')} ${d.scheduled_account_id}`
-}
-
-function displayPlatform(d: OpsErrorDetail | null): string {
-  const platform = String(d?.platform || '').trim()
-  if (platform) return platform
-  if (isAuthFailureBeforeScheduling(d)) {
-    return t('admin.ops.errorDetail.platformUnknownBeforeAuth')
-  }
-  return '—'
-}
-
-function displayUpstreamEndpoint(d: OpsErrorDetail | null): string {
-  if (isAuthFailureBeforeScheduling(d)) {
-    return t('admin.ops.errorDetail.notApplicable')
-  }
-  const endpoint = String(d?.upstream_endpoint || '').trim()
-  if (endpoint) return endpoint
-  return '—'
-}
-
-function showNoUpstreamCallHint(d: OpsErrorDetail | null): boolean {
-  return isAuthFailureBeforeScheduling(d)
+function isUpstreamError(d: OpsErrorDetail | null): boolean {
+  if (!d) return false
+  const phase = String(d.phase || '').toLowerCase()
+  const owner = String(d.error_owner || '').toLowerCase()
+  return phase === 'upstream' && owner === 'provider'
 }
 
 function formatRequestTypeLabel(type: number | null | undefined): string {

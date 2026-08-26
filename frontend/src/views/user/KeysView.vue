@@ -33,19 +33,51 @@
 
       <template #actions>
         <div class="flex justify-end gap-3">
-        <button
-          @click="loadApiKeys"
-          :disabled="loading"
-          class="btn btn-secondary"
-          :title="t('common.refresh')"
-        >
-          <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
-        </button>
-        <button @click="showCreateModal = true" class="btn btn-primary" data-tour="keys-create-btn">
-          <Icon name="plus" size="md" class="mr-2" />
-          {{ t('keys.createKey') }}
-        </button>
-      </div>
+          <button
+            @click="loadApiKeys"
+            :disabled="loading"
+            class="btn btn-secondary"
+            :title="t('common.refresh')"
+          >
+            <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
+          </button>
+          <div class="relative" ref="columnDropdownRef">
+            <button
+              @click="showColumnDropdown = !showColumnDropdown"
+              class="btn btn-secondary px-2 md:px-3"
+              :title="t('keys.columnSettings')"
+            >
+              <svg class="h-4 w-4 md:mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 4.5v15m6-15v15m-10.875 0h15.75c.621 0 1.125-.504 1.125-1.125V5.625c0-.621-.504-1.125-1.125-1.125H4.125C3.504 4.5 3 5.004 3 5.625v12.75c0 .621.504 1.125 1.125 1.125z" />
+              </svg>
+              <span class="hidden md:inline">{{ t('keys.columnSettings') }}</span>
+            </button>
+            <div
+              v-if="showColumnDropdown"
+              class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
+            >
+              <button
+                v-for="col in toggleableColumns"
+                :key="col.key"
+                @click="toggleColumn(col.key)"
+                class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
+              >
+                <span>{{ col.label }}</span>
+                <Icon
+                  v-if="isColumnVisible(col.key)"
+                  name="check"
+                  size="sm"
+                  class="text-primary-500"
+                  :stroke-width="2"
+                />
+              </button>
+            </div>
+          </div>
+          <button @click="showCreateModal = true" class="btn btn-primary" data-tour="keys-create-btn">
+            <Icon name="plus" size="md" class="mr-2" />
+            {{ t('keys.createKey') }}
+          </button>
+        </div>
       </template>
 
       <template #table>
@@ -58,6 +90,10 @@
           default-sort-order="desc"
           @sort="handleSort"
         >
+          <template #cell-id="{ value }">
+            <span class="font-mono text-xs text-gray-500 dark:text-gray-400">#{{ value }}</span>
+          </template>
+
           <template #cell-key="{ value, row }">
             <div class="flex items-center gap-2">
               <code class="code text-xs">
@@ -105,20 +141,17 @@
                 class="-mx-2 -my-1 flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 transition-all duration-200 hover:bg-gray-100 dark:hover:bg-dark-700"
                 :title="t('keys.clickToChangeGroup')"
               >
-                <span
-                  v-if="row.personal_account_scope"
-                  class="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300"
-                >
-                  <Icon name="user" size="sm" />
-                  <span>{{ t('keys.personalAccountScope') }}</span>
-                </span>
                 <GroupBadge
-                  v-else-if="row.group"
+                  v-if="row.group"
                   :name="row.group.name"
                   :platform="row.group.platform"
                   :subscription-type="row.group.subscription_type"
                   :rate-multiplier="row.group.rate_multiplier"
                   :user-rate-multiplier="userGroupRates[row.group.id]"
+                  :peak-rate-enabled="row.group.peak_rate_enabled"
+                  :peak-start="row.group.peak_start"
+                  :peak-end="row.group.peak_end"
+                  :peak-rate-multiplier="row.group.peak_rate_multiplier"
                 />
                 <span v-else class="text-sm text-gray-400 dark:text-dark-500">{{
                   t('keys.noGroup')
@@ -141,6 +174,19 @@
             </div>
           </template>
 
+          <template #cell-current_concurrency="{ value }">
+            <span
+              :class="[
+                'inline-flex min-w-8 items-center justify-center rounded px-2 py-1 text-sm font-semibold tabular-nums',
+                (value ?? 0) > 0
+                  ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-900/25 dark:text-emerald-300 dark:ring-emerald-800'
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-700 dark:text-dark-400'
+              ]"
+            >
+              {{ value ?? 0 }}
+            </span>
+          </template>
+
           <template #cell-usage="{ row }">
             <div class="text-sm">
               <div class="flex items-center gap-1.5">
@@ -150,11 +196,20 @@
                 </span>
               </div>
               <div class="mt-0.5 flex items-center gap-1.5">
-                <span class="text-gray-500 dark:text-gray-400">{{ t('keys.total') }}:</span>
+                <span class="text-gray-500 dark:text-gray-400">{{ t('keys.month') }}:</span>
                 <span class="font-medium text-gray-900 dark:text-white">
-                  ¥{{ (usageStats[row.id]?.total_actual_cost ?? 0).toFixed(4) }}
+                  ¥{{ getMonthActualCost(row.id).toFixed(4) }}
                 </span>
               </div>
+              <button
+                type="button"
+                data-test="daily-usage-button"
+                class="mt-1 inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
+                @click.stop="openDailyUsageModal(row)"
+              >
+                <Icon name="calendar" size="xs" />
+                {{ t('keys.dailyDetail') }}
+              </button>
               <!-- Quota progress (if quota is set) -->
               <div v-if="row.quota > 0" class="mt-1.5">
                 <div class="flex items-center gap-1.5">
@@ -312,6 +367,13 @@
             <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
           </template>
 
+          <template #cell-last_used_ip="{ value }">
+            <span v-if="value" class="text-sm text-gray-500 dark:text-dark-400">
+              {{ value }}
+            </span>
+            <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+          </template>
+
           <template #cell-created_at="{ value }">
             <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatDateTime(value) }}</span>
           </template>
@@ -414,7 +476,7 @@
         <div>
           <label class="input-label">{{ t('keys.groupLabel') }}</label>
           <Select
-            v-model="selectedGroupScope"
+            v-model="formData.group_id"
             :options="groupOptions"
             :placeholder="t('keys.selectGroup')"
             :searchable="true"
@@ -422,46 +484,31 @@
             data-tour="key-form-group"
           >
             <template #selected="{ option }">
-              <span
-                v-if="(option as unknown as GroupOption)?.personal"
-                class="inline-flex items-center gap-1.5 rounded-md bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-300"
-              >
-                <Icon name="user" size="sm" />
-                <span>{{ (option as unknown as GroupOption).label }}</span>
-              </span>
               <GroupBadge
-                v-else-if="option"
+                v-if="option"
                 :name="(option as unknown as GroupOption).label"
-                :platform="(option as unknown as GroupOption).platform!"
+                :platform="(option as unknown as GroupOption).platform"
                 :subscription-type="(option as unknown as GroupOption).subscriptionType"
                 :rate-multiplier="(option as unknown as GroupOption).rate"
                 :user-rate-multiplier="(option as unknown as GroupOption).userRate"
+                :peak-rate-enabled="(option as unknown as GroupOption).peakRateEnabled"
+                :peak-start="(option as unknown as GroupOption).peakStart"
+                :peak-end="(option as unknown as GroupOption).peakEnd"
+                :peak-rate-multiplier="(option as unknown as GroupOption).peakRateMultiplier"
               />
               <span v-else class="text-gray-400">{{ t('keys.selectGroup') }}</span>
             </template>
             <template #option="{ option, selected }">
-              <div
-                v-if="(option as unknown as GroupOption).personal"
-                class="flex min-w-0 flex-1 items-center justify-between gap-3"
-              >
-                <div class="flex min-w-0 flex-1 items-start gap-2">
-                  <span class="mt-0.5 inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-600 dark:bg-emerald-900/20 dark:text-emerald-300">
-                    <Icon name="user" size="sm" />
-                  </span>
-                  <div class="min-w-0 text-left">
-                    <div class="text-sm font-semibold text-gray-900 dark:text-white">{{ (option as unknown as GroupOption).label }}</div>
-                    <div class="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">{{ (option as unknown as GroupOption).description }}</div>
-                  </div>
-                </div>
-                <Icon v-if="selected" name="check" size="sm" class="text-primary-600 dark:text-primary-400" />
-              </div>
               <GroupOptionItem
-                v-else
                 :name="(option as unknown as GroupOption).label"
-                :platform="(option as unknown as GroupOption).platform!"
+                :platform="(option as unknown as GroupOption).platform"
                 :subscription-type="(option as unknown as GroupOption).subscriptionType"
                 :rate-multiplier="(option as unknown as GroupOption).rate"
                 :user-rate-multiplier="(option as unknown as GroupOption).userRate"
+                :peak-rate-enabled="(option as unknown as GroupOption).peakRateEnabled"
+                :peak-start="(option as unknown as GroupOption).peakStart"
+                :peak-end="(option as unknown as GroupOption).peakEnd"
+                :peak-rate-multiplier="(option as unknown as GroupOption).peakRateMultiplier"
                 :description="(option as unknown as GroupOption).description"
                 :selected="selected"
               />
@@ -584,7 +631,7 @@
           <div class="space-y-4">
             <div>
               <div class="relative">
-                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">¥</span>
                 <input
                   v-model.number="formData.quota"
                   type="number"
@@ -650,7 +697,7 @@
             <div>
               <label class="input-label">{{ t('keys.rateLimit5h') }}</label>
               <div class="relative">
-                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">¥</span>
                 <input
                   v-model.number="formData.rate_limit_5h"
                   type="number"
@@ -696,7 +743,7 @@
             <div>
               <label class="input-label">{{ t('keys.rateLimit1d') }}</label>
               <div class="relative">
-                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">¥</span>
                 <input
                   v-model.number="formData.rate_limit_1d"
                   type="number"
@@ -742,7 +789,7 @@
             <div>
               <label class="input-label">{{ t('keys.rateLimit7d') }}</label>
               <div class="relative">
-                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">¥</span>
                 <input
                   v-model.number="formData.rate_limit_7d"
                   type="number"
@@ -953,12 +1000,17 @@
     <!-- Use Key Modal -->
     <UseKeyModal
       :show="showUseKeyModal"
-      :api-key-id="selectedKey?.id || null"
       :api-key="selectedKey?.key || ''"
       :base-url="publicSettings?.api_base_url || ''"
       :platform="selectedKey?.group?.platform || null"
       :allow-messages-dispatch="selectedKey?.group?.allow_messages_dispatch || false"
       @close="closeUseKeyModal"
+    />
+
+    <ApiKeyDailyUsageDialog
+      :show="showDailyUsageModal"
+      :api-key="selectedKey"
+      @close="closeDailyUsageModal"
     />
 
     <!-- CCS Client Selection Dialog for Antigravity -->
@@ -1013,7 +1065,7 @@
       <div
         v-if="groupSelectorKeyId !== null && dropdownPosition"
         ref="dropdownRef"
-        class="animate-in fade-in slide-in-from-top-2 fixed z-[100000020] w-max min-w-[380px] overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-black/5 duration-200 dark:bg-dark-800 dark:ring-white/10"
+        class="animate-in fade-in slide-in-from-top-2 fixed z-[100000020] w-max max-w-[calc(100vw-16px)] overflow-hidden rounded-xl bg-white shadow-lg ring-1 ring-black/5 duration-200 sm:min-w-[380px] dark:bg-dark-800 dark:ring-white/10"
         style="pointer-events: auto !important;"
         :style="{
           top: dropdownPosition.top !== undefined ? dropdownPosition.top + 'px' : undefined,
@@ -1045,7 +1097,8 @@
             :class="[
               'flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-sm transition-colors',
               'border-b border-gray-100 last:border-0 dark:border-dark-700',
-              isGroupOptionSelected(selectedKeyForGroup, option)
+              selectedKeyForGroup?.group_id === option.value ||
+              (!selectedKeyForGroup?.group_id && option.value === null)
                 ? 'bg-primary-50 dark:bg-primary-900/20'
                 : 'hover:bg-gray-100 dark:hover:bg-dark-700'
             ]"
@@ -1053,12 +1106,19 @@
           >
             <GroupOptionItem
               :name="option.label"
-              :platform="option.platform!"
+              :platform="option.platform"
               :subscription-type="option.subscriptionType"
               :rate-multiplier="option.rate"
               :user-rate-multiplier="option.userRate"
+              :peak-rate-enabled="option.peakRateEnabled"
+              :peak-start="option.peakStart"
+              :peak-end="option.peakEnd"
+              :peak-rate-multiplier="option.peakRateMultiplier"
               :description="option.description"
-              :selected="isGroupOptionSelected(selectedKeyForGroup, option)"
+              :selected="
+                selectedKeyForGroup?.group_id === option.value ||
+                (!selectedKeyForGroup?.group_id && option.value === null)
+              "
             />
           </button>
           <!-- Empty state when search has no results -->
@@ -1072,7 +1132,7 @@
 </template>
 
 <script setup lang="ts">
-	import { ref, computed, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
+	import { ref, reactive, computed, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
 	import { useI18n } from 'vue-i18n'
 	import { useAppStore } from '@/stores/app'
 	import { useOnboardingStore } from '@/stores/onboarding'
@@ -1088,14 +1148,15 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import BaseDialog from '@/components/common/BaseDialog.vue'
 	import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 	import EmptyState from '@/components/common/EmptyState.vue'
-	import Select, { type SelectOption } from '@/components/common/Select.vue'
+	import Select from '@/components/common/Select.vue'
 	import SearchInput from '@/components/common/SearchInput.vue'
 	import Icon from '@/components/icons/Icon.vue'
 	import UseKeyModal from '@/components/keys/UseKeyModal.vue'
+	import ApiKeyDailyUsageDialog from '@/components/keys/ApiKeyDailyUsageDialog.vue'
 	import EndpointPopover from '@/components/keys/EndpointPopover.vue'
 	import GroupBadge from '@/components/common/GroupBadge.vue'
 	import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
-	import type { ApiKey, Group, PublicSettings, SubscriptionType, GroupPlatform } from '@/types'
+	import type { ApiKey, Group, PublicSettings, SubscriptionType, GroupPlatform, UpdateApiKeyRequest } from '@/types'
 import type { Column } from '@/components/common/types'
 import type { BatchApiKeyUsageStats } from '@/api/usage'
 import { formatDateTime } from '@/utils/format'
@@ -1112,32 +1173,117 @@ const formatDateTimeLocal = (isoDate: string): string => {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
-interface GroupOption extends SelectOption {
+interface GroupOption {
   value: number
   label: string
   description: string | null
-  rate?: number
+  rate: number
   userRate: number | null
+  peakRateEnabled: boolean
+  peakStart: string
+  peakEnd: string
+  peakRateMultiplier: number
   subscriptionType: SubscriptionType
-  platform?: GroupPlatform
+  platform: GroupPlatform
 }
 
 const appStore = useAppStore()
 const onboardingStore = useOnboardingStore()
 const { copyToClipboard: clipboardCopy } = useClipboard()
 
-const columns = computed<Column[]>(() => [
+const allColumns = computed<Column[]>(() => [
   { key: 'name', label: t('common.name'), sortable: true },
+  { key: 'id', label: t('keys.id'), sortable: true },
   { key: 'key', label: t('keys.apiKey'), sortable: false },
   { key: 'group', label: t('keys.group'), sortable: false },
+  { key: 'current_concurrency', label: t('keys.currentConcurrency'), sortable: true },
   { key: 'usage', label: t('keys.usage'), sortable: false },
   { key: 'rate_limit', label: t('keys.rateLimitColumn'), sortable: false },
   { key: 'expires_at', label: t('keys.expiresAt'), sortable: true },
   { key: 'status', label: t('common.status'), sortable: true },
   { key: 'last_used_at', label: t('keys.lastUsedAt'), sortable: true },
+  { key: 'last_used_ip', label: t('keys.lastUsedIP'), sortable: false },
   { key: 'created_at', label: t('keys.created'), sortable: true },
   { key: 'actions', label: t('common.actions'), sortable: false }
 ])
+
+const ALWAYS_VISIBLE_COLUMNS = new Set(['name', 'actions'])
+const DEFAULT_HIDDEN_COLUMNS = ['id', 'rate_limit', 'last_used_at', 'last_used_ip']
+const HIDDEN_COLUMNS_KEY = 'api-key-hidden-columns'
+const COLUMN_SETTINGS_VERSION_KEY = 'api-key-column-settings-version'
+const COLUMN_SETTINGS_VERSION = 3
+const VERSION_NEW_HIDDEN_COLUMNS: Record<number, string[]> = {
+  2: ['last_used_ip'],
+  3: ['id']
+}
+
+const toggleableColumns = computed(() =>
+  allColumns.value.filter((col) => !ALWAYS_VISIBLE_COLUMNS.has(col.key))
+)
+
+const hiddenColumns = reactive<Set<string>>(new Set())
+
+const saveColumnsToStorage = () => {
+  try {
+    localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
+    localStorage.setItem(COLUMN_SETTINGS_VERSION_KEY, String(COLUMN_SETTINGS_VERSION))
+  } catch (error) {
+    console.error('Failed to save API key table columns:', error)
+  }
+}
+
+const loadSavedColumns = () => {
+  hiddenColumns.clear()
+  try {
+    const saved = localStorage.getItem(HIDDEN_COLUMNS_KEY)
+    if (saved) {
+      const parsed = JSON.parse(saved) as string[]
+      const validColumnKeys = new Set(allColumns.value.map((col) => col.key))
+      parsed
+        .filter((key) =>
+          typeof key === 'string' &&
+          validColumnKeys.has(key) &&
+          !ALWAYS_VISIBLE_COLUMNS.has(key)
+        )
+        .forEach((key) => hiddenColumns.add(key))
+      const storedVersion = Number(localStorage.getItem(COLUMN_SETTINGS_VERSION_KEY) ?? '1')
+      if (storedVersion < COLUMN_SETTINGS_VERSION) {
+        for (let v = storedVersion + 1; v <= COLUMN_SETTINGS_VERSION; v++) {
+          for (const key of VERSION_NEW_HIDDEN_COLUMNS[v] ?? []) {
+            if (validColumnKeys.has(key) && !ALWAYS_VISIBLE_COLUMNS.has(key)) {
+              hiddenColumns.add(key)
+            }
+          }
+        }
+        saveColumnsToStorage()
+      } else {
+        localStorage.setItem(COLUMN_SETTINGS_VERSION_KEY, String(COLUMN_SETTINGS_VERSION))
+      }
+    } else {
+      DEFAULT_HIDDEN_COLUMNS.forEach((key) => hiddenColumns.add(key))
+      localStorage.setItem(COLUMN_SETTINGS_VERSION_KEY, String(COLUMN_SETTINGS_VERSION))
+    }
+  } catch (error) {
+    console.error('Failed to load API key table columns:', error)
+    DEFAULT_HIDDEN_COLUMNS.forEach((key) => hiddenColumns.add(key))
+  }
+}
+
+const toggleColumn = (key: string) => {
+  if (ALWAYS_VISIBLE_COLUMNS.has(key)) return
+  if (hiddenColumns.has(key)) {
+    hiddenColumns.delete(key)
+  } else {
+    hiddenColumns.add(key)
+  }
+  saveColumnsToStorage()
+}
+
+const isColumnVisible = (key: string) => !hiddenColumns.has(key)
+
+const columns = computed<Column[]>(() =>
+  allColumns.value.filter((col) => ALWAYS_VISIBLE_COLUMNS.has(col.key) || !hiddenColumns.has(col.key))
+)
 
 const apiKeys = ref<ApiKey[]>([])
 const groups = ref<Group[]>([])
@@ -1170,13 +1316,16 @@ const showDeleteDialog = ref(false)
 const showResetQuotaDialog = ref(false)
 const showResetRateLimitDialog = ref(false)
 const showUseKeyModal = ref(false)
+const showDailyUsageModal = ref(false)
 const showCcsClientSelect = ref(false)
+const showColumnDropdown = ref(false)
 const pendingCcsRow = ref<ApiKey | null>(null)
 const selectedKey = ref<ApiKey | null>(null)
 const copiedKeyId = ref<number | null>(null)
 const groupSelectorKeyId = ref<number | null>(null)
 const publicSettings = ref<PublicSettings | null>(null)
 const dropdownRef = ref<HTMLElement | null>(null)
+const columnDropdownRef = ref<HTMLElement | null>(null)
 const dropdownPosition = ref<{ top?: number; bottom?: number; left: number } | null>(null)
 const groupButtonRefs = ref<Map<number, HTMLElement>>(new Map())
 let abortController: AbortController | null = null
@@ -1198,7 +1347,6 @@ const setGroupButtonRef = (keyId: number, el: Element | ComponentPublicInstance 
 const formData = ref({
   name: '',
   group_id: null as number | null,
-  personal_account_scope: false,
   status: 'active' as 'active' | 'inactive',
   use_custom_key: false,
   custom_key: '',
@@ -1239,6 +1387,13 @@ const statusOptions = computed(() => [
   { value: 'inactive', label: t('common.inactive') }
 ])
 
+const shouldSubmitEditStatus = (key: ApiKey, status: 'active' | 'inactive') => {
+  if (key.status === 'quota_exhausted' || key.status === 'expired') {
+    return status === 'active'
+  }
+  return true
+}
+
 // Filter dropdown options
 const groupFilterOptions = computed(() => [
   { value: '', label: t('keys.allGroups') },
@@ -1270,25 +1425,21 @@ const onStatusFilterChange = (value: string | number | boolean | null) => {
 }
 
 // Convert groups to Select options format with rate multiplier and subscription type
-const groupOptions = computed<GroupOption[]>(() => groups.value.map((group) => ({
+const groupOptions = computed(() =>
+  groups.value.map((group) => ({
     value: group.id,
     label: group.name,
     description: group.description,
     rate: group.rate_multiplier,
     userRate: userGroupRates.value[group.id] ?? null,
+    peakRateEnabled: group.peak_rate_enabled,
+    peakStart: group.peak_start,
+    peakEnd: group.peak_end,
+    peakRateMultiplier: group.peak_rate_multiplier,
     subscriptionType: group.subscription_type,
     platform: group.platform
-  })))
-
-const selectedGroupScope = computed<number | null>({
-  get() {
-    return formData.value.group_id
-  },
-  set(value) {
-    formData.value.personal_account_scope = false
-    formData.value.group_id = typeof value === 'number' ? value : null
-  }
-})
+  }))
+)
 
 // Group dropdown search
 const groupSearchQuery = ref('')
@@ -1309,6 +1460,11 @@ const copyToClipboard = async (text: string, keyId: number) => {
       copiedKeyId.value = null
     }, 800)
   }
+}
+
+const getMonthActualCost = (keyId: number): number => {
+  const stats = usageStats.value[keyId]
+  return stats?.month_actual_cost ?? stats?.total_actual_cost ?? 0
 }
 
 const isAbortError = (error: unknown) => {
@@ -1334,9 +1490,7 @@ const loadApiKeys = async () => {
     } = {}
     if (filterSearch.value) filters.search = filterSearch.value
     if (filterStatus.value) filters.status = filterStatus.value
-    if (filterGroupId.value !== '') {
-      filters.group_id = filterGroupId.value
-    }
+    if (filterGroupId.value !== '') filters.group_id = filterGroupId.value
     filters.sort_by = sortState.value.sort_by
     filters.sort_order = sortState.value.sort_order
 
@@ -1407,6 +1561,16 @@ const closeUseKeyModal = () => {
   selectedKey.value = null
 }
 
+const openDailyUsageModal = (key: ApiKey) => {
+  selectedKey.value = key
+  showDailyUsageModal.value = true
+}
+
+const closeDailyUsageModal = () => {
+  showDailyUsageModal.value = false
+  selectedKey.value = null
+}
+
 const handlePageChange = (page: number) => {
   pagination.value.page = page
   loadApiKeys()
@@ -1432,7 +1596,6 @@ const editKey = (key: ApiKey) => {
   formData.value = {
     name: key.name,
     group_id: key.group_id,
-    personal_account_scope: key.personal_account_scope,
     status: key.status === 'quota_exhausted' || key.status === 'expired' ? 'inactive' : key.status,
     use_custom_key: false,
     custom_key: '',
@@ -1474,20 +1637,23 @@ const openGroupSelector = (key: ApiKey) => {
     if (buttonEl) {
       const rect = buttonEl.getBoundingClientRect()
       const dropdownEstHeight = 400 // estimated max dropdown height
+      const dropdownEstWidth = Math.min(380, window.innerWidth - 16)
       const spaceBelow = window.innerHeight - rect.bottom
       const spaceAbove = rect.top
+      // 夹取 left，避免窄屏下浮层超出视口右缘
+      const left = Math.max(8, Math.min(rect.left, window.innerWidth - dropdownEstWidth - 8))
 
       if (spaceBelow < dropdownEstHeight && spaceAbove > spaceBelow) {
         // Not enough space below, pop upward
         dropdownPosition.value = {
           bottom: window.innerHeight - rect.top + 4,
-          left: rect.left
+          left
         }
       } else {
         // Default: pop downward
         dropdownPosition.value = {
           top: rect.bottom + 4,
-          left: rect.left
+          left
         }
       }
     }
@@ -1496,20 +1662,13 @@ const openGroupSelector = (key: ApiKey) => {
   }
 }
 
-const isGroupOptionSelected = (key: ApiKey | null, option: GroupOption) => {
-  if (!key) return false
-  return !key.personal_account_scope && key.group_id === option.value
-}
-
 const changeGroup = async (key: ApiKey, newGroupId: number | null) => {
   groupSelectorKeyId.value = null
   dropdownPosition.value = null
-  if (!key.personal_account_scope && key.group_id === newGroupId) {
-    return
-  }
+  if (key.group_id === newGroupId) return
 
   try {
-    await keysAPI.update(key.id, { group_id: newGroupId, personal_account_scope: false })
+    await keysAPI.update(key.id, { group_id: newGroupId })
     appStore.showSuccess(t('keys.groupChangedSuccess'))
     loadApiKeys()
   } catch (error) {
@@ -1523,6 +1682,9 @@ const closeGroupSelector = (event: MouseEvent) => {
   if (!target.closest('.group\\/dropdown') && !dropdownRef.value?.contains(target)) {
     groupSelectorKeyId.value = null
     dropdownPosition.value = null
+  }
+  if (columnDropdownRef.value && !columnDropdownRef.value.contains(target)) {
+    showColumnDropdown.value = false
   }
 }
 
@@ -1588,11 +1750,9 @@ const handleSubmit = async () => {
   submitting.value = true
   try {
     if (showEditModal.value && selectedKey.value) {
-      await keysAPI.update(selectedKey.value.id, {
+      const updates: UpdateApiKeyRequest = {
         name: formData.value.name,
         group_id: formData.value.group_id,
-        personal_account_scope: false,
-        status: formData.value.status,
         ip_whitelist: ipWhitelist,
         ip_blacklist: ipBlacklist,
         quota: quota,
@@ -1600,14 +1760,17 @@ const handleSubmit = async () => {
         rate_limit_5h: rateLimitData.rate_limit_5h,
         rate_limit_1d: rateLimitData.rate_limit_1d,
         rate_limit_7d: rateLimitData.rate_limit_7d,
-      })
+      }
+      if (shouldSubmitEditStatus(selectedKey.value, formData.value.status)) {
+        updates.status = formData.value.status
+      }
+      await keysAPI.update(selectedKey.value.id, updates)
       appStore.showSuccess(t('keys.keyUpdatedSuccess'))
     } else {
       const customKey = formData.value.use_custom_key ? formData.value.custom_key : undefined
       await keysAPI.create(
         formData.value.name,
         formData.value.group_id,
-        false,
         customKey,
         ipWhitelist,
         ipBlacklist,
@@ -1659,7 +1822,6 @@ const closeModals = () => {
   formData.value = {
     name: '',
     group_id: null,
-    personal_account_scope: false,
     status: 'active',
     use_custom_key: false,
     custom_key: '',
@@ -1765,7 +1927,7 @@ const executeCcsImport = (row: ApiKey, clientType: CcSwitchClientType) => {
     },
     extractor: function(response) {
       const remaining = response?.remaining ?? response?.quota?.remaining ?? response?.balance;
-      const unit = response?.unit ?? response?.quota?.unit ?? "USD";
+      const unit = response?.unit ?? response?.quota?.unit ?? "CNY";
       return {
         isValid: response?.is_active ?? response?.isValid ?? true,
         remaining,
@@ -1824,6 +1986,7 @@ function formatResetTime(resetAt: string | null): string {
 }
 
 onMounted(() => {
+  loadSavedColumns()
   loadApiKeys()
   loadGroups()
   loadUserGroupRates()

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -64,4 +65,28 @@ func TestBuildUsageLogBatchInsertQuery_UsesConflictDoNothing(t *testing.T) {
 
 	require.Contains(t, query, "ON CONFLICT (request_id, api_key_id) DO NOTHING")
 	require.NotContains(t, strings.ToUpper(query), "DO UPDATE")
+}
+
+func TestNormalizeAPIKeyUsageRangeDefaultsToCurrentCalendarMonth(t *testing.T) {
+	require.NoError(t, timezone.Init("Asia/Shanghai"))
+	t.Cleanup(func() {
+		require.NoError(t, timezone.Init("UTC"))
+	})
+
+	now := time.Date(2026, time.August, 3, 8, 30, 0, 0, timezone.Location())
+	startTime, endTime := normalizeAPIKeyUsageRange(time.Time{}, time.Time{}, now)
+
+	require.Equal(t, time.Date(2026, time.August, 1, 0, 0, 0, 0, timezone.Location()), startTime)
+	require.Equal(t, now, endTime)
+}
+
+func TestNormalizeAPIKeyUsageRangePreservesExplicitRange(t *testing.T) {
+	start := time.Date(2026, time.July, 1, 0, 0, 0, 0, time.UTC)
+	end := time.Date(2026, time.August, 1, 0, 0, 0, 0, time.UTC)
+	now := time.Date(2026, time.August, 3, 0, 0, 0, 0, time.UTC)
+
+	startTime, endTime := normalizeAPIKeyUsageRange(start, end, now)
+
+	require.Equal(t, start, startTime)
+	require.Equal(t, end, endTime)
 }

@@ -2,34 +2,14 @@
   <AppLayout>
     <TablePageLayout>
       <template #filters>
-        <div class="mb-3 flex items-center gap-2">
-          <div class="flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1">
-            <button
-              v-for="tab in filterTabs"
-              :key="tab.id"
-              type="button"
-              :class="[
-                'shrink-0 rounded-full border px-3 py-1.5 text-sm font-medium transition-colors',
-                selectedFilterTabId === tab.id
-                  ? 'border-primary-500 bg-primary-500 text-white'
-                  : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:text-gray-900 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:border-gray-500 dark:hover:text-white'
-              ]"
-              @click="selectFilterTab(tab.id)"
-            >
-              {{ tab.label }}
-            </button>
-          </div>
-          <button type="button" class="btn btn-secondary btn-sm shrink-0" @click="showFilterTabsEditor = true">
-            {{ t('admin.accounts.filterTabs.manage') }}
-          </button>
-        </div>
         <div class="flex flex-wrap-reverse items-start justify-between gap-3">
           <AccountTableFilters
             v-model:searchQuery="params.search"
             :filters="params"
-            @update:filters="handleAccountFiltersUpdated"
-            @change="handleAccountFiltersChanged"
-            @update:searchQuery="handleAccountSearchQueryUpdated"
+            :groups="groups"
+            @update:filters="(newFilters) => Object.assign(params, newFilters)"
+            @change="debouncedReload"
+            @update:searchQuery="debouncedReload"
           />
           <AccountTableActions
             :loading="loading"
@@ -37,31 +17,6 @@
             @create="showCreate = true"
           >
             <template #after>
-              <button
-                type="button"
-                class="btn btn-secondary px-2 md:px-3"
-                :disabled="loading || batchTestingAccounts || accounts.length === 0"
-                :title="t('admin.accounts.batchTestCurrentPageHint')"
-                @click="handleBatchTestCurrentPage"
-              >
-                <Icon
-                  name="beaker"
-                  size="sm"
-                  :class="[batchTestingAccounts ? 'animate-pulse' : '']"
-                  class="md:mr-1.5"
-                />
-                <span class="hidden md:inline">
-                  {{
-                    batchTestingAccounts
-                      ? t('admin.accounts.batchTestingProgress', {
-                          done: batchTestDone,
-                          total: batchTestTotal
-                        })
-                      : t('admin.accounts.batchTestAccounts')
-                  }}
-                </span>
-              </button>
-
               <!-- Auto Refresh Dropdown -->
               <div class="relative" ref="autoRefreshDropdownRef">
                 <button
@@ -83,22 +38,22 @@
                 </button>
                 <div
                   v-if="showAutoRefreshDropdown"
-                  class="absolute right-0 z-50 mt-2 w-56 origin-top-right rounded-lg border border-gray-200 bg-white shadow-lg dark:border-gray-700 dark:bg-gray-800"
+                  class="absolute right-0 z-50 mt-2 w-56 origin-top-right rounded-lg border border-gray-200 bg-white shadow-lg dark:border-dark-700 dark:bg-dark-800"
                 >
                   <div class="p-2">
                     <button
                       @click="setAutoRefreshEnabled(!autoRefreshEnabled)"
-                      class="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+                      class="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-dark-700"
                     >
                       <span>{{ t('admin.accounts.enableAutoRefresh') }}</span>
                       <Icon v-if="autoRefreshEnabled" name="check" size="sm" class="text-primary-500" />
                     </button>
-                    <div class="my-1 border-t border-gray-100 dark:border-gray-700"></div>
+                    <div class="my-1 border-t border-gray-100 dark:border-dark-700"></div>
                     <button
                       v-for="sec in autoRefreshIntervals"
                       :key="sec"
                       @click="setAutoRefreshInterval(sec)"
-                      class="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+                      class="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-dark-700"
                     >
                       <span>{{ autoRefreshIntervalLabel(sec) }}</span>
                       <Icon v-if="autoRefreshIntervalSeconds === sec" name="check" size="sm" class="text-primary-500" />
@@ -110,95 +65,98 @@
               <!-- More Tools Dropdown -->
               <div class="relative" ref="accountToolsDropdownRef">
                 <button
-                  @click="
-                    showAccountToolsDropdown = !showAccountToolsDropdown;
-                    showAutoRefreshDropdown = false
-                  "
+                  ref="accountToolsTriggerRef"
+                  @click="toggleAccountToolsDropdown"
                   class="btn btn-secondary px-2 md:px-3"
                   :title="t('admin.accounts.moreActions')"
+                  :aria-expanded="showAccountToolsDropdown"
                 >
                   <Icon name="more" size="sm" class="md:mr-1.5" />
                   <span class="hidden md:inline">{{ t('admin.accounts.moreActions') }}</span>
                   <Icon name="chevronDown" size="xs" class="ml-1 hidden md:inline" />
                 </button>
-                <div
-                  v-if="showAccountToolsDropdown"
-                  class="absolute right-0 z-50 mt-2 w-[min(20rem,calc(100vw-2rem))] origin-top-right overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-800"
-                >
-                  <div class="max-h-[70vh] overflow-y-auto p-2">
-                    <div class="px-2 py-2">
-                      <div class="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
-                        {{ t('admin.accounts.dataActions') }}
+                <Teleport to="body">
+                  <div
+                    v-if="showAccountToolsDropdown"
+                    class="fixed z-[9999] origin-top-right overflow-hidden rounded-lg border border-gray-200 bg-white shadow-xl dark:border-dark-700 dark:bg-dark-800"
+                    :style="accountToolsDropdownStyle"
+                    @click.stop
+                  >
+                    <div class="overflow-y-auto p-2" :style="{ maxHeight: `${accountToolsDropdownPosition.maxHeight}px` }">
+                      <div class="px-2 py-2">
+                        <div class="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                          {{ t('admin.accounts.dataActions') }}
+                        </div>
                       </div>
-                    </div>
-                    <button class="account-tools-menu-item" @click="openSyncFromCrs">
-                      <span class="account-tools-menu-icon bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300">
-                        <Icon name="sync" size="sm" />
-                      </span>
-                      <span class="flex-1 text-left">{{ t('admin.accounts.syncFromCrs') }}</span>
-                    </button>
-                    <button class="account-tools-menu-item" @click="openImportData">
-                      <span class="account-tools-menu-icon bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300">
-                        <Icon name="upload" size="sm" />
-                      </span>
-                      <span class="flex-1 text-left">{{ t('admin.accounts.dataImport') }}</span>
-                    </button>
-                    <button class="account-tools-menu-item" @click="openExportDataDialogFromMenu">
-                      <span class="account-tools-menu-icon bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-300">
-                        <Icon name="download" size="sm" />
-                      </span>
-                      <span class="flex-1 text-left">
-                        {{ selIds.length ? t('admin.accounts.dataExportSelected') : t('admin.accounts.dataExport') }}
-                      </span>
-                      <span
-                        v-if="selIds.length"
-                        class="rounded-full bg-primary-100 px-2 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/40 dark:text-primary-300"
-                      >
-                        {{ t('admin.accounts.selectedCount', { count: selIds.length }) }}
-                      </span>
-                    </button>
-
-                    <div class="my-2 border-t border-gray-100 dark:border-gray-700"></div>
-                    <div class="px-2 py-2">
-                      <div class="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
-                        {{ t('admin.accounts.toolActions') }}
-                      </div>
-                    </div>
-                    <button class="account-tools-menu-item" @click="openErrorPassthrough">
-                      <span class="account-tools-menu-icon bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300">
-                        <Icon name="shield" size="sm" />
-                      </span>
-                      <span class="flex-1 text-left">{{ t('admin.errorPassthrough.title') }}</span>
-                    </button>
-                    <button class="account-tools-menu-item" @click="openTLSFingerprintProfiles">
-                      <span class="account-tools-menu-icon bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200">
-                        <Icon name="lock" size="sm" />
-                      </span>
-                      <span class="flex-1 text-left">{{ t('admin.tlsFingerprintProfiles.title') }}</span>
-                    </button>
-
-                    <div class="my-2 border-t border-gray-100 dark:border-gray-700"></div>
-                    <div class="px-2 py-2">
-                      <div class="flex items-center justify-between gap-3">
-                        <span class="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
-                          {{ t('admin.accounts.viewColumns') }}
+                      <button class="account-tools-menu-item" @click="openSyncFromCrs">
+                        <span class="account-tools-menu-icon bg-blue-50 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300">
+                          <Icon name="sync" size="sm" />
                         </span>
-                        <Icon name="grid" size="sm" class="text-gray-400" />
-                      </div>
-                    </div>
-                    <div class="grid grid-cols-1 gap-1">
-                      <button
-                        v-for="col in toggleableColumns"
-                        :key="col.key"
-                        @click="toggleColumn(col.key)"
-                        class="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
-                      >
-                        <span class="truncate">{{ col.label }}</span>
-                        <Icon v-if="isColumnVisible(col.key)" name="check" size="sm" class="text-primary-500" />
+                        <span class="flex-1 text-left">{{ t('admin.accounts.syncFromCrs') }}</span>
                       </button>
+                      <button class="account-tools-menu-item" @click="openImportData">
+                        <span class="account-tools-menu-icon bg-emerald-50 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-300">
+                          <Icon name="upload" size="sm" />
+                        </span>
+                        <span class="flex-1 text-left">{{ t('admin.accounts.dataImport') }}</span>
+                      </button>
+                      <button class="account-tools-menu-item" @click="openExportDataDialogFromMenu">
+                        <span class="account-tools-menu-icon bg-violet-50 text-violet-600 dark:bg-violet-900/30 dark:text-violet-300">
+                          <Icon name="download" size="sm" />
+                        </span>
+                        <span class="flex-1 text-left">
+                          {{ selIds.length ? t('admin.accounts.dataExportSelected') : t('admin.accounts.dataExport') }}
+                        </span>
+                        <span
+                          v-if="selIds.length"
+                          class="rounded-full bg-primary-100 px-2 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/40 dark:text-primary-300"
+                        >
+                          {{ t('admin.accounts.selectedCount', { count: selIds.length }) }}
+                        </span>
+                      </button>
+
+                      <div class="my-2 border-t border-gray-100 dark:border-dark-700"></div>
+                      <div class="px-2 py-2">
+                        <div class="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                          {{ t('admin.accounts.toolActions') }}
+                        </div>
+                      </div>
+                      <button class="account-tools-menu-item" @click="openErrorPassthrough">
+                        <span class="account-tools-menu-icon bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-300">
+                          <Icon name="shield" size="sm" />
+                        </span>
+                        <span class="flex-1 text-left">{{ t('admin.errorPassthrough.title') }}</span>
+                      </button>
+                      <button class="account-tools-menu-item" @click="openTLSFingerprintProfiles">
+                        <span class="account-tools-menu-icon bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-200">
+                          <Icon name="lock" size="sm" />
+                        </span>
+                        <span class="flex-1 text-left">{{ t('admin.tlsFingerprintProfiles.title') }}</span>
+                      </button>
+
+                      <div class="my-2 border-t border-gray-100 dark:border-dark-700"></div>
+                      <div class="px-2 py-2">
+                        <div class="flex items-center justify-between gap-3">
+                          <span class="text-xs font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+                            {{ t('admin.accounts.viewColumns') }}
+                          </span>
+                          <Icon name="grid" size="sm" class="text-gray-400" />
+                        </div>
+                      </div>
+                      <div class="grid grid-cols-1 gap-1">
+                        <button
+                          v-for="col in toggleableColumns"
+                          :key="col.key"
+                          @click="toggleColumn(col.key)"
+                          class="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-dark-700"
+                        >
+                          <span class="truncate">{{ col.label }}</span>
+                          <Icon v-if="isColumnVisible(col.key)" name="check" size="sm" class="text-primary-500" />
+                        </button>
+                      </div>
                     </div>
                   </div>
-                </div>
+                </Teleport>
               </div>
             </template>
           </AccountTableActions>
@@ -222,6 +180,7 @@
           @delete="handleBulkDelete"
           @reset-status="handleBulkResetStatus"
           @refresh-token="handleBulkRefreshToken"
+          @probe-upstream-billing="handleBulkProbeUpstreamBilling"
           @edit-selected="openBulkEditSelected"
           @edit-filtered="openBulkEditFiltered"
           @clear="clearSelection"
@@ -240,8 +199,9 @@
           default-sort-key="name"
           default-sort-order="asc"
           :sort-storage-key="ACCOUNT_SORT_STORAGE_KEY"
-          :estimate-row-height="72"
+          :estimate-row-height="156"
           :overscan="5"
+          :virtualize-threshold="50"
         >
           <template #header-select>
             <input
@@ -255,40 +215,36 @@
           <template #cell-select="{ row }">
             <input type="checkbox" :checked="isSelected(row.id)" @change="toggleSel(row.id)" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
           </template>
+          <template #cell-id="{ value }">
+            <span class="font-mono text-xs text-gray-500 dark:text-gray-400">#{{ value }}</span>
+          </template>
           <template #cell-name="{ row, value }">
             <div class="flex flex-col">
-              <div class="flex min-w-0 items-center gap-2">
-                <span class="truncate font-medium text-gray-900 dark:text-white">{{ value }}</span>
-                <span
-                  v-if="getUpstreamSiteType(row)"
-                  class="shrink-0 rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
-                  :title="t('admin.accounts.openai.upstreamRate.siteMode')"
-                >
-                  {{ getUpstreamSiteTypeLabel(row) }}
-                </span>
-              </div>
-              <span
-                v-if="row.extra?.email_address || row.extra?.email || row.credentials?.email"
-                class="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]"
-                :title="String(row.extra?.email_address || row.extra?.email || row.credentials?.email)"
+              <HelpTooltip
+                v-if="accountHomepageUrl(row)"
+                :content="accountHomepageUrl(row)"
+                width-class="w-max max-w-sm break-all"
+                class="-ml-1 self-start"
               >
-                {{ row.extra?.email_address || row.extra?.email || row.credentials?.email }}
+                <template #trigger>
+                  <a
+                    :href="accountHomepageUrl(row)"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="border-b border-dotted border-gray-300 font-medium text-gray-900 dark:border-dark-600 dark:text-white"
+                  >
+                    {{ value }}
+                  </a>
+                </template>
+              </HelpTooltip>
+              <span v-else class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
+              <span
+                v-if="accountDisplayEmail(row)"
+                class="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[200px]"
+                :title="accountDisplayEmail(row) + (row.parent_chatgpt_account_id ? ' · ' + row.parent_chatgpt_account_id : '')"
+              >
+                {{ accountDisplayEmail(row) }}
               </span>
-              <div v-if="getAccountUIDisplayGroups(row).length > 0" class="mt-1 flex flex-wrap gap-1">
-                <span
-                  v-for="group in getAccountUIDisplayGroups(row).slice(0, 4)"
-                  :key="group"
-                  class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600 dark:bg-slate-800 dark:text-slate-200"
-                >
-                  {{ group }}
-                </span>
-                <span
-                  v-if="getAccountUIDisplayGroups(row).length > 4"
-                  class="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-500 dark:bg-slate-800 dark:text-slate-300"
-                >
-                  +{{ getAccountUIDisplayGroups(row).length - 4 }}
-                </span>
-              </div>
             </div>
           </template>
           <template #cell-notes="{ value }">
@@ -298,25 +254,16 @@
           <template #cell-platform_type="{ row }">
             <div class="flex min-w-0 flex-col gap-1">
               <div class="flex flex-wrap items-center gap-1">
-                <PlatformTypeBadge
-                  :platform="row.platform"
-                  :type="row.type"
-                  :plan-type="row.credentials?.plan_type"
-                  :overages-enabled="isKiroOveragesEnabled(row)"
-                  :privacy-mode="row.extra?.privacy_mode"
-                  :subscription-expires-at="row.credentials?.subscription_expires_at"
-                />
+                <PlatformTypeBadge :platform="row.platform" :type="row.type"
+                  :auth-mode="getOpenAIAuthMode(row)"
+                  :plan-type="getAccountPlanType(row)"
+                  :privacy-mode="row.extra?.privacy_mode || row.parent_privacy_mode"
+                  :subscription-expires-at="row.credentials?.subscription_expires_at || row.parent_subscription_expires_at" />
                 <span
                   v-if="getAntigravityTierLabel(row)"
                   :class="['inline-block rounded px-1.5 py-0.5 text-[10px] font-medium', getAntigravityTierClass(row)]"
                 >
                   {{ getAntigravityTierLabel(row) }}
-                </span>
-                <span
-                  v-if="getUpstreamSiteType(row)"
-                  class="inline-block rounded bg-blue-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
-                >
-                  {{ getUpstreamSiteTypeLabel(row) }}
                 </span>
               </div>
               <div
@@ -367,19 +314,7 @@
               :today-stats="todayStatsByAccountId[String(row.id)] ?? null"
               :today-stats-loading="todayStatsLoading"
               :manual-refresh-token="usageManualRefreshToken"
-              @kiro-usage-meta="handleKiroUsageMeta(row, $event)"
             />
-          </template>
-          <template #cell-upstream_balance="{ row }">
-            <div class="flex flex-col gap-0.5">
-              <span
-                v-if="getUpstreamAccountBalance(row) != null"
-                class="text-sm font-semibold font-mono text-emerald-700 dark:text-emerald-300"
-              >
-                {{ formatBalance(getUpstreamAccountBalance(row) ?? 0) }}
-              </span>
-              <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
-            </div>
           </template>
           <template #cell-proxy="{ row }">
             <div class="flex flex-col gap-1">
@@ -398,39 +333,57 @@
                 <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200" :title="t('admin.accounts.fallbackActiveTip', { origin: row.proxy_fallback_origin_name })">
                   {{ t('admin.accounts.fallbackActive') }}
                 </span>
-                <button class="text-xs px-1.5 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700" @click="onRevertFallback(row)">{{ t('admin.accounts.revertProxy') }}</button>
+                <button class="text-xs px-1.5 py-0.5 rounded border border-gray-300 dark:border-dark-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-dark-700" @click="onRevertFallback(row)">{{ t('admin.accounts.revertProxy') }}</button>
               </div>
             </div>
           </template>
           <template #cell-rate_multiplier="{ row }">
-            <div class="flex flex-col gap-0.5">
-              <span
-                v-if="getUpstreamKeyRate(row) != null"
-                class="text-sm font-semibold font-mono text-blue-700 dark:text-blue-300"
-              >
-                {{ t('admin.accounts.openai.upstreamRate.keyRate') }} {{ formatRate(getUpstreamKeyRate(row) ?? 1) }}
-              </span>
-              <span class="text-xs font-mono text-gray-600 dark:text-gray-300">
-                {{ t('admin.accounts.openai.upstreamRate.accountRate') }} {{ formatRate(row.rate_multiplier ?? 1) }}
-              </span>
-              <span
-                v-if="getUpstreamRateError(row)"
-                class="max-w-[180px] truncate text-[11px] text-amber-600 dark:text-amber-300"
-                :title="getUpstreamRateError(row) || ''"
-              >
-                {{ t('admin.accounts.openai.upstreamRate.resolveFailed') }}
-              </span>
-              <span
-                v-if="getUpstreamKeyGroupName(row)"
-                class="max-w-[140px] truncate text-[11px] text-gray-400 dark:text-dark-400"
-                :title="getUpstreamKeyGroupName(row) || ''"
-              >
-                {{ t('admin.accounts.openai.upstreamRate.keyGroup') }} {{ getUpstreamKeyGroupName(row) }}
+            <span class="text-sm font-mono text-gray-700 dark:text-gray-300">
+              {{ (row.rate_multiplier ?? 1).toFixed(2) }}x
+            </span>
+          </template>
+          <template #header-upstream_billing_rate="{ column }">
+            <div class="flex items-center gap-1">
+              <span>{{ column.label }}</span>
+              <span @click.stop>
+                <HelpTooltip :content="t('admin.accounts.upstreamBilling.trustWarning')" width-class="w-80" />
               </span>
             </div>
           </template>
+          <template #cell-upstream_billing_rate="{ row }">
+            <UpstreamBillingRateCell
+              :account="row"
+              :global-probe-enabled="upstreamBillingProbeGloballyEnabled"
+              :now="upstreamBillingNow"
+              :probing="probingUpstreamBilling.has(row.id)"
+              @probe="handleProbeUpstreamBilling(row)"
+            />
+          </template>
           <template #cell-priority="{ value }">
             <span class="text-sm text-gray-700 dark:text-gray-300">{{ value }}</span>
+          </template>
+          <template #header-scheduler_score="{ column }">
+            <div class="flex items-center">
+              <span>{{ column.label }}</span>
+              <HelpTooltip :content="t('admin.accounts.schedulerScore.hint')" width-class="w-80" />
+            </div>
+          </template>
+          <template #cell-scheduler_score="{ row }">
+            <div v-if="getSchedulerScoreRows(row).length" class="flex min-w-[7rem] flex-col gap-0.5 font-mono text-[11px] leading-4">
+              <div
+                v-for="score in getSchedulerScoreRows(row)"
+                :key="String(score.group_id)"
+                class="flex items-center gap-1 whitespace-nowrap text-gray-700 dark:text-gray-300"
+                :title="`${formatSchedulerScoreGroup(score)} / ${formatSchedulerScore(score.base_score)} / ${formatStickySchedulerScore(score)}`"
+              >
+                <span class="max-w-[4.75rem] truncate text-gray-500 dark:text-dark-400">{{ formatSchedulerScoreGroup(score) }}</span>
+                <span class="text-gray-300 dark:text-gray-600">/</span>
+                <span>{{ formatSchedulerScore(score.base_score) }}</span>
+                <span class="text-gray-300 dark:text-gray-600">/</span>
+                <span class="text-primary-700 dark:text-primary-300">{{ formatStickySchedulerScore(score) }}</span>
+              </div>
+            </div>
+            <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
           </template>
           <template #cell-last_used_at="{ value }">
             <span class="text-sm text-gray-500 dark:text-dark-400">{{ formatRelativeTime(value) }}</span>
@@ -481,10 +434,10 @@
     <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
-    <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" @updated="handleAccountUpdated" />
+    <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @copy="handleCopy" @schedule="handleSchedule" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :position="menu.pos" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <BulkEditAccountModal
@@ -500,6 +453,7 @@
     />
     <TempUnschedStatusModal :show="showTempUnsched" :account="tempUnschedAcc" @close="showTempUnsched = false" @reset="handleTempUnschedReset" />
     <ConfirmDialog :show="showDeleteDialog" :title="t('admin.accounts.deleteAccount')" :message="t('admin.accounts.deleteConfirm', { name: deletingAcc?.name })" :confirm-text="t('common.delete')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmDelete" @cancel="showDeleteDialog = false" />
+    <ConfirmDialog :show="showCreateShadowDialog" :title="t('admin.accounts.createSparkShadow')" :message="t('admin.accounts.createSparkShadowConfirm', { name: creatingShadowAcc?.name })" @confirm="confirmCreateSparkShadow" @cancel="showCreateShadowDialog = false" />
     <ConfirmDialog :show="showExportDataDialog" :title="t('admin.accounts.dataExport')" :message="t('admin.accounts.dataExportConfirmMessage')" :confirm-text="t('admin.accounts.dataExportConfirm')" :cancel-text="t('common.cancel')" @confirm="handleExportData" @cancel="showExportDataDialog = false">
       <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
         <input type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" v-model="includeProxyOnExport" />
@@ -508,30 +462,22 @@
     </ConfirmDialog>
     <ErrorPassthroughRulesModal :show="showErrorPassthrough" @close="showErrorPassthrough = false" />
     <TLSFingerprintProfilesModal :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
-    <AccountFilterTabsEditorModal
-      :show="showFilterTabsEditor"
-      :tabs="customFilterTabs"
-      :default-tab-id="defaultFilterTabId"
-      :builtin-tabs="builtinFilterTabOptions"
-      :groups="groups"
-      @close="showFilterTabsEditor = false"
-      @save="handleSaveFilterTabs"
-    />
+    <TotpStepUpDialog :controller="accountExportStepUp" />
   </AppLayout>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, toRaw, watch } from 'vue'
-import { useDebounceFn, useIntervalFn } from '@vueuse/core'
+import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
-import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
 import { useTableLoader } from '@/composables/useTableLoader'
-import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useSwipeSelect, type SwipeSelectVirtualContext } from '@/composables/useSwipeSelect'
 import { useTableSelection } from '@/composables/useTableSelection'
+import { useStepUp, isStepUpBlocked, isStepUpCancelled, stepUpBlockReason } from '@/composables/useStepUp'
+import TotpStepUpDialog from '@/components/auth/TotpStepUpDialog.vue'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import DataTable from '@/components/common/DataTable.vue'
@@ -541,7 +487,6 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrsModal, TempUnschedStatusModal } from '@/components/account'
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
-import AccountFilterTabsEditorModal from '@/components/admin/account/AccountFilterTabsEditorModal.vue'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
@@ -555,204 +500,27 @@ import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
 import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vue'
 import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
+import UpstreamBillingRateCell from '@/components/account/UpstreamBillingRateCell.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ErrorPassthroughRulesModal from '@/components/admin/ErrorPassthroughRulesModal.vue'
 import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfilesModal.vue'
 import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
-import { getUIDisplayGroups } from '@/utils/accountFormBulk'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
 import { proxyExpiryBadgeClass, proxyExpiryLabelKey } from '@/utils/proxyExpiry'
-import type { Account, AccountPlatform, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel } from '@/types'
+import { extractApiErrorMessage } from '@/utils/apiError'
+import { sanitizeUrl } from '@/utils/url'
+import { getFloatingPanelPosition } from '@/utils/floatingPanel'
+import type { Account, AccountPlatform, AccountSchedulerGroupScore, AccountType, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
-const route = useRoute()
-const router = useRouter()
 
 const proxies = ref<AccountProxy[]>([])
 const groups = ref<AdminGroup[]>([])
 const accountTableRef = ref<HTMLElement | null>(null)
 const dataTableRef = ref<InstanceType<typeof DataTable> | null>(null)
-
-interface AccountFilterTabConfig {
-  id: string
-  label: string
-  group?: string
-  display_group?: string
-  search?: string
-  name_prefix?: string
-  search_regex?: string
-}
-
-interface AccountFilterTab extends AccountFilterTabConfig {
-  builtin?: boolean
-}
-
-const ACCOUNT_FILTER_TABS_STORAGE_KEY = 'account-filter-tabs-v1'
-const ACCOUNT_DEFAULT_FILTER_TAB_STORAGE_KEY = 'account-default-filter-tab-v1'
-const ACCOUNT_BUILTIN_ALL_TAB_ID = 'all'
-const ACCOUNT_BUILTIN_UNGROUPED_TAB_ID = 'ungrouped'
-const ACCOUNT_BUILTIN_GROUP_TAB_PREFIX = 'group:'
-const ACCOUNT_QUERY_KEYS = {
-  platform: 'platform',
-  type: 'type',
-  status: 'status',
-  schedulable: 'schedulable',
-  privacyMode: 'privacy_mode',
-  group: 'group',
-  displayGroup: 'display_group',
-  search: 'search',
-  namePrefix: 'name_prefix',
-  searchRegex: 'search_regex',
-  sortBy: 'sort_by',
-  sortOrder: 'sort_order',
-  page: 'page',
-  pageSize: 'page_size'
-} as const
-const EMPTY_ACCOUNT_TAB_FILTERS = {
-  group: '',
-  display_group: '',
-  search: '',
-  name_prefix: '',
-  search_regex: ''
-}
-
-const createAccountFilterTabId = () => `custom-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-
-const readAccountQueryString = (key: string): string => {
-  const value = route.query[key]
-  if (typeof value === 'string') return value
-  if (Array.isArray(value) && typeof value[0] === 'string') return value[0]
-  return ''
-}
-
-const readAccountQueryNumber = (key: string): number | null => {
-  const raw = readAccountQueryString(key)
-  if (!raw) return null
-  const parsed = Number.parseInt(raw, 10)
-  return Number.isFinite(parsed) ? parsed : null
-}
-
-const hasAccountRouteQueryState = () => Object.values(ACCOUNT_QUERY_KEYS).some((key) => {
-  const value = route.query[key]
-  if (typeof value === 'string') return value !== ''
-  if (Array.isArray(value)) return value.some(item => typeof item === 'string' && item !== '')
-  return value != null
-})
-
-const normalizeAccountFilterTabs = (raw: unknown): AccountFilterTabConfig[] => {
-  if (!Array.isArray(raw)) return []
-  return raw.flatMap((item) => {
-    if (!item || typeof item !== 'object') return []
-    const candidate = item as Record<string, unknown>
-    const label = typeof candidate.label === 'string' ? candidate.label.trim() : ''
-    const id = typeof candidate.id === 'string' && candidate.id.trim()
-      ? candidate.id.trim()
-      : createAccountFilterTabId()
-    return [{
-      id,
-      label,
-      group: typeof candidate.group === 'string' ? candidate.group.trim() : '',
-      display_group: typeof candidate.display_group === 'string' ? candidate.display_group.trim() : '',
-      search: typeof candidate.search === 'string' ? candidate.search.trim() : '',
-      name_prefix: typeof candidate.name_prefix === 'string' ? candidate.name_prefix.trim() : '',
-      search_regex: typeof candidate.search_regex === 'string' ? candidate.search_regex.trim() : ''
-    }]
-  })
-}
-
-const loadStoredAccountFilterTabs = (): AccountFilterTabConfig[] => {
-  try {
-    const raw = localStorage.getItem(ACCOUNT_FILTER_TABS_STORAGE_KEY)
-    return raw ? normalizeAccountFilterTabs(JSON.parse(raw)) : []
-  } catch {
-    return []
-  }
-}
-
-const loadStoredDefaultAccountFilterTabId = (): string => {
-  try {
-    return localStorage.getItem(ACCOUNT_DEFAULT_FILTER_TAB_STORAGE_KEY) || ACCOUNT_BUILTIN_ALL_TAB_ID
-  } catch {
-    return ACCOUNT_BUILTIN_ALL_TAB_ID
-  }
-}
-
-const resolveFilterValuesFromTabId = (tabId: string, customTabs: AccountFilterTabConfig[]) => {
-  if (!tabId || tabId === ACCOUNT_BUILTIN_ALL_TAB_ID) {
-    return { group: '', display_group: '', search: '', name_prefix: '', search_regex: '' }
-  }
-  if (tabId === ACCOUNT_BUILTIN_UNGROUPED_TAB_ID) {
-    return { group: ACCOUNT_BUILTIN_UNGROUPED_TAB_ID, display_group: '', search: '', name_prefix: '', search_regex: '' }
-  }
-  if (tabId.startsWith(ACCOUNT_BUILTIN_GROUP_TAB_PREFIX)) {
-    return {
-      group: tabId.slice(ACCOUNT_BUILTIN_GROUP_TAB_PREFIX.length),
-      display_group: '',
-      search: '',
-      name_prefix: '',
-      search_regex: ''
-    }
-  }
-  const tab = customTabs.find(item => item.id === tabId)
-  const namePrefix = tab?.name_prefix || ''
-  return {
-    group: tab?.group || '',
-    display_group: tab?.display_group || '',
-    search: tab?.search || namePrefix,
-    name_prefix: namePrefix,
-    search_regex: tab?.search_regex || ''
-  }
-}
-
-const customFilterTabs = ref<AccountFilterTabConfig[]>(loadStoredAccountFilterTabs())
-const defaultFilterTabId = ref(loadStoredDefaultAccountFilterTabId())
-const selectedFilterTabId = ref(defaultFilterTabId.value || ACCOUNT_BUILTIN_ALL_TAB_ID)
-const initialTabFilters = resolveFilterValuesFromTabId(selectedFilterTabId.value, customFilterTabs.value)
-const showFilterTabsEditor = ref(false)
-
-const persistCustomFilterTabs = () => {
-  localStorage.setItem(ACCOUNT_FILTER_TABS_STORAGE_KEY, JSON.stringify(customFilterTabs.value))
-}
-
-const persistDefaultFilterTabId = () => {
-  localStorage.setItem(ACCOUNT_DEFAULT_FILTER_TAB_STORAGE_KEY, defaultFilterTabId.value || ACCOUNT_BUILTIN_ALL_TAB_ID)
-}
-
-const resolveAccountFilterTabId = (filters: {
-  group?: string
-  display_group?: string
-  search?: string
-  name_prefix?: string
-  search_regex?: string
-}) => {
-  const normalized = {
-    group: filters.group || '',
-    display_group: filters.display_group || '',
-    search: filters.search || '',
-    name_prefix: filters.name_prefix || '',
-    search_regex: filters.search_regex || ''
-  }
-  const hasOnlyGroup = normalized.group && !normalized.display_group && !normalized.search && !normalized.name_prefix && !normalized.search_regex
-  if (!normalized.group && !normalized.display_group && !normalized.search && !normalized.name_prefix && !normalized.search_regex) {
-    return ACCOUNT_BUILTIN_ALL_TAB_ID
-  }
-  if (hasOnlyGroup && normalized.group === ACCOUNT_BUILTIN_UNGROUPED_TAB_ID) {
-    return ACCOUNT_BUILTIN_UNGROUPED_TAB_ID
-  }
-  const matchedCustomTab = customFilterTabs.value.find(tab =>
-    (tab.group || '') === normalized.group &&
-    (tab.display_group || '') === normalized.display_group &&
-    (tab.search || '') === normalized.search &&
-    (tab.name_prefix || '') === normalized.name_prefix &&
-    (tab.search_regex || '') === normalized.search_regex
-  )
-  if (matchedCustomTab) return matchedCustomTab.id
-  if (hasOnlyGroup) return `${ACCOUNT_BUILTIN_GROUP_TAB_PREFIX}${normalized.group}`
-  return ACCOUNT_BUILTIN_ALL_TAB_ID
-}
 type AccountBulkEditTarget =
   | {
       mode: 'selected'
@@ -766,12 +534,8 @@ type AccountBulkEditTarget =
         platform?: string
         type?: string
         status?: string
-        schedulable?: string
         group?: string
-        display_group?: string
         search?: string
-        name_prefix?: string
-        search_regex?: string
         privacy_mode?: string
         sort_by?: string
         sort_order?: AccountSortOrder
@@ -806,6 +570,7 @@ const showBulkEdit = ref(false)
 const bulkEditTarget = ref<AccountBulkEditTarget | null>(null)
 const showTempUnsched = ref(false)
 const showDeleteDialog = ref(false)
+const showCreateShadowDialog = ref(false)
 const showReAuth = ref(false)
 const showTest = ref(false)
 const showStats = ref(false)
@@ -814,6 +579,7 @@ const showTLSFingerprintProfiles = ref(false)
 const edAcc = ref<Account | null>(null)
 const tempUnschedAcc = ref<Account | null>(null)
 const deletingAcc = ref<Account | null>(null)
+const creatingShadowAcc = ref<Account | null>(null)
 const reAuthAcc = ref<Account | null>(null)
 const testingAcc = ref<Account | null>(null)
 const statsAcc = ref<Account | null>(null)
@@ -821,19 +587,37 @@ const showSchedulePanel = ref(false)
 const scheduleAcc = ref<Account | null>(null)
 const scheduleModelOptions = ref<SelectOption[]>([])
 const togglingSchedulable = ref<number | null>(null)
-const batchTestingAccounts = ref(false)
-const batchTestTotal = ref(0)
-const batchTestDone = ref(0)
 const menu = reactive<{show:boolean, acc:Account|null, pos:{top:number, left:number}|null}>({ show: false, acc: null, pos: null })
 const exportingData = ref(false)
+const probingUpstreamBilling = reactive(new Set<number>())
+const upstreamBillingProbeGloballyEnabled = ref<boolean | undefined>(undefined)
+const upstreamBillingNow = ref(Date.now())
+let lastUpstreamBillingSortRefreshMinute = -1
+useIntervalFn(() => { upstreamBillingNow.value = Date.now() }, 60_000)
 
 // Account tools dropdown
 const showAccountToolsDropdown = ref(false)
 const accountToolsDropdownRef = ref<HTMLElement | null>(null)
+const accountToolsTriggerRef = ref<HTMLElement | null>(null)
+const accountToolsDropdownPosition = reactive({
+  top: null as number | null,
+  bottom: null as number | null,
+  left: 16,
+  width: 320,
+  maxHeight: 0
+})
+const accountToolsDropdownStyle = computed(() => ({
+  top: accountToolsDropdownPosition.top == null ? 'auto' : `${accountToolsDropdownPosition.top}px`,
+  bottom: accountToolsDropdownPosition.bottom == null ? 'auto' : `${accountToolsDropdownPosition.bottom}px`,
+  left: `${accountToolsDropdownPosition.left}px`,
+  width: `${accountToolsDropdownPosition.width}px`
+}))
 const hiddenColumns = reactive<Set<string>>(new Set())
-const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'proxy', 'notes', 'priority']
+const DEFAULT_HIDDEN_COLUMNS = ['today_stats', 'proxy', 'notes', 'priority', 'scheduler_score', 'rate_multiplier']
 const HIDDEN_COLUMNS_KEY = 'account-hidden-columns'
-const RATE_MULTIPLIER_COLUMN_VISIBLE_MIGRATION_KEY = 'account-rate-multiplier-column-visible-v1'
+// One-time migration: hide scheduler score for existing admins too, because showing it opt-ins to heavy backend scoring.
+const HIDDEN_COLUMNS_VERSION_KEY = 'account-hidden-columns-version'
+const HIDDEN_COLUMNS_CURRENT_VERSION = 'scheduler-score-hidden-by-default'
 
 // Sorting settings
 const ACCOUNT_SORT_STORAGE_KEY = 'account-table-sort'
@@ -843,11 +627,13 @@ type AccountSortState = {
   sort_order: AccountSortOrder
 }
 const ACCOUNT_SORTABLE_KEYS = new Set([
+  'id',
   'name',
   'status',
   'schedulable',
   'priority',
   'rate_multiplier',
+  'upstream_billing_rate',
   'last_used_at',
   'created_at',
   'expires_at'
@@ -869,42 +655,6 @@ const loadInitialAccountSortState = (): AccountSortState => {
   }
 }
 const sortState = reactive<AccountSortState>(loadInitialAccountSortState())
-
-const buildInitialAccountParams = () => {
-  const hasRouteState = hasAccountRouteQueryState()
-  const baseFilters = hasRouteState ? EMPTY_ACCOUNT_TAB_FILTERS : initialTabFilters
-  const querySortBy = readAccountQueryString(ACCOUNT_QUERY_KEYS.sortBy)
-  const querySortOrder = readAccountQueryString(ACCOUNT_QUERY_KEYS.sortOrder)
-
-  if (ACCOUNT_SORTABLE_KEYS.has(querySortBy)) {
-    sortState.sort_by = querySortBy
-  }
-  if (querySortOrder === 'asc' || querySortOrder === 'desc') {
-    sortState.sort_order = querySortOrder
-  }
-
-  const next = {
-    platform: readAccountQueryString(ACCOUNT_QUERY_KEYS.platform),
-    type: readAccountQueryString(ACCOUNT_QUERY_KEYS.type),
-    status: readAccountQueryString(ACCOUNT_QUERY_KEYS.status),
-    schedulable: readAccountQueryString(ACCOUNT_QUERY_KEYS.schedulable),
-    privacy_mode: readAccountQueryString(ACCOUNT_QUERY_KEYS.privacyMode),
-    group: readAccountQueryString(ACCOUNT_QUERY_KEYS.group) || baseFilters.group,
-    display_group: readAccountQueryString(ACCOUNT_QUERY_KEYS.displayGroup) || baseFilters.display_group,
-    search: readAccountQueryString(ACCOUNT_QUERY_KEYS.search) || baseFilters.search,
-    name_prefix: readAccountQueryString(ACCOUNT_QUERY_KEYS.namePrefix) || baseFilters.name_prefix,
-    search_regex: readAccountQueryString(ACCOUNT_QUERY_KEYS.searchRegex) || baseFilters.search_regex,
-    sort_by: sortState.sort_by,
-    sort_order: sortState.sort_order
-  }
-
-  selectedFilterTabId.value = resolveAccountFilterTabId(next)
-  return next
-}
-
-const initialAccountParams = buildInitialAccountParams()
-const initialAccountPage = Math.max(1, readAccountQueryNumber(ACCOUNT_QUERY_KEYS.page) || 1)
-const initialAccountPageSize = Math.max(1, readAccountQueryNumber(ACCOUNT_QUERY_KEYS.pageSize) || getPersistedPageSize())
 
 // Auto refresh settings
 const showAutoRefreshDropdown = ref(false)
@@ -986,6 +736,36 @@ const autoRefreshIntervalLabel = (sec: number) => {
   return `${sec}s`
 }
 
+const formatSchedulerScore = (value: unknown): string => {
+  const num = Number(value)
+  if (!Number.isFinite(num)) return '-'
+  return num.toFixed(6).replace(/\.?0+$/, '')
+}
+
+const formatStickySchedulerScore = (score: AccountSchedulerGroupScore): string => {
+  if (!score) return '-'
+  if (score.sticky_score_infinity) return '+∞'
+  return formatSchedulerScore(score.sticky_score)
+}
+
+const getSchedulerScoreRows = (account: Account): AccountSchedulerGroupScore[] => {
+  const groupRows = Array.isArray(account.scheduler_scores)
+    ? account.scheduler_scores.filter(score => score.group_id != null)
+    : []
+  if (groupRows.length) return groupRows
+  // 未分组账号没有分组维度分数，回退展示后端返回的基础分
+  if (account.scheduler_score) {
+    return [{ group_id: null, ...account.scheduler_score }]
+  }
+  return []
+}
+
+const formatSchedulerScoreGroup = (score: AccountSchedulerGroupScore): string => {
+  if ('group_name' in score && score.group_name) return score.group_name
+  if ('group_id' in score && score.group_id != null) return `#${score.group_id}`
+  return t('admin.accounts.schedulerScore.ungrouped')
+}
+
 const loadSavedColumns = () => {
   try {
     const saved = localStorage.getItem(HIDDEN_COLUMNS_KEY)
@@ -994,10 +774,17 @@ const loadSavedColumns = () => {
       parsed.forEach(key => {
         hiddenColumns.add(key)
       })
+      // Older saved column layouts may have scheduler_score visible; migrate them to the new safe default once.
+      if (localStorage.getItem(HIDDEN_COLUMNS_VERSION_KEY) !== HIDDEN_COLUMNS_CURRENT_VERSION) {
+        hiddenColumns.add('scheduler_score')
+        localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
+        localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
+      }
     } else {
       DEFAULT_HIDDEN_COLUMNS.forEach(key => {
         hiddenColumns.add(key)
       })
+      localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
     }
   } catch (e) {
     console.error('Failed to load saved columns:', e)
@@ -1005,23 +792,12 @@ const loadSavedColumns = () => {
       hiddenColumns.add(key)
     })
   }
-  migrateRateMultiplierColumnVisibility()
-}
-
-const migrateRateMultiplierColumnVisibility = () => {
-  try {
-    if (localStorage.getItem(RATE_MULTIPLIER_COLUMN_VISIBLE_MIGRATION_KEY) === '1') return
-    hiddenColumns.delete('rate_multiplier')
-    localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
-    localStorage.setItem(RATE_MULTIPLIER_COLUMN_VISIBLE_MIGRATION_KEY, '1')
-  } catch (e) {
-    console.error('Failed to migrate rate multiplier column visibility:', e)
-  }
 }
 
 const saveColumnsToStorage = () => {
   try {
     localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify([...hiddenColumns]))
+    localStorage.setItem(HIDDEN_COLUMNS_VERSION_KEY, HIDDEN_COLUMNS_CURRENT_VERSION)
   } catch (e) {
     console.error('Failed to save columns:', e)
   }
@@ -1094,9 +870,22 @@ const toggleColumn = (key: string) => {
       console.error('Failed to load account today stats after showing column:', error)
     })
   }
+  if (key === 'scheduler_score') {
+    // The server only returns scheduler scores when this column is visible, so reload the current page immediately.
+    syncAccountListDerivedParams()
+    load().catch((error) => {
+      console.error('Failed to reload accounts after toggling scheduler score column:', error)
+    })
+  }
 }
 
 const isColumnVisible = (key: string) => !hiddenColumns.has(key)
+const shouldIncludeSchedulerScore = () => isColumnVisible('scheduler_score')
+const syncAccountListDerivedParams = () => {
+  // Keep every load path, including auto-refresh and sorting, aligned with the current column visibility.
+  const requestParams = params as any
+  requestParams.include_scheduler_score = shouldIncludeSchedulerScore() ? '1' : '0'
+}
 
 const {
   items: accounts,
@@ -1110,171 +899,18 @@ const {
   handlePageSizeChange: baseHandlePageSizeChange
 } = useTableLoader<Account, any>({
   fetchFn: adminAPI.accounts.list,
-  initialParams: initialAccountParams
+  initialParams: {
+    platform: '',
+    type: '',
+    status: '',
+    privacy_mode: '',
+    group: '',
+    search: '',
+    include_scheduler_score: shouldIncludeSchedulerScore() ? '1' : '0',
+    sort_by: sortState.sort_by,
+    sort_order: sortState.sort_order
+  }
 })
-
-pagination.page = initialAccountPage
-pagination.page_size = initialAccountPageSize
-
-const isApplyingRouteQuery = ref(false)
-const isSyncingRouteQuery = ref(false)
-
-const builtinFilterTabs = computed<AccountFilterTab[]>(() => {
-  const tabs: AccountFilterTab[] = [
-    { id: ACCOUNT_BUILTIN_ALL_TAB_ID, label: t('admin.accounts.filterTabs.all'), builtin: true },
-    { id: ACCOUNT_BUILTIN_UNGROUPED_TAB_ID, label: t('admin.accounts.ungroupedGroup'), group: ACCOUNT_BUILTIN_UNGROUPED_TAB_ID, builtin: true }
-  ]
-  if (!authStore.isSimpleMode) {
-    for (const group of groups.value) {
-      tabs.push({
-        id: `${ACCOUNT_BUILTIN_GROUP_TAB_PREFIX}${group.id}`,
-        label: group.name,
-        group: String(group.id),
-        builtin: true
-      })
-    }
-  }
-  return tabs
-})
-
-const filterTabs = computed<AccountFilterTab[]>(() => [
-  ...builtinFilterTabs.value,
-  ...customFilterTabs.value.map(tab => ({ ...tab, builtin: false }))
-])
-
-const builtinFilterTabOptions = computed(() => builtinFilterTabs.value.map(tab => ({
-  id: tab.id,
-  label: tab.label
-})))
-
-const applyFilterTabSelection = (tabId: string) => {
-  const next = resolveFilterValuesFromTabId(tabId, customFilterTabs.value)
-  selectedFilterTabId.value = tabId
-  const requestParams = params as any
-  requestParams.group = next.group
-  requestParams.display_group = next.display_group
-  requestParams.search = next.search
-  requestParams.name_prefix = next.name_prefix
-  requestParams.search_regex = next.search_regex
-}
-
-const selectFilterTab = (tabId: string) => {
-  applyFilterTabSelection(tabId)
-  pagination.page = 1
-  load()
-}
-
-const syncSelectedFilterTabFromParams = () => {
-  const nextTabId = resolveAccountFilterTabId({
-    group: typeof params.group === 'string' ? params.group : '',
-    display_group: typeof params.display_group === 'string' ? params.display_group : '',
-    search: typeof params.search === 'string' ? params.search : '',
-    name_prefix: typeof params.name_prefix === 'string' ? params.name_prefix : '',
-    search_regex: typeof params.search_regex === 'string' ? params.search_regex : ''
-  })
-  if (selectedFilterTabId.value !== nextTabId) {
-    selectedFilterTabId.value = nextTabId
-  }
-}
-
-const applyRouteQueryToAccountState = () => {
-  const requestParams = params as Record<string, unknown>
-  const hasRouteState = hasAccountRouteQueryState()
-  const baseFilters = hasRouteState
-    ? EMPTY_ACCOUNT_TAB_FILTERS
-    : resolveFilterValuesFromTabId(defaultFilterTabId.value || ACCOUNT_BUILTIN_ALL_TAB_ID, customFilterTabs.value)
-  const defaultSort = loadInitialAccountSortState()
-  const querySortBy = readAccountQueryString(ACCOUNT_QUERY_KEYS.sortBy)
-  const querySortOrder = readAccountQueryString(ACCOUNT_QUERY_KEYS.sortOrder)
-
-  requestParams.platform = readAccountQueryString(ACCOUNT_QUERY_KEYS.platform)
-  requestParams.type = readAccountQueryString(ACCOUNT_QUERY_KEYS.type)
-  requestParams.status = readAccountQueryString(ACCOUNT_QUERY_KEYS.status)
-  requestParams.schedulable = readAccountQueryString(ACCOUNT_QUERY_KEYS.schedulable)
-  requestParams.privacy_mode = readAccountQueryString(ACCOUNT_QUERY_KEYS.privacyMode)
-  requestParams.group = readAccountQueryString(ACCOUNT_QUERY_KEYS.group) || baseFilters.group
-  requestParams.display_group = readAccountQueryString(ACCOUNT_QUERY_KEYS.displayGroup) || baseFilters.display_group
-  requestParams.search = readAccountQueryString(ACCOUNT_QUERY_KEYS.search) || baseFilters.search
-  requestParams.name_prefix = readAccountQueryString(ACCOUNT_QUERY_KEYS.namePrefix) || baseFilters.name_prefix
-  requestParams.search_regex = readAccountQueryString(ACCOUNT_QUERY_KEYS.searchRegex) || baseFilters.search_regex
-
-  sortState.sort_by = ACCOUNT_SORTABLE_KEYS.has(querySortBy) ? querySortBy : defaultSort.sort_by
-  sortState.sort_order = querySortOrder === 'desc' ? 'desc' : querySortOrder === 'asc' ? 'asc' : defaultSort.sort_order
-  requestParams.sort_by = sortState.sort_by
-  requestParams.sort_order = sortState.sort_order
-
-  pagination.page = Math.max(1, readAccountQueryNumber(ACCOUNT_QUERY_KEYS.page) || 1)
-  pagination.page_size = Math.max(1, readAccountQueryNumber(ACCOUNT_QUERY_KEYS.pageSize) || getPersistedPageSize())
-
-  syncSelectedFilterTabFromParams()
-}
-
-const buildAccountQueryForRoute = () => {
-  const next = { ...(route.query as Record<string, string>) }
-  Object.values(ACCOUNT_QUERY_KEYS).forEach((key) => {
-    delete next[key]
-  })
-  const filters = buildAccountQueryFilters()
-  if (filters.platform) next[ACCOUNT_QUERY_KEYS.platform] = filters.platform
-  if (filters.type) next[ACCOUNT_QUERY_KEYS.type] = filters.type
-  if (filters.status) next[ACCOUNT_QUERY_KEYS.status] = filters.status
-  if (filters.schedulable) next[ACCOUNT_QUERY_KEYS.schedulable] = filters.schedulable
-  if (filters.group) next[ACCOUNT_QUERY_KEYS.group] = filters.group
-  if (filters.display_group) next[ACCOUNT_QUERY_KEYS.displayGroup] = filters.display_group
-  if (filters.privacy_mode) next[ACCOUNT_QUERY_KEYS.privacyMode] = filters.privacy_mode
-  if (filters.search) next[ACCOUNT_QUERY_KEYS.search] = filters.search
-  if (filters.name_prefix) next[ACCOUNT_QUERY_KEYS.namePrefix] = filters.name_prefix
-  if (filters.search_regex) next[ACCOUNT_QUERY_KEYS.searchRegex] = filters.search_regex
-  next[ACCOUNT_QUERY_KEYS.sortBy] = sortState.sort_by
-  next[ACCOUNT_QUERY_KEYS.sortOrder] = sortState.sort_order
-  next[ACCOUNT_QUERY_KEYS.page] = String(Math.max(1, pagination.page))
-  next[ACCOUNT_QUERY_KEYS.pageSize] = String(Math.max(1, pagination.page_size))
-  return next
-}
-
-const syncAccountQueryToRoute = useDebounceFn(async () => {
-  if (isApplyingRouteQuery.value) return
-  const nextQuery = buildAccountQueryForRoute()
-  const currentQuery = route.query as Record<string, unknown>
-  const nextKeys = Object.keys(nextQuery).sort()
-  const currentKeys = Object.keys(currentQuery).sort()
-  const sameLength = nextKeys.length === currentKeys.length
-  const sameValues = sameLength && nextKeys.every((key, index) => {
-    const currentKey = currentKeys[index]
-    const currentValue = currentQuery[key]
-    const normalizedCurrent = Array.isArray(currentValue) ? currentValue.join('\u0000') : String(currentValue ?? '')
-    return currentKey === key && normalizedCurrent === nextQuery[key]
-  })
-  if (sameValues) return
-
-  try {
-    isSyncingRouteQuery.value = true
-    await router.replace({ query: nextQuery })
-  } finally {
-    isSyncingRouteQuery.value = false
-  }
-}, 150)
-
-const handleSaveFilterTabs = (payload: { tabs: AccountFilterTabConfig[]; defaultTabId: string }) => {
-  const previousDefaultTabId = defaultFilterTabId.value
-  customFilterTabs.value = normalizeAccountFilterTabs(payload.tabs)
-  defaultFilterTabId.value = payload.defaultTabId || ACCOUNT_BUILTIN_ALL_TAB_ID
-  persistCustomFilterTabs()
-  persistDefaultFilterTabId()
-  showFilterTabsEditor.value = false
-
-  const currentTabStillExists = filterTabs.value.some(tab => tab.id === selectedFilterTabId.value)
-  const defaultTabStillExists = filterTabs.value.some(tab => tab.id === defaultFilterTabId.value)
-  const shouldActivateDefaultTab = defaultTabStillExists && defaultFilterTabId.value !== previousDefaultTabId
-  const nextSelectedTabId = shouldActivateDefaultTab
-    ? defaultFilterTabId.value
-    : currentTabStillExists
-      ? selectedFilterTabId.value
-      : defaultFilterTabId.value
-  applyFilterTabSelection(nextSelectedTabId || ACCOUNT_BUILTIN_ALL_TAB_ID)
-  pagination.page = 1
-  load()
-}
 
 const {
   selectedIds: selIds,
@@ -1313,8 +949,16 @@ const resetAutoRefreshCache = () => {
 
 const isFirstLoad = ref(true)
 
+function markUpstreamBillingSortRefresh() {
+  if (sortState.sort_by === 'upstream_billing_rate') {
+    lastUpstreamBillingSortRefreshMinute = Math.floor(Date.now() / 60_000)
+  }
+}
+
 const load = async () => {
   const requestParams = params as any
+  markUpstreamBillingSortRefresh()
+  syncAccountListDerivedParams()
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
@@ -1330,6 +974,8 @@ const load = async () => {
 }
 
 const reload = async () => {
+  markUpstreamBillingSortRefresh()
+  syncAccountListDerivedParams()
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = false
@@ -1337,7 +983,21 @@ const reload = async () => {
   await refreshTodayStatsBatch()
 }
 
+const refreshUpstreamBillingSortedList = async (force = false) => {
+  if (sortState.sort_by !== 'upstream_billing_rate') return
+
+  const minute = Math.floor(upstreamBillingNow.value / 60_000)
+  if (!force && lastUpstreamBillingSortRefreshMinute === minute) return
+  lastUpstreamBillingSortRefreshMinute = minute
+  try {
+    await reload()
+  } catch (error) {
+    console.error('Failed to refresh upstream billing sort:', error)
+  }
+}
+
 const debouncedReload = () => {
+  syncAccountListDerivedParams()
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
@@ -1345,6 +1005,7 @@ const debouncedReload = () => {
 }
 
 const handlePageChange = (page: number) => {
+  syncAccountListDerivedParams()
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
@@ -1352,29 +1013,11 @@ const handlePageChange = (page: number) => {
 }
 
 const handlePageSizeChange = (size: number) => {
+  syncAccountListDerivedParams()
   hasPendingListSync.value = false
   resetAutoRefreshCache()
   pendingTodayStatsRefresh.value = true
   baseHandlePageSizeChange(size)
-}
-
-const resetAccountsToFirstPage = () => {
-  pagination.page = 1
-}
-
-const handleAccountFiltersUpdated = (newFilters: Record<string, unknown>) => {
-  Object.assign(params, newFilters)
-  resetAccountsToFirstPage()
-}
-
-const handleAccountFiltersChanged = () => {
-  resetAccountsToFirstPage()
-  debouncedReload()
-}
-
-const handleAccountSearchQueryUpdated = () => {
-  resetAccountsToFirstPage()
-  debouncedReload()
 }
 
 const handleSort = (key: string, order: AccountSortOrder) => {
@@ -1383,6 +1026,7 @@ const handleSort = (key: string, order: AccountSortOrder) => {
   const requestParams = params as any
   requestParams.sort_by = key
   requestParams.sort_order = order
+  syncAccountListDerivedParams()
   pagination.page = 1
   hasPendingListSync.value = false
   resetAutoRefreshCache()
@@ -1390,49 +1034,22 @@ const handleSort = (key: string, order: AccountSortOrder) => {
   load()
 }
 
-watch(
-  () => [
-    String(params.platform || ''),
-    String(params.type || ''),
-    String(params.status || ''),
-    String(params.schedulable || ''),
-    String(params.group || ''),
-    String(params.display_group || ''),
-    String(params.privacy_mode || ''),
-    String(params.search || ''),
-    String(params.name_prefix || ''),
-    String(params.search_regex || ''),
-    sortState.sort_by,
-    sortState.sort_order,
-    pagination.page,
-    pagination.page_size
-  ] as const,
-  () => {
-    if (isApplyingRouteQuery.value) return
-    syncSelectedFilterTabFromParams()
-    syncAccountQueryToRoute()
-  },
-  { immediate: true }
-)
-
-watch(
-  () => route.query,
-  async () => {
-    if (isSyncingRouteQuery.value) return
-    isApplyingRouteQuery.value = true
-    applyRouteQueryToAccountState()
-    isApplyingRouteQuery.value = false
-    await load()
-  }
-)
-
 watch(loading, (isLoading, wasLoading) => {
+  if (wasLoading && !isLoading) {
+    upstreamBillingNow.value = Date.now()
+  }
   if (wasLoading && !isLoading && pendingTodayStatsRefresh.value) {
     pendingTodayStatsRefresh.value = false
     refreshTodayStatsBatch().catch((error) => {
       console.error('Failed to refresh account today stats after table load:', error)
     })
   }
+})
+
+watch(upstreamBillingNow, () => {
+  if (sortState.sort_by !== 'upstream_billing_rate' || loading.value) return
+  if (typeof document !== 'undefined' && document.hidden) return
+  void refreshUpstreamBillingSortedList()
 })
 
 const isAnyModalOpen = computed(() => {
@@ -1472,29 +1089,10 @@ const shouldReplaceAutoRefreshRow = (current: Account, next: Account) => {
     current.schedulable !== next.schedulable ||
     current.status !== next.status ||
     current.rate_limit_reset_at !== next.rate_limit_reset_at ||
-    current.kiro_quota_state !== next.kiro_quota_state ||
-    current.kiro_quota_reason !== next.kiro_quota_reason ||
-    current.kiro_quota_reset_at !== next.kiro_quota_reset_at ||
-    current.kiro_runtime_state !== next.kiro_runtime_state ||
-    current.kiro_runtime_reason !== next.kiro_runtime_reason ||
-    current.kiro_runtime_reset_at !== next.kiro_runtime_reset_at ||
     current.overload_until !== next.overload_until ||
     current.temp_unschedulable_until !== next.temp_unschedulable_until ||
     buildOpenAIUsageRefreshKey(current) !== buildOpenAIUsageRefreshKey(next)
   )
-}
-
-const isKiroOveragesEnabled = (account: Account) => {
-  return account.platform === 'kiro' && account.credentials?.kiro_overages_enabled === true
-}
-
-const handleKiroUsageMeta = (account: Account, meta: { plan_type?: string; kiro_overages_enabled: boolean }) => {
-  if (account.platform !== 'kiro') return
-  account.credentials = {
-    ...(account.credentials || {}),
-    ...(meta.plan_type ? { plan_type: meta.plan_type } : {}),
-    kiro_overages_enabled: meta.kiro_overages_enabled
-  }
 }
 
 const syncAccountRefs = (nextAccount: Account) => {
@@ -1537,6 +1135,7 @@ const mergeAccountsIncrementally = (nextRows: Account[]) => {
 
 const refreshAccountsIncrementally = async () => {
   if (autoRefreshFetching.value) return
+  syncAccountListDerivedParams()
   autoRefreshFetching.value = true
   try {
     const result = await adminAPI.accounts.listWithEtag(
@@ -1548,10 +1147,7 @@ const refreshAccountsIncrementally = async () => {
         status?: string
         privacy_mode?: string
         group?: string
-        display_group?: string
         search?: string
-        name_prefix?: string
-        search_regex?: string
         sort_by?: string
         sort_order?: AccountSortOrder
 
@@ -1567,7 +1163,9 @@ const refreshAccountsIncrementally = async () => {
       pagination.pages = result.data.pages || 0
       mergeAccountsIncrementally(result.data.items || [])
       hasPendingListSync.value = false
+      markUpstreamBillingSortRefresh()
     }
+    upstreamBillingNow.value = Date.now()
 
     await refreshTodayStatsBatch()
   } catch (error) {
@@ -1578,13 +1176,41 @@ const refreshAccountsIncrementally = async () => {
 }
 
 const handleManualRefresh = async () => {
-  await load()
+  await Promise.all([load(), loadUpstreamBillingProbeGlobalState()])
   // Force usage cells to refetch /usage on explicit user refresh.
   usageManualRefreshToken.value += 1
 }
 
+const loadUpstreamBillingProbeGlobalState = async () => {
+  try {
+    const settings = await adminAPI.accounts.getUpstreamBillingProbeSettings()
+    upstreamBillingProbeGloballyEnabled.value = settings.enabled
+  } catch (error) {
+    console.error('Failed to load upstream billing probe settings:', error)
+  }
+}
+
 const closeAccountToolsDropdown = () => {
   showAccountToolsDropdown.value = false
+}
+
+const updateAccountToolsDropdownPosition = () => {
+  const trigger = accountToolsTriggerRef.value
+  if (!trigger) return
+
+  const position = getFloatingPanelPosition(
+    trigger.getBoundingClientRect(),
+    document.documentElement.clientWidth || window.innerWidth,
+    window.innerHeight
+  )
+  Object.assign(accountToolsDropdownPosition, position)
+}
+
+const toggleAccountToolsDropdown = () => {
+  const nextVisible = !showAccountToolsDropdown.value
+  showAutoRefreshDropdown.value = false
+  if (nextVisible) updateAccountToolsDropdownPosition()
+  showAccountToolsDropdown.value = nextVisible
 }
 
 const openSyncFromCrs = () => {
@@ -1646,6 +1272,33 @@ const { pause: pauseAutoRefresh, resume: resumeAutoRefresh } = useIntervalFn(
   { immediate: false }
 )
 
+// Fresh billing/quota snapshots are authoritative. Imported credential tiers
+// can be stale, so they remain fallbacks together with legacy plan_type fields.
+function getAccountPlanType(row: any): string | undefined {
+  if (!row) return undefined
+  if (row.platform === 'grok') {
+    const extra = (row.extra || {}) as Record<string, any>
+    const billing = extra.grok_billing_snapshot as Record<string, any> | undefined
+    const quota = extra.grok_quota_snapshot as Record<string, any> | undefined
+    return (
+      billing?.plan ||
+      quota?.subscription_tier ||
+      row.credentials?.subscription_tier ||
+      extra.subscription_tier ||
+      row.credentials?.plan_type ||
+      row.parent_plan_type ||
+      undefined
+    )
+  }
+  return row.credentials?.plan_type || row.parent_plan_type || undefined
+}
+
+function getOpenAIAuthMode(row: any): string | undefined {
+  if (!row || row.platform !== 'openai' || row.type !== 'oauth') return undefined
+  const authMode = row.credentials?.auth_mode
+  return typeof authMode === 'string' && authMode.trim() ? authMode : undefined
+}
+
 // Antigravity 订阅等级辅助函数
 function getAntigravityTierFromRow(row: any): string | null {
   if (row.platform !== 'antigravity') return null
@@ -1670,8 +1323,19 @@ function getAntigravityTierLabel(row: any): string | null {
   }
 }
 
+// 账号显示邮箱:优先账号自身(extra/credentials),影子账号回退母账号 parent_email。
+// 供名称单元格 v-if/标题/文本三处共用,避免同一回退链在模板里重复三次。
+function accountDisplayEmail(row: any): string {
+  return row.extra?.email_address || row.extra?.email || row.credentials?.email || row.parent_email || ''
+}
+
+function accountHomepageUrl(row: Account): string {
+  if (row.type !== 'apikey' || typeof row.credentials?.base_url !== 'string') return ''
+  const baseUrl = sanitizeUrl(row.credentials.base_url)
+  return baseUrl ? new URL(baseUrl).origin : ''
+}
+
 type OpenAICompactBadgeState = 'active' | 'blocked' | 'auto'
-type OpenAICompactProbeState = 'supported' | 'unsupported' | 'unknown'
 
 function getOpenAICompactState(row: any): OpenAICompactBadgeState | null {
   if (row.platform !== 'openai' || (row.type !== 'oauth' && row.type !== 'apikey')) return null
@@ -1679,21 +1343,10 @@ function getOpenAICompactState(row: any): OpenAICompactBadgeState | null {
   const mode = typeof extra?.openai_compact_mode === 'string' ? extra.openai_compact_mode : 'auto'
   if (mode === 'force_on') return 'active'
   if (mode === 'force_off') return 'blocked'
+  if (typeof extra?.openai_compact_supported === 'boolean') {
+    return extra.openai_compact_supported ? 'active' : 'blocked'
+  }
   return 'auto'
-}
-
-function getOpenAICompactProbeState(row: any): OpenAICompactProbeState {
-  const extra = row.extra as Record<string, unknown> | undefined
-  if (extra?.openai_compact_supported === true) return 'supported'
-  if (extra?.openai_compact_supported === false) return 'unsupported'
-  return 'unknown'
-}
-
-function getOpenAICompactProbeLabel(row: any): string {
-  const probeState = getOpenAICompactProbeState(row)
-  if (probeState === 'supported') return t('admin.accounts.openai.compactProbeSupported')
-  if (probeState === 'unsupported') return t('admin.accounts.openai.compactProbeUnsupported')
-  return t('admin.accounts.openai.compactProbeUnknown')
 }
 
 function getOpenAICompactMeta(row: any): { label: string; className: string; dotClass: string } | null {
@@ -1725,91 +1378,14 @@ function getOpenAICompactTitle(row: any): string {
   const extra = row.extra as Record<string, unknown> | undefined
   const checkedAt = typeof extra?.openai_compact_checked_at === 'string' ? extra.openai_compact_checked_at : ''
   const label = getOpenAICompactMeta(row)?.label || ''
-  const parts = [label]
-  if (getOpenAICompactState(row) === 'auto') {
-    parts.push(getOpenAICompactProbeLabel(row))
-  }
-  if (checkedAt) {
-    parts.push(`${t('admin.accounts.openai.compactLastChecked')}: ${formatDateTime(new Date(checkedAt))}`)
-  }
-  return parts.filter(Boolean).join(' | ')
-}
-
-function numberFromExtra(value: unknown): number | null {
-  if (typeof value === 'number' && Number.isFinite(value)) return value
-  if (typeof value === 'string' && value.trim()) {
-    const parsed = Number(value.trim())
-    return Number.isFinite(parsed) ? parsed : null
-  }
-  return null
-}
-
-function getUpstreamSiteType(row: Account): string | null {
-  if (row.platform !== 'openai' || row.type !== 'apikey') return null
-  const extra = row.extra as Record<string, unknown> | undefined
-  const raw = typeof extra?.upstream_site_type === 'string' ? extra.upstream_site_type.trim() : ''
-  if (raw === 'sub2api' || raw === 'new-api') return raw
-  return null
-}
-
-function getUpstreamSiteTypeLabel(row: Account): string {
-  const siteType = getUpstreamSiteType(row)
-  if (siteType === 'new-api') return 'new-api'
-  if (siteType === 'sub2api') return 'sub2api'
-  return ''
-}
-
-function getUpstreamKeyRate(row: Account): number | null {
-  const extra = row.extra as Record<string, unknown> | undefined
-  if (!isFreshUpstreamSnapshot(extra)) return null
-  return numberFromExtra(extra?.upstream_key_rate_multiplier)
-}
-
-function getUpstreamAccountBalance(row: Account): number | null {
-  const extra = row.extra as Record<string, unknown> | undefined
-  if (!isFreshUpstreamSnapshot(extra)) return null
-  return numberFromExtra(extra?.upstream_account_balance)
-}
-
-function getUpstreamRateError(row: Account): string | null {
-  const extra = row.extra as Record<string, unknown> | undefined
-  if (!extra || extra.upstream_key_rate_resolve_failed !== true) return null
-  const message = typeof extra.upstream_key_rate_resolve_error === 'string'
-    ? extra.upstream_key_rate_resolve_error.trim()
-    : ''
-  return message || t('admin.accounts.openai.upstreamRate.failed')
-}
-
-function isFreshUpstreamSnapshot(extra: Record<string, unknown> | undefined): boolean {
-  if (!extra) return false
-  const checkedAt = typeof extra.upstream_key_rate_checked_at === 'string'
-    ? Date.parse(extra.upstream_key_rate_checked_at)
-    : NaN
-  return Number.isFinite(checkedAt) && Date.now() - checkedAt < 2 * 60 * 60 * 1000
-}
-
-function getUpstreamKeyGroupName(row: Account): string | null {
-  const extra = row.extra as Record<string, unknown> | undefined
-  const name = typeof extra?.upstream_key_group_name === 'string'
-    ? extra.upstream_key_group_name.trim()
-    : ''
-  return name || null
-}
-
-function formatRate(value: number): string {
-  if (!Number.isFinite(value)) return '-'
-  return `${Number(value.toFixed(3)).toString()}x`
-}
-
-function formatBalance(value: number): string {
-  if (!Number.isFinite(value)) return '-'
-  return Number(value.toFixed(6)).toString()
+  if (!checkedAt) return label
+  return `${label} | ${t('admin.accounts.openai.compactLastChecked')}: ${formatDateTime(new Date(checkedAt))}`
 }
 
 function getAntigravityTierClass(row: any): string {
   const tier = getAntigravityTierFromRow(row)
   switch (tier) {
-    case 'free-tier': return 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+    case 'free-tier': return 'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-300'
     case 'g1-pro-tier': return 'bg-blue-100 text-blue-600 dark:bg-blue-900/40 dark:text-blue-300'
     case 'g1-ultra-tier': return 'bg-purple-100 text-purple-600 dark:bg-purple-900/40 dark:text-purple-300'
     default: return ''
@@ -1821,6 +1397,7 @@ const allColumns = computed(() => {
   const c = [
     { key: 'select', label: '', sortable: false },
     { key: 'name', label: t('admin.accounts.columns.name'), sortable: true },
+    { key: 'id', label: t('admin.accounts.columns.id'), sortable: true },
     { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false },
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
@@ -1832,10 +1409,11 @@ const allColumns = computed(() => {
   }
   c.push(
     { key: 'usage', label: t('admin.accounts.columns.usageWindows'), sortable: false },
-    { key: 'upstream_balance', label: t('admin.accounts.columns.upstreamBalance'), sortable: false },
     { key: 'proxy', label: t('admin.accounts.columns.proxy'), sortable: false },
     { key: 'priority', label: t('admin.accounts.columns.priority'), sortable: true },
+    { key: 'scheduler_score', label: t('admin.accounts.columns.schedulerScore'), sortable: false },
     { key: 'rate_multiplier', label: t('admin.accounts.columns.billingRateMultiplier'), sortable: true },
+    { key: 'upstream_billing_rate', label: t('admin.accounts.columns.upstreamBillingRate'), sortable: true },
     { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true },
     { key: 'created_at', label: t('admin.accounts.columns.createdAt'), sortable: true },
     { key: 'expires_at', label: t('admin.accounts.columns.expiresAt'), sortable: true },
@@ -1865,7 +1443,7 @@ const openMenu = (a: Account, e: MouseEvent) => {
   if (target) {
     const rect = target.getBoundingClientRect()
     const menuWidth = 200
-    const menuHeight = 280
+    const menuHeight = 240
     const padding = 8
     const viewportWidth = window.innerWidth
     const viewportHeight = window.innerHeight
@@ -1946,238 +1524,45 @@ const handleBulkRefreshToken = async () => {
     appStore.showError(String(error))
   }
 }
+const handleBulkProbeUpstreamBilling = async () => {
+  const accountIDs = [...selIds.value]
+  if (accountIDs.length === 0) {
+    appStore.showError(t('admin.accounts.upstreamBilling.noEligibleAccounts'))
+    return
+  }
+  if (accountIDs.length > 20) {
+    appStore.showError(t('admin.accounts.upstreamBilling.batchLimit'))
+    return
+  }
+  accountIDs.forEach(id => probingUpstreamBilling.add(id))
+  try {
+    const results = await adminAPI.accounts.probeUpstreamBillingBatch(accountIDs)
+    let patched = false
+    results.forEach(result => {
+      if (result.snapshot) {
+        patchUpstreamBillingSnapshot(result.account_id, result.snapshot)
+        patched = true
+      }
+    })
+    if (patched) await refreshUpstreamBillingSortedList(true)
+    const failed = results.filter(result => result.error).length
+    if (failed > 0) {
+      appStore.showError(t('admin.accounts.upstreamBilling.batchPartial', { success: results.length - failed, failed }))
+    } else {
+      appStore.showSuccess(t('admin.accounts.upstreamBilling.batchCompleted', { count: results.length }))
+    }
+  } catch (error) {
+    console.error('Failed to probe upstream billing in batch:', error)
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.upstreamBilling.probeFailed')))
+  } finally {
+    accountIDs.forEach(id => probingUpstreamBilling.delete(id))
+  }
+}
 const updateSchedulableInList = (accountIds: number[], schedulable: boolean) => {
   if (accountIds.length === 0) return
   const idSet = new Set(accountIds)
   accounts.value = accounts.value.map((account) => (idSet.has(account.id) ? { ...account, schedulable } : account))
 }
-
-interface AccountTestStreamEvent {
-  type: string
-  success?: boolean
-  error?: string
-}
-
-interface BatchAccountTestResult {
-  accountId: number
-  success: boolean
-  scheduleUpdateFailed: boolean
-  error?: string
-}
-
-const BATCH_ACCOUNT_TEST_CONCURRENCY = 3
-const BATCH_ACCOUNT_TEST_TIMEOUT_MS = 120_000
-
-const getBatchAccountTestHeaders = () => {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json'
-  }
-  const token = localStorage.getItem('auth_token')
-  if (token) {
-    headers.Authorization = `Bearer ${token}`
-  }
-  return headers
-}
-
-const parseAccountTestSSELine = (line: string): AccountTestStreamEvent | null => {
-  const trimmed = line.trim()
-  if (!trimmed.startsWith('data:')) {
-    return null
-  }
-
-  const payload = trimmed.replace(/^data:\s*/, '')
-  if (!payload) {
-    return null
-  }
-
-  try {
-    return JSON.parse(payload) as AccountTestStreamEvent
-  } catch {
-    return null
-  }
-}
-
-const runAccountSSETest = async (
-  account: Account,
-  modelId: string
-): Promise<{ success: boolean; error?: string }> => {
-  const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), BATCH_ACCOUNT_TEST_TIMEOUT_MS)
-  let completed = false
-  let success = false
-  let errorMessage = ''
-
-  const handleLine = (line: string) => {
-    const event = parseAccountTestSSELine(line)
-    if (!event) return
-    if (event.type === 'error') {
-      errorMessage = event.error || t('admin.accounts.testFailed')
-      return
-    }
-    if (event.type === 'test_complete') {
-      completed = true
-      success = event.success === true
-      if (!success && event.error) {
-        errorMessage = event.error
-      }
-    }
-  }
-
-  try {
-    const response = await fetch(`/api/v1/admin/accounts/${account.id}/test`, {
-      method: 'POST',
-      headers: getBatchAccountTestHeaders(),
-      body: JSON.stringify({ model_id: modelId }),
-      signal: controller.signal
-    })
-    if (!response.ok) {
-      return { success: false, error: `HTTP ${response.status}` }
-    }
-
-    const reader = response.body?.getReader()
-    if (!reader) {
-      return { success: false, error: t('admin.accounts.batchTestStreamNoBody') }
-    }
-
-    const decoder = new TextDecoder()
-    let buffer = ''
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-      for (const line of lines) {
-        handleLine(line)
-      }
-    }
-    if (buffer) {
-      handleLine(buffer)
-    }
-
-    if (errorMessage) {
-      return { success: false, error: errorMessage }
-    }
-    if (!completed) {
-      return { success: false, error: t('admin.accounts.batchTestStreamIncomplete') }
-    }
-    return { success }
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') {
-      return { success: false, error: t('admin.accounts.batchTestTimeout') }
-    }
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : String(error)
-    }
-  } finally {
-    window.clearTimeout(timeout)
-  }
-}
-
-const getFirstBatchTestModelId = async (account: Account): Promise<string | null> => {
-  const models = await adminAPI.accounts.getAvailableModels(account.id)
-  return models[0]?.id || null
-}
-
-const testAccountAndApplySchedulable = async (account: Account): Promise<BatchAccountTestResult> => {
-  let testSuccess = false
-  let testError: string | undefined
-
-  try {
-    const modelId = await getFirstBatchTestModelId(account)
-    if (!modelId) {
-      testError = t('admin.accounts.batchTestNoModel')
-    } else {
-      const result = await runAccountSSETest(account, modelId)
-      testSuccess = result.success
-      testError = result.error
-    }
-  } catch (error) {
-    testError = error instanceof Error ? error.message : String(error)
-  }
-
-  let scheduleUpdateFailed = false
-  try {
-    const updated = await adminAPI.accounts.setSchedulable(account.id, testSuccess)
-    patchAccountInList(updated)
-  } catch (error) {
-    scheduleUpdateFailed = true
-    console.error('Failed to apply schedulable after account test:', {
-      accountId: account.id,
-      schedulable: testSuccess,
-      error
-    })
-  }
-
-  return {
-    accountId: account.id,
-    success: testSuccess,
-    scheduleUpdateFailed,
-    error: testError
-  }
-}
-
-const runBatchAccountTestQueue = async (targetAccounts: Account[]) => {
-  const results: BatchAccountTestResult[] = []
-  let nextIndex = 0
-  const workerCount = Math.min(BATCH_ACCOUNT_TEST_CONCURRENCY, targetAccounts.length)
-
-  const worker = async () => {
-    while (nextIndex < targetAccounts.length) {
-      const account = targetAccounts[nextIndex]
-      nextIndex += 1
-      try {
-        results.push(await testAccountAndApplySchedulable(account))
-      } finally {
-        batchTestDone.value += 1
-      }
-    }
-  }
-
-  await Promise.all(Array.from({ length: workerCount }, () => worker()))
-  return results
-}
-
-const handleBatchTestCurrentPage = async () => {
-  if (batchTestingAccounts.value) return
-  const targetAccounts = [...accounts.value]
-  if (targetAccounts.length === 0) {
-    appStore.showError(t('admin.accounts.batchTestAccountsEmpty'))
-    return
-  }
-
-  showAutoRefreshDropdown.value = false
-  closeAccountToolsDropdown()
-  batchTestingAccounts.value = true
-  batchTestTotal.value = targetAccounts.length
-  batchTestDone.value = 0
-  enterAutoRefreshSilentWindow()
-
-  try {
-    const results = await runBatchAccountTestQueue(targetAccounts)
-    const passed = results.filter(result => result.success).length
-    const failed = results.length - passed
-    const scheduleFailed = results.filter(result => result.scheduleUpdateFailed).length
-    if (scheduleFailed > 0) {
-      appStore.showWarning(t('admin.accounts.batchTestAccountsPartial', { passed, failed, scheduleFailed }))
-    } else if (failed > 0) {
-      appStore.showWarning(t('admin.accounts.batchTestAccountsDone', { passed, failed }))
-    } else {
-      appStore.showSuccess(t('admin.accounts.batchTestAccountsDone', { passed, failed }))
-    }
-    enterAutoRefreshSilentWindow()
-  } catch (error) {
-    console.error('Failed to batch test accounts:', error)
-    appStore.showError(t('admin.accounts.batchTestAccountsFailed'))
-  } finally {
-    batchTestingAccounts.value = false
-    batchTestTotal.value = 0
-    batchTestDone.value = 0
-  }
-}
-
 const normalizeBulkSchedulableResult = (
   result: {
     success?: number
@@ -2282,12 +1667,8 @@ const buildBulkEditFilterSnapshot = () => {
     platform: typeof rawParams.platform === 'string' ? rawParams.platform : '',
     type: typeof rawParams.type === 'string' ? rawParams.type : '',
     status: typeof rawParams.status === 'string' ? rawParams.status : '',
-    schedulable: typeof rawParams.schedulable === 'string' ? rawParams.schedulable : '',
     group: typeof rawParams.group === 'string' ? rawParams.group : '',
-    display_group: typeof rawParams.display_group === 'string' ? rawParams.display_group : '',
     search: typeof rawParams.search === 'string' ? rawParams.search : '',
-    name_prefix: typeof rawParams.name_prefix === 'string' ? rawParams.name_prefix : '',
-    search_regex: typeof rawParams.search_regex === 'string' ? rawParams.search_regex : '',
     privacy_mode: typeof rawParams.privacy_mode === 'string' ? rawParams.privacy_mode : '',
     sort_by: typeof rawParams.sort_by === 'string' ? rawParams.sort_by : '',
     sort_order: sortOrder
@@ -2337,17 +1718,12 @@ const buildAccountQueryFilters = () => ({
   platform: params.platform || '',
   type: params.type || '',
   status: params.status || '',
-  schedulable: params.schedulable || '',
   group: params.group || '',
-  display_group: params.display_group || '',
   privacy_mode: params.privacy_mode || '',
   search: params.search || '',
-  name_prefix: params.name_prefix || '',
-  search_regex: params.search_regex || '',
   sort_by: sortState.sort_by,
   sort_order: sortState.sort_order
 })
-const getAccountUIDisplayGroups = (account: Account) => getUIDisplayGroups(account.extra as Record<string, unknown> | undefined)
 const accountMatchesCurrentFilters = (account: Account) => {
   const filters = buildAccountQueryFilters()
   if (filters.platform && account.platform !== filters.platform) return false
@@ -2355,13 +1731,7 @@ const accountMatchesCurrentFilters = (account: Account) => {
   if (filters.status) {
     const now = Date.now()
     const rateLimitResetAt = account.rate_limit_reset_at ? new Date(account.rate_limit_reset_at).getTime() : Number.NaN
-    const kiroRuntimeResetAt = account.kiro_runtime_reset_at ? new Date(account.kiro_runtime_reset_at).getTime() : Number.NaN
-    const isKiroRuntimeLimited =
-      account.platform === 'kiro' &&
-      account.kiro_runtime_state === 'cooldown' &&
-      Number.isFinite(kiroRuntimeResetAt) &&
-      kiroRuntimeResetAt > now
-    const isRateLimited = (Number.isFinite(rateLimitResetAt) && rateLimitResetAt > now) || isKiroRuntimeLimited
+    const isRateLimited = Number.isFinite(rateLimitResetAt) && rateLimitResetAt > now
     const tempUnschedUntil = account.temp_unschedulable_until ? new Date(account.temp_unschedulable_until).getTime() : Number.NaN
     const isTempUnschedulable = Number.isFinite(tempUnschedUntil) && tempUnschedUntil > now
 
@@ -2377,10 +1747,6 @@ const accountMatchesCurrentFilters = (account: Account) => {
       return false
     }
   }
-  if (filters.schedulable) {
-    const wantsSchedulable = filters.schedulable === 'true'
-    if (Boolean(account.schedulable) !== wantsSchedulable) return false
-  }
   if (filters.group) {
     const groupIds = account.group_ids ?? account.groups?.map((group) => group.id) ?? []
     if (filters.group === ACCOUNT_UNGROUPED_GROUP_QUERY_VALUE) {
@@ -2388,9 +1754,6 @@ const accountMatchesCurrentFilters = (account: Account) => {
     } else if (!groupIds.includes(Number(filters.group))) {
       return false
     }
-  }
-  if (filters.display_group && !getAccountUIDisplayGroups(account).includes(filters.display_group)) {
-    return false
   }
   const privacyMode = typeof account.extra?.privacy_mode === 'string' ? account.extra.privacy_mode : ''
   if (filters.privacy_mode) {
@@ -2402,21 +1765,6 @@ const accountMatchesCurrentFilters = (account: Account) => {
   }
   const search = String(filters.search || '').trim().toLowerCase()
   if (search && !account.name.toLowerCase().includes(search)) return false
-  const namePrefix = String(filters.name_prefix || '').trim().toLowerCase()
-  if (namePrefix && !account.name.toLowerCase().startsWith(namePrefix)) return false
-  const searchRegex = String(filters.search_regex || '').trim()
-  if (searchRegex) {
-    try {
-      const matcher = new RegExp(searchRegex, 'i')
-      const regexMatched =
-        matcher.test(account.name) ||
-        matcher.test(account.notes || '') ||
-        getAccountUIDisplayGroups(account).some(group => matcher.test(group))
-      if (!regexMatched) return false
-    } catch {
-      return false
-    }
-  }
   return true
 }
 const mergeRuntimeFields = (oldAccount: Account, updatedAccount: Account): Account => ({
@@ -2459,6 +1807,32 @@ const patchAccountInList = (updatedAccount: Account) => {
   accounts.value = nextAccounts
   syncAccountRefs(mergedAccount)
 }
+const patchUpstreamBillingSnapshot = (accountID: number, snapshot: UpstreamBillingProbeSnapshot) => {
+  const account = accounts.value.find(item => item.id === accountID)
+  if (!account) return
+  markUpstreamBillingSortRefresh()
+  upstreamBillingNow.value = Date.now()
+  patchAccountInList({
+    ...account,
+    extra: { ...account.extra, upstream_billing_probe: snapshot }
+  })
+}
+const handleProbeUpstreamBilling = async (account: Account) => {
+  if (probingUpstreamBilling.has(account.id)) return
+  probingUpstreamBilling.add(account.id)
+  try {
+    const result = await adminAPI.accounts.probeUpstreamBilling(account.id)
+    if (result.snapshot) {
+      patchUpstreamBillingSnapshot(account.id, result.snapshot)
+      await refreshUpstreamBillingSortedList(true)
+    }
+  } catch (error) {
+    console.error('Failed to probe upstream billing:', error)
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.upstreamBilling.probeFailed')))
+  } finally {
+    probingUpstreamBilling.delete(account.id)
+  }
+}
 const handleAccountUpdated = (updatedAccount: Account) => {
   patchAccountInList(updatedAccount)
   enterAutoRefreshSilentWindow()
@@ -2476,14 +1850,14 @@ const handleExportData = async () => {
   if (exportingData.value) return
   exportingData.value = true
   try {
-    const dataPayload = await adminAPI.accounts.exportData(
+    const dataPayload = await accountExportStepUp.run(() => adminAPI.accounts.exportData(
       selIds.value.length > 0
         ? { ids: selIds.value, includeProxies: includeProxyOnExport.value }
         : {
             includeProxies: includeProxyOnExport.value,
             filters: buildAccountQueryFilters()
           }
-    )
+    ))
     const timestamp = formatExportTimestamp()
     const filename = `sub2api-account-${timestamp}.json`
     const blob = new Blob([JSON.stringify(dataPayload, null, 2)], { type: 'application/json' })
@@ -2493,29 +1867,36 @@ const handleExportData = async () => {
     link.download = filename
     link.click()
     URL.revokeObjectURL(url)
-    appStore.showSuccess(t('admin.accounts.dataExported'))
+    // spark 影子账号被后端排除出备份(其凭据透传母账号、调度配置不可经凭据型导入重建);
+    // 跳过非零时明确提示用户,避免「下载成功但少了账号」的静默丢失。
+    if (dataPayload.skipped_shadows && dataPayload.skipped_shadows > 0) {
+      appStore.showWarning(t('admin.accounts.dataExportedSkippedShadows', { count: dataPayload.skipped_shadows }))
+    } else {
+      appStore.showSuccess(t('admin.accounts.dataExported'))
+    }
   } catch (error: any) {
-    appStore.showError(error?.message || t('admin.accounts.dataExportFailed'))
+    if (isStepUpCancelled(error)) {
+      // 用户主动取消 step-up 验证，静默返回，不弹错误提示。
+    } else if (isStepUpBlocked(error)) {
+      appStore.showError(
+        stepUpBlockReason(error) === 'STEP_UP_ADMIN_API_KEY_FORBIDDEN'
+          ? t('stepUp.adminApiKeyForbidden')
+          : t('stepUp.notEnabled')
+      )
+    } else {
+      appStore.showError(error?.message || t('admin.accounts.dataExportFailed'))
+    }
   } finally {
     exportingData.value = false
     showExportDataDialog.value = false
   }
 }
+const accountExportStepUp = useStepUp()
 const closeTestModal = () => { showTest.value = false; testingAcc.value = null }
 const closeStatsModal = () => { showStats.value = false; statsAcc.value = null }
 const closeReAuthModal = () => { showReAuth.value = false; reAuthAcc.value = null }
 const handleTest = (a: Account) => { testingAcc.value = a; showTest.value = true }
 const handleViewStats = (a: Account) => { statsAcc.value = a; showStats.value = true }
-const handleCopy = async (a: Account) => {
-  try {
-    const copied = await adminAPI.accounts.copyAccount(a.id)
-    await reload()
-    appStore.showSuccess(t('admin.accounts.copyAccountSuccess', { name: copied.name }))
-  } catch (error: any) {
-    console.error('Failed to copy account:', error)
-    appStore.showError(error?.message || t('admin.accounts.copyAccountFailed'))
-  }
-}
 const handleSchedule = async (a: Account) => {
   scheduleAcc.value = a
   scheduleModelOptions.value = []
@@ -2529,6 +1910,21 @@ const handleSchedule = async (a: Account) => {
 }
 const closeSchedulePanel = () => { showSchedulePanel.value = false; scheduleAcc.value = null; scheduleModelOptions.value = [] }
 const handleReAuth = (a: Account) => { reAuthAcc.value = a; showReAuth.value = true }
+const duplicatingAccountIDs = new Set<number>()
+const handleDuplicateAccount = async (a: Account) => {
+  if (duplicatingAccountIDs.has(a.id)) return
+  duplicatingAccountIDs.add(a.id)
+  try {
+    const duplicate = await adminAPI.accounts.duplicate(a.id)
+    appStore.showSuccess(t('admin.accounts.duplicateSuccess', { name: duplicate.name }))
+    reload()
+  } catch (error: any) {
+    console.error('Failed to duplicate account:', error)
+    appStore.showError(error?.message || t('admin.accounts.duplicateFailed'))
+  } finally {
+    duplicatingAccountIDs.delete(a.id)
+  }
+}
 const handleRefresh = async (a: Account) => {
   try {
     const updated = await adminAPI.accounts.refreshCredentials(a.id)
@@ -2559,12 +1955,39 @@ const handleResetQuota = async (a: Account) => {
     console.error('Failed to reset quota:', error)
   }
 }
+
+const privacyResultMessageKey = (account: Account): { type: 'success' | 'error'; key: string } => {
+  const mode = typeof account.extra?.privacy_mode === 'string' ? account.extra.privacy_mode : ''
+  if (account.platform === 'openai') {
+    switch (mode) {
+      case 'training_off':
+        return { type: 'success', key: 'admin.accounts.privacyTrainingOff' }
+      case 'training_set_cf_blocked':
+        return { type: 'error', key: 'admin.accounts.privacyCfBlocked' }
+      default:
+        return { type: 'error', key: 'admin.accounts.privacyFailed' }
+    }
+  }
+  if (account.platform === 'antigravity') {
+    if (mode === 'privacy_set') {
+      return { type: 'success', key: 'admin.accounts.privacyAntigravitySet' }
+    }
+    return { type: 'error', key: 'admin.accounts.privacyAntigravityFailed' }
+  }
+  return { type: 'error', key: 'admin.accounts.privacyFailed' }
+}
+
 const handleSetPrivacy = async (a: Account) => {
   try {
     const updated = await adminAPI.accounts.setPrivacy(a.id)
     patchAccountInList(updated)
     enterAutoRefreshSilentWindow()
-    appStore.showSuccess(t('common.success'))
+    const result = privacyResultMessageKey(updated)
+    if (result.type === 'success') {
+      appStore.showSuccess(t(result.key))
+    } else {
+      appStore.showError(t(result.key))
+    }
   } catch (error: any) {
     console.error('Failed to set privacy:', error)
     appStore.showError(error?.response?.data?.message || t('admin.accounts.privacyFailed'))
@@ -2578,6 +2001,24 @@ const onRevertFallback = async (a: Account) => {
   } catch (error: any) {
     console.error('Failed to revert proxy fallback:', error)
     appStore.showError(error?.response?.data?.message || t('admin.accounts.revertProxyFailed'))
+  }
+}
+const handleCreateSparkShadow = (a: Account) => {
+  creatingShadowAcc.value = a
+  showCreateShadowDialog.value = true
+}
+const confirmCreateSparkShadow = async () => {
+  const a = creatingShadowAcc.value
+  if (!a) return
+  try {
+    await adminAPI.accounts.createSparkShadow(a.id, { name: `${a.name} (Spark)` })
+    showCreateShadowDialog.value = false
+    creatingShadowAcc.value = null
+    appStore.showSuccess(t('admin.accounts.createSparkShadowSuccess'))
+    reload()
+  } catch (error: any) {
+    console.error('Failed to create spark shadow:', error)
+    appStore.showError(error?.response?.data?.message || t('admin.accounts.createSparkShadowFailed'))
   }
 }
 const handleDelete = (a: Account) => { deletingAcc.value = a; showDeleteDialog.value = true }
@@ -2629,9 +2070,14 @@ const proxyExpiryText = (p: AccountProxy): string => {
   return params ? t(key, params) : t(key)
 }
 
-// 滚动时关闭操作菜单（不关闭列设置下拉菜单）
+// 表格滚动时关闭行操作菜单，并让顶部工具菜单继续贴紧触发按钮。
 const handleScroll = () => {
   menu.show = false
+  if (showAccountToolsDropdown.value) updateAccountToolsDropdownPosition()
+}
+
+const handleViewportResize = () => {
+  if (showAccountToolsDropdown.value) updateAccountToolsDropdownPosition()
 }
 
 // 点击外部关闭顶部下拉菜单
@@ -2647,21 +2093,16 @@ const handleClickOutside = (event: MouseEvent) => {
 
 onMounted(async () => {
   load()
+  loadUpstreamBillingProbeGlobalState()
   try {
     const [p, g] = await Promise.all([adminAPI.proxies.getAll(), adminAPI.groups.getAll()])
     proxies.value = p
     groups.value = g
-    if (!filterTabs.value.some(tab => tab.id === selectedFilterTabId.value)) {
-      const fallbackTabId = filterTabs.value.some(tab => tab.id === defaultFilterTabId.value)
-        ? defaultFilterTabId.value
-        : ACCOUNT_BUILTIN_ALL_TAB_ID
-      applyFilterTabSelection(fallbackTabId)
-      load()
-    }
   } catch (error) {
     console.error('Failed to load proxies/groups:', error)
   }
   window.addEventListener('scroll', handleScroll, true)
+  window.addEventListener('resize', handleViewportResize)
   document.addEventListener('click', handleClickOutside)
 
   if (autoRefreshEnabled.value) {
@@ -2674,13 +2115,14 @@ onMounted(async () => {
 
 onUnmounted(() => {
   window.removeEventListener('scroll', handleScroll, true)
+  window.removeEventListener('resize', handleViewportResize)
   document.removeEventListener('click', handleClickOutside)
 })
 </script>
 
 <style scoped>
 .account-tools-menu-item {
-  @apply flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700;
+  @apply flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-dark-700;
 }
 
 .account-tools-menu-icon {

@@ -21,12 +21,10 @@ func testConfig() *config.Config {
 
 // mockAccountRepoForPlatform 单平台测试用的 mock
 type mockAccountRepoForPlatform struct {
-	accounts              []Account
-	accountsByID          map[int64]*Account
-	listPlatformFunc      func(ctx context.Context, platform string) ([]Account, error)
-	listGroupPlatformFunc func(ctx context.Context, groupID int64, platform string) ([]Account, error)
-	listUngroupedFunc     func(ctx context.Context, platform string) ([]Account, error)
-	getByIDCalls          int
+	accounts         []Account
+	accountsByID     map[int64]*Account
+	listPlatformFunc func(ctx context.Context, platform string) ([]Account, error)
+	getByIDCalls     int
 }
 
 func (m *mockAccountRepoForPlatform) GetByID(ctx context.Context, id int64) (*Account, error) {
@@ -69,9 +67,6 @@ func (m *mockAccountRepoForPlatform) ListSchedulableByPlatform(ctx context.Conte
 }
 
 func (m *mockAccountRepoForPlatform) ListSchedulableByGroupIDAndPlatform(ctx context.Context, groupID int64, platform string) ([]Account, error) {
-	if m.listGroupPlatformFunc != nil {
-		return m.listGroupPlatformFunc(ctx, groupID, platform)
-	}
 	return m.ListSchedulableByPlatform(ctx, platform)
 }
 
@@ -99,6 +94,9 @@ func (m *mockAccountRepoForPlatform) List(ctx context.Context, params pagination
 }
 func (m *mockAccountRepoForPlatform) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, *pagination.PaginationResult, error) {
 	return nil, nil, nil
+}
+func (m *mockAccountRepoForPlatform) ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, error) {
+	return nil, nil
 }
 func (m *mockAccountRepoForPlatform) ListByGroup(ctx context.Context, groupID int64) ([]Account, error) {
 	return nil, nil
@@ -153,13 +151,40 @@ func (m *mockAccountRepoForPlatform) ListSchedulableByGroupIDAndPlatforms(ctx co
 	return m.ListSchedulableByPlatforms(ctx, platforms)
 }
 func (m *mockAccountRepoForPlatform) ListSchedulableUngroupedByPlatform(ctx context.Context, platform string) ([]Account, error) {
-	if m.listUngroupedFunc != nil {
-		return m.listUngroupedFunc(ctx, platform)
-	}
 	return m.ListSchedulableByPlatform(ctx, platform)
 }
 func (m *mockAccountRepoForPlatform) ListSchedulableUngroupedByPlatforms(ctx context.Context, platforms []string) ([]Account, error) {
 	return m.ListSchedulableByPlatforms(ctx, platforms)
+}
+func (m *mockAccountRepoForPlatform) ListModelAvailabilityCandidates(_ context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error) {
+	platformSet := make(map[string]struct{}, len(platforms))
+	for _, platform := range platforms {
+		platformSet[platform] = struct{}{}
+	}
+	result := make([]Account, 0, len(m.accounts))
+	for _, acc := range m.accounts {
+		_, platformMatched := platformSet[acc.Platform]
+		configured := (acc.Status == StatusActive && acc.Schedulable) || acc.Status == StatusError
+		if !platformMatched || !configured {
+			continue
+		}
+		if groupID != nil {
+			inGroup := false
+			for _, accountGroup := range acc.AccountGroups {
+				if accountGroup.GroupID == *groupID {
+					inGroup = true
+					break
+				}
+			}
+			if !inGroup {
+				continue
+			}
+		} else if !includeGrouped && (len(acc.AccountGroups) > 0 || len(acc.GroupIDs) > 0) {
+			continue
+		}
+		result = append(result, acc)
+	}
+	return result, nil
 }
 func (m *mockAccountRepoForPlatform) SetRateLimited(ctx context.Context, id int64, resetAt time.Time) error {
 	return nil
@@ -208,6 +233,10 @@ func (m *mockAccountRepoForPlatform) ResetQuotaUsed(ctx context.Context, id int6
 
 func (m *mockAccountRepoForPlatform) RevertProxyFallback(ctx context.Context, accountID int64) error {
 	return nil
+}
+
+func (m *mockAccountRepoForPlatform) ListShadowsByParent(ctx context.Context, parentID int64) ([]*Account, error) {
+	return nil, nil
 }
 
 // Verify interface implementation
@@ -713,115 +742,6 @@ func TestGatewayService_SelectAccountForModelWithExclusions_ForcePlatform(t *tes
 	require.NotNil(t, acc)
 	require.Equal(t, int64(2), acc.ID)
 	require.Equal(t, PlatformAntigravity, acc.Platform)
-}
-
-func TestGatewayService_SelectAccountForModelWithPlatform_ProbeRecoversUnschedulableGroupAccount(t *testing.T) {
-	groupID := int64(88)
-	until := time.Now().Add(time.Hour)
-	repo := &mutableRecoveryAccountRepo{
-		accounts: []Account{
-			{
-				ID:                      202,
-				Platform:                PlatformAnthropic,
-				Type:                    AccountTypeAPIKey,
-				Status:                  StatusActive,
-				Schedulable:             false,
-				TempUnschedulableUntil:  &until,
-				TempUnschedulableReason: "temporary upstream failure",
-				Concurrency:             1,
-				GroupIDs:                []int64{groupID},
-			},
-		},
-	}
-	probe := &recordingAccountModelProbe{successByAccount: map[int64]bool{202: true}}
-	svc := &GatewayService{
-		accountRepo:       repo,
-		groupRepo:         &mockGroupRepoForGateway{groups: map[int64]*Group{groupID: {ID: groupID, Platform: PlatformAnthropic}}},
-		cache:             &mockGatewayCacheForPlatform{},
-		accountModelProbe: probe,
-	}
-
-	account, err := svc.selectAccountForModelWithPlatform(context.Background(), &groupID, "", "claude-3-5-sonnet-20241022", nil, PlatformAnthropic)
-
-	require.NoError(t, err)
-	require.NotNil(t, account)
-	require.Equal(t, int64(202), account.ID)
-	require.True(t, repo.accounts[0].Schedulable)
-	require.Nil(t, repo.accounts[0].TempUnschedulableUntil)
-	require.Equal(t, []int64{202}, repo.setSchedulableCalls)
-	require.Equal(t, []int64{202}, repo.clearTempCalls)
-	require.Len(t, probe.calls, 1)
-	require.Equal(t, recordingAccountModelProbeCall{accountID: 202, modelID: "claude-3-5-sonnet-20241022", mode: AccountTestModeDefault}, probe.calls[0])
-}
-
-func TestGatewayService_SelectAccountForModelWithExclusions_ForceGeminiFallbackFindsGroupedGlobalAccount(t *testing.T) {
-	groupID := int64(6)
-	ctx := context.WithValue(context.Background(), ctxkey.ForcePlatform, PlatformGemini)
-
-	var groupCalls int
-	var allPlatformCalls int
-	repo := &mockAccountRepoForPlatform{
-		listGroupPlatformFunc: func(ctx context.Context, gotGroupID int64, platform string) ([]Account, error) {
-			groupCalls++
-			require.Equal(t, groupID, gotGroupID)
-			require.Equal(t, PlatformGemini, platform)
-			return nil, nil
-		},
-		listPlatformFunc: func(ctx context.Context, platform string) ([]Account, error) {
-			allPlatformCalls++
-			require.Equal(t, PlatformGemini, platform)
-			return []Account{
-				{
-					ID:          307,
-					Name:        "zjarlin_gemini_aistudio",
-					Platform:    PlatformGemini,
-					Priority:    1,
-					Status:      StatusActive,
-					Schedulable: true,
-					Concurrency: 1,
-					Credentials: map[string]any{
-						"model_mapping": map[string]any{
-							"gemini-3.5-flash": "gemini-3.5-flash",
-						},
-					},
-				},
-			}, nil
-		},
-		listUngroupedFunc: func(ctx context.Context, platform string) ([]Account, error) {
-			t.Fatalf("forced Gemini fallback must query all platform accounts, not ungrouped accounts")
-			return nil, nil
-		},
-		accountsByID: map[int64]*Account{
-			307: {
-				ID:          307,
-				Name:        "zjarlin_gemini_aistudio",
-				Platform:    PlatformGemini,
-				Priority:    1,
-				Status:      StatusActive,
-				Schedulable: true,
-				Concurrency: 1,
-				Credentials: map[string]any{
-					"model_mapping": map[string]any{
-						"gemini-3.5-flash": "gemini-3.5-flash",
-					},
-				},
-			},
-		},
-	}
-
-	svc := &GatewayService{
-		accountRepo: repo,
-		cache:       &mockGatewayCacheForPlatform{},
-		cfg:         testConfig(),
-	}
-
-	acc, err := svc.SelectAccountForModelWithExclusions(ctx, &groupID, "", "gemini-3.5-flash", nil)
-	require.NoError(t, err)
-	require.NotNil(t, acc)
-	require.Equal(t, int64(307), acc.ID)
-	require.Equal(t, "zjarlin_gemini_aistudio", acc.Name)
-	require.Equal(t, 1, groupCalls)
-	require.Equal(t, 1, allPlatformCalls)
 }
 
 func TestGatewayService_SelectAccountForModelWithPlatform_RoutedStickySessionClears(t *testing.T) {
@@ -2210,6 +2130,10 @@ func (m *mockConcurrencyCache) CleanupExpiredAccountSlots(ctx context.Context, a
 	return nil
 }
 
+func (m *mockConcurrencyCache) CleanupExpiredAccountSlotKeys(ctx context.Context) error {
+	return nil
+}
+
 func (m *mockConcurrencyCache) CleanupStaleProcessSlots(ctx context.Context, activeRequestPrefix string) error {
 	return nil
 }
@@ -2260,83 +2184,6 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 		require.NotNil(t, result)
 		require.NotNil(t, result.Account)
 		require.Equal(t, int64(1), result.Account.ID, "应选择优先级最高的账号")
-	})
-
-	t.Run("强制Gemini平台分组为空时回退全局账号", func(t *testing.T) {
-		groupID := int64(6)
-		ctx := context.WithValue(context.Background(), ctxkey.ForcePlatform, PlatformGemini)
-
-		var groupCalls int
-		var allPlatformCalls int
-		repo := &mockAccountRepoForPlatform{
-			listGroupPlatformFunc: func(ctx context.Context, gotGroupID int64, platform string) ([]Account, error) {
-				groupCalls++
-				require.Equal(t, groupID, gotGroupID)
-				require.Equal(t, PlatformGemini, platform)
-				return nil, nil
-			},
-			listPlatformFunc: func(ctx context.Context, platform string) ([]Account, error) {
-				allPlatformCalls++
-				require.Equal(t, PlatformGemini, platform)
-				return []Account{
-					{
-						ID:          307,
-						Name:        "zjarlin_gemini_aistudio",
-						Platform:    PlatformGemini,
-						Priority:    1,
-						Status:      StatusActive,
-						Schedulable: true,
-						Concurrency: 1,
-						Credentials: map[string]any{
-							"model_mapping": map[string]any{
-								"gemini-3.5-flash": "gemini-3.5-flash",
-							},
-						},
-					},
-				}, nil
-			},
-			listUngroupedFunc: func(ctx context.Context, platform string) ([]Account, error) {
-				t.Fatalf("forced Gemini global fallback must query all platform accounts, not ungrouped accounts")
-				return nil, nil
-			},
-			accountsByID: map[int64]*Account{
-				307: {
-					ID:          307,
-					Name:        "zjarlin_gemini_aistudio",
-					Platform:    PlatformGemini,
-					Priority:    1,
-					Status:      StatusActive,
-					Schedulable: true,
-					Concurrency: 1,
-					Credentials: map[string]any{
-						"model_mapping": map[string]any{
-							"gemini-3.5-flash": "gemini-3.5-flash",
-						},
-					},
-				},
-			},
-		}
-
-		cfg := testConfig()
-		cfg.Gateway.Scheduling.LoadBatchEnabled = true
-		concurrencyCache := &mockConcurrencyCache{}
-		svc := &GatewayService{
-			accountRepo:        repo,
-			cache:              &mockGatewayCacheForPlatform{},
-			cfg:                cfg,
-			concurrencyService: NewConcurrencyService(concurrencyCache),
-		}
-
-		result, err := svc.SelectAccountWithLoadAwareness(ctx, &groupID, "", "gemini-3.5-flash", nil, "", int64(0))
-		require.NoError(t, err)
-		require.NotNil(t, result)
-		require.NotNil(t, result.Account)
-		require.Equal(t, int64(307), result.Account.ID)
-		require.Equal(t, "zjarlin_gemini_aistudio", result.Account.Name)
-		require.True(t, result.Acquired)
-		require.NotNil(t, result.ReleaseFunc)
-		require.Equal(t, 1, groupCalls)
-		require.Equal(t, 1, allPlatformCalls)
 	})
 
 	t.Run("模型路由-无ConcurrencyService也生效", func(t *testing.T) {

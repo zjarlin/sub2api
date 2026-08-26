@@ -1,6 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { PAYMENT_STATUS_POLL_INTERVAL_MS } from '../constants'
 
 const pollOrderStatus = vi.hoisted(() => vi.fn())
 const cancelOrder = vi.hoisted(() => vi.fn())
@@ -93,7 +92,7 @@ describe('PaymentStatusPanel', () => {
     })
 
     await flushPromises()
-    await vi.advanceTimersByTimeAsync(PAYMENT_STATUS_POLL_INTERVAL_MS)
+    await vi.advanceTimersByTimeAsync(3000)
     await flushPromises()
 
     expect(pollOrderStatus).toHaveBeenCalledWith(42)
@@ -131,6 +130,28 @@ describe('PaymentStatusPanel', () => {
     )
 
     openSpy.mockRestore()
+  })
+
+  it('uses generic QR copy for custom methods that contain built-in names', async () => {
+    const wrapper = mount(PaymentStatusPanel, {
+      props: {
+        orderId: 42,
+        qrCode: 'https://pay.example.com/qr/42',
+        expiresAt: '2099-01-01T12:30:00Z',
+        paymentType: 'card_alipay',
+        orderType: 'balance',
+      },
+      global: {
+        stubs: {
+          Icon: true,
+        },
+      },
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('payment.qr.scanToPay')
+    expect(wrapper.text()).not.toContain('payment.qr.scanAlipay')
   })
 
   it('actively verifies a stuck pending order and settles it when upstream confirms payment', async () => {

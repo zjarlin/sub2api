@@ -307,8 +307,7 @@ func (s *GeminiMessagesCompatService) passesRateLimitPreCheckWithCache(ctx conte
 		}
 	}
 
-	precheckModel := resolveGeminiForwardModel(account, requestedModel)
-	ok, err := s.rateLimitService.PreCheckUsage(ctx, account, precheckModel)
+	ok, err := s.rateLimitService.PreCheckUsage(ctx, account, requestedModel)
 	if err != nil {
 		logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini PreCheck] Account %d precheck error: %v", account.ID, err)
 	}
@@ -363,27 +362,16 @@ func (s *GeminiMessagesCompatService) buildPreCheckUsageResultMap(ctx context.Co
 		return nil
 	}
 
-	candidatesByModel := make(map[string][]*Account)
+	candidates := make([]*Account, 0, len(accounts))
 	for i := range accounts {
-		account := &accounts[i]
-		precheckModel := resolveGeminiForwardModel(account, requestedModel)
-		if precheckModel == "" {
-			precheckModel = requestedModel
-		}
-		candidatesByModel[precheckModel] = append(candidatesByModel[precheckModel], account)
+		candidates = append(candidates, &accounts[i])
 	}
 
-	merged := make(map[int64]bool, len(accounts))
-	for precheckModel, candidates := range candidatesByModel {
-		result, err := s.rateLimitService.PreCheckUsageBatch(ctx, candidates, precheckModel)
-		if err != nil {
-			logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini PreCheckBatch] failed for model %s: %v", precheckModel, err)
-		}
-		for accountID, ok := range result {
-			merged[accountID] = ok
-		}
+	result, err := s.rateLimitService.PreCheckUsageBatch(ctx, candidates, requestedModel)
+	if err != nil {
+		logger.LegacyPrintf("service.gemini_messages_compat", "[Gemini PreCheckBatch] failed: %v", err)
 	}
-	return merged
+	return result
 }
 
 // isBetterGeminiAccount 判断 candidate 是否比 current 更优。
@@ -425,9 +413,6 @@ func (s *GeminiMessagesCompatService) isModelSupportedByAccount(account *Account
 		}
 		return mapAntigravityModel(account, requestedModel) != ""
 	}
-	if account.Platform == PlatformGemini {
-		return geminiAccountSupportsRequestedModel(account, requestedModel)
-	}
 	return account.IsModelSupported(requestedModel)
 }
 
@@ -454,16 +439,13 @@ func (s *GeminiMessagesCompatService) hydrateSelectedAccount(ctx context.Context
 	if hydrated == nil {
 		return nil, fmt.Errorf("selected gemini account %d not found during hydration", account.ID)
 	}
-	if !IsAccountVisibleToContext(ctx, hydrated) {
-		return nil, fmt.Errorf("selected gemini account %d is not visible to current user", account.ID)
-	}
 	return hydrated, nil
 }
 
 func (s *GeminiMessagesCompatService) listSchedulableAccountsOnce(ctx context.Context, groupID *int64, platform string, hasForcePlatform bool) ([]Account, error) {
 	if s.schedulerSnapshot != nil {
 		accounts, _, err := s.schedulerSnapshot.ListSchedulableAccounts(ctx, groupID, platform, hasForcePlatform)
-		return FilterAccountsVisibleToContext(ctx, accounts), err
+		return accounts, err
 	}
 
 	useMixedScheduling := platform == PlatformGemini && !hasForcePlatform
@@ -474,9 +456,6 @@ func (s *GeminiMessagesCompatService) listSchedulableAccountsOnce(ctx context.Co
 
 	if groupID != nil {
 		return s.accountRepo.ListSchedulableByGroupIDAndPlatforms(ctx, *groupID, queryPlatforms)
-	}
-	if hasForcePlatform && shouldFallbackForcePlatformGlobally(platform) {
-		return s.accountRepo.ListSchedulableByPlatforms(ctx, queryPlatforms)
 	}
 	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
 		return s.accountRepo.ListSchedulableByPlatforms(ctx, queryPlatforms)
@@ -615,8 +594,10 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 	}
 
 	originalModel := req.Model
-	mappedModel := resolveGeminiForwardModel(account, req.Model)
-	SetOpsModelDiagnostics(c, originalModel, mappedModel)
+	mappedModel := req.Model
+	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
+		mappedModel = account.GetMappedModel(req.Model)
+	}
 
 	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(body)
 	if err != nil {
@@ -851,15 +832,18 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 
 				var strippedClaudeBody []byte
 				stageName := ""
+				// 路径说明：本处上游是 Gemini，但被剥离的 body 是 Anthropic 格式。传 originalModel
+				// （客户端原 Anthropic model）而非 mappedModel（上游 Gemini model），让剥离逻辑按
+				// 客户端请求的 Anthropic 子协议族判定（详见 ResolveThinkingProtocol 文档）。
 				switch signatureRetryStage {
 				case 0:
 					// Stage 1: disable thinking + thinking->text
-					strippedClaudeBody = FilterThinkingBlocksForRetry(originalClaudeBody)
+					strippedClaudeBody = FilterThinkingBlocksForRetry(originalClaudeBody, originalModel)
 					stageName = "thinking-only"
 					signatureRetryStage = 1
 				default:
 					// Stage 2: additionally downgrade tool_use/tool_result blocks to text
-					strippedClaudeBody = FilterSignatureSensitiveBlocksForRetry(originalClaudeBody)
+					strippedClaudeBody = FilterSignatureSensitiveBlocksForRetry(originalClaudeBody, originalModel)
 					stageName = "thinking+tools"
 					signatureRetryStage = 2
 				}
@@ -883,7 +867,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		}
 
 		// 错误策略优先：匹配则跳过重试直接处理。
-		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp); matched {
+		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, mappedModel); matched {
 			resp = rebuilt
 			break
 		} else {
@@ -903,15 +887,8 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				break
 			}
 			if resp.StatusCode == 429 {
-				// Quota exhaustion is not made healthier by retrying the same API key/token.
-				// Persist the cooldown immediately and let the handler fail over to another account.
+				// Mark as rate-limited early so concurrent requests avoid this account.
 				s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
-				resp = &http.Response{
-					StatusCode: resp.StatusCode,
-					Header:     resp.Header.Clone(),
-					Body:       io.NopCloser(bytes.NewReader(respBody)),
-				}
-				break
 			}
 			if attempt < geminiMaxRetries {
 				upstreamReqID := resp.Header.Get(requestIDHeader)
@@ -960,7 +937,8 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		respBody := s.readUpstreamErrorBody(resp)
 		// 统一错误策略：自定义错误码 + 临时不可调度
 		if s.rateLimitService != nil {
-			switch s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody) {
+			policy := s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody, mappedModel)
+			switch policy {
 			case ErrorPolicySkipped:
 				upstreamReqID := resp.Header.Get(requestIDHeader)
 				if upstreamReqID == "" {
@@ -968,7 +946,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				}
 				return nil, s.writeGeminiMappedError(c, account, http.StatusInternalServerError, upstreamReqID, respBody)
 			case ErrorPolicyMatched, ErrorPolicyTempUnscheduled:
-				s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+				if policy == ErrorPolicyMatched {
+					s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+				}
 				upstreamReqID := resp.Header.Get(requestIDHeader)
 				if upstreamReqID == "" {
 					upstreamReqID = resp.Header.Get("x-goog-request-id")
@@ -1161,8 +1141,10 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	// `thoughtSignature` to avoid frequent INVALID_ARGUMENT 400s.
 	body = ensureGeminiFunctionCallThoughtSignatures(body)
 
-	mappedModel := resolveGeminiForwardModel(account, originalModel)
-	SetOpsModelDiagnostics(c, originalModel, mappedModel)
+	mappedModel := originalModel
+	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
+		mappedModel = account.GetMappedModel(originalModel)
+	}
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
@@ -1357,7 +1339,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		}
 
 		// 错误策略优先：匹配则跳过重试直接处理。
-		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp); matched {
+		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, mappedModel); matched {
 			resp = rebuilt
 			break
 		} else {
@@ -1377,28 +1359,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				break
 			}
 			if resp.StatusCode == 429 {
-				// Quota exhaustion is not made healthier by retrying the same API key/token.
-				// Persist the cooldown immediately and let the handler fail over to another account.
 				s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
-				if action == "countTokens" {
-					estimated := estimateGeminiCountTokens(body)
-					c.JSON(http.StatusOK, map[string]any{"totalTokens": estimated})
-					return &ForwardResult{
-						RequestID:     "",
-						Usage:         ClaudeUsage{},
-						Model:         originalModel,
-						UpstreamModel: mappedModel,
-						Stream:        false,
-						Duration:      time.Since(startTime),
-						FirstTokenMs:  nil,
-					}, nil
-				}
-				resp = &http.Response{
-					StatusCode: resp.StatusCode,
-					Header:     resp.Header.Clone(),
-					Body:       io.NopCloser(bytes.NewReader(respBody)),
-				}
-				break
 			}
 			if attempt < geminiMaxRetries {
 				upstreamReqID := resp.Header.Get(requestIDHeader)
@@ -1487,17 +1448,21 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 
 		// 统一错误策略：自定义错误码 + 临时不可调度
 		if s.rateLimitService != nil {
-			switch s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody) {
+			policy := s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, respBody, mappedModel)
+			switch policy {
 			case ErrorPolicySkipped:
 				respBody = unwrapIfNeeded(isOAuth, respBody)
 				contentType := resp.Header.Get("Content-Type")
 				if contentType == "" {
 					contentType = "application/json"
 				}
+				MarkResponseCommitted(c)
 				c.Data(http.StatusInternalServerError, contentType, respBody)
 				return nil, fmt.Errorf("gemini upstream error: %d (skipped by error policy)", resp.StatusCode)
 			case ErrorPolicyMatched, ErrorPolicyTempUnscheduled:
-				s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+				if policy == ErrorPolicyMatched {
+					s.handleGeminiUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody)
+				}
 				evBody := unwrapIfNeeded(isOAuth, respBody)
 				upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(evBody))
 				upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
@@ -1606,6 +1571,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		if contentType == "" {
 			contentType = "application/json"
 		}
+		MarkResponseCommitted(c)
 		c.Data(resp.StatusCode, contentType, respBody)
 		if upstreamMsg == "" {
 			return nil, fmt.Errorf("gemini upstream error: %d", resp.StatusCode)
@@ -1671,7 +1637,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 // 返回 true 表示策略已匹配（调用者应 break），resp 已重建可直接使用。
 // 返回 false 表示 ErrorPolicyNone，resp 已重建，调用者继续走重试逻辑。
 func (s *GeminiMessagesCompatService) checkErrorPolicyInLoop(
-	ctx context.Context, account *Account, resp *http.Response,
+	ctx context.Context, account *Account, resp *http.Response, mappedModel string,
 ) (matched bool, rebuilt *http.Response) {
 	if resp.StatusCode < 400 || s.rateLimitService == nil {
 		return false, resp
@@ -1683,7 +1649,7 @@ func (s *GeminiMessagesCompatService) checkErrorPolicyInLoop(
 		Header:     resp.Header.Clone(),
 		Body:       io.NopCloser(bytes.NewReader(body)),
 	}
-	policy := s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, body)
+	policy := s.rateLimitService.CheckErrorPolicy(ctx, account, resp.StatusCode, body, mappedModel)
 	return policy != ErrorPolicyNone, rebuilt
 }
 
@@ -1745,6 +1711,7 @@ func sanitizeUpstreamErrorMessage(msg string) string {
 }
 
 func (s *GeminiMessagesCompatService) writeGeminiMappedError(c *gin.Context, account *Account, upstreamStatus int, upstreamRequestID string, body []byte) error {
+	MarkResponseCommitted(c)
 	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(body))
 	upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 	upstreamDetail := ""
@@ -2288,6 +2255,7 @@ func randomHex(nBytes int) string {
 }
 
 func (s *GeminiMessagesCompatService) writeClaudeError(c *gin.Context, status int, errType, message string) error {
+	MarkResponseCommitted(c)
 	c.JSON(status, gin.H{
 		"type":  "error",
 		"error": gin.H{"type": errType, "message": message},
@@ -2296,6 +2264,7 @@ func (s *GeminiMessagesCompatService) writeClaudeError(c *gin.Context, status in
 }
 
 func (s *GeminiMessagesCompatService) writeGoogleError(c *gin.Context, status int, message string) error {
+	MarkResponseCommitted(c)
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"code":    status,
@@ -3456,6 +3425,7 @@ func cleanToolSchema(schema any) any {
 		for key, value := range v {
 			// 跳过不支持的字段
 			if key == "$schema" || key == "$id" || key == "$ref" ||
+				key == "$defs" || key == "definitions" ||
 				key == "additionalProperties" || key == "patternProperties" || key == "minLength" ||
 				key == "maxLength" || key == "minItems" || key == "maxItems" {
 				continue
@@ -3466,6 +3436,17 @@ func cleanToolSchema(schema any) any {
 		// 规范化 type 字段为大写
 		if typeVal, ok := cleaned["type"].(string); ok {
 			cleaned["type"] = strings.ToUpper(typeVal)
+		} else if typeValues, ok := cleaned["type"].([]any); ok {
+			for _, typeValue := range typeValues {
+				typeName, ok := typeValue.(string)
+				if ok && !strings.EqualFold(typeName, "null") {
+					cleaned["type"] = strings.ToUpper(typeName)
+					break
+				}
+			}
+			if _, ok := cleaned["type"].([]any); ok {
+				delete(cleaned, "type")
+			}
 		}
 		return cleaned
 	case []any:

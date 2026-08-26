@@ -6,7 +6,7 @@ import (
 	"errors"
 	"hash/fnv"
 	"log/slog"
-	"net/http"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -14,13 +14,14 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
 type Account struct {
 	ID                      int64
 	Name                    string
 	Notes                   *string
-	OwnerUserID             *int64
 	Platform                string
 	Type                    string
 	Credentials             map[string]any
@@ -51,16 +52,12 @@ type Account struct {
 	TempUnschedulableUntil  *time.Time
 	TempUnschedulableReason string
 
-	KiroQuotaState     string
-	KiroQuotaReason    string
-	KiroQuotaResetAt   *time.Time
-	KiroRuntimeState   string
-	KiroRuntimeReason  string
-	KiroRuntimeResetAt *time.Time
-
 	SessionWindowStart  *time.Time
 	SessionWindowEnd    *time.Time
 	SessionWindowStatus string
+
+	ParentAccountID *int64 // non-nil → 影子账号（不持凭据，透传母账号凭据）
+	QuotaDimension  string // 用量维度："" / "global" / "spark"
 
 	Proxy         *Proxy
 	AccountGroups []AccountGroup
@@ -68,27 +65,69 @@ type Account struct {
 	Groups        []*Group
 
 	// model_mapping 热路径缓存（非持久化字段）
-	modelMappingCache       map[string]string
-	modelMappingCacheReady  bool
-	modelMappingCacheRawLen int
-	modelMappingCacheRawSig uint64
+	modelMappingCache               map[string]string
+	modelMappingCacheReady          bool
+	modelMappingCacheCredentialsPtr uintptr
+	modelMappingCacheRawPtr         uintptr
+	modelMappingCacheRawLen         int
+	modelMappingCacheRawSig         uint64
+
+	// header_overrides 热路径缓存（非持久化字段，同 model_mapping 缓存先例）
+	headerOverrideCache               map[string]string
+	headerOverrideCacheReady          bool
+	headerOverrideCacheCredentialsPtr uintptr
+	headerOverrideCacheRawPtr         uintptr
+	headerOverrideCacheRawLen         int
+	headerOverrideCacheRawSig         uint64
 }
 
 type OpenAIEndpointCapability string
 
+const openAILongContextBillingEnabledKey = "openai_long_context_billing_enabled"
+
 const (
 	OpenAIEndpointCapabilityChatCompletions OpenAIEndpointCapability = "chat_completions"
 	OpenAIEndpointCapabilityEmbeddings      OpenAIEndpointCapability = "embeddings"
-	OpenAIEndpointCapabilityVideos          OpenAIEndpointCapability = "videos"
+	OpenAIEndpointCapabilityAlphaSearch     OpenAIEndpointCapability = "alpha_search"
+	// OpenAIEndpointCapabilityGrokMediaGeneration keeps image/video generation
+	// away from Grok accounts that are explicitly disabled or whose billing
+	// entitlement probe was forbidden. Video status lookups intentionally do not
+	// require this capability so already-submitted requests remain queryable.
+	OpenAIEndpointCapabilityGrokMediaGeneration OpenAIEndpointCapability = "grok_media_generation"
+	// OpenAIEndpointCapabilityResponses 表示上游确实提供 /v1/responses 端点。
+	// 与其他能力不同：支持状态来自 accounts.extra 的自动探测标记
+	// （openai_responses_supported / openai_responses_mode），而非
+	// credentials["openai_capabilities"] 配置集。仅用于生图意图的 /v1/responses
+	// 调度，避免把请求调度到会在 forward 阶段被降级为 Chat Completions 的账号（#4417）。
+	OpenAIEndpointCapabilityResponses OpenAIEndpointCapability = "responses"
 )
 
 const openAIEndpointCapabilitiesCredentialKey = "openai_capabilities"
+
+// GrokMediaEligibleExtraKey is an optional per-account override stored in
+// accounts.extra. true forces media routing on, false disables it, and an
+// absent/null value uses provider observations.
+const GrokMediaEligibleExtraKey = "grok_media_eligible"
+
+const (
+	OpenAIAuthModePersonalAccessToken = "personalAccessToken"
+	openAIAuthModeCredentialKey       = "auth_mode"
+	openAIAuthModeLegacyCredentialKey = "openai_auth_mode"
+)
+
+func isOpenAIPersonalAccessTokenAuthMode(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "personalaccesstoken", "personal_access_token":
+		return true
+	default:
+		return false
+	}
+}
 
 type TempUnschedulableRule struct {
 	ErrorCode       int      `json:"error_code"`
 	Keywords        []string `json:"keywords"`
 	DurationMinutes int      `json:"duration_minutes"`
-	TriggerCount    int      `json:"trigger_count,omitempty"`
 	Description     string   `json:"description"`
 }
 
@@ -108,16 +147,6 @@ func (a *Account) BillingRateMultiplier() float64 {
 		return 1.0
 	}
 	return *a.RateMultiplier
-}
-
-func (a *Account) UpstreamEffectiveRateMultiplier() float64 {
-	if a == nil {
-		return 1.0
-	}
-	if parsed, ok := upstreamKeyRateMultiplierFromExtra(a.Extra, time.Now()); ok {
-		return parsed
-	}
-	return a.BillingRateMultiplier()
 }
 
 func (a *Account) EffectiveLoadFactor() int {
@@ -151,6 +180,32 @@ func (a *Account) IsSchedulable() bool {
 		return false
 	}
 	if a.IsAPIKeyOrBedrock() && a.IsQuotaExceeded() {
+		return false
+	}
+	return true
+}
+
+// IsCredentialUsableForShadow 报告本账号(作为某 spark 影子的母账号)的凭据/传输是否可被影子透传使用。
+//
+// 检查「凭据/账号/传输可用性」:
+//   - 账号 active(非禁用/删除);
+//   - OAuth token 未过期(AutoPauseOnExpired+ExpiresAt);
+//   - 未处于 TempUnschedulableUntil 冷却期 —— 对 OpenAI 账号该字段由 401 鉴权失败 /
+//     token 刷新耗尽 / transport·proxy 故障写入(ratelimit/token_refresh/upstream_transport),
+//     都代表**共享凭据或传输通道坏死**;影子共享母 token+proxy,故母处于该冷却期时影子也不可用。
+//
+// **刻意排除** global 维度的限流/过载窗口(RateLimitResetAt / OverloadUntil)与母账号自身的
+// 手动 Schedulable 开关:spark 影子拥有独立 spark 配额窗口,母账号 global 429(走 RateLimitResetAt)
+// 不应连坐 spark(否则重新耦合影子架构本应解耦的两条 429 道)。nil receiver 返回 false。
+func (a *Account) IsCredentialUsableForShadow() bool {
+	if a == nil || !a.IsActive() {
+		return false
+	}
+	now := time.Now()
+	if a.AutoPauseOnExpired && a.ExpiresAt != nil && !now.Before(*a.ExpiresAt) {
+		return false
+	}
+	if a.TempUnschedulableUntil != nil && now.Before(*a.TempUnschedulableUntil) {
 		return false
 	}
 	return true
@@ -193,8 +248,16 @@ func (a *Account) IsGemini() bool {
 	return a.Platform == PlatformGemini
 }
 
-func (a *Account) IsKiro() bool {
-	return a.Platform == PlatformKiro
+func (a *Account) IsGrok() bool {
+	return a.Platform == PlatformGrok
+}
+
+func (a *Account) IsGrokOAuth() bool {
+	return a.IsGrok() && a.Type == AccountTypeOAuth
+}
+
+func (a *Account) IsOpenAICompatible() bool {
+	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok)
 }
 
 func (a *Account) GeminiOAuthType() string {
@@ -344,11 +407,7 @@ func (a *Account) GetTempUnschedulableRules() []TempUnschedulableRule {
 			ErrorCode:       parseTempUnschedInt(entry["error_code"]),
 			Keywords:        parseTempUnschedStrings(entry["keywords"]),
 			DurationMinutes: parseTempUnschedInt(entry["duration_minutes"]),
-			TriggerCount:    parseTempUnschedInt(entry["trigger_count"]),
 			Description:     parseTempUnschedString(entry["description"]),
-		}
-		if rule.TriggerCount <= 0 {
-			rule.TriggerCount = 1
 		}
 
 		if rule.ErrorCode <= 0 || rule.DurationMinutes <= 0 || len(rule.Keywords) == 0 {
@@ -481,36 +540,67 @@ func stringMappingFromRaw(raw any) map[string]string {
 }
 
 func (a *Account) GetModelMapping() map[string]string {
-	var rawMapping map[string]string
-	if a.Credentials != nil {
-		rawMapping = stringMappingFromRaw(a.Credentials["model_mapping"])
-	}
+	credentialsPtr := mapPtr(a.Credentials)
+	rawMapping, _ := a.Credentials["model_mapping"].(map[string]any)
+	rawPtr := mapPtr(rawMapping)
 	rawLen := len(rawMapping)
-	rawSig := modelMappingSignature(rawMapping)
+	rawSig := uint64(0)
+	rawSigReady := false
 
 	if a.modelMappingCacheReady &&
-		a.modelMappingCacheRawLen == rawLen &&
-		a.modelMappingCacheRawSig == rawSig {
-		return a.modelMappingCache
+		a.modelMappingCacheCredentialsPtr == credentialsPtr &&
+		a.modelMappingCacheRawPtr == rawPtr &&
+		a.modelMappingCacheRawLen == rawLen {
+		rawSig = modelMappingSignature(rawMapping)
+		rawSigReady = true
+		if a.modelMappingCacheRawSig == rawSig {
+			return a.modelMappingCache
+		}
 	}
 
-	mapping := a.resolveStringModelMapping(rawMapping)
+	mapping := a.resolveModelMapping(rawMapping)
+	if !rawSigReady {
+		rawSig = modelMappingSignature(rawMapping)
+	}
 
 	a.modelMappingCache = mapping
 	a.modelMappingCacheReady = true
+	a.modelMappingCacheCredentialsPtr = credentialsPtr
+	a.modelMappingCacheRawPtr = rawPtr
 	a.modelMappingCacheRawLen = rawLen
 	a.modelMappingCacheRawSig = rawSig
 	return mapping
 }
 
-func (a *Account) resolveStringModelMapping(rawMapping map[string]string) map[string]string {
+func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]string {
+	if a.Credentials == nil {
+		// Antigravity 平台使用默认映射
+		if a.Platform == domain.PlatformAntigravity {
+			return domain.DefaultAntigravityModelMapping
+		}
+		if a.Platform == domain.PlatformGrok {
+			return xai.DefaultModelMapping()
+		}
+		// Bedrock 默认映射由 forwardBedrock 统一处理（需配合 region prefix 调整）
+		return nil
+	}
 	if len(rawMapping) == 0 {
-		if defaults := a.defaultModelMapping(); defaults != nil {
-			return defaults
+		// Antigravity 平台使用默认映射
+		if a.Platform == domain.PlatformAntigravity {
+			return domain.DefaultAntigravityModelMapping
+		}
+		if a.Platform == domain.PlatformGrok {
+			return xai.DefaultModelMapping()
 		}
 		return nil
 	}
-	result := cloneStringMap(rawMapping)
+
+	result := make(map[string]string)
+	for k, v := range rawMapping {
+		if s, ok := v.(string); ok {
+			result[k] = s
+		}
+	}
 	if len(result) > 0 {
 		if a.Platform == domain.PlatformAntigravity {
 			ensureAntigravityDefaultPassthroughs(result, []string{
@@ -518,306 +608,29 @@ func (a *Account) resolveStringModelMapping(rawMapping map[string]string) map[st
 				"gemini-3.1-pro-high",
 				"gemini-3.1-pro-low",
 			})
+			applyAntigravityGemini31ProAliases(result)
 		}
 		return result
 	}
-	if defaults := a.defaultModelMapping(); defaults != nil {
-		return defaults
+
+	// Antigravity 平台使用默认映射
+	if a.Platform == domain.PlatformAntigravity {
+		return domain.DefaultAntigravityModelMapping
+	}
+	if a.Platform == domain.PlatformGrok {
+		return xai.DefaultModelMapping()
 	}
 	return nil
 }
 
-func (a *Account) defaultModelMapping() map[string]string {
-	if a == nil {
-		return nil
+func mapPtr(m map[string]any) uintptr {
+	if m == nil {
+		return 0
 	}
-	if a.Platform == PlatformOpenAI && a.Type == AccountTypeAPIKey {
-		if defaults := defaultOpenAIModelMappingForVendor(a.GetOpenAIVendor()); defaults != nil {
-			return defaults
-		}
-	}
-	return defaultModelMappingForPlatform(a.Platform)
+	return reflect.ValueOf(m).Pointer()
 }
 
-func defaultModelMappingForPlatform(platform string) map[string]string {
-	switch platform {
-	case domain.PlatformAntigravity:
-		return domain.DefaultAntigravityModelMapping
-	case domain.PlatformKiro:
-		return domain.DefaultKiroModelMapping
-	default:
-		return nil
-	}
-}
-
-var openAILocalProxyDefaultModelMapping = map[string]string{
-	"smart":                          "pool:smart",
-	"pool:smart":                     "pool:smart",
-	"doubao":                         "doubao:doubao",
-	"doubao:doubao":                  "doubao:doubao",
-	"doubao-pro":                     "doubao:doubao-pro",
-	"doubao:doubao-pro":              "doubao:doubao-pro",
-	"kimi-k2.5":                      "kimi:kimi-k2.5",
-	"kimi:kimi-k2.5":                 "kimi:kimi-k2.5",
-	"kimi-k2":                        "kimi:kimi-k2",
-	"kimi:kimi-k2":                   "kimi:kimi-k2",
-	"kimi-k2.5-thinking":             "kimi:kimi-k2.5-thinking",
-	"kimi:kimi-k2.5-thinking":        "kimi:kimi-k2.5-thinking",
-	"kimi-k2-thinking":               "kimi:kimi-k2-thinking",
-	"kimi:kimi-k2-thinking":          "kimi:kimi-k2-thinking",
-	"kimi-k2.5-search":               "kimi:kimi-k2.5-search",
-	"kimi:kimi-k2.5-search":          "kimi:kimi-k2.5-search",
-	"kimi-k2-search":                 "kimi:kimi-k2-search",
-	"kimi:kimi-k2-search":            "kimi:kimi-k2-search",
-	"kimi-k2.5-thinking-search":      "kimi:kimi-k2.5-thinking-search",
-	"kimi:kimi-k2.5-thinking-search": "kimi:kimi-k2.5-thinking-search",
-	"kimi-k2.5-search-thinking":      "kimi:kimi-k2.5-search-thinking",
-	"kimi:kimi-k2.5-search-thinking": "kimi:kimi-k2.5-search-thinking",
-	"kimi-k2-thinking-search":        "kimi:kimi-k2-thinking-search",
-	"kimi:kimi-k2-thinking-search":   "kimi:kimi-k2-thinking-search",
-	"kimi-k2-search-thinking":        "kimi:kimi-k2-search-thinking",
-	"kimi:kimi-k2-search-thinking":   "kimi:kimi-k2-search-thinking",
-	"kimi-thinking":                  "kimi:kimi-thinking",
-	"kimi:kimi-thinking":             "kimi:kimi-thinking",
-	"kimi-search":                    "kimi:kimi-search",
-	"kimi:kimi-search":               "kimi:kimi-search",
-	"kimi-thinking-search":           "kimi:kimi-thinking-search",
-	"kimi:kimi-thinking-search":      "kimi:kimi-thinking-search",
-	"kimi-search-thinking":           "kimi:kimi-search-thinking",
-	"kimi:kimi-search-thinking":      "kimi:kimi-search-thinking",
-	"gpt-4o":                         "pool:smart",
-	"gpt-4o-mini":                    "pool:smart",
-	"gpt-4.1":                        "pool:smart",
-	"gpt-4.1-mini":                   "pool:smart",
-	"gpt-5.4":                        "pool:smart",
-	"gpt-5-mini":                     "pool:smart",
-	"gpt-5-nano":                     "pool:smart",
-	"claude-3.7-sonnet":              "opencode/nemotron-3-super-free",
-	"claude-sonnet-4":                "opencode/nemotron-3-super-free",
-	"gemini-2.5-flash":               "gemini:gemini-2.5-flash",
-	"gemini:gemini-2.5-flash":        "gemini:gemini-2.5-flash",
-	"gemini-2.5-pro":                 "gemini:gemini-2.5-pro",
-	"gemini:gemini-2.5-pro":          "gemini:gemini-2.5-pro",
-	"mimo-v2.5":                      "mimo:mimo-v2.5",
-	"mimo:mimo-v2.5":                 "mimo:mimo-v2.5",
-	"mimo-v2.5-pro":                  "mimo:mimo-v2.5-pro",
-	"mimo:mimo-v2.5-pro":             "mimo:mimo-v2.5-pro",
-	"mimo-v2.5-tts-voiceclone":       "mimo:mimo-v2.5-tts-voiceclone",
-	"mimo:mimo-v2.5-tts-voiceclone":  "mimo:mimo-v2.5-tts-voiceclone",
-	"mimo-v2.5-tts-voicedesign":      "mimo:mimo-v2.5-tts-voicedesign",
-	"mimo:mimo-v2.5-tts-voicedesign": "mimo:mimo-v2.5-tts-voicedesign",
-	"mimo-v2.5-tts":                  "mimo:mimo-v2.5-tts",
-	"mimo:mimo-v2.5-tts":             "mimo:mimo-v2.5-tts",
-	"mimo-v2-omni":                   "mimo:mimo-v2-omni",
-	"mimo:mimo-v2-omni":              "mimo:mimo-v2-omni",
-	"mimo-v2-tts":                    "mimo:mimo-v2-tts",
-	"mimo:mimo-v2-tts":               "mimo:mimo-v2-tts",
-	"trae:gpt-4o":                    "trae:gpt-4o",
-	"trae:claude-3.5-sonnet":         "trae:claude-3.5-sonnet",
-	"opencode/big-pickle":            "opencode/big-pickle",
-	"opencode/minimax-m2.5-free":     "opencode/minimax-m2.5-free",
-	"opencode/nemotron-3-super-free": "opencode/nemotron-3-super-free",
-	"opencode/ling-2.6-flash-free":   "opencode/ling-2.6-flash-free",
-}
-
-var openAIDeepSeekDefaultModelMapping = map[string]string{
-	"gpt-5.5":           "deepseek-v4-pro",
-	"gpt-5.4":           "deepseek-v4-flash",
-	"deepseek-v4-pro":   "deepseek-v4-pro",
-	"deepseek-v4-flash": "deepseek-v4-flash",
-	"deepseek-chat":     "deepseek-v4-flash",
-	"deepseek-reasoner": "deepseek-v4-flash",
-}
-
-var openAIOpenCodeDefaultModelMapping = map[string]string{
-	"deepseek-v4-flash-free": "deepseek-v4-flash-free",
-	"big-pickle":             "big-pickle",
-	"gpt-*":                  "deepseek-v4-flash-free",
-	"claude-*":               "deepseek-v4-flash-free",
-}
-
-var openAIOpenCodeGoDefaultModelMapping = map[string]string{
-	"opencode-go/glm-5.1":           "glm-5.1",
-	"glm-5.1":                       "glm-5.1",
-	"opencode-go/glm-5":             "glm-5",
-	"glm-5":                         "glm-5",
-	"opencode-go/kimi-k2.7":         "kimi-k2.7",
-	"opencode-go/kimi-k2.7-code":    "kimi-k2.7",
-	"kimi-k2.7":                     "kimi-k2.7",
-	"kimi-k2.6":                     "kimi-k2.6",
-	"opencode-go/kimi-k2.6":         "kimi-k2.6",
-	"opencode-go/deepseek-v4-pro":   "deepseek-v4-pro",
-	"deepseek-v4-pro":               "deepseek-v4-pro",
-	"opencode-go/deepseek-v4-flash": "deepseek-v4-flash",
-	"deepseek-v4-flash":             "deepseek-v4-flash",
-	"opencode-go/mimo-v2.5":         "mimo-v2.5",
-	"mimo-v2.5":                     "mimo-v2.5",
-	"opencode-go/mimo-v2.5-pro":     "mimo-v2.5-pro",
-	"mimo-v2.5-pro":                 "mimo-v2.5-pro",
-	"opencode-go/minimax-m3":        "minimax-m3",
-	"minimax-m3":                    "minimax-m3",
-	"opencode-go/minimax-m2.7":      "minimax-m2.7",
-	"minimax-m2.7":                  "minimax-m2.7",
-	"opencode-go/minimax-m2.5":      "minimax-m2.5",
-	"minimax-m2.5":                  "minimax-m2.5",
-	"opencode-go/qwen3.7-max":       "qwen3.7-max",
-	"qwen3.7-max":                   "qwen3.7-max",
-	"opencode-go/qwen3.7-plus":      "qwen3.7-plus",
-	"qwen3.7-plus":                  "qwen3.7-plus",
-	"opencode-go/qwen3.6-plus":      "qwen3.6-plus",
-	"qwen3.6-plus":                  "qwen3.6-plus",
-	"gpt-*":                         "minimax-m3",
-	"claude-*":                      "minimax-m3",
-}
-
-var openAIDoubaoWebDefaultModelMapping = map[string]string{
-	"doubao":            "doubao",
-	"doubao:doubao":     "doubao",
-	"doubao-pro":        "doubao-pro",
-	"doubao:doubao-pro": "doubao-pro",
-}
-
-var openAIChatGPTWeb2APIDefaultModelMapping = map[string]string{
-	"auto":             "auto",
-	"chatgpt":          "auto",
-	"chatgpt-web2api":  "auto",
-	"gpt-5.5":          "gpt-5.5",
-	"gpt-5.5-thinking": "gpt-5.5-thinking",
-	"gpt-5.3":          "gpt-5.3",
-	"gpt-5.2":          "gpt-5.2",
-	"gpt-5.1":          "gpt-5.1",
-	"gpt-5":            "gpt-5",
-	"gpt-5-mini":       "gpt-5-mini",
-	"gpt-5.3-mini":     "gpt-5.3-mini",
-	"gpt-4o":           "gpt-4o",
-	"gpt-4":            "gpt-4",
-	"gpt-3.5-turbo":    "gpt-3.5-turbo",
-	"gpt-5-5":          "gpt-5-5",
-	"gpt-5-5-thinking": "gpt-5-5-thinking",
-	"gpt-5-3":          "gpt-5-3",
-	"gpt-5-2":          "gpt-5-2",
-	"gpt-5-1":          "gpt-5-1",
-	"gpt-5-3-mini":     "gpt-5-3-mini",
-}
-
-func cloneStringMap(input map[string]string) map[string]string {
-	if len(input) == 0 {
-		return nil
-	}
-	out := make(map[string]string, len(input))
-	for key, value := range input {
-		out[key] = value
-	}
-	return out
-}
-
-func defaultOpenAIModelMappingForVendor(vendor string) map[string]string {
-	switch strings.ToLower(strings.TrimSpace(vendor)) {
-	case "deepseek":
-		return cloneStringMap(openAIDeepSeekDefaultModelMapping)
-	case "opencode":
-		return cloneStringMap(openAIOpenCodeDefaultModelMapping)
-	case "opencode-go":
-		return cloneStringMap(openAIOpenCodeGoDefaultModelMapping)
-	case "openai-local-proxy":
-		return cloneStringMap(openAILocalProxyDefaultModelMapping)
-	case "doubao", "doubao-web":
-		return cloneStringMap(openAIDoubaoWebDefaultModelMapping)
-	case "chatgpt-web2api":
-		return cloneStringMap(openAIChatGPTWeb2APIDefaultModelMapping)
-	default:
-		return nil
-	}
-}
-
-func defaultOpenAIBaseURLForVendor(vendor string) string {
-	switch strings.ToLower(strings.TrimSpace(vendor)) {
-	case "deepseek":
-		return "https://api.deepseek.com"
-	case "gemini":
-		return "https://generativelanguage.googleapis.com/v1beta/openai"
-	case "mimo":
-		return "https://api.xiaomimimo.com/v1"
-	case "opencode":
-		return "https://opencode.ai/zen/v1"
-	case "opencode-go":
-		return "https://opencode.ai/zen/go/v1"
-	case "openai-local-proxy":
-		return "http://127.0.0.1:18081/v1"
-	case "chatgpt-web2api":
-		return chatGPTWeb2APIDefaultBaseURL
-	case "doubao", "doubao-web":
-		return "https://www.doubao.com"
-	case "ollama":
-		return "http://127.0.0.1:11434/v1"
-	case "openrouter":
-		return "https://openrouter.ai/api/v1"
-	default:
-		return ""
-	}
-}
-
-func openAIVendorPrefersChatCompletions(vendor string) bool {
-	switch strings.ToLower(strings.TrimSpace(vendor)) {
-	case "chatgpt-web2api", "deepseek", "doubao", "doubao-web", "gemini", "mimo", "ollama", "opencode", "openrouter", "trae":
-		return true
-	default:
-		return false
-	}
-}
-
-func openAIBaseURLPrefersChatCompletions(baseURL string) bool {
-	normalized := strings.ToLower(strings.TrimSpace(baseURL))
-	return openAIBaseURLLooksLikeDeepSeek(normalized) ||
-		openAIBaseURLLooksLikeOpenCode(normalized) ||
-		openAIBaseURLLooksLikeChatGPTWeb2API(normalized) ||
-		openAIBaseURLLooksLikeGeminiOpenAICompat(normalized) ||
-		openAIBaseURLLooksLikeMimo(normalized) ||
-		openAIBaseURLLooksLikeOpenRouter(normalized)
-}
-
-func openAIBaseURLLooksLikeDeepSeek(normalized string) bool {
-	return strings.Contains(normalized, "api.deepseek.com") ||
-		strings.Contains(normalized, "deepseek.com")
-}
-
-func openAIBaseURLLooksLikeOpenCode(normalized string) bool {
-	return strings.Contains(normalized, "opencode.ai") ||
-		strings.Contains(normalized, "host.docker.internal:4096") ||
-		strings.Contains(normalized, "127.0.0.1:4096") ||
-		strings.Contains(normalized, "localhost:4096")
-}
-
-func openAIBaseURLLooksLikeChatGPTWeb2API(normalized string) bool {
-	return strings.Contains(normalized, "chatgpt-web2api") ||
-		strings.Contains(normalized, "host.docker.internal:8080") ||
-		strings.Contains(normalized, "127.0.0.1:8080") ||
-		strings.Contains(normalized, "localhost:8080")
-}
-
-func openAIBaseURLLooksLikeGeminiOpenAICompat(normalized string) bool {
-	return strings.Contains(normalized, "googleapis.com/v1beta/openai") ||
-		strings.Contains(normalized, "googleapis.com/v1alpha/openai")
-}
-
-func openAIBaseURLLooksLikeMimo(normalized string) bool {
-	return strings.Contains(normalized, "xiaomimimo.com")
-}
-
-func openAIBaseURLLooksLikeOpenRouter(normalized string) bool {
-	return strings.Contains(normalized, "openrouter.ai")
-}
-
-func openAIVendorAllowsEmptyAPIKey(vendor string) bool {
-	switch strings.ToLower(strings.TrimSpace(vendor)) {
-	case "chatgpt-web2api", "doubao", "doubao-web", "ollama", "openai-local-proxy":
-		return true
-	default:
-		return false
-	}
-}
-
-func modelMappingSignature(rawMapping map[string]string) uint64 {
+func modelMappingSignature(rawMapping map[string]any) uint64 {
 	if len(rawMapping) == 0 {
 		return 0
 	}
@@ -831,7 +644,11 @@ func modelMappingSignature(rawMapping map[string]string) uint64 {
 	for _, k := range keys {
 		_, _ = h.Write([]byte(k))
 		_, _ = h.Write([]byte{0})
-		_, _ = h.Write([]byte(rawMapping[k]))
+		if v, ok := rawMapping[k].(string); ok {
+			_, _ = h.Write([]byte(v))
+		} else {
+			_, _ = h.Write([]byte{1})
+		}
 		_, _ = h.Write([]byte{0xff})
 	}
 	return h.Sum64()
@@ -856,6 +673,61 @@ func ensureAntigravityDefaultPassthroughs(mapping map[string]string, models []st
 	for _, model := range models {
 		ensureAntigravityDefaultPassthrough(mapping, model)
 	}
+}
+
+func applyAntigravityGemini31ProAliases(mapping map[string]string) {
+	target := strings.TrimSpace(mapping[domain.AntigravityGemini31ProAgentModel])
+	if target == "" {
+		return
+	}
+
+	aliases := []struct {
+		model         string
+		legacyTargets map[string]struct{}
+	}{
+		{
+			model: "gemini-3.1-pro",
+			legacyTargets: map[string]struct{}{
+				"gemini-3.1-pro": {},
+			},
+		},
+		{
+			model: "gemini-3.1-pro-high",
+			legacyTargets: map[string]struct{}{
+				"gemini-3.1-pro-high": {},
+			},
+		},
+		{
+			model: "gemini-3.1-pro-preview",
+			legacyTargets: map[string]struct{}{
+				"gemini-3.1-pro-preview": {},
+				"gemini-3.1-pro-high":    {},
+			},
+		},
+	}
+
+	for _, alias := range aliases {
+		current, exists := mapping[alias.model]
+		if exists {
+			if _, legacy := alias.legacyTargets[current]; legacy {
+				mapping[alias.model] = target
+			}
+			continue
+		}
+		if mappingHasWildcardForModel(mapping, alias.model) {
+			continue
+		}
+		mapping[alias.model] = target
+	}
+}
+
+func mappingHasWildcardForModel(mapping map[string]string, model string) bool {
+	for pattern := range mapping {
+		if matchWildcard(pattern, model) {
+			return true
+		}
+	}
+	return false
 }
 
 func normalizeRequestedModelForLookup(platform, requestedModel string) string {
@@ -887,198 +759,6 @@ func mappingSupportsRequestedModel(mapping map[string]string, requestedModel str
 	return false
 }
 
-// accountExplicitMappingDirectlySupportsRequestedModelForScheduling checks only
-// the account's raw model_mapping keys for scheduling eligibility.
-// It intentionally does not apply vendor default mappings or gpt-5.5 -> gpt-5.4
-// fallback aliases; those are forwarding concerns, not scheduler admission rules.
-func accountExplicitMappingDirectlySupportsRequestedModelForScheduling(account *Account, requestedModel string) bool {
-	if account == nil || strings.TrimSpace(requestedModel) == "" || account.Credentials == nil {
-		return false
-	}
-	mapping := stringMappingFromRaw(account.Credentials["model_mapping"])
-	if len(mapping) == 0 {
-		return false
-	}
-	trimmed := strings.TrimSpace(requestedModel)
-	if mappingSupportsRequestedModel(mapping, trimmed) {
-		return true
-	}
-	if normalized := normalizeRequestedModelForLookup(account.Platform, trimmed); normalized != trimmed && mappingSupportsRequestedModel(mapping, normalized) {
-		return true
-	}
-	if requestedModelHasVendorPrefix(trimmed) {
-		segment := lastOpenAIModelSegment(trimmed)
-		if segment != trimmed && mappingSupportsRequestedModel(mapping, segment) {
-			return true
-		}
-	}
-	return false
-}
-
-func accountExplicitModelMapping(account *Account) map[string]string {
-	if account == nil || account.Credentials == nil {
-		return nil
-	}
-	return stringMappingFromRaw(account.Credentials["model_mapping"])
-}
-
-func requestedModelLookupCandidates(account *Account, requestedModel string) []string {
-	trimmed := strings.TrimSpace(requestedModel)
-	if trimmed == "" {
-		return nil
-	}
-
-	seen := make(map[string]struct{})
-	candidates := make([]string, 0, 4)
-	add := func(candidate string) {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "" {
-			return
-		}
-		key := strings.ToLower(candidate)
-		if _, ok := seen[key]; ok {
-			return
-		}
-		seen[key] = struct{}{}
-		candidates = append(candidates, candidate)
-	}
-
-	add(trimmed)
-	add(normalizeRequestedModelForLookup(account.Platform, trimmed))
-	for _, fallbackModel := range resolveOpenAIRequestedModelFallbacks(account, trimmed) {
-		add(fallbackModel)
-		add(normalizeRequestedModelForLookup(account.Platform, fallbackModel))
-	}
-	return candidates
-}
-
-func mappingSupportsRequestedModelForAccount(account *Account, mapping map[string]string, requestedModel string) bool {
-	for _, candidate := range requestedModelLookupCandidates(account, requestedModel) {
-		if mappingSupportsRequestedModel(mapping, candidate) {
-			return true
-		}
-	}
-	return false
-}
-
-func resolveMappedModelInMappingForAccount(account *Account, mapping map[string]string, requestedModel string) (mappedModel string, matched bool) {
-	for _, candidate := range requestedModelLookupCandidates(account, requestedModel) {
-		if mappedModel, matched := resolveRequestedModelInMapping(mapping, candidate); matched {
-			return mappedModel, true
-		}
-	}
-	return requestedModel, false
-}
-
-func resolveVendorDefaultMappedModelForAccount(account *Account, requestedModel string) (mappedModel string, matched bool) {
-	if account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey {
-		return requestedModel, false
-	}
-	defaults := defaultOpenAIModelMappingForVendor(account.GetOpenAIVendor())
-	if len(defaults) == 0 {
-		return requestedModel, false
-	}
-	return resolveMappedModelInMappingForAccount(account, defaults, requestedModel)
-}
-
-func accountModelMappingSupportsRequestedModel(account *Account, requestedModel string) bool {
-	mapping := account.GetModelMapping()
-	if len(mapping) == 0 {
-		return false
-	}
-	if mappingSupportsRequestedModelForAccount(account, mapping, requestedModel) {
-		return true
-	}
-	explicitMapping := accountExplicitModelMapping(account)
-	if len(explicitMapping) == 0 {
-		return false
-	}
-	if mapped, matched := resolveVendorDefaultMappedModelForAccount(account, requestedModel); matched {
-		return mappingSupportsRequestedModelForAccount(account, explicitMapping, mapped)
-	}
-	return false
-}
-
-func resolveMappedModelFromAccountMappings(account *Account, requestedModel string) (mappedModel string, matched bool) {
-	mapping := account.GetModelMapping()
-	if len(mapping) == 0 {
-		return requestedModel, false
-	}
-	if mappedModel, matched := resolveMappedModelInMappingForAccount(account, mapping, requestedModel); matched {
-		return mappedModel, true
-	}
-	explicitMapping := accountExplicitModelMapping(account)
-	if len(explicitMapping) == 0 {
-		return requestedModel, false
-	}
-	if mappedModel, matched := resolveVendorDefaultMappedModelForAccount(account, requestedModel); matched &&
-		mappingSupportsRequestedModelForAccount(account, explicitMapping, mappedModel) {
-		return mappedModel, true
-	}
-	return requestedModel, false
-}
-
-func (a *Account) requiresExplicitModelMappingForOpenAIPassthroughModel(requestedModel string) bool {
-	if a == nil || !a.IsOpenAIApiKey() || !a.IsOpenAIPassthroughEnabled() {
-		return false
-	}
-	return !isLikelyOpenAINativeModel(requestedModel)
-}
-
-func isLikelyOpenAINativeModel(model string) bool {
-	trimmed := strings.ToLower(strings.TrimSpace(model))
-	if trimmed == "" {
-		return false
-	}
-	if strings.HasPrefix(trimmed, "openai/") {
-		trimmed = strings.TrimPrefix(trimmed, "openai/")
-	}
-	switch {
-	case strings.HasPrefix(trimmed, "gpt-"),
-		strings.HasPrefix(trimmed, "chatgpt-"),
-		strings.HasPrefix(trimmed, "codex-"),
-		strings.HasPrefix(trimmed, "o1"),
-		strings.HasPrefix(trimmed, "o3"),
-		strings.HasPrefix(trimmed, "o4"),
-		strings.HasPrefix(trimmed, "text-embedding-"),
-		strings.HasPrefix(trimmed, "text-moderation-"),
-		strings.HasPrefix(trimmed, "omni-moderation-"),
-		strings.HasPrefix(trimmed, "whisper-"),
-		strings.HasPrefix(trimmed, "tts-"),
-		strings.HasPrefix(trimmed, "dall-e-"):
-		return true
-	default:
-		return false
-	}
-}
-
-func requestedModelHasVendorPrefix(requestedModel string) bool {
-	trimmed := strings.TrimSpace(requestedModel)
-	if trimmed == "" {
-		return false
-	}
-	slash := strings.Index(trimmed, "/")
-	return slash > 0 && slash < len(trimmed)-1
-}
-
-func openAIAccountVendorMatchesRequestedModelPrefix(account *Account, requestedModel string) bool {
-	if !requestedModelHasVendorPrefix(requestedModel) {
-		return true
-	}
-	prefix := strings.ToLower(strings.TrimSpace(requestedModel[:strings.Index(requestedModel, "/")]))
-	if prefix == "" {
-		return true
-	}
-	if account == nil || !account.IsOpenAIApiKey() {
-		return false
-	}
-	vendor := strings.TrimSpace(account.GetOpenAIVendor())
-	if prefix == "openai" {
-		return vendor == "" || strings.EqualFold(vendor, "openai")
-	}
-	return strings.EqualFold(vendor, prefix)
-}
-
 func resolveRequestedModelInMapping(mapping map[string]string, requestedModel string) (mappedModel string, matched bool) {
 	if requestedModel == "" {
 		return "", false
@@ -1089,72 +769,31 @@ func resolveRequestedModelInMapping(mapping map[string]string, requestedModel st
 	return matchWildcardMappingResult(mapping, requestedModel)
 }
 
-func resolveOpenAIRequestedModelFallbacks(account *Account, requestedModel string) []string {
-	if account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey {
-		return nil
-	}
-
-	trimmed := strings.TrimSpace(requestedModel)
-	if trimmed == "" {
-		return nil
-	}
-
-	if canonicalizeOpenAIModelAliasSpelling(lastOpenAIModelSegment(trimmed)) != "gpt-5.5" {
-		return nil
-	}
-
-	seen := make(map[string]struct{}, 2)
-	fallbacks := make([]string, 0, 2)
-	add := func(candidate string) {
-		candidate = strings.TrimSpace(candidate)
-		if candidate == "" || candidate == trimmed {
-			return
-		}
-		key := strings.ToLower(candidate)
-		if _, exists := seen[key]; exists {
-			return
-		}
-		seen[key] = struct{}{}
-		fallbacks = append(fallbacks, candidate)
-	}
-
-	if idx := strings.LastIndex(trimmed, "/"); idx >= 0 {
-		add(trimmed[:idx+1] + "gpt-5.4")
-	}
-	add("gpt-5.4")
-
-	return fallbacks
-}
-
-func ResolveOpenAIRequestedModelFallbackCandidates(account *Account, requestedModel string) []string {
-	fallbacks := resolveOpenAIRequestedModelFallbacks(account, requestedModel)
-	if len(fallbacks) == 0 {
-		return nil
-	}
-	return append([]string(nil), fallbacks...)
-}
-
-// IsModelSupported 检查模型是否在 model_mapping 中（支持通配符）。
-// 对带默认映射的平台（如 Antigravity/Kiro），未显式配置时也会先回退到默认映射。
+// IsModelSupported 检查模型是否在 model_mapping 中（支持通配符）
+// 如果未配置 mapping，返回 true（允许所有模型）。
+//
+// 例外：OpenAI OAuth 账号（Codex 上游）的空映射会排除明确属于其他厂商
+// 家族的模型（deepseek-*/glm-* 等）——转发阶段 normalizeOpenAIModelForUpstream
+// 会把未知模型原样透传，Codex 上游对这类模型必然返回不可重试的 400，导致
+// 请求卡死在该账号上、无法 failover 到真正支持该模型的 API Key 账号（#3662）。
+// 未知/自定义别名仍保持允许（兼容渠道级映射），见 isOpenAIOAuthServableModel。
 func (a *Account) IsModelSupported(requestedModel string) bool {
-	if a == nil {
-		return false
-	}
-	if a.Platform == PlatformOpenAI && !openAIAccountVendorMatchesRequestedModelPrefix(a, requestedModel) {
-		return false
-	}
 	mapping := a.GetModelMapping()
 	if len(mapping) == 0 {
-		if a.requiresExplicitModelMappingForOpenAIPassthroughModel(requestedModel) {
-			return false
+		if a.IsOpenAIOAuth() && !a.IsOpenAIPassthroughEnabled() {
+			return isOpenAIOAuthServableModel(requestedModel)
 		}
 		return true // 无映射 = 允许所有
 	}
-	return accountModelMappingSupportsRequestedModel(a, requestedModel)
+	if mappingSupportsRequestedModel(mapping, requestedModel) {
+		return true
+	}
+	normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
+	return normalized != requestedModel && mappingSupportsRequestedModel(mapping, normalized)
 }
 
-// GetMappedModel 获取映射后的模型名（支持通配符，最长优先匹配）。
-// 对带默认映射的平台（如 Antigravity/Kiro），未显式配置时返回默认映射结果。
+// GetMappedModel 获取映射后的模型名（支持通配符，最长优先匹配）
+// 如果未配置 mapping，返回原始模型名
 func (a *Account) GetMappedModel(requestedModel string) string {
 	mappedModel, _ := a.ResolveMappedModel(requestedModel)
 	return mappedModel
@@ -1163,10 +802,20 @@ func (a *Account) GetMappedModel(requestedModel string) string {
 // ResolveMappedModel 获取映射后的模型名，并返回是否命中了账号级映射。
 // matched=true 表示命中了精确映射或通配符映射，即使映射结果与原模型名相同。
 func (a *Account) ResolveMappedModel(requestedModel string) (mappedModel string, matched bool) {
-	if len(a.GetModelMapping()) == 0 {
+	mapping := a.GetModelMapping()
+	if len(mapping) == 0 {
 		return requestedModel, false
 	}
-	return resolveMappedModelFromAccountMappings(a, requestedModel)
+	if mappedModel, matched := resolveRequestedModelInMapping(mapping, requestedModel); matched {
+		return mappedModel, true
+	}
+	normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
+	if normalized != requestedModel {
+		if mappedModel, matched := resolveRequestedModelInMapping(mapping, normalized); matched {
+			return mappedModel, true
+		}
+	}
+	return requestedModel, false
 }
 
 // GetOpenAICompactMode returns the compact routing mode for an OpenAI account.
@@ -1184,9 +833,6 @@ func (a *Account) GetOpenAICompactMode() string {
 func (a *Account) OpenAICompactSupportKnown() (supported bool, known bool) {
 	if a == nil || !a.IsOpenAI() {
 		return false, false
-	}
-	if accountUsesLocalOpenCodeServer(a) {
-		return true, true
 	}
 
 	switch a.GetOpenAICompactMode() {
@@ -1249,9 +895,6 @@ func (a *Account) GetBaseURL() string {
 	}
 	baseURL := a.GetCredential("base_url")
 	if baseURL == "" {
-		if a.Platform == PlatformKiro {
-			return ""
-		}
 		return "https://api.anthropic.com"
 	}
 	if a.Platform == PlatformAntigravity {
@@ -1568,12 +1211,40 @@ func (a *Account) IsOpenAI() bool {
 	return a.Platform == PlatformOpenAI
 }
 
+func (a *Account) IsOpenAILongContextBillingEnabled() bool {
+	if a == nil || !a.IsOpenAI() || a.Extra == nil {
+		return false
+	}
+	enabled, ok := a.Extra[openAILongContextBillingEnabledKey].(bool)
+	return ok && enabled
+}
+
 func (a *Account) IsAnthropic() bool {
 	return a.Platform == PlatformAnthropic
 }
 
 func (a *Account) IsOpenAIOAuth() bool {
 	return a.IsOpenAI() && a.Type == AccountTypeOAuth
+}
+
+func (a *Account) IsOpenAIChatGPTSubscription() bool {
+	if !a.IsOpenAIOAuth() {
+		return false
+	}
+	switch strings.ToLower(strings.TrimSpace(a.GetCredential("plan_type"))) {
+	case "", "free", "abnormal":
+		return false
+	default:
+		return true
+	}
+}
+
+func (a *Account) IsOpenAIPersonalAccessToken() bool {
+	if !a.IsOpenAIOAuth() {
+		return false
+	}
+	return isOpenAIPersonalAccessTokenAuthMode(a.GetCredential(openAIAuthModeCredentialKey)) ||
+		isOpenAIPersonalAccessTokenAuthMode(a.GetCredential(openAIAuthModeLegacyCredentialKey))
 }
 
 func (a *Account) IsOpenAIApiKey() bool {
@@ -1588,9 +1259,6 @@ func (a *Account) GetOpenAIBaseURL() string {
 		baseURL := a.GetCredential("base_url")
 		if baseURL != "" {
 			return baseURL
-		}
-		if vendorBaseURL := defaultOpenAIBaseURLForVendor(a.GetOpenAIVendor()); vendorBaseURL != "" {
-			return vendorBaseURL
 		}
 	}
 	return "https://api.openai.com"
@@ -1610,6 +1278,66 @@ func (a *Account) GetOpenAIRefreshToken() string {
 	return a.GetCredential("refresh_token")
 }
 
+// GetGrokBaseURL selects the upstream used by Grok text and Responses traffic.
+// Grok media traffic has a different transport contract and must use
+// GetGrokMediaBaseURL instead.
+//
+// The stored base_url only rewrites forwarding endpoints. Credential lifecycle
+// traffic (OAuth authorization and token refresh) always uses the official
+// auth endpoints regardless of this value.
+func (a *Account) GetGrokBaseURL() string {
+	if !a.IsGrok() {
+		return ""
+	}
+	baseURL := strings.TrimSpace(a.GetCredential("base_url"))
+	if a.IsGrokOAuth() {
+		// Operators switch subscription traffic between the official CLI
+		// gateway, the official/regional API hosts and third-party relays
+		// (individual endpoints go down from time to time), so a stored
+		// value is always honored as-is. Only empty or unparseable values
+		// fall back to the default CLI gateway.
+		if baseURL == "" || !xai.IsParseableBaseURL(baseURL) {
+			return xai.DefaultCLIBaseURL
+		}
+		return baseURL
+	}
+	if baseURL != "" {
+		return baseURL
+	}
+	return xai.DefaultBaseURL
+}
+
+// GetGrokMediaBaseURL selects the upstream used by Grok Imagine APIs.
+// The subscription CLI gateway enforces a small request-body limit that
+// rejects large Base64 media payloads, so OAuth media leaves for api.x.ai
+// whenever text traffic resolves to the CLI gateway. Every other manually
+// selected endpoint (official/regional API hosts or custom relays) serves
+// media as-is.
+func (a *Account) GetGrokMediaBaseURL() string {
+	if !a.IsGrok() {
+		return ""
+	}
+	baseURL := a.GetGrokBaseURL()
+	if a.IsGrokOAuth() && isGrokCLIProxyTarget(baseURL) {
+		return xai.DefaultBaseURL
+	}
+	return baseURL
+}
+
+func (a *Account) GetGrokAccessToken() string {
+	if !a.IsGrok() {
+		return ""
+	}
+	return a.GetCredential("access_token")
+}
+
+func (a *Account) GetGrokRefreshToken() string {
+	if !a.IsGrokOAuth() {
+		return ""
+	}
+	return a.GetCredential("refresh_token")
+}
+
 func (a *Account) GetOpenAIIDToken() string {
 	if !a.IsOpenAIOAuth() {
 		return ""
@@ -1624,82 +1352,6 @@ func (a *Account) GetOpenAIApiKey() string {
 	return a.GetCredential("api_key")
 }
 
-func (a *Account) GetOpenAIVendor() string {
-	if !a.IsOpenAIApiKey() {
-		return ""
-	}
-	return strings.TrimSpace(a.GetCredential("vendor"))
-}
-
-func (a *Account) ShouldUseOpenAIChatCompletionsUpstream() bool {
-	if accountUsesOpenCodeGoOfficialAPI(a) {
-		return false
-	}
-	return a.IsOpenAIApiKey() &&
-		(openAIVendorPrefersChatCompletions(a.GetOpenAIVendor()) ||
-			openAIBaseURLPrefersChatCompletions(a.GetOpenAIBaseURL()))
-}
-
-func (a *Account) AllowsEmptyOpenAIApiKey() bool {
-	return a.IsOpenAIApiKey() && openAIVendorAllowsEmptyAPIKey(a.GetOpenAIVendor())
-}
-
-func (a *Account) GetOpenAIAuthHeaderName() string {
-	if !a.IsOpenAIApiKey() {
-		return ""
-	}
-	headerName := strings.TrimSpace(a.GetCredential("auth_header"))
-	if headerName == "" {
-		if strings.EqualFold(a.GetOpenAIVendor(), "mimo") {
-			return "api-key"
-		}
-		return "authorization"
-	}
-	return strings.ToLower(headerName)
-}
-
-func (a *Account) GetOpenAIAuthScheme() string {
-	if !a.IsOpenAIApiKey() {
-		return ""
-	}
-	scheme := strings.TrimSpace(a.GetCredential("auth_scheme"))
-	if scheme == "" {
-		if strings.EqualFold(a.GetOpenAIVendor(), "mimo") {
-			return "raw"
-		}
-		return "bearer"
-	}
-	return strings.ToLower(scheme)
-}
-
-func (a *Account) BuildOpenAIAuthHeaders(token string) http.Header {
-	headers := make(http.Header)
-	if !a.IsOpenAIApiKey() {
-		return headers
-	}
-	token = strings.TrimSpace(token)
-	if token == "" {
-		return headers
-	}
-
-	name := a.GetOpenAIAuthHeaderName()
-	if name == "" {
-		name = "authorization"
-	}
-	scheme := a.GetOpenAIAuthScheme()
-	value := token
-	switch scheme {
-	case "", "raw", "none":
-		value = token
-	case "bearer":
-		value = "Bearer " + token
-	default:
-		value = strings.TrimSpace(scheme + " " + token)
-	}
-	headers.Set(name, value)
-	return headers
-}
-
 func (a *Account) GetOpenAIUserAgent() string {
 	if !a.IsOpenAI() {
 		return ""
@@ -1712,6 +1364,34 @@ func (a *Account) GetChatGPTAccountID() string {
 		return ""
 	}
 	return a.GetCredential("chatgpt_account_id")
+}
+
+func (a *Account) IsChatGPTAccountFedRAMP() bool {
+	if !a.IsOpenAIOAuth() || a.Credentials == nil {
+		return false
+	}
+	v, ok := a.Credentials["chatgpt_account_is_fedramp"]
+	if !ok || v == nil {
+		return false
+	}
+	switch value := v.(type) {
+	case bool:
+		return value
+	case string:
+		parsed, err := strconv.ParseBool(strings.TrimSpace(value))
+		return err == nil && parsed
+	case json.Number:
+		parsed, err := strconv.ParseBool(value.String())
+		return err == nil && parsed
+	case float64:
+		return value != 0
+	case int:
+		return value != 0
+	case int64:
+		return value != 0
+	default:
+		return false
+	}
 }
 
 func (a *Account) GetOpenAIDeviceID() string {
@@ -1735,16 +1415,46 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 	if capability == "" {
 		return true
 	}
-	if !a.IsOpenAI() {
+	if !a.IsOpenAICompatible() {
 		return false
+	}
+	if a.IsGrok() {
+		switch capability {
+		case OpenAIEndpointCapabilityChatCompletions:
+			return true
+		case OpenAIEndpointCapabilityGrokMediaGeneration:
+			eligible, reason := a.GrokMediaGenerationEligibility()
+			// Unobserved OAuth accounts remain scheduler candidates only so the
+			// request path can run the billing probe before forwarding. The
+			// forwarding gate itself fails closed if that probe is unavailable or
+			// cannot produce positive paid-entitlement evidence.
+			return eligible || reason == "billing_unobserved"
+		default:
+			return false
+		}
 	}
 	switch capability {
 	case OpenAIEndpointCapabilityChatCompletions:
-	case OpenAIEndpointCapabilityEmbeddings:
-		if a.Type != AccountTypeAPIKey {
+	case OpenAIEndpointCapabilityResponses:
+		// Responses 支持状态由 accounts.extra 的自动探测标记决定，而非
+		// credentials 能力集。已探测确认不支持 /v1/responses 的 APIKey 上游
+		// 必须排除——否则会在 forward 阶段被静默降级为 Chat Completions，
+		// 无法完成生图（#4417）。未探测/OAuth 账号保留旧行为（不排除）。
+		if a.Type == AccountTypeAPIKey && !openai_compat.ShouldUseResponsesAPI(a.Extra) {
 			return false
 		}
-	case OpenAIEndpointCapabilityVideos:
+		// 支持 Responses 的上游同样需具备 chat 能力：复用下方 chat_completions
+		// 配置集校验。
+		capability = OpenAIEndpointCapabilityChatCompletions
+	case OpenAIEndpointCapabilityAlphaSearch:
+		// alpha/search 的转发按账号类型分流：OAuth/PAT 走
+		// chatgpt.com/backend-api/codex/alpha/search，API key 走
+		// {base_url}/v1/alpha/search（见 openAIAlphaSearchURL），两类账号
+		// 都可承接独立搜索请求。上游不支持该端点时由转发层 failover 兜底。
+		if a.Type != AccountTypeOAuth && a.Type != AccountTypeAPIKey {
+			return false
+		}
+	case OpenAIEndpointCapabilityEmbeddings:
 		if a.Type != AccountTypeAPIKey {
 			return false
 		}
@@ -1756,7 +1466,56 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 	if !found {
 		return true
 	}
+	if capability == OpenAIEndpointCapabilityAlphaSearch && configured[string(OpenAIEndpointCapabilityChatCompletions)] {
+		return true
+	}
 	return configured[string(capability)]
+}
+
+// GrokMediaGenerationEligibility reports whether a Grok account may receive
+// new image/video generation requests. OAuth media fails closed unless billing
+// observations provide positive paid-entitlement evidence. An explicit
+// operator override takes precedence over probe data.
+func (a *Account) GrokMediaGenerationEligibility() (bool, string) {
+	if a == nil || !a.IsGrok() {
+		return false, "not_grok"
+	}
+	if override, ok := grokMediaEligibilityOverride(a.Extra); ok {
+		if override {
+			return true, "override_enabled"
+		}
+		return false, "override_disabled"
+	}
+	if a.Type != AccountTypeOAuth {
+		return true, "non_oauth"
+	}
+
+	billing, err := grokBillingSnapshotFromExtra(a.Extra)
+	if err != nil || billing == nil {
+		return false, "billing_unobserved"
+	}
+	if billing.StatusCode == 403 || billing.WeeklyStatusCode == 403 || billing.MonthlyStatusCode == 403 {
+		return false, "billing_forbidden"
+	}
+	if isKnownGrokFreeAccount(a) {
+		return false, "billing_free_tier"
+	}
+	if !grokBillingHasAuthoritativeQuota(billing) {
+		return false, "billing_inconclusive"
+	}
+	return true, "eligible"
+}
+
+func grokMediaEligibilityOverride(extra map[string]any) (bool, bool) {
+	if extra == nil {
+		return false, false
+	}
+	raw, exists := extra[GrokMediaEligibleExtraKey]
+	if !exists || raw == nil {
+		return false, false
+	}
+	value, ok := raw.(bool)
+	return value, ok
 }
 
 func (a *Account) openAIEndpointCapabilitySet() (map[string]bool, bool) {
@@ -1807,6 +1566,9 @@ func (a *Account) openAIEndpointCapabilitySet() (map[string]bool, bool) {
 }
 
 func (a *Account) SupportsOpenAIImageCapability(capability OpenAIImagesCapability) bool {
+	if capability == "" {
+		return true
+	}
 	if !a.IsOpenAI() {
 		return false
 	}
@@ -1940,6 +1702,7 @@ const (
 	OpenAIWSIngressModeDedicated   = "dedicated"
 	OpenAIWSIngressModeCtxPool     = "ctx_pool"
 	OpenAIWSIngressModePassthrough = "passthrough"
+	OpenAIWSIngressModeHTTPBridge  = "http_bridge"
 )
 
 func normalizeOpenAIWSIngressMode(mode string) string {
@@ -1950,6 +1713,8 @@ func normalizeOpenAIWSIngressMode(mode string) string {
 		return OpenAIWSIngressModeCtxPool
 	case OpenAIWSIngressModePassthrough:
 		return OpenAIWSIngressModePassthrough
+	case OpenAIWSIngressModeHTTPBridge:
+		return OpenAIWSIngressModeHTTPBridge
 	case OpenAIWSIngressModeShared:
 		return OpenAIWSIngressModeShared
 	case OpenAIWSIngressModeDedicated:
@@ -2126,36 +1891,15 @@ func (a *Account) IsCodexCLIOnlyEnabled() bool {
 	return ok && enabled
 }
 
-// GetCodexCLIOnlyAllowedClients 返回 codex_cli_only 之上额外放行的命名客户端预设 ID 列表。
-// 仅 OpenAI OAuth 账号生效；缺失或类型不符时返回空。预设 ID 的具体匹配规则由
-// openai 包的 registry 固化，配置只能引用预设键、不能自定义规则。
-func (a *Account) GetCodexCLIOnlyAllowedClients() []string {
-	if a == nil || !a.IsOpenAIOAuth() || a.Extra == nil {
-		return nil
+// IsCodexCLIOnlyAppServerAllowed 返回 codex_cli_only 账号是否额外放行 Codex app-server
+// 第三方客户端（运行时与全局 app_server 开关 OR）。字段：accounts.extra.codex_cli_only_allow_app_server。
+// 仅在 codex_cli_only 已启用时有意义；字段缺失或类型不符按 false（不放行）处理。
+func (a *Account) IsCodexCLIOnlyAppServerAllowed() bool {
+	if !a.IsCodexCLIOnlyEnabled() {
+		return false
 	}
-	raw, ok := a.Extra["codex_cli_only_allowed_clients"]
-	if !ok || raw == nil {
-		return nil
-	}
-	switch v := raw.(type) {
-	case []string:
-		result := make([]string, 0, len(v))
-		for _, s := range v {
-			if strings.TrimSpace(s) != "" {
-				result = append(result, s)
-			}
-		}
-		return result
-	case []any:
-		result := make([]string, 0, len(v))
-		for _, item := range v {
-			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
-				result = append(result, s)
-			}
-		}
-		return result
-	}
-	return nil
+	v, ok := a.Extra["codex_cli_only_allow_app_server"].(bool)
+	return ok && v
 }
 
 // WindowCostSchedulability 窗口费用调度状态
@@ -2998,30 +2742,25 @@ func (a *Account) GetCurrentWindowStartTime() time.Time {
 
 // parseExtraFloat64 从 extra 字段解析 float64 值
 func parseExtraFloat64(value any) float64 {
-	parsed, _ := parseOptionalExtraFloat64(value)
-	return parsed
-}
-
-func parseOptionalExtraFloat64(value any) (float64, bool) {
 	switch v := value.(type) {
 	case float64:
-		return v, true
+		return v
 	case float32:
-		return float64(v), true
+		return float64(v)
 	case int:
-		return float64(v), true
+		return float64(v)
 	case int64:
-		return float64(v), true
+		return float64(v)
 	case json.Number:
 		if f, err := v.Float64(); err == nil {
-			return f, true
+			return f
 		}
 	case string:
 		if f, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil {
-			return f, true
+			return f
 		}
 	}
-	return 0, false
+	return 0
 }
 
 func parseExtraTime(value any) time.Time {
@@ -3061,4 +2800,18 @@ func parseExtraInt(value any) int {
 		}
 	}
 	return 0
+}
+
+// IsShadow 报告账号是否为影子账号（parent_account_id 非空；当前唯一预设是 spark 维度）。
+func (a *Account) IsShadow() bool { return a != nil && a.ParentAccountID != nil }
+
+// IsCredentialShadow 语义别名，供「凭据消费者跳过影子」处使用（管理/后台 OAuth 路径）。
+func (a *Account) IsCredentialShadow() bool { return a.IsShadow() }
+
+// QuotaDimensionOrDefault 返回账号的用量维度，未设置时回退 "global"。
+func (a *Account) QuotaDimensionOrDefault() string {
+	if a == nil || strings.TrimSpace(a.QuotaDimension) == "" {
+		return QuotaDimensionGlobal
+	}
+	return a.QuotaDimension
 }

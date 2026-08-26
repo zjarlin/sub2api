@@ -13,15 +13,16 @@
 
       <div>
         <label class="input-label">{{ t('admin.channelMonitor.form.provider') }} <span class="text-red-500">*</span></label>
-        <div class="grid grid-cols-3 gap-3">
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <button
             v-for="opt in providerOptions"
             :key="opt.value"
             type="button"
+            :data-testid="`monitor-provider-${opt.value}`"
             :aria-pressed="form.provider === opt.value"
             class="flex items-center justify-center gap-2 rounded-lg border-2 px-3 py-2.5 text-sm font-medium transition-colors"
             :class="providerPickerClass(opt.value, form.provider === opt.value)"
-            @click="form.provider = opt.value"
+            @click="selectProvider(opt.value)"
           >
             <ProviderIcon :provider="opt.value" :size="18" />
             <span>{{ opt.label }}</span>
@@ -29,7 +30,7 @@
         </div>
       </div>
 
-      <div v-if="supportsResponsesApiMode(form.provider)" class="rounded-lg border border-blue-100 bg-blue-50/50 p-3 dark:border-blue-500/20 dark:bg-blue-500/10">
+      <div v-if="form.provider === PROVIDER_OPENAI" class="rounded-lg border border-blue-100 bg-blue-50/50 p-3 dark:border-blue-500/20 dark:bg-blue-500/10">
         <label class="input-label">{{ t('admin.channelMonitor.form.apiMode') }}</label>
         <div class="grid gap-3 sm:grid-cols-2">
           <button
@@ -50,7 +51,7 @@
       <div>
         <label class="input-label">{{ t('admin.channelMonitor.form.endpoint') }} <span class="text-red-500">*</span></label>
         <div class="flex gap-2">
-          <input v-model="form.endpoint" type="text" required class="input flex-1" :placeholder="t('admin.channelMonitor.form.endpointPlaceholder')" />
+          <input v-model="form.endpoint" data-testid="monitor-endpoint" type="text" required class="input flex-1" :placeholder="t('admin.channelMonitor.form.endpointPlaceholder')" />
           <button type="button" @click="useCurrentDomain" class="btn btn-secondary whitespace-nowrap">
             {{ t('admin.channelMonitor.form.useCurrentDomain') }}
           </button>
@@ -80,6 +81,7 @@
         <label class="input-label">{{ t('admin.channelMonitor.form.primaryModel') }} <span class="text-red-500">*</span></label>
         <input
           v-model="form.primary_model"
+          data-testid="monitor-primary-model"
           type="text"
           required
           class="input font-medium"
@@ -107,6 +109,12 @@
         <label class="input-label">{{ t('admin.channelMonitor.form.intervalSeconds') }} <span class="text-red-500">*</span></label>
         <input v-model.number="form.interval_seconds" type="number" min="15" max="3600" required class="input" />
         <p class="mt-1 text-xs text-gray-400">{{ t('admin.channelMonitor.form.intervalSecondsHint') }}</p>
+      </div>
+
+      <div>
+        <label class="input-label">{{ t('admin.channelMonitor.form.jitterSeconds') }}</label>
+        <input v-model.number="form.jitter_seconds" type="number" min="0" :max="maxJitterSeconds" class="input" />
+        <p class="mt-1 text-xs text-gray-400">{{ t('admin.channelMonitor.form.jitterSecondsHint') }}</p>
       </div>
 
       <div class="flex items-center justify-between">
@@ -203,13 +211,15 @@ import MonitorKeyPickerDialog from '@/components/admin/monitor/MonitorKeyPickerD
 import MonitorAdvancedRequestConfig from '@/components/admin/monitor/MonitorAdvancedRequestConfig.vue'
 import ProviderIcon from '@/components/user/monitor/ProviderIcon.vue'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
-import { supportsResponsesApiMode } from '@/utils/channelMonitorApiMode'
 import {
   PROVIDER_OPENAI,
   PROVIDER_ANTHROPIC,
   PROVIDER_GEMINI,
+  PROVIDER_GROK,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_RESPONSES,
+  DEFAULT_GROK_ENDPOINT,
+  DEFAULT_GROK_MODEL,
   DEFAULT_INTERVAL_SECONDS,
 } from '@/constants/channelMonitor'
 
@@ -255,6 +265,7 @@ interface MonitorForm {
   extra_models: string[]
   group_name: string
   interval_seconds: number
+  jitter_seconds: number
   enabled: boolean
   // 高级设置快照
   template_id: number | null
@@ -273,12 +284,16 @@ const form = reactive<MonitorForm>({
   extra_models: [],
   group_name: '',
   interval_seconds: systemDefaultInterval.value,
+  jitter_seconds: 0,
   enabled: true,
   template_id: null,
   extra_headers: {},
   body_override_mode: 'off',
   body_override: null,
 })
+
+// jitter 上限与后端校验一致：interval - jitter 不得低于最小检测间隔 15 秒。
+const maxJitterSeconds = computed<number>(() => Math.max(0, (form.interval_seconds || 0) - 15))
 
 let suppressFormWatchers = false
 
@@ -289,7 +304,7 @@ const templatesLoading = ref(false)
 const templateOptions = computed(() => {
   const items = templatesCache.value.filter((t) => {
     if (t.provider !== form.provider) return false
-    if (!supportsResponsesApiMode(form.provider)) return true
+    if (form.provider !== PROVIDER_OPENAI) return true
     return normalizeAPIMode(t.api_mode) === form.api_mode
   })
   return [
@@ -363,7 +378,7 @@ function apiModeButtonClass(mode: APIMode): string {
 }
 
 function templateOptionLabel(tpl: ChannelMonitorTemplate): string {
-  if (!supportsResponsesApiMode(tpl.provider)) return tpl.name
+  if (tpl.provider !== PROVIDER_OPENAI) return tpl.name
   const labelKey = normalizeAPIMode(tpl.api_mode) === API_MODE_RESPONSES
     ? 'admin.channelMonitor.form.apiModeResponses'
     : 'admin.channelMonitor.form.apiModeChatCompletions'
@@ -386,7 +401,25 @@ const providerOptions = computed<ProviderOption[]>(() => [
   { value: PROVIDER_ANTHROPIC, label: t('monitorCommon.providers.anthropic') },
   { value: PROVIDER_OPENAI, label: t('monitorCommon.providers.openai') },
   { value: PROVIDER_GEMINI, label: t('monitorCommon.providers.gemini') },
+  { value: PROVIDER_GROK, label: t('monitorCommon.providers.grok') },
 ])
+
+function selectProvider(provider: Provider) {
+  if (form.provider === provider) return
+  const previousProvider = form.provider
+  const clearGrokEndpoint =
+    previousProvider === PROVIDER_GROK && form.endpoint === DEFAULT_GROK_ENDPOINT
+  const clearGrokModel =
+    previousProvider === PROVIDER_GROK && form.primary_model === DEFAULT_GROK_MODEL
+  form.provider = provider
+  if (provider === PROVIDER_GROK) {
+    if (!form.endpoint.trim()) form.endpoint = DEFAULT_GROK_ENDPOINT
+    if (!form.primary_model.trim()) form.primary_model = DEFAULT_GROK_MODEL
+    return
+  }
+  if (clearGrokEndpoint) form.endpoint = ''
+  if (clearGrokModel) form.primary_model = ''
+}
 
 // Clear api_key whenever provider changes to avoid cross-provider key mismatch.
 // Editing mode loads api_key='' via loadFromMonitor and only sets it on user
@@ -396,7 +429,7 @@ const providerOptions = computed<ProviderOption[]>(() => [
 watch(() => form.provider, () => {
   if (suppressFormWatchers) return
   form.api_key = ''
-  if (!supportsResponsesApiMode(form.provider)) {
+  if (form.provider !== PROVIDER_OPENAI) {
     form.api_mode = API_MODE_CHAT_COMPLETIONS
   }
   clearRequestSnapshot()
@@ -404,7 +437,7 @@ watch(() => form.provider, () => {
 
 watch(() => form.api_mode, () => {
   if (suppressFormWatchers) return
-  if (supportsResponsesApiMode(form.provider)) {
+  if (form.provider === PROVIDER_OPENAI) {
     clearRequestSnapshot()
   }
 }, { flush: 'sync' })
@@ -420,6 +453,7 @@ function resetForm() {
   form.extra_models = []
   form.group_name = ''
   form.interval_seconds = systemDefaultInterval.value
+  form.jitter_seconds = 0
   form.enabled = true
   form.template_id = null
   form.extra_headers = {}
@@ -439,6 +473,7 @@ function loadFromMonitor(m: ChannelMonitor) {
   form.extra_models = [...(m.extra_models || [])]
   form.group_name = m.group_name || ''
   form.interval_seconds = m.interval_seconds || systemDefaultInterval.value
+  form.jitter_seconds = m.jitter_seconds || 0
   form.enabled = m.enabled
   form.template_id = m.template_id ?? null
   form.extra_headers = { ...(m.extra_headers || {}) }
@@ -497,7 +532,7 @@ function buildPayload(): CreateParams {
   return {
     name: form.name.trim(),
     provider: form.provider,
-    api_mode: supportsResponsesApiMode(form.provider) ? form.api_mode : API_MODE_CHAT_COMPLETIONS,
+    api_mode: form.provider === PROVIDER_OPENAI ? form.api_mode : API_MODE_CHAT_COMPLETIONS,
     endpoint: form.endpoint.trim(),
     api_key: form.api_key.trim(),
     primary_model: form.primary_model.trim(),
@@ -505,6 +540,7 @@ function buildPayload(): CreateParams {
     group_name: form.group_name.trim(),
     enabled: form.enabled,
     interval_seconds: form.interval_seconds,
+    jitter_seconds: form.jitter_seconds || 0,
     template_id: form.template_id,
     extra_headers: form.extra_headers,
     body_override_mode: form.body_override_mode,

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -41,46 +40,6 @@ func (s *geminiCompatHTTPUpstreamStub) Do(req *http.Request, proxyURL string, ac
 
 func (s *geminiCompatHTTPUpstreamStub) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {
 	return s.Do(req, proxyURL, accountID, accountConcurrency)
-}
-
-type recordingGemini429Repo struct {
-	mockAccountRepoForGemini
-	rateLimitedID int64
-	rateLimitedAt *time.Time
-}
-
-func (r *recordingGemini429Repo) SetRateLimited(_ context.Context, id int64, resetAt time.Time) error {
-	r.rateLimitedID = id
-	r.rateLimitedAt = &resetAt
-	return nil
-}
-
-func newGemini429Response() *http.Response {
-	return &http.Response{
-		StatusCode: http.StatusTooManyRequests,
-		Header:     http.Header{"Content-Type": []string{"application/json"}},
-		Body:       io.NopCloser(strings.NewReader(`{"error":{"code":429,"message":"You exceeded your current quota, please check your plan and billing details.","status":"RESOURCE_EXHAUSTED"}}`)),
-	}
-}
-
-func requireGemini429FailoverWithoutRetry(t *testing.T, c *gin.Context, err error, httpStub *geminiCompatHTTPUpstreamStub, repo *recordingGemini429Repo, accountID int64) {
-	t.Helper()
-	require.Error(t, err)
-	var failoverErr *UpstreamFailoverError
-	require.True(t, errors.As(err, &failoverErr), "429 should fail over instead of being returned as a plain upstream error")
-	require.Equal(t, http.StatusTooManyRequests, failoverErr.StatusCode)
-	require.Equal(t, 1, httpStub.calls, "Gemini 429 quota errors should not retry the same account")
-	require.Equal(t, accountID, repo.rateLimitedID)
-	require.NotNil(t, repo.rateLimitedAt)
-	require.True(t, repo.rateLimitedAt.After(time.Now()), "429 cooldown should be persisted before failover")
-
-	v, ok := c.Get(OpsUpstreamErrorsKey)
-	require.True(t, ok, "429 failover should append an ops upstream event")
-	events, ok := v.([]*OpsUpstreamErrorEvent)
-	require.True(t, ok)
-	require.Len(t, events, 1)
-	require.Equal(t, "gemini-3.5-flash", events[0].RequestedModel)
-	require.Equal(t, "gemini-3.5-flash", events[0].MappedModel)
 }
 
 func TestGeminiForwardAsChatCompletions_OAuthRoutesToGeminiAndReturnsChatFormat(t *testing.T) {
@@ -158,44 +117,6 @@ func TestGeminiForwardAsChatCompletions_OAuthRoutesToGeminiAndReturnsChatFormat(
 	require.Equal(t, float64(10), usage["total_tokens"])
 }
 
-func TestGeminiForwardAsChatCompletions_APIKeyMapsOpenAIAliasToGeminiModel(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	httpStub := &geminiCompatHTTPUpstreamStub{
-		response: &http.Response{
-			StatusCode: http.StatusOK,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(`{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":3,"candidatesTokenCount":2}}`)),
-		},
-	}
-	svc := &GeminiMessagesCompatService{
-		httpUpstream: httpStub,
-		cfg:          &config.Config{},
-	}
-	account := &Account{
-		ID:       105,
-		Platform: PlatformGemini,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"api_key": "gemini-api-key",
-		},
-		Concurrency: 1,
-	}
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	body := []byte(`{"model":"gpt-5.5","messages":[{"role":"user","content":"hi"}]}`)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
-
-	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, "gpt-5.5", result.Model)
-	require.Equal(t, "gemini-2.5-pro", result.UpstreamModel)
-	require.NotNil(t, httpStub.lastReq)
-	require.Contains(t, httpStub.lastReq.URL.String(), "/v1beta/models/gemini-2.5-pro:generateContent")
-}
-
 func TestGeminiForwardAsChatCompletions_StreamsOpenAIChunksFromGeminiSSE(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -247,188 +168,6 @@ func TestGeminiForwardAsChatCompletions_StreamsOpenAIChunksFromGeminiSSE(t *test
 	require.Contains(t, out, `"content":"lo"`)
 	require.Contains(t, out, `"usage":{"prompt_tokens":2,"completion_tokens":2,"total_tokens":4}`)
 	require.Contains(t, out, "data: [DONE]")
-}
-
-func TestGeminiForwardAsResponses_OAuthRoutesToGeminiAndReturnsResponsesFormat(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	upstreamBody := `data: {"response":{"candidates":[{"content":{"parts":[{"text":"hello from gemini responses"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":9,"candidatesTokenCount":4}}}` + "\n\n" +
-		"data: [DONE]\n\n"
-	httpStub := &geminiCompatHTTPUpstreamStub{
-		response: &http.Response{
-			StatusCode: http.StatusOK,
-			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
-			Body:       io.NopCloser(strings.NewReader(upstreamBody)),
-		},
-	}
-	svc := &GeminiMessagesCompatService{
-		tokenProvider: &GeminiTokenProvider{},
-		httpUpstream:  httpStub,
-		cfg:           &config.Config{},
-	}
-	account := &Account{
-		ID:       103,
-		Platform: PlatformGemini,
-		Type:     AccountTypeOAuth,
-		Credentials: map[string]any{
-			"access_token": "ya29.responses-token",
-			"project_id":   "project-responses",
-		},
-		Concurrency: 1,
-	}
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	body := []byte(`{"model":"gemini-2.5-flash","input":"hi","stream":false}`)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
-
-	result, err := svc.ForwardAsResponses(context.Background(), c, account, body)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, "gemini-2.5-flash", result.Model)
-	require.Equal(t, 9, result.Usage.InputTokens)
-	require.Equal(t, 4, result.Usage.OutputTokens)
-
-	require.NotNil(t, httpStub.lastReq)
-	require.Contains(t, httpStub.lastReq.URL.String(), "/v1internal:streamGenerateContent?alt=sse")
-	require.Equal(t, "Bearer ya29.responses-token", httpStub.lastReq.Header.Get("Authorization"))
-	require.Empty(t, httpStub.lastReq.Header.Get("x-goog-api-key"))
-
-	var sent map[string]any
-	sentBody, err := io.ReadAll(httpStub.lastReq.Body)
-	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(sentBody, &sent))
-	require.Equal(t, "gemini-2.5-flash", sent["model"])
-	require.Equal(t, "project-responses", sent["project"])
-	require.Contains(t, fmt.Sprint(sent["request"]), "hi")
-
-	var got map[string]any
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, "response", got["object"])
-	require.Equal(t, "gemini-2.5-flash", got["model"])
-	require.Equal(t, "completed", got["status"])
-	output, ok := got["output"].([]any)
-	require.True(t, ok)
-	require.NotEmpty(t, output)
-	msg, ok := output[0].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "message", msg["type"])
-	content, ok := msg["content"].([]any)
-	require.True(t, ok)
-	require.NotEmpty(t, content)
-	part, ok := content[0].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, "output_text", part["type"])
-	require.Equal(t, "hello from gemini responses", part["text"])
-	usage, ok := got["usage"].(map[string]any)
-	require.True(t, ok)
-	require.Equal(t, float64(9), usage["input_tokens"])
-	require.Equal(t, float64(4), usage["output_tokens"])
-	require.Equal(t, float64(13), usage["total_tokens"])
-}
-
-func TestGeminiForwardAsResponses_OAuthMapsOpenAIAliasToGeminiModel(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	upstreamBody := `data: {"response":{"candidates":[{"content":{"parts":[{"text":"ok"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":6,"candidatesTokenCount":3}}}` + "\n\n" +
-		"data: [DONE]\n\n"
-	httpStub := &geminiCompatHTTPUpstreamStub{
-		response: &http.Response{
-			StatusCode: http.StatusOK,
-			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
-			Body:       io.NopCloser(strings.NewReader(upstreamBody)),
-		},
-	}
-	svc := &GeminiMessagesCompatService{
-		tokenProvider: &GeminiTokenProvider{},
-		httpUpstream:  httpStub,
-		cfg:           &config.Config{},
-	}
-	account := &Account{
-		ID:       106,
-		Platform: PlatformGemini,
-		Type:     AccountTypeOAuth,
-		Credentials: map[string]any{
-			"access_token": "ya29.responses-token",
-			"project_id":   "project-responses",
-		},
-		Concurrency: 1,
-	}
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	body := []byte(`{"model":"gpt-5.5","input":"hi","stream":false}`)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
-
-	result, err := svc.ForwardAsResponses(context.Background(), c, account, body)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, "gpt-5.5", result.Model)
-	require.Equal(t, "gemini-2.5-pro", result.UpstreamModel)
-	require.NotNil(t, httpStub.lastReq)
-
-	var sent map[string]any
-	sentBody, err := io.ReadAll(httpStub.lastReq.Body)
-	require.NoError(t, err)
-	require.NoError(t, json.Unmarshal(sentBody, &sent))
-	require.Equal(t, "gemini-2.5-pro", sent["model"])
-	require.Equal(t, "project-responses", sent["project"])
-}
-
-func TestGeminiForwardAsResponses_StreamsResponsesEventsFromGeminiSSE(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	upstreamBody := `data: {"candidates":[{"content":{"parts":[{"text":"hel"}]}}],"usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":1}}` + "\n\n" +
-		`data: {"candidates":[{"content":{"parts":[{"text":"hello"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":2,"candidatesTokenCount":2}}` + "\n\n" +
-		"data: [DONE]\n\n"
-	httpStub := &geminiCompatHTTPUpstreamStub{
-		response: &http.Response{
-			StatusCode: http.StatusOK,
-			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
-			Body:       io.NopCloser(strings.NewReader(upstreamBody)),
-		},
-	}
-	svc := &GeminiMessagesCompatService{
-		httpUpstream: httpStub,
-		cfg:          &config.Config{},
-	}
-	account := &Account{
-		ID:       104,
-		Platform: PlatformGemini,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"api_key": "gemini-responses-api-key",
-		},
-		Concurrency: 1,
-	}
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	body := []byte(`{"model":"gemini-2.5-flash","stream":true,"input":"hi"}`)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
-
-	result, err := svc.ForwardAsResponses(context.Background(), c, account, body)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.True(t, result.Stream)
-	require.Equal(t, 2, result.Usage.InputTokens)
-	require.Equal(t, 2, result.Usage.OutputTokens)
-
-	require.NotNil(t, httpStub.lastReq)
-	require.Contains(t, httpStub.lastReq.URL.String(), "/v1beta/models/gemini-2.5-flash:streamGenerateContent?alt=sse")
-	require.Equal(t, "gemini-responses-api-key", httpStub.lastReq.Header.Get("x-goog-api-key"))
-
-	out := rec.Body.String()
-	require.Contains(t, out, "event: response.created")
-	require.Contains(t, out, "event: response.output_text.delta")
-	require.Contains(t, out, `"delta":"hel"`)
-	require.Contains(t, out, `"delta":"lo"`)
-	require.Contains(t, out, "event: response.completed")
-	require.Contains(t, out, `"input_tokens":2`)
-	require.Contains(t, out, `"output_tokens":2`)
-	require.Contains(t, out, `"total_tokens":4`)
 }
 
 // TestConvertClaudeToolsToGeminiTools_CustomType 测试custom类型工具转换
@@ -554,6 +293,50 @@ func TestConvertClaudeToolsToGeminiTools_CustomType(t *testing.T) {
 	}
 }
 
+func TestCleanToolSchema_NormalizesGeminiUnsupportedSchemaFields(t *testing.T) {
+	schema := map[string]any{
+		"type": "object",
+		"$defs": map[string]any{
+			"unused": map[string]any{"type": "string"},
+		},
+		"definitions": map[string]any{
+			"legacy": map[string]any{"type": "number"},
+		},
+		"properties": map[string]any{
+			"path": map[string]any{
+				"type": []any{"string", "null"},
+			},
+			"count": map[string]any{
+				"type": []any{"null", "integer"},
+			},
+			"empty": map[string]any{
+				"type": []any{"null"},
+			},
+		},
+	}
+
+	cleaned, ok := cleanToolSchema(schema).(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "OBJECT", cleaned["type"])
+	require.NotContains(t, cleaned, "$defs")
+	require.NotContains(t, cleaned, "definitions")
+
+	properties, ok := cleaned["properties"].(map[string]any)
+	require.True(t, ok)
+
+	pathSchema, ok := properties["path"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "STRING", pathSchema["type"])
+
+	countSchema, ok := properties["count"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "INTEGER", countSchema["type"])
+
+	emptySchema, ok := properties["empty"].(map[string]any)
+	require.True(t, ok)
+	require.NotContains(t, emptySchema, "type")
+}
+
 func TestConvertClaudeToolsToGeminiTools_PreservesWebSearchAlongsideFunctions(t *testing.T) {
 	tools := []any{
 		map[string]any{
@@ -649,67 +432,6 @@ func TestGeminiMessagesCompatServiceForward_PreservesRequestedModelAndMappedUpst
 	require.Equal(t, 1, httpStub.calls)
 	require.NotNil(t, httpStub.lastReq)
 	require.Contains(t, httpStub.lastReq.URL.String(), "/models/claude-sonnet-4-20250514:")
-}
-
-func TestGatewayServiceForwardAsGeminiChatCompletions_ConvertsOpenAIChatToGeminiAndBack(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-
-	httpStub := &geminiCompatHTTPUpstreamStub{
-		response: &http.Response{
-			StatusCode: http.StatusOK,
-			Header:     http.Header{"x-request-id": []string{"gemini-cc-1"}},
-			Body:       io.NopCloser(strings.NewReader(`{"candidates":[{"content":{"parts":[{"text":"hello from gemini"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":12,"candidatesTokenCount":4}}`)),
-		},
-	}
-	svc := &GatewayService{httpUpstream: httpStub, cfg: &config.Config{}}
-	account := &Account{
-		ID:       7,
-		Name:     "gemini-api-key",
-		Platform: PlatformGemini,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"api_key": "test-key",
-			"model_mapping": map[string]any{
-				"gemini-chat": "gemini-2.5-pro",
-			},
-		},
-	}
-	body := []byte(`{"model":"gemini-chat","messages":[{"role":"system","content":"Be terse."},{"role":"user","content":"Say hello"}],"max_tokens":64}`)
-
-	result, err := svc.ForwardAsGeminiChatCompletions(context.Background(), c, account, body)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, "gemini-chat", result.Model)
-	require.Equal(t, "gemini-2.5-pro", result.UpstreamModel)
-	require.Equal(t, 12, result.Usage.InputTokens)
-	require.Equal(t, 4, result.Usage.OutputTokens)
-	require.Equal(t, 1, httpStub.calls)
-	require.NotNil(t, httpStub.lastReq)
-	require.Contains(t, httpStub.lastReq.URL.String(), "/v1beta/models/gemini-2.5-pro:generateContent")
-
-	postedBody, err := io.ReadAll(httpStub.lastReq.Body)
-	require.NoError(t, err)
-	var posted map[string]any
-	require.NoError(t, json.Unmarshal(postedBody, &posted))
-	require.Contains(t, posted, "contents")
-	require.NotContains(t, posted, "messages")
-	require.NotContains(t, posted, "max_tokens")
-	require.Equal(t, "test-key", httpStub.lastReq.Header.Get("x-goog-api-key"))
-
-	require.Equal(t, http.StatusOK, w.Code)
-	var chatResp map[string]any
-	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &chatResp))
-	require.Equal(t, "chat.completion", chatResp["object"])
-	require.Equal(t, "gemini-chat", chatResp["model"])
-	choices, ok := chatResp["choices"].([]any)
-	require.True(t, ok)
-	require.Len(t, choices, 1)
-	message := choices[0].(map[string]any)["message"].(map[string]any)
-	require.Equal(t, "assistant", message["role"])
-	require.Equal(t, "hello from gemini", message["content"])
 }
 
 func TestGeminiMessagesCompatServiceForward_NormalizesWebSearchToolForAIStudio(t *testing.T) {
@@ -1258,124 +980,4 @@ func parseAnthropicContentBlockEvents(t *testing.T, raw string) []anthropicConte
 		})
 	}
 	return events
-}
-
-func TestGeminiForward_429FailsOverWithoutSameAccountRetries(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	httpStub := &geminiCompatHTTPUpstreamStub{response: newGemini429Response()}
-	repo := &recordingGemini429Repo{}
-	svc := &GeminiMessagesCompatService{
-		accountRepo:  repo,
-		httpUpstream: httpStub,
-		cfg:          &config.Config{},
-	}
-	account := &Account{
-		ID:       307,
-		Name:     "zjarlin_gemini_aistudio",
-		Platform: PlatformGemini,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"api_key": "gemini-api-key",
-		},
-		Concurrency: 1,
-	}
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	body := []byte(`{"model":"gemini-3.5-flash","messages":[{"role":"user","content":[{"type":"text","text":"hi"}]}],"max_tokens":16,"stream":true}`)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
-
-	_, err := svc.Forward(context.Background(), c, account, body)
-	requireGemini429FailoverWithoutRetry(t, c, err, httpStub, repo, account.ID)
-}
-
-func TestGeminiForwardNative_429FailsOverWithoutSameAccountRetries(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	httpStub := &geminiCompatHTTPUpstreamStub{response: newGemini429Response()}
-	repo := &recordingGemini429Repo{}
-	svc := &GeminiMessagesCompatService{
-		accountRepo:  repo,
-		httpUpstream: httpStub,
-		cfg:          &config.Config{},
-	}
-	account := &Account{
-		ID:       307,
-		Name:     "zjarlin_gemini_aistudio",
-		Platform: PlatformGemini,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"api_key": "gemini-api-key",
-		},
-		Concurrency: 1,
-	}
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	body := []byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-3.5-flash:streamGenerateContent", bytes.NewReader(body))
-
-	_, err := svc.ForwardNative(context.Background(), c, account, "gemini-3.5-flash", "streamGenerateContent", true, body)
-	requireGemini429FailoverWithoutRetry(t, c, err, httpStub, repo, account.ID)
-}
-
-func TestGeminiForwardAsResponses_429FailsOverWithoutSameAccountRetries(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	httpStub := &geminiCompatHTTPUpstreamStub{response: newGemini429Response()}
-	repo := &recordingGemini429Repo{}
-	svc := &GeminiMessagesCompatService{
-		accountRepo:  repo,
-		httpUpstream: httpStub,
-		cfg:          &config.Config{},
-	}
-	account := &Account{
-		ID:       307,
-		Name:     "zjarlin_gemini_aistudio",
-		Platform: PlatformGemini,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"api_key": "gemini-api-key",
-		},
-		Concurrency: 1,
-	}
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	body := []byte(`{"model":"gemini-3.5-flash","input":"hi","max_output_tokens":16}`)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
-
-	_, err := svc.ForwardAsResponses(context.Background(), c, account, body)
-	requireGemini429FailoverWithoutRetry(t, c, err, httpStub, repo, account.ID)
-}
-
-func TestGeminiForwardAsChatCompletions_429FailsOverWithoutSameAccountRetries(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-
-	httpStub := &geminiCompatHTTPUpstreamStub{response: newGemini429Response()}
-	repo := &recordingGemini429Repo{}
-	svc := &GeminiMessagesCompatService{
-		accountRepo:  repo,
-		httpUpstream: httpStub,
-		cfg:          &config.Config{},
-	}
-	account := &Account{
-		ID:       307,
-		Name:     "zjarlin_gemini_aistudio",
-		Platform: PlatformGemini,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"api_key": "gemini-api-key",
-		},
-		Concurrency: 1,
-	}
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	body := []byte(`{"model":"gemini-3.5-flash","messages":[{"role":"user","content":"hi"}]}`)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
-
-	_, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body)
-	requireGemini429FailoverWithoutRetry(t, c, err, httpStub, repo, account.ID)
 }

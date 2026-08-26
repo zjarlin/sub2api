@@ -13,11 +13,14 @@ func RegisterUserRoutes(
 	v1 *gin.RouterGroup,
 	h *handler.Handlers,
 	jwtAuth middleware.JWTAuthMiddleware,
+	auditLog middleware.AuditLogMiddleware,
 	settingService *service.SettingService,
 ) {
 	authenticated := v1.Group("")
 	authenticated.Use(gin.HandlerFunc(jwtAuth))
 	authenticated.Use(middleware.BackendModeUserGuard(settingService))
+	// 用户管理面变更类操作入审计（含 TOTP 启用/禁用、step-up 验证、密码修改等安全事件）
+	authenticated.Use(gin.HandlerFunc(auditLog))
 	{
 		// 用户接口
 		user := authenticated.Group("/user")
@@ -52,25 +55,15 @@ func RegisterUserRoutes(
 				totp.POST("/setup", h.Totp.InitiateSetup)
 				totp.POST("/enable", h.Totp.Enable)
 				totp.POST("/disable", h.Totp.Disable)
+				// 敏感操作二次验证：授予当前会话一段时间的 step-up 权限
+				totp.POST("/step-up", h.Totp.StepUp)
 			}
-		}
-
-		// 用户个人账号：仅可见、编辑本人贡献的账号；调度仍按分组进入公共池。
-		accounts := authenticated.Group("/user/accounts")
-		{
-			accounts.GET("", h.UserAccount.List)
-			accounts.GET("/:id", h.UserAccount.GetByID)
-			accounts.POST("", h.UserAccount.Create)
-			accounts.PUT("/:id", h.UserAccount.Update)
-			accounts.DELETE("/:id", h.UserAccount.Delete)
-			accounts.POST("/:id/test", h.UserAccount.Test)
 		}
 
 		// API Key管理
 		keys := authenticated.Group("/keys")
 		{
 			keys.GET("", h.APIKey.List)
-			keys.GET("/:id/codex-model-catalog", h.APIKey.GetCodexModelCatalog)
 			keys.GET("/:id", h.APIKey.GetByID)
 			keys.POST("", h.APIKey.Create)
 			keys.PUT("/:id", h.APIKey.Update)
@@ -102,6 +95,7 @@ func RegisterUserRoutes(
 			usage.GET("/dashboard/stats", h.Usage.DashboardStats)
 			usage.GET("/dashboard/trend", h.Usage.DashboardTrend)
 			usage.GET("/dashboard/models", h.Usage.DashboardModels)
+			usage.GET("/dashboard/snapshot-v2", h.Usage.DashboardSnapshotV2)
 			usage.POST("/dashboard/api-keys-usage", h.Usage.DashboardAPIKeysUsage)
 		}
 

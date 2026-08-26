@@ -5,23 +5,22 @@
       <nav class="mx-auto flex max-w-6xl items-center justify-between">
         <router-link to="/home" class="flex items-center gap-3">
           <div class="h-10 w-10 overflow-hidden rounded-xl shadow-md">
-            <img :src="siteLogo || '/logo.png'" alt="Logo" class="h-full w-full object-contain" />
+            <img :src="siteLogo || '/logo.svg'" alt="Logo" class="h-full w-full object-contain" />
           </div>
           <span class="text-lg font-semibold tracking-tight text-gray-900 dark:text-white">{{ siteName }}</span>
         </router-link>
         <div class="flex items-center gap-3">
           <LocaleSwitcher />
-          <component
-            :is="docsLinkComponent"
-            :to="isInternalDocsLink ? docsUrl : undefined"
-            :href="isInternalDocsLink ? undefined : docsUrl"
-            :target="isInternalDocsLink ? undefined : '_blank'"
-            :rel="isInternalDocsLink ? undefined : 'noopener noreferrer'"
+          <a
+            v-if="docUrl"
+            :href="docUrl"
+            target="_blank"
+            rel="noopener noreferrer"
             class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white"
             :title="t('home.viewDocs')"
           >
             <Icon name="book" size="md" />
-          </component>
+          </a>
           <button
             @click="toggleTheme"
             class="rounded-lg p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-dark-400 dark:hover:bg-dark-800 dark:hover:text-white"
@@ -336,7 +335,7 @@
                     <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200">{{ fmtNum(row.output_tokens) }}</td>
                     <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200">{{ fmtNum(row.cache_read_tokens) }}</td>
                     <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200">{{ fmtNum(row.cache_write_tokens) }}</td>
-                    <td class="px-4 py-3 text-sm tabular-nums text-right font-medium text-gray-900 dark:text-white">{{ usd(row.actual_cost != null ? row.actual_cost : row.cost) }}</td>
+                    <td class="px-4 py-3 text-sm tabular-nums text-right font-medium text-gray-900 dark:text-white">{{ formatQuota(row.actual_cost != null ? row.actual_cost : row.cost) }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -381,7 +380,7 @@
                     <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200">{{ fmtNum(m.cache_creation_tokens) }}</td>
                     <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200">{{ fmtNum(m.cache_read_tokens) }}</td>
                     <td class="px-4 py-3 text-sm tabular-nums text-right text-gray-700 dark:text-dark-200">{{ fmtNum(m.total_tokens) }}</td>
-                    <td class="px-4 py-3 text-sm tabular-nums text-right font-medium text-gray-900 dark:text-white">{{ usd(m.actual_cost != null ? m.actual_cost : m.cost) }}</td>
+                    <td class="px-4 py-3 text-sm tabular-nums text-right font-medium text-gray-900 dark:text-white">{{ formatQuota(m.actual_cost != null ? m.actual_cost : m.cost) }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -398,14 +397,13 @@
           &copy; {{ currentYear }} {{ siteName }}. {{ t('home.footer.allRightsReserved') }}
         </p>
         <div class="flex items-center gap-4">
-          <component
-            :is="docsLinkComponent"
-            :to="isInternalDocsLink ? docsUrl : undefined"
-            :href="isInternalDocsLink ? undefined : docsUrl"
-            :target="isInternalDocsLink ? undefined : '_blank'"
-            :rel="isInternalDocsLink ? undefined : 'noopener noreferrer'"
+          <a
+            v-if="docUrl"
+            :href="docUrl"
+            target="_blank"
+            rel="noopener noreferrer"
             class="text-sm text-gray-500 transition-colors hover:text-gray-700 dark:text-dark-400 dark:hover:text-white"
-          >{{ t('home.docs') }}</component>
+          >{{ t('home.docs') }}</a>
           <a
             :href="githubUrl"
             target="_blank"
@@ -424,21 +422,22 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { resolveDocsUrl } from '@/utils/docs'
+import { buildGatewayUrl } from '@/api/client'
+import { formatDateLocalInput } from '@/utils/format'
+import { sanitizeUrl } from '@/utils/url'
+import { formatUserCurrency } from '@/utils/userCurrency'
 
 const { t, locale } = useI18n()
 const appStore = useAppStore()
 
-// ==================== Site Settings (same as HomeView) ====================
+// ==================== 站点设置（与首页一致） ====================
 
 const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || '++0 的 API')
-const siteLogo = computed(() => appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '')
-const docsUrl = computed(() => resolveDocsUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl))
-const isInternalDocsLink = computed(() => docsUrl.value.startsWith('/'))
-const docsLinkComponent = computed(() => isInternalDocsLink.value ? 'router-link' : 'a')
-const githubUrl = 'https://github.com/Wei-Shaw/sub2api'
+const siteLogo = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '', { allowRelative: true, allowDataUrl: true }))
+const docUrl = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl || ''))
+const githubUrl = 'https://github.com/zjarlin/sub2api'
 
-// ==================== Theme (same as HomeView) ====================
+// ==================== 主题（与首页一致） ====================
 
 const isDark = ref(document.documentElement.classList.contains('dark'))
 
@@ -450,7 +449,7 @@ function toggleTheme() {
 
 const currentYear = computed(() => new Date().getFullYear())
 
-// ==================== Key Query State ====================
+// ==================== 密钥查询状态 ====================
 
 const apiKey = ref('')
 const keyVisible = ref(false)
@@ -463,7 +462,7 @@ const resultData = ref<any>(null)
 const now = ref(new Date())
 let resetTimer: ReturnType<typeof setInterval> | null = null
 
-// ==================== Date Range State ====================
+// ==================== 日期范围状态 ====================
 
 type DateRangeKey = 'today' | '7d' | '30d' | 'custom'
 const currentRange = ref<DateRangeKey>('today')
@@ -493,7 +492,6 @@ function setDateRange(key: DateRangeKey) {
 
 function getDateParams(): string {
   const now = new Date()
-  const fmt = (d: Date) => d.toISOString().split('T')[0]
   const params = new URLSearchParams()
 
   if (currentRange.value === 'custom') {
@@ -502,13 +500,13 @@ function getDateParams(): string {
       params.set('end_date', customEndDate.value)
     }
   } else {
-    const end = fmt(now)
+    const end = formatDateLocalInput(now)
     let start: string
     switch (currentRange.value) {
       case 'today': start = end; break
-      case '7d': start = fmt(new Date(now.getTime() - 7 * 86400000)); break
-      case '30d': start = fmt(new Date(now.getTime() - 30 * 86400000)); break
-      default: start = fmt(new Date(now.getTime() - 30 * 86400000))
+      case '7d': start = formatDateLocalInput(new Date(now.getTime() - 7 * 86400000)); break
+      case '30d': start = formatDateLocalInput(new Date(now.getTime() - 30 * 86400000)); break
+      default: start = formatDateLocalInput(new Date(now.getTime() - 30 * 86400000))
     }
     params.set('start_date', start)
     params.set('end_date', end)
@@ -526,7 +524,7 @@ function setDailyUsageDays(days: 7 | 30 | 90) {
   }
 }
 
-// ==================== Ring Animation ====================
+// ==================== 环形图动画 ====================
 
 const CIRCUMFERENCE = 2 * Math.PI * 68
 const RING_GRADIENTS = [
@@ -583,7 +581,7 @@ function triggerRingAnimation(items: RingItem[]) {
   })
 }
 
-// ==================== Computed Data ====================
+// ==================== 派生数据 ====================
 
 const statusInfo = computed(() => {
   const data = resultData.value
@@ -619,7 +617,7 @@ const ringItems = computed<RingItem[]>(() => {
   if (data.mode === 'quota_limited') {
     if (data.quota) {
       const pct = data.quota.limit > 0 ? Math.min(Math.round((data.quota.used / data.quota.limit) * 100), 100) : 0
-      items.push({ title: t('keyUsage.totalQuota'), pct, amount: `${usd(data.quota.used)} / ${usd(data.quota.limit)}`, iconType: 'dollar' })
+      items.push({ title: t('keyUsage.totalQuota'), pct, amount: `${formatQuota(data.quota.used)} / ${formatQuota(data.quota.limit)}`, iconType: 'dollar' })
     }
     if (data.rate_limits) {
       const windowLabels: Record<string, string> = { '5h': t('keyUsage.limit5h'), '1d': t('keyUsage.limitDaily'), '7d': t('keyUsage.limit7d') }
@@ -629,7 +627,7 @@ const ringItems = computed<RingItem[]>(() => {
         items.push({
           title: windowLabels[rl.window] || rl.window,
           pct,
-          amount: `${usd(rl.used)} / ${usd(rl.limit)}`,
+          amount: `${formatQuota(rl.used)} / ${formatQuota(rl.limit)}`,
           iconType: windowIcons[rl.window] || 'clock',
           resetAt: rl.reset_at,
         })
@@ -646,12 +644,12 @@ const ringItems = computed<RingItem[]>(() => {
       for (const l of limits) {
         if (l.limit != null && l.limit > 0) {
           const pct = Math.min(Math.round((l.usage / l.limit) * 100), 100)
-          items.push({ title: l.label, pct, amount: `${usd(l.usage)} / ${usd(l.limit)}`, iconType: 'calendar' })
+          items.push({ title: l.label, pct, amount: `${formatQuota(l.usage)} / ${formatQuota(l.limit)}`, iconType: 'calendar' })
         }
       }
     }
     if (!data.subscription && data.balance != null) {
-      items.push({ title: t('keyUsage.walletBalance'), pct: 0, amount: usd(data.balance), isBalance: true, iconType: 'dollar' })
+      items.push({ title: t('keyUsage.walletBalance'), pct: 0, amount: formatQuota(data.balance), isBalance: true, iconType: 'dollar' })
     }
   }
 
@@ -697,7 +695,7 @@ const detailRows = computed<DetailRow[]>(() => {
         : 'text-emerald-500'
       rows.push({
         iconBg: 'bg-emerald-500/10', iconColor: 'text-emerald-500', iconSvg: ICON_SHIELD,
-        label: t('keyUsage.remainingQuota'), value: usd(data.quota.remaining), valueClass: remainColor,
+        label: t('keyUsage.remainingQuota'), value: formatQuota(data.quota.remaining), valueClass: remainColor,
       })
     }
     if (data.expires_at) {
@@ -715,7 +713,7 @@ const detailRows = computed<DetailRow[]>(() => {
       const windowMap: Record<string, string> = { '5h': '5H', '1d': locale.value === 'zh' ? '日' : 'D', '7d': '7D' }
       for (const rl of data.rate_limits) {
         const pct = rl.limit > 0 ? (rl.used / rl.limit) * 100 : 0
-        let valueStr = `${usd(rl.used)} / ${usd(rl.limit)}`
+        let valueStr = `${formatQuota(rl.used)} / ${formatQuota(rl.limit)}`
         const resetStr = formatResetTime(rl.reset_at)
         if (resetStr) {
           valueStr += ` (⟳ ${resetStr})`
@@ -740,21 +738,21 @@ const detailRows = computed<DetailRow[]>(() => {
         const pct = (sub.daily_usage_usd / sub.daily_limit_usd) * 100
         rows.push({
           iconBg: 'bg-primary-500/10', iconColor: 'text-primary-500', iconSvg: ICON_DOLLAR,
-          label: `${t('keyUsage.usedQuota')} (${locale.value === 'zh' ? '日' : 'D'})`, value: `${usd(sub.daily_usage_usd)} / ${usd(sub.daily_limit_usd)}`, valueClass: getUsageColor(pct),
+          label: `${t('keyUsage.usedQuota')} (${locale.value === 'zh' ? '日' : 'D'})`, value: `${formatQuota(sub.daily_usage_usd)} / ${formatQuota(sub.daily_limit_usd)}`, valueClass: getUsageColor(pct),
         })
       }
       if (sub.weekly_limit_usd > 0) {
         const pct = (sub.weekly_usage_usd / sub.weekly_limit_usd) * 100
         rows.push({
           iconBg: 'bg-indigo-500/10', iconColor: 'text-indigo-500', iconSvg: ICON_DOLLAR,
-          label: `${t('keyUsage.usedQuota')} (${locale.value === 'zh' ? '周' : 'W'})`, value: `${usd(sub.weekly_usage_usd)} / ${usd(sub.weekly_limit_usd)}`, valueClass: getUsageColor(pct),
+          label: `${t('keyUsage.usedQuota')} (${locale.value === 'zh' ? '周' : 'W'})`, value: `${formatQuota(sub.weekly_usage_usd)} / ${formatQuota(sub.weekly_limit_usd)}`, valueClass: getUsageColor(pct),
         })
       }
       if (sub.monthly_limit_usd > 0) {
         const pct = (sub.monthly_usage_usd / sub.monthly_limit_usd) * 100
         rows.push({
           iconBg: 'bg-emerald-500/10', iconColor: 'text-emerald-500', iconSvg: ICON_DOLLAR,
-          label: `${t('keyUsage.usedQuota')} (${locale.value === 'zh' ? '月' : 'M'})`, value: `${usd(sub.monthly_usage_usd)} / ${usd(sub.monthly_limit_usd)}`, valueClass: getUsageColor(pct),
+          label: `${t('keyUsage.usedQuota')} (${locale.value === 'zh' ? '月' : 'M'})`, value: `${formatQuota(sub.monthly_usage_usd)} / ${formatQuota(sub.monthly_limit_usd)}`, valueClass: getUsageColor(pct),
         })
       }
       if (sub.expires_at) {
@@ -770,7 +768,7 @@ const detailRows = computed<DetailRow[]>(() => {
       : ''
     rows.push({
       iconBg: 'bg-emerald-500/10', iconColor: 'text-emerald-500', iconSvg: ICON_SHIELD,
-      label: t('keyUsage.remainingQuota'), value: data.remaining != null ? usd(data.remaining) : '-', valueClass: remainColor,
+      label: t('keyUsage.remainingQuota'), value: data.remaining != null ? formatQuota(data.remaining) : '-', valueClass: remainColor,
     })
   }
 
@@ -796,7 +794,7 @@ const usageStatCells = computed<StatCell[]>(() => {
     { label: t('keyUsage.todayTokens'), value: fmtNum(today.total_tokens) },
     { label: t('keyUsage.todayCacheCreation'), value: fmtNum(today.cache_creation_tokens) },
     { label: t('keyUsage.todayCacheRead'), value: fmtNum(today.cache_read_tokens) },
-    { label: t('keyUsage.todayCost'), value: usd(today.actual_cost) },
+    { label: t('keyUsage.todayCost'), value: formatQuota(today.actual_cost) },
     { label: t('keyUsage.rpmTpm'), value: `${usage.rpm || 0} / ${usage.tpm || 0}` },
     { label: t('keyUsage.totalRequests'), value: fmtNum(total.requests) },
     { label: t('keyUsage.totalInputTokens'), value: fmtNum(total.input_tokens) },
@@ -804,7 +802,7 @@ const usageStatCells = computed<StatCell[]>(() => {
     { label: t('keyUsage.totalTokensLabel'), value: fmtNum(total.total_tokens) },
     { label: t('keyUsage.totalCacheCreation'), value: fmtNum(total.cache_creation_tokens) },
     { label: t('keyUsage.totalCacheRead'), value: fmtNum(total.cache_read_tokens) },
-    { label: t('keyUsage.totalCost'), value: usd(total.actual_cost) },
+    { label: t('keyUsage.totalCost'), value: formatQuota(total.actual_cost) },
     { label: t('keyUsage.avgDuration'), value: usage.average_duration_ms ? `${Math.round(usage.average_duration_ms)} ms` : '-' },
   ]
 })
@@ -830,11 +828,11 @@ const dailyUsageRows = computed<DailyUsageRow[]>(() => {
 
 const showDailyUsage = computed(() => Boolean(resultData.value && Array.isArray(resultData.value.daily_usage)))
 
-// ==================== Utility Functions ====================
+// ==================== 工具函数 ====================
 
-function usd(value: number | null | undefined): string {
+function formatQuota(value: number | null | undefined): string {
   if (value == null || value < 0) return '-'
-  return '¥' + Number(value).toFixed(2)
+  return formatUserCurrency(Number(value))
 }
 
 function fmtNum(val: number | null | undefined): string {
@@ -857,11 +855,11 @@ function getBrowserTimezone(): string {
   }
 }
 
-// ==================== API Query ====================
+// ==================== 接口查询 ====================
 
 async function fetchUsage(key: string) {
   const dateParams = getDateParams()
-  const url = '/v1/usage' + (dateParams ? '?' + dateParams : '')
+  const url = buildGatewayUrl('/v1/usage') + (dateParams ? '?' + dateParams : '')
   const res = await fetch(url, {
     headers: { 'Authorization': 'Bearer ' + key },
   })
@@ -907,7 +905,7 @@ async function queryKey() {
   }
 }
 
-// ==================== Lifecycle ====================
+// ==================== 生命周期 ====================
 
 function initTheme() {
   const savedTheme = localStorage.getItem('theme')
@@ -965,13 +963,12 @@ onUnmounted(() => {
   100% { background-position: 200% 0; }
 }
 .skeleton {
-  background: linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%);
-  background-size: 200% 100%;
+  background: #e5e7eb;
   animation: shimmer-kv 1.8s ease-in-out infinite;
   border-radius: 8px;
 }
 :global(.dark) .skeleton {
-  background: linear-gradient(90deg, #334155 25%, #1e293b 50%, #334155 75%);
+  background: #334155;
   background-size: 200% 100%;
 }
 

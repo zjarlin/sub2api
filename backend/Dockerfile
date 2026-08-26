@@ -1,12 +1,9 @@
-FROM golang:1.26.4-alpine
+FROM golang:1.26.5-alpine
 
 WORKDIR /app
 
 # 安装必要的工具
-RUN apk add --no-cache git chromium
-
-ENV CHROME_BIN=/usr/bin/chromium-browser
-ENV CHROMEDP_NO_SANDBOX=true
+RUN apk add --no-cache git
 
 # 复制go.mod和go.sum
 COPY go.mod go.sum ./
@@ -18,7 +15,8 @@ RUN go mod download
 COPY . .
 
 # 构建应用
-RUN go build -o main ./cmd/server/
+RUN VERSION_VALUE="$(./scripts/resolve-version.sh)" && \
+    go build -ldflags="-s -w -X main.Version=${VERSION_VALUE}" -o main ./cmd/server/
 
 # 暴露端口
 EXPOSE 8080

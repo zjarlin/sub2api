@@ -80,12 +80,7 @@
 
   body {
     @apply min-h-screen text-gray-900 dark:text-gray-100;
-    background:
-      linear-gradient(to right, rgba(0, 0, 0, 0.18) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(0, 0, 0, 0.18) 1px, transparent 1px),
-      radial-gradient(90% 90% at 14% 8%, var(--liquid-tint), transparent 58%),
-      linear-gradient(140deg, var(--liquid-page) 0%, var(--liquid-page-2) 70%, #ffffff 100%);
-    background-size: 70px 70px, 70px 70px, auto, auto;
+    background: var(--liquid-page);
   }
 
   body::before {
@@ -94,10 +89,7 @@
     inset: 0;
     z-index: -2;
     pointer-events: none;
-    background:
-      linear-gradient(134deg, transparent 0 62%, rgba(0, 0, 0, 0.16) 62% 63%, transparent 63%),
-      linear-gradient(42deg, rgba(0, 0, 0, 0.08) 0 1px, transparent 1px 100%);
-    background-size: auto, 70px 70px;
+    background: transparent;
   }
 
   body::after {
@@ -110,20 +102,11 @@
   }
 
   .dark body {
-    background:
-      linear-gradient(rgba(255, 255, 255, 0.14) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.14) 1px, transparent 1px),
-      radial-gradient(85% 85% at 16% 6%, var(--liquid-tint), transparent 58%),
-      radial-gradient(90% 90% at 90% 12%, var(--liquid-tint-2), transparent 60%),
-      linear-gradient(140deg, var(--liquid-page) 0%, var(--liquid-page-2) 62%, #101010 100%);
-    background-size: 70px 70px, 70px 70px, auto, auto, auto;
+    background: var(--liquid-page);
   }
 
   .dark body::before {
-    background:
-      linear-gradient(134deg, transparent 0 62%, rgba(255, 255, 255, 0.16) 62% 63%, transparent 63%),
-      linear-gradient(42deg, rgba(255, 255, 255, 0.08) 0 1px, transparent 1px 100%);
-    background-size: auto, 70px 70px;
+    background: transparent;
   }
 
   /* 自定义滚动条 - 仅针对 Firefox，避免 Chrome 取消 webkit 的全局定制 */
@@ -296,6 +279,14 @@
     border-color: var(--liquid-border);
   }
 
+  .dark .input[type='date'],
+  .dark .input[type='time'],
+  .dark .input[type='datetime-local'],
+  .dark .input[type='month'],
+  .dark .input[type='week'] {
+    color-scheme: dark;
+  }
+
   .input-error {
     @apply border-red-500 focus:border-red-500 focus:ring-red-500/30;
   }
@@ -323,7 +314,7 @@
     -moz-appearance: textfield;
   }
 
-  /* ============ Product surface ============ */
+  /* ============ 产品表面 ============ */
   .glass {
     background: var(--liquid-panel);
     border-color: var(--liquid-border);
@@ -659,7 +650,7 @@
     }
   }
 
-  /* ============ Dialog ============ */
+  /* ============ 对话框 ============ */
   .dialog-overlay {
     @apply fixed inset-0 z-50;
     @apply bg-black/70;
@@ -935,7 +926,7 @@
     box-shadow: var(--neo-shadow);
   }
 
-  /* ============ Tour Description ============ */
+  /* ============ 引导说明 ============ */
   .tour-step-description {
     @apply space-y-3 text-sm leading-relaxed text-gray-700 dark:text-gray-200;
   }
@@ -1017,15 +1008,12 @@
 }
 
 @layer utilities {
-  /* 文字渐变 */
+  /* 品牌强调文字 */
   .text-gradient {
-    background: linear-gradient(100deg, var(--neo-pink), var(--neo-main) 52%, var(--neo-cyan));
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+    color: var(--neo-pink);
   }
 
-  /* Product shell surface */
+  /* 产品外壳表面 */
   .glass {
     background: var(--liquid-panel);
     border-color: var(--liquid-border);
@@ -1033,12 +1021,7 @@
   }
 
   .liquid-page {
-    background:
-      linear-gradient(to right, rgba(0, 0, 0, 0.18) 1px, transparent 1px),
-      linear-gradient(to bottom, rgba(0, 0, 0, 0.18) 1px, transparent 1px),
-      radial-gradient(120% 120% at 18% 10%, var(--liquid-tint), transparent 56%),
-      linear-gradient(140deg, var(--liquid-page) 0%, var(--liquid-page-2) 72%, #ffffff 100%);
-    background-size: 70px 70px, 70px 70px, auto, auto;
+    background: var(--liquid-page);
   }
 
   .liquid-surface {

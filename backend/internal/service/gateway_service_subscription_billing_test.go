@@ -3,7 +3,6 @@
 package service
 
 import (
-	"context"
 	"testing"
 )
 
@@ -83,50 +82,4 @@ func TestBuildUsageBillingCommand_SubscriptionAppliesRateMultiplier(t *testing.T
 			}
 		})
 	}
-}
-
-func TestBuildUsageBillingCommand_SkipsBalanceForOwnedAccount(t *testing.T) {
-	t.Parallel()
-
-	ownerID := int64(7)
-
-	p := &postUsageBillingParams{
-		Cost:               &CostBreakdown{TotalCost: 1.0, ActualCost: 2.0},
-		User:               &User{ID: ownerID},
-		APIKey:             &APIKey{ID: 2, Quota: 100, RateLimit5h: 5},
-		Account:            &Account{ID: 3, OwnerUserID: &ownerID, Type: AccountTypeAPIKey},
-		Subscription:       &UserSubscription{ID: 9},
-		IsSubscriptionBill: true,
-		APIKeyService:      noopAPIKeyQuotaUpdater{},
-	}
-
-	cmd := buildUsageBillingCommand("req-owned", nil, p)
-	if cmd == nil {
-		t.Fatal("buildUsageBillingCommand returned nil")
-	}
-	if cmd.BalanceCost != 0 {
-		t.Fatalf("BalanceCost = %v, want 0", cmd.BalanceCost)
-	}
-	if cmd.SubscriptionCost != 0 {
-		t.Fatalf("SubscriptionCost = %v, want 0", cmd.SubscriptionCost)
-	}
-	if cmd.APIKeyQuotaCost != 0 {
-		t.Fatalf("APIKeyQuotaCost = %v, want 0", cmd.APIKeyQuotaCost)
-	}
-	if cmd.APIKeyRateLimitCost != 0 {
-		t.Fatalf("APIKeyRateLimitCost = %v, want 0", cmd.APIKeyRateLimitCost)
-	}
-	if cmd.AccountQuotaCost != 0 {
-		t.Fatalf("AccountQuotaCost = %v, want 0", cmd.AccountQuotaCost)
-	}
-}
-
-type noopAPIKeyQuotaUpdater struct{}
-
-func (noopAPIKeyQuotaUpdater) UpdateQuotaUsed(context.Context, int64, float64) error {
-	return nil
-}
-
-func (noopAPIKeyQuotaUpdater) UpdateRateLimitUsage(context.Context, int64, float64) error {
-	return nil
 }
