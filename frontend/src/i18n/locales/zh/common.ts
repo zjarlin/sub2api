@@ -64,6 +64,7 @@ export default {
     add: '添加',
     invalidEmail: '请输入有效的邮箱地址',
     optional: '可选',
+    default: '默认',
     selectOption: '请选择',
     searchPlaceholder: '搜索...',
     noOptionsFound: '无匹配选项',

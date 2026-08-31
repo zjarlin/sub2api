@@ -424,6 +424,7 @@ import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { buildGatewayUrl } from '@/api/client'
 import { formatDateLocalInput } from '@/utils/format'
+import { resolveDocsUrl } from '@/utils/docs'
 import { sanitizeUrl } from '@/utils/url'
 import { formatUserCurrency } from '@/utils/userCurrency'
 
@@ -434,7 +435,7 @@ const appStore = useAppStore()
 
 const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || '++0 的 API')
 const siteLogo = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '', { allowRelative: true, allowDataUrl: true }))
-const docUrl = computed(() => sanitizeUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl || ''))
+const docUrl = computed(() => sanitizeUrl(resolveDocsUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl), { allowRelative: true }))
 const githubUrl = 'https://github.com/zjarlin/sub2api'
 
 // ==================== 主题（与首页一致） ====================

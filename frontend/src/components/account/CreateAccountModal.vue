@@ -45,6 +45,39 @@
       @submit.prevent="handleSubmit"
       class="space-y-5"
     >
+      <div class="rounded-lg border border-emerald-200 bg-emerald-50/70 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <Icon name="key" size="sm" class="text-emerald-600 dark:text-emerald-300" />
+            <span class="text-sm font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.accounts.quickOpenAI.title') }}
+            </span>
+            <span
+              v-if="quickOpenAIDefaultGroup"
+              class="rounded bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300"
+            >
+              {{ quickOpenAIDefaultGroup.name }}
+            </span>
+          </div>
+          <button
+            type="button"
+            class="btn btn-primary text-sm"
+            :disabled="submitting"
+            @click="handleQuickOpenAIAdd"
+          >
+            <Icon v-if="submitting" name="refresh" size="sm" class="mr-2 animate-spin" />
+            {{ submitting ? t('admin.accounts.quickOpenAI.adding') : t('admin.accounts.quickOpenAI.add') }}
+          </button>
+        </div>
+        <textarea
+          v-model="quickOpenAIInput"
+          rows="2"
+          class="input font-mono text-sm"
+          spellcheck="false"
+          :placeholder="t('admin.accounts.quickOpenAI.placeholder')"
+        ></textarea>
+      </div>
+
       <div>
         <label class="input-label">{{ t('admin.accounts.accountName') }}</label>
         <input
@@ -3367,6 +3400,9 @@
           :groups="groups"
           :platform="form.platform"
           :mixed-scheduling="mixedScheduling"
+          :show-default-selector="form.platform === 'openai' && accountCategory === 'apikey'"
+          :default-group-id="quickOpenAIDefaultGroupId"
+          @update:default-group-id="handleQuickOpenAIDefaultGroupChange"
           data-tour="account-form-groups"
         />
       </div>
@@ -3783,6 +3819,7 @@ import {
   defaultCNAdaptiveBaseUrls,
   defaultCNBaseUrl,
   isHeaderOverrideCapable,
+  parseQuickOpenAIInput,
   validateHeaderOverrideRows,
   type CnAccountMode,
   type CnApiProtocol,
@@ -3962,6 +3999,8 @@ const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_acco
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
+const quickOpenAIInput = ref('')
+const quickOpenAIDefaultGroupId = ref<number | null>(null)
 const upstreamBillingAutoProbeEnabled = ref(true)
 
 // ── 国产供应商（Kimi / Zhipu / DeepSeek）账号类型、API 协议与端点 ──
@@ -4416,6 +4455,57 @@ const isOpenAIModelRestrictionDisabled = computed(() =>
   form.platform === 'openai' && openaiPassthroughEnabled.value
 )
 
+const QUICK_OPENAI_DEFAULT_GROUP_STORAGE_KEY = 'sub2api.quickOpenAI.defaultGroupId'
+const openAIGroups = computed(() => props.groups.filter(group => group.platform === 'openai'))
+const quickOpenAIDefaultGroup = computed(() =>
+  openAIGroups.value.find(group => group.id === quickOpenAIDefaultGroupId.value) || null
+)
+const selectedOpenAIGroup = computed(() =>
+  openAIGroups.value.find(group => form.group_ids.includes(group.id)) || null
+)
+
+const persistQuickOpenAIDefaultGroup = (groupId: number | null) => {
+  try {
+    if (groupId == null) {
+      window.localStorage.removeItem(QUICK_OPENAI_DEFAULT_GROUP_STORAGE_KEY)
+      return
+    }
+    window.localStorage.setItem(QUICK_OPENAI_DEFAULT_GROUP_STORAGE_KEY, String(groupId))
+  } catch {
+    // localStorage 不可用时保留当前弹窗内存状态。
+  }
+}
+
+const handleQuickOpenAIDefaultGroupChange = (groupId: number | null) => {
+  quickOpenAIDefaultGroupId.value = groupId
+  persistQuickOpenAIDefaultGroup(groupId)
+}
+
+const loadQuickOpenAIDefaultGroup = () => {
+  let raw: string | null = null
+  try {
+    raw = window.localStorage.getItem(QUICK_OPENAI_DEFAULT_GROUP_STORAGE_KEY)
+  } catch {
+    return
+  }
+  const groupId = raw ? Number(raw) : null
+  if (groupId == null || !Number.isInteger(groupId) || groupId <= 0) {
+    handleQuickOpenAIDefaultGroupChange(null)
+    return
+  }
+  quickOpenAIDefaultGroupId.value = groupId
+  if (openAIGroups.value.length > 0 && !openAIGroups.value.some(group => group.id === groupId)) {
+    handleQuickOpenAIDefaultGroupChange(null)
+  }
+}
+
+const syncQuickOpenAIDefaultGroupFromSelection = () => {
+  if (quickOpenAIDefaultGroup.value) return quickOpenAIDefaultGroup.value
+  const group = selectedOpenAIGroup.value
+  if (group) handleQuickOpenAIDefaultGroupChange(group.id)
+  return group || null
+}
+
 const mixedChannelWarningMessageText = computed(() => {
   if (mixedChannelWarningDetails.value) {
     return t('admin.accounts.mixedChannelWarning', mixedChannelWarningDetails.value)
@@ -4533,6 +4623,7 @@ watch(
   () => props.show,
   (newVal) => {
     if (newVal) {
+      loadQuickOpenAIDefaultGroup()
       // Load TLS fingerprint profiles
       adminAPI.tlsFingerprintProfiles.list()
         .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
@@ -4555,6 +4646,25 @@ watch(
       resetForm()
     }
   }
+)
+
+watch(
+  [openAIGroups, quickOpenAIDefaultGroupId],
+  ([groups, groupId]) => {
+    if (groupId != null && groups.length > 0 && !groups.some(group => group.id === groupId)) {
+      handleQuickOpenAIDefaultGroupChange(null)
+    }
+  },
+  { immediate: true }
+)
+
+watch(
+  [() => form.group_ids, openAIGroups, quickOpenAIDefaultGroupId],
+  () => {
+    if (form.platform !== 'openai' || accountCategory.value !== 'apikey') return
+    syncQuickOpenAIDefaultGroupFromSelection()
+  },
+  { deep: true }
 )
 
 // Sync form.type based on accountCategory, addMethod, and platform-specific type
@@ -5040,6 +5150,51 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
   }
 }
 
+const handleQuickOpenAIAdd = async () => {
+  if (submitting.value) return
+
+  const parsed = parseQuickOpenAIInput(quickOpenAIInput.value)
+  if (parsed.errorKey) {
+    appStore.showError(t(`admin.accounts.quickOpenAI.${parsed.errorKey}`))
+    return
+  }
+  if (!parsed.baseUrl || !parsed.apiKey) {
+    appStore.showError(t('admin.accounts.quickOpenAI.apiKeyRequired'))
+    return
+  }
+
+  const group = syncQuickOpenAIDefaultGroupFromSelection()
+  if (!group) {
+    appStore.showError(t('admin.accounts.quickOpenAI.defaultGroupRequired'))
+    return
+  }
+
+  const credentials: Record<string, unknown> = {
+    base_url: parsed.baseUrl,
+    api_key: parsed.apiKey,
+    vendor: 'custom',
+    auth_header: 'authorization',
+    auth_scheme: 'bearer'
+  }
+
+  await submitCreateAccount({
+    name: parsed.baseUrl,
+    notes: '',
+    platform: 'openai',
+    type: 'apikey',
+    credentials,
+    proxy_id: null,
+    concurrency: form.concurrency,
+    load_factor: form.load_factor ?? undefined,
+    priority: form.priority,
+    rate_multiplier: form.rate_multiplier,
+    group_ids: [group.id],
+    expires_at: form.expires_at,
+    auto_pause_on_expired: autoPauseOnExpired.value,
+    extra: { openai_passthrough: true }
+  })
+}
+
 // Methods
 const resetForm = () => {
   step.value = 1
@@ -5062,6 +5217,7 @@ const resetForm = () => {
   adaptiveBaseUrls.value = { chat_completions: '', anthropic: '', responses: '' }
   apiKeyBaseUrl.value = 'https://api.anthropic.com'
   apiKeyValue.value = ''
+  quickOpenAIInput.value = ''
   upstreamBillingAutoProbeEnabled.value = true
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null

@@ -59,6 +59,107 @@ export default {
     dockerRecreate: 'Recreate the container'
   },
 
+  docs: {
+    title: 'Documentation',
+    subtitle: 'The complete flow from creating an API key to configuring local clients. Start from the Use Key dialog on the API Keys page; it generates copy-ready config files and one-click setup scripts for the selected group type.',
+    quickStart: {
+      title: 'Quick Start',
+      description: 'Complete these three steps to start using the gateway.',
+      items: {
+        createKey: {
+          title: '1. Create an API key',
+          body: 'After signing in, open API Keys and create a key. Use a clear name so usage records can be traced back to the client or project later.'
+        },
+        assignGroup: {
+          title: '2. Assign a group',
+          body: 'A key must be assigned to a group before client configuration can be generated. If the key list says no group is assigned, click the group column and choose an available group.'
+        },
+        useKey: {
+          title: '3. Open Use Key',
+          body: 'Click Use Key on the right side of the key row, select Codex CLI, Claude Code, Gemini CLI, or OpenCode, then copy the generated config or one-click script.'
+        }
+      }
+    },
+    codex: {
+      title: 'Codex CLI Configuration',
+      description: 'Codex CLI reads the gateway endpoint and API key from config files and auth.json.',
+      items: {
+        files: {
+          title: 'Config file locations',
+          body: 'macOS/Linux writes to ~/.codex. Windows writes to .codex under the user profile. The dialog shows the full config.toml and auth.json content.'
+        },
+        script: {
+          title: 'One-click setup script',
+          body: 'Choose macOS/Linux or Windows in the Use API Key dialog, then copy the One-click setup script. It creates the directory and writes both files. Windows uses PowerShell; macOS/Linux uses Bash.'
+        },
+        download: {
+          title: 'One-click Codex official client download',
+          body: 'If Codex is not installed locally yet, download the official client from the OpenAI Codex app page first. macOS uses DMG installers; Windows can download the installer or install with winget.',
+          links: {
+            official: 'Open official page',
+            mac: 'Download macOS default',
+            macIntel: 'Download macOS Intel',
+            windows: 'Download Windows installer'
+          }
+        },
+        windows: {
+          title: 'Windows paths',
+          body: 'Windows users should prefer the PowerShell script to avoid hidden-directory and backslash path mistakes.'
+        }
+      }
+    },
+    clients: {
+      title: 'Other Clients',
+      description: 'Different groups show client configuration for the protocol they support.',
+      items: {
+        claude: {
+          title: 'Claude Code',
+          body: 'Claude Code usually points to the gateway with ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN. For persistent use, save them in a shell profile or Claude settings.'
+        },
+        gemini: {
+          title: 'Gemini CLI',
+          body: 'Gemini CLI uses GOOGLE_GEMINI_BASE_URL, GEMINI_API_KEY, and GEMINI_MODEL. Use model names supported by the selected group.'
+        },
+        opencode: {
+          title: 'OpenCode',
+          body: 'OpenCode uses opencode.json. The dialog example includes provider, baseURL, apiKey, and common model settings, which can be adjusted as needed.'
+        }
+      }
+    },
+    usage: {
+      title: 'Usage Query',
+      description: 'Keys can be checked on the public usage page for status, quota, and daily spend.',
+      items: {
+        query: {
+          title: 'Query entry',
+          body: 'Open API Key Usage, enter the API key, and inspect today, 7-day, 30-day, or custom-range usage details.'
+        },
+        quota: {
+          title: 'Quota and limits',
+          body: 'If the key has quota, RPM, TPM, or period limits, the query page shows remaining quota, reset time, and model-level consumption.'
+        }
+      }
+    },
+    troubleshooting: {
+      title: 'Troubleshooting',
+      description: 'Check the key, group, and client config path first.',
+      items: {
+        noGroup: {
+          title: 'The dialog says to assign a group first',
+          body: 'The key has not been bound to an upstream group. Return to the API Keys list, assign a group, then open the Use Key dialog again.'
+        },
+        baseUrl: {
+          title: 'Client cannot connect',
+          body: 'Confirm the base_url or environment variable endpoint comes from the current site, and keep the generated /v1, /v1beta, or /antigravity path.'
+        },
+        secret: {
+          title: 'Key safety',
+          body: 'Do not commit auth.json, opencode.json, or scripts containing API keys to public repositories. If a key may be exposed, disable or delete it and create a replacement.'
+        }
+      }
+    }
+  },
+
   // Recharge / Subscription Page
   purchase: {
     title: 'Recharge / Subscription',

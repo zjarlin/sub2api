@@ -58,6 +58,107 @@ export default {
     dockerRecreate: '重新创建容器'
   },
 
+  docs: {
+    title: '使用文档',
+    subtitle: '从创建 API 密钥到配置本地客户端的完整流程。优先使用密钥页里的“使用密钥”弹窗，它会根据分组类型生成可直接复制的配置文件和一键配置脚本。',
+    quickStart: {
+      title: '快速开始',
+      description: '完成这三步即可开始调用网关。',
+      items: {
+        createKey: {
+          title: '1. 创建 API 密钥',
+          body: '登录后进入“API 密钥”页面，点击创建密钥。建议给密钥设置清晰名称，便于后续在用量记录中识别来源。'
+        },
+        assignGroup: {
+          title: '2. 分配可用分组',
+          body: '密钥必须绑定分组后才能生成客户端配置。若密钥列表提示未分配分组，请点击分组列选择可用分组。'
+        },
+        useKey: {
+          title: '3. 打开“使用密钥”',
+          body: '点击密钥右侧的“使用密钥”，按客户端类型选择 Codex CLI、Claude Code、Gemini CLI 或 OpenCode，再复制对应配置或一键脚本。'
+        }
+      }
+    },
+    codex: {
+      title: 'Codex CLI 配置',
+      description: 'Codex CLI 使用配置文件和 auth.json 读取网关地址与 API 密钥。',
+      items: {
+        files: {
+          title: '配置文件位置',
+          body: 'macOS/Linux 写入 ~/.codex；Windows 写入用户目录下的 .codex。弹窗会同时展示 config.toml 和 auth.json 的完整内容。'
+        },
+        script: {
+          title: '一键配置脚本',
+          body: '在“使用 API 密钥”弹窗中选择 macOS/Linux 或 Windows 后，复制“一键配置脚本”运行即可自动创建目录并写入两个文件。Windows 使用 PowerShell，macOS/Linux 使用 Bash。'
+        },
+        download: {
+          title: 'Codex 官方客户端一键下载',
+          body: '如本机尚未安装 Codex，可先从 OpenAI 官方 Codex app 页面下载客户端。macOS 使用 DMG，Windows 可下载安装器或使用 winget 安装。',
+          links: {
+            official: '打开官方页面',
+            mac: '下载 macOS 默认版',
+            macIntel: '下载 macOS Intel 版',
+            windows: '下载 Windows 安装器'
+          }
+        },
+        windows: {
+          title: 'Windows 路径',
+          body: 'Windows 用户推荐直接复制 PowerShell 脚本执行，避免手动创建隐藏目录或写错反斜杠路径。'
+        }
+      }
+    },
+    clients: {
+      title: '其他客户端',
+      description: '不同分组会展示适配当前协议的客户端配置。',
+      items: {
+        claude: {
+          title: 'Claude Code',
+          body: 'Claude Code 主要通过 ANTHROPIC_BASE_URL 和 ANTHROPIC_AUTH_TOKEN 指向网关。需要长期生效时可写入 shell profile 或 Claude settings。'
+        },
+        gemini: {
+          title: 'Gemini CLI',
+          body: 'Gemini CLI 使用 GOOGLE_GEMINI_BASE_URL、GEMINI_API_KEY 和 GEMINI_MODEL。模型名称请以分组支持范围为准。'
+        },
+        opencode: {
+          title: 'OpenCode',
+          body: 'OpenCode 使用 opencode.json。弹窗中的示例已包含 provider、baseURL、apiKey 和常用模型配置，可按需调整。'
+        }
+      }
+    },
+    usage: {
+      title: '用量查询',
+      description: '密钥可在公开用量页查询状态、配额和每日消费。',
+      items: {
+        query: {
+          title: '查询入口',
+          body: '打开“API Key 用量查询”页面，输入 API Key 后即可查看今日、近 7 天、近 30 天或自定义时间范围的使用明细。'
+        },
+        quota: {
+          title: '额度与限制',
+          body: '若密钥设置了额度、RPM、TPM 或周期限制，查询页会展示剩余额度、重置时间和模型维度消耗。'
+        }
+      }
+    },
+    troubleshooting: {
+      title: '常见问题',
+      description: '优先检查密钥、分组和客户端配置路径。',
+      items: {
+        noGroup: {
+          title: '弹窗提示请先分配分组',
+          body: '这表示密钥还没有绑定上游分组。回到 API 密钥列表，点击分组列完成绑定后再打开使用弹窗。'
+        },
+        baseUrl: {
+          title: '客户端无法连接',
+          body: '确认 base_url 或环境变量中的网关地址来自当前站点，并保留弹窗生成的 /v1、/v1beta 或 /antigravity 路径。'
+        },
+        secret: {
+          title: '密钥安全',
+          body: '不要把 auth.json、opencode.json 或包含 API Key 的脚本提交到公开仓库。怀疑泄露时请立即禁用或删除该密钥并重新创建。'
+        }
+      }
+    }
+  },
+
   // Recharge / Subscription Page
   purchase: {
     title: '充值/订阅',

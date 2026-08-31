@@ -24,28 +24,47 @@
           : 'rounded-lg border border-gray-200 bg-gray-50 dark:border-dark-600 dark:bg-dark-800'
       ]"
     >
-      <label
+      <div
         v-for="group in filteredGroups"
         :key="group.id"
         class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 transition-colors hover:bg-white dark:hover:bg-dark-700"
         :title="t('admin.groups.rateAndAccounts', { rate: group.rate_multiplier, count: group.account_count || 0 })"
       >
-        <input
-          type="checkbox"
-          :value="group.id"
-          :checked="modelValue.includes(group.id)"
-          @change="handleChange(group.id, ($event.target as HTMLInputElement).checked)"
-          class="h-3.5 w-3.5 shrink-0 rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
-        />
-        <GroupBadge
-          :name="group.name"
-          :platform="group.platform"
-          :subscription-type="group.subscription_type"
-          :rate-multiplier="group.rate_multiplier"
-          class="min-w-0 flex-1"
-        />
-        <span class="shrink-0 text-xs text-gray-400">{{ group.account_count || 0 }}</span>
-      </label>
+        <label class="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
+          <input
+            type="checkbox"
+            :value="group.id"
+            :checked="modelValue.includes(group.id)"
+            @change="handleChange(group.id, ($event.target as HTMLInputElement).checked)"
+            class="h-3.5 w-3.5 shrink-0 rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
+          />
+          <GroupBadge
+            :name="group.name"
+            :platform="group.platform"
+            :subscription-type="group.subscription_type"
+            :rate-multiplier="group.rate_multiplier"
+            class="min-w-0 flex-1"
+          />
+          <span class="shrink-0 text-xs text-gray-400">{{ group.account_count || 0 }}</span>
+        </label>
+        <label
+          v-if="showDefaultSelector"
+          class="flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md border px-1.5 text-[11px] font-medium transition-colors"
+          :class="defaultGroupId === group.id
+            ? 'border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-700/60 dark:bg-primary-900/20 dark:text-primary-300'
+            : 'border-transparent text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-dark-600'"
+          :title="t('admin.accounts.quickOpenAI.defaultGroupHint')"
+          @click.stop
+        >
+          <input
+            type="checkbox"
+            :checked="defaultGroupId === group.id"
+            class="h-3.5 w-3.5 rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
+            @change="handleDefaultGroupChange(group.id, ($event.target as HTMLInputElement).checked)"
+          />
+          <span class="leading-none">{{ t('common.default') }}</span>
+        </label>
+      </div>
       <div
         v-if="filteredGroups.length === 0"
         class="col-span-2 py-2 text-center text-sm text-gray-500 dark:text-gray-400"
@@ -71,13 +90,18 @@ interface Props {
   platform?: GroupPlatform // Optional platform filter
   mixedScheduling?: boolean // For antigravity accounts: allow anthropic/gemini groups
   searchable?: boolean | 'auto'
+  showDefaultSelector?: boolean
+  defaultGroupId?: number | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  searchable: 'auto'
+  searchable: 'auto',
+  showDefaultSelector: false,
+  defaultGroupId: null
 })
 const emit = defineEmits<{
   'update:modelValue': [value: number[]]
+  'update:defaultGroupId': [value: number | null]
 }>()
 
 const searchText = ref('')
@@ -115,5 +139,9 @@ const handleChange = (groupId: number, checked: boolean) => {
     ? [...props.modelValue, groupId]
     : props.modelValue.filter((id) => id !== groupId)
   emit('update:modelValue', newValue)
+}
+
+const handleDefaultGroupChange = (groupId: number, checked: boolean) => {
+  emit('update:defaultGroupId', checked ? groupId : null)
 }
 </script>

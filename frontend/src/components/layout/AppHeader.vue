@@ -259,6 +259,7 @@ import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import SubscriptionProgressMini from '@/components/common/SubscriptionProgressMini.vue'
 import AnnouncementBell from '@/components/common/AnnouncementBell.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { resolveDocsUrl } from '@/utils/docs'
 import { sanitizeUrl } from '@/utils/url'
 import { formatUserCurrency } from '@/utils/userCurrency'
 import { FeatureFlags, isFeatureFlagEnabled } from '@/utils/featureFlags'
@@ -275,7 +276,7 @@ const user = computed(() => authStore.user)
 const dropdownOpen = ref(false)
 const dropdownRef = ref<HTMLElement | null>(null)
 const contactInfo = computed(() => appStore.contactInfo)
-const docUrl = computed(() => sanitizeUrl(appStore.docUrl))
+const docUrl = computed(() => sanitizeUrl(resolveDocsUrl(appStore.docUrl), { allowRelative: true }))
 const modelPlazaEnabled = computed(() => isFeatureFlagEnabled(FeatureFlags.modelPlaza))
 const avatarUrl = computed(() => user.value?.avatar_url?.trim() || '')
 const availableBalance = computed(() => Number(user.value?.balance || 0))

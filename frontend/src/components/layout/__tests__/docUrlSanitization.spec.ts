@@ -15,7 +15,7 @@ describe('doc_url sanitization', () => {
   })
 
   it('AppHeader applies sanitizeUrl to docUrl', () => {
-    expect(headerSource).toContain('sanitizeUrl(appStore.docUrl)')
+    expect(headerSource).toContain('sanitizeUrl(resolveDocsUrl(appStore.docUrl), { allowRelative: true })')
   })
 
   it('HomeView imports sanitizeUrl', () => {
@@ -23,7 +23,7 @@ describe('doc_url sanitization', () => {
   })
 
   it('HomeView applies sanitizeUrl to docUrl', () => {
-    expect(homeViewSource).toContain('sanitizeUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl')
+    expect(homeViewSource).toContain('sanitizeUrl(resolveDocsUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl), { allowRelative: true })')
   })
 
   it('KeyUsageView imports sanitizeUrl', () => {
@@ -31,6 +31,6 @@ describe('doc_url sanitization', () => {
   })
 
   it('KeyUsageView applies sanitizeUrl to docUrl', () => {
-    expect(keyUsageViewSource).toContain('sanitizeUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl')
+    expect(keyUsageViewSource).toContain('sanitizeUrl(resolveDocsUrl(appStore.cachedPublicSettings?.doc_url || appStore.docUrl), { allowRelative: true })')
   })
 })

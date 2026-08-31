@@ -11,6 +11,7 @@ import {
   buildPlanTypeOptions,
   isCustomGrokBaseUrl,
   isHeaderOverrideCapable,
+  parseQuickOpenAIInput,
   GROK_BASE_URL_PRESETS,
   parseHeaderOverridesJson,
   planTypeDisplayLabel,
@@ -19,6 +20,28 @@ import {
   splitHeaderOverridesObject,
   validateHeaderOverrideRows
 } from '../credentialsBuilder'
+
+describe('parseQuickOpenAIInput', () => {
+  it('accepts URL and key in either order', () => {
+    expect(parseQuickOpenAIInput('https://api.example.com/v1 sk-test-token')).toEqual({
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'sk-test-token'
+    })
+    expect(parseQuickOpenAIInput('sk-test-token https://api.example.com/v1')).toEqual({
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'sk-test-token'
+    })
+  })
+
+  it('accepts labeled values and reports missing fields', () => {
+    expect(parseQuickOpenAIInput('base_url=https://api.example.com/v1 api_key=custom-token')).toEqual({
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'custom-token'
+    })
+    expect(parseQuickOpenAIInput('sk-test-token')).toEqual({ errorKey: 'baseUrlRequired' })
+    expect(parseQuickOpenAIInput('https://api.example.com/v1')).toEqual({ errorKey: 'apiKeyRequired' })
+  })
+})
 
 describe('applyInterceptWarmup', () => {
   it('create + enabled=true: should set intercept_warmup_requests to true', () => {

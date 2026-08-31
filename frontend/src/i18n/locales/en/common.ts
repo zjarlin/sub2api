@@ -64,6 +64,7 @@ export default {
     add: 'Add',
     invalidEmail: 'Please enter a valid email address',
     optional: 'optional',
+    default: 'Default',
     selectOption: 'Select an option',
     searchPlaceholder: 'Search...',
     noOptionsFound: 'No options found',

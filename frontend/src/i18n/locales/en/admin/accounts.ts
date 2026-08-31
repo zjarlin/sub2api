@@ -544,6 +544,18 @@ export default {
       apiKeyRequired: 'API Key *',
       apiKeyPlaceholder: 'sk-ant-api03-...',
       apiKeyHint: 'Your Claude Console API Key',
+      quickOpenAI: {
+        title: 'Quick Add OpenAI-Compatible Account',
+        add: 'Quick Add',
+        adding: 'Adding...',
+        placeholder: 'https://api.example.com/v1\nsk-...\nor: sk-... https://api.example.com',
+        defaultGroupHint: 'Set as the default group for quick-added OpenAI accounts',
+        inputRequired: 'Paste the upstream Base URL and API Key',
+        baseUrlRequired: 'No valid Base URL was detected',
+        invalidBaseUrl: 'Base URL format is invalid',
+        apiKeyRequired: 'No valid API Key was detected',
+        defaultGroupRequired: 'Select an OpenAI group in the group selector first'
+      },
       // OpenAI specific hints
       openai: {
         baseUrlHint: 'Leave default for official OpenAI API',

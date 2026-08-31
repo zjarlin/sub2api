@@ -629,6 +629,18 @@ export default {
       apiKeyRequired: 'API Key *',
       apiKeyPlaceholder: 'sk-ant-api03-...',
       apiKeyHint: '您的 Claude Console API Key',
+      quickOpenAI: {
+        title: '快速添加 OpenAI 兼容账号',
+        add: '快速添加',
+        adding: '添加中...',
+        placeholder: 'https://api.example.com/v1\nsk-...\n或：sk-... https://api.example.com',
+        defaultGroupHint: '设为快速添加 OpenAI 账号使用的默认分组',
+        inputRequired: '请粘贴上游 Base URL 和 API Key',
+        baseUrlRequired: '未识别到有效的 Base URL',
+        invalidBaseUrl: 'Base URL 格式无效',
+        apiKeyRequired: '未识别到有效的 API Key',
+        defaultGroupRequired: '请先在分组选择中勾选一个 OpenAI 分组'
+      },
       // OpenAI specific hints
       openai: {
         baseUrlHint: '留空使用官方 OpenAI API',
