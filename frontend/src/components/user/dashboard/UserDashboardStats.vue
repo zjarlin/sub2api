@@ -38,9 +38,9 @@
           <Icon name="chart" size="md" class="text-green-600 dark:text-green-400" :stroke-width="2" />
         </div>
         <div>
-          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.todayRequests') }}</p>
-          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ stats?.today_requests || 0 }}</p>
-          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('common.total') }}: {{ formatNumber(stats?.total_requests || 0) }}</p>
+          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ periodRequestTitle }}</p>
+          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ formatNumber(periodRequests) }}</p>
+          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('dashboard.todayRequests') }}: {{ formatNumber(stats?.today_requests || 0) }}</p>
         </div>
       </div>
     </div>
@@ -52,15 +52,15 @@
           <Icon name="dollar" size="md" class="text-purple-600 dark:text-purple-400" :stroke-width="2" />
         </div>
         <div>
-          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.todayCost') }}</p>
+          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ periodCostTitle }}</p>
           <p class="text-xl font-bold text-gray-900 dark:text-white">
-            <span class="text-purple-600 dark:text-purple-400" :title="t('dashboard.actual')">{{ USER_CURRENCY_SYMBOL }}{{ formatCost(stats?.today_actual_cost || 0) }}</span>
-            <span class="text-sm font-normal text-gray-400 dark:text-gray-500" :title="t('dashboard.standard')"> / {{ USER_CURRENCY_SYMBOL }}{{ formatCost(stats?.today_cost || 0) }}</span>
+            <span class="text-purple-600 dark:text-purple-400" :title="t('dashboard.actual')">{{ USER_CURRENCY_SYMBOL }}{{ formatCost(periodActualCost) }}</span>
+            <span class="text-sm font-normal text-gray-400 dark:text-gray-500" :title="t('dashboard.standard')"> / {{ USER_CURRENCY_SYMBOL }}{{ formatCost(periodStandardCost) }}</span>
           </p>
           <p class="text-xs">
-            <span class="text-gray-500 dark:text-gray-400">{{ t('common.total') }}: </span>
-            <span class="text-purple-600 dark:text-purple-400" :title="t('dashboard.actual')">{{ USER_CURRENCY_SYMBOL }}{{ formatCost(stats?.total_actual_cost || 0) }}</span>
-            <span class="text-gray-400 dark:text-gray-500" :title="t('dashboard.standard')"> / {{ USER_CURRENCY_SYMBOL }}{{ formatCost(stats?.total_cost || 0) }}</span>
+            <span class="text-gray-500 dark:text-gray-400">{{ t('dashboard.todayCost') }}: </span>
+            <span class="text-purple-600 dark:text-purple-400" :title="t('dashboard.actual')">{{ USER_CURRENCY_SYMBOL }}{{ formatCost(stats?.today_actual_cost || 0) }}</span>
+            <span class="text-gray-400 dark:text-gray-500" :title="t('dashboard.standard')"> / {{ USER_CURRENCY_SYMBOL }}{{ formatCost(stats?.today_cost || 0) }}</span>
           </p>
         </div>
       </div>
@@ -76,9 +76,9 @@
           <Icon name="cube" size="md" class="text-amber-600 dark:text-amber-400" :stroke-width="2" />
         </div>
         <div>
-          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.todayTokens') }}</p>
-          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ formatTokens(stats?.today_tokens || 0) }}</p>
-          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('dashboard.input') }}: {{ formatTokens(stats?.today_input_tokens || 0) }} / {{ t('dashboard.output') }}: {{ formatTokens(stats?.today_output_tokens || 0) }} / {{ t('dashboard.cache') }}: {{ formatTokens((stats?.today_cache_creation_tokens || 0) + (stats?.today_cache_read_tokens || 0)) }}</p>
+          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ periodTokenTitle }}</p>
+          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ formatTokens(periodTokens) }}</p>
+          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('dashboard.input') }}: {{ formatTokens(periodInputTokens) }} / {{ t('dashboard.output') }}: {{ formatTokens(periodOutputTokens) }} / {{ t('dashboard.cache') }}: {{ formatTokens(periodCacheTokens) }}</p>
         </div>
       </div>
     </div>
@@ -125,7 +125,7 @@
         </div>
         <div>
           <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.avgResponse') }}</p>
-          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ formatDuration(stats?.average_duration_ms || 0) }}</p>
+          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ formatDuration(periodResponseTime || 0) }}</p>
           <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('dashboard.averageTime') }}</p>
         </div>
       </div>
@@ -227,7 +227,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import type { UserDashboardStats as UserStatsType } from '@/api/usage'
-import type { PlatformQuotaItem } from '@/types'
+import type { PlatformQuotaItem, UsageStatsResponse } from '@/types'
 import { USER_CURRENCY_SYMBOL, formatUserCurrency } from '@/utils/userCurrency'
 
 interface FusedPlatformCard {
@@ -242,11 +242,25 @@ interface FusedPlatformCard {
 
 const props = defineProps<{
   stats: UserStatsType
+  periodStats?: UsageStatsResponse | null
+  periodLabel?: string
   balance: number
   isSimple: boolean
   platformQuotas?: PlatformQuotaItem[] | null
 }>()
 const { t } = useI18n()
+
+const periodRequests = computed(() => props.periodStats?.total_requests ?? props.stats.today_requests)
+const periodActualCost = computed(() => props.periodStats?.total_actual_cost ?? props.stats.today_actual_cost)
+const periodStandardCost = computed(() => props.periodStats?.total_cost ?? props.stats.today_cost)
+const periodTokens = computed(() => props.periodStats?.total_tokens ?? props.stats.today_tokens)
+const periodInputTokens = computed(() => props.periodStats?.total_input_tokens ?? props.stats.today_input_tokens)
+const periodOutputTokens = computed(() => props.periodStats?.total_output_tokens ?? props.stats.today_output_tokens)
+const periodCacheTokens = computed(() => props.periodStats?.total_cache_tokens ?? (props.stats.today_cache_creation_tokens + props.stats.today_cache_read_tokens))
+const periodResponseTime = computed(() => props.periodStats?.average_duration_ms ?? props.stats.average_duration_ms)
+const periodRequestTitle = computed(() => props.periodLabel ? t('dashboard.periodRequests', { period: props.periodLabel }) : t('dashboard.todayRequests'))
+const periodCostTitle = computed(() => props.periodLabel ? t('dashboard.periodCost', { period: props.periodLabel }) : t('dashboard.todayCost'))
+const periodTokenTitle = computed(() => props.periodLabel ? t('dashboard.periodTokens', { period: props.periodLabel }) : t('dashboard.todayTokens'))
 
 const PLATFORM_LABELS: Record<string, string> = {
   anthropic: 'Claude',
