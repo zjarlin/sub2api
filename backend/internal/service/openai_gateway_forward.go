@@ -375,6 +375,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Model mapping applied: %s -> %s (account: %s, isCodexCLI: %v)", requestedModel, billingModel, account.Name, isCodexCLI)
 	}
 	reqModel = billingModel
+	if normalized, changed := normalizeAgnesOpenAIReasoningEffortForModels(body, upstreamModel, billingModel, requestedModel); changed {
+		body = normalized
+		requestView = newOpenAIRequestView(body)
+	}
 	if upstreamModel != requestedModel {
 		markPatchSet("model", upstreamModel)
 	}
@@ -385,7 +389,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Upstream model resolved: %s -> %s (account: %s, type: %s, isCodexCLI: %v)", billingModel, upstreamModel, account.Name, account.Type, isCodexCLI)
 		}
 	}
-	if strings.TrimSpace(gjson.GetBytes(body, "reasoning.effort").String()) == "minimal" {
+	if !isAgnesReasoningModel(upstreamModel) && !isAgnesReasoningModel(billingModel) && !isAgnesReasoningModel(requestedModel) && strings.TrimSpace(gjson.GetBytes(body, "reasoning.effort").String()) == "minimal" {
 		markPatchSet("reasoning.effort", "none")
 		logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Normalized reasoning.effort: minimal -> none (account: %s)", account.Name)
 	}

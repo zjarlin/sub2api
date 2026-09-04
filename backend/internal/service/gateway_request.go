@@ -1350,6 +1350,60 @@ func NormalizeGLMOpenAIReasoningEffort(body []byte, mappedModel string) ([]byte,
 	return modified, true
 }
 
+// NormalizeAgnesOpenAIReasoningEffort rewrites the OpenAI reasoning scale used
+// by Agnes/Agness Responses-compatible models. These models accept only
+// minimal/low/medium/high; the Codex scale's xhigh and max both map to high.
+func NormalizeAgnesOpenAIReasoningEffort(body []byte, mappedModel string) ([]byte, bool) {
+	if !isAgnesReasoningModel(mappedModel) {
+		return body, false
+	}
+
+	result := body
+	changed := false
+	for _, path := range []string{"reasoning.effort", "reasoning_effort"} {
+		field := gjson.GetBytes(result, path)
+		if field.Type != gjson.String {
+			continue
+		}
+		raw := strings.ToLower(strings.TrimSpace(field.String()))
+		mapped := raw
+		switch raw {
+		case "none":
+			mapped = "minimal"
+		case "xhigh", "extrahigh", "max":
+			mapped = "high"
+		case "minimal", "low", "medium", "high":
+		default:
+			continue
+		}
+		if mapped == raw {
+			continue
+		}
+		normalized, err := sjson.SetBytes(result, path, mapped)
+		if err != nil {
+			continue
+		}
+		result = normalized
+		changed = true
+	}
+	return result, changed
+}
+
+func isAgnesReasoningModel(model string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(model))
+	return strings.HasPrefix(normalized, "agnes-") || strings.HasPrefix(normalized, "agness-")
+}
+
+func normalizeAgnesOpenAIReasoningEffortForModels(body []byte, models ...string) ([]byte, bool) {
+	for _, model := range models {
+		if !isAgnesReasoningModel(model) {
+			continue
+		}
+		return NormalizeAgnesOpenAIReasoningEffort(body, model)
+	}
+	return body, false
+}
+
 func normalizeGLMOpenAIReasoningEffort(raw string) string {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	if value == "" {
