@@ -1598,6 +1598,12 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 			return nil, fmt.Errorf("convert Grok compact response: %w", err)
 		}
 	}
+	if isDeepSeekNativeCompaction(c, account) {
+		body, err = convertDeepSeekResponseToOpenAICompact(body)
+		if err != nil {
+			return nil, fmt.Errorf("convert DeepSeek compact response: %w", err)
+		}
+	}
 
 	usageValue, usageOK := extractOpenAIUsageFromJSONBytes(body)
 	if !usageOK {
@@ -1687,6 +1693,13 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 		return nil, s.writeOpenAINonStreamingProtocolError(resp, c, msg)
 	}
 	finalResponse, ok := extractCodexFinalResponse(bodyText)
+	if ok && isDeepSeekNativeCompaction(c, account) {
+		converted, convertErr := convertDeepSeekResponseToOpenAICompact(finalResponse)
+		if convertErr != nil {
+			return nil, fmt.Errorf("convert DeepSeek compact SSE response: %w", convertErr)
+		}
+		finalResponse = converted
+	}
 
 	usage := s.parseSSEUsageFromBody(bodyText)
 	if ok {

@@ -149,6 +149,16 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	requestView := newOpenAIRequestView(body)
 	reqModel, reqStream, promptCacheKey := requestView.Model, requestView.Stream, requestView.PromptCacheKey
 	originalModel := reqModel
+	if nativeDeepSeekResponses && !account.IsOpenAIPassthroughEnabled() && isOpenAINativeCompactionV2(c) {
+		body, err = buildDeepSeekCompactRequestBody(body)
+		if err != nil {
+			return nil, err
+		}
+		requestView = newOpenAIRequestView(body)
+		reqModel, reqStream, promptCacheKey = requestView.Model, requestView.Stream, requestView.PromptCacheKey
+		originalModel = reqModel
+		MarkOpenAICompactClientStream(c)
+	}
 
 	if account.Platform == PlatformGrok {
 		return s.forwardGrokResponses(ctx, c, account, body, originalModel, reqStream, startTime)

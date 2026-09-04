@@ -126,6 +126,9 @@ func normalizeDeepSeekResponsesRequestBody(account *Account, body []byte) []byte
 		(account.GetAPIProtocol() != APIProtocolResponses && !account.IsAdaptiveAPIProtocol()) {
 		return body
 	}
+	if normalized, err := normalizeDeepSeekCompactionReplayBody(body); err == nil {
+		body = normalized
+	}
 	normalized, err := sjson.SetBytes(body, "store", false)
 	if err != nil {
 		return body
