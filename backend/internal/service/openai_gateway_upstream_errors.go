@@ -180,6 +180,30 @@ func isOpenAITransientProcessingError(upstreamStatusCode int, upstreamMsg string
 	return !gjson.ValidBytes(upstreamBody) && match(string(upstreamBody))
 }
 
+// isOpenAIToolCallContinuationError 识别上游无法关联 function_call_output 的续链错误。
+// 这通常表示当前账号没有对应的 Responses 会话上下文，换账号比重复发送同一账号更有意义。
+func isOpenAIToolCallContinuationError(upstreamMsg string, upstreamBody []byte) bool {
+	match := func(text string) bool {
+		return strings.Contains(strings.ToLower(strings.TrimSpace(text)), "no tool call found for function call output")
+	}
+	if match(upstreamMsg) {
+		return true
+	}
+	if len(upstreamBody) == 0 {
+		return false
+	}
+	for _, path := range []string{
+		"error.message",
+		"response.error.message",
+		"message",
+	} {
+		if match(gjson.GetBytes(upstreamBody, path).String()) {
+			return true
+		}
+	}
+	return false
+}
+
 func isOpenAICapacityShedMessage(text string) bool {
 	lower := strings.ToLower(strings.TrimSpace(text))
 	return strings.Contains(lower, "server is overloaded") ||
@@ -259,6 +283,9 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode i
 	}
 	if isOpenAIContextWindowError(upstreamMsg, upstreamBody) {
 		return false
+	}
+	if isOpenAIToolCallContinuationError(upstreamMsg, upstreamBody) {
+		return true
 	}
 	if isOpenAIHTTPUpstreamAccessStateError(statusCode, upstreamMsg, upstreamBody) {
 		return true

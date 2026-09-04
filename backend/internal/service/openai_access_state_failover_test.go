@@ -112,6 +112,35 @@ func TestOpenAIHTTPAccessStateDoesNotTrustBadRequestMessage(t *testing.T) {
 	require.False(t, err.IsCredentialFailure())
 }
 
+func TestOpenAIToolCallContinuationErrorTriggersAccountFailover(t *testing.T) {
+	body := []byte(`{"error":{"type":"upstream_error","message":"No tool call found for function call output with call_id fco_123."}}`)
+	message := extractUpstreamErrorMessage(body)
+	svc := &OpenAIGatewayService{}
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	require.True(t, isOpenAIToolCallContinuationError(message, body))
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(http.StatusBadRequest, message, body))
+	require.True(t, shouldFailoverOpenAIPassthroughResponse(account, http.StatusBadRequest, body))
+	require.True(t, openAIStreamFailedEventShouldFailover(body, message))
+	require.True(t, openAIStreamErrorEventShouldFailover(body, message))
+	poolAccount := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"pool_mode":                    true,
+			"pool_mode_retry_status_codes": []any{http.StatusBadRequest},
+		},
+	}
+	require.False(t, openAIStreamFailedEventRetryableOnSameAccount(poolAccount, body, message))
+}
+
+func TestOpenAIToolCallContinuationErrorDoesNotScanEchoedRequestContent(t *testing.T) {
+	body := []byte(`{"error":{"type":"invalid_request_error","message":"Invalid input"},"echo":"No tool call found for function call output with call_id fco_123."}`)
+	require.False(t, isOpenAIToolCallContinuationError("Invalid input", body))
+	require.False(t, (&OpenAIGatewayService{}).shouldFailoverOpenAIUpstreamResponse(http.StatusBadRequest, "Invalid input", body))
+	require.False(t, shouldFailoverOpenAIPassthroughResponse(&Account{Type: AccountTypeAPIKey}, http.StatusBadRequest, body))
+}
+
 func TestOpenAIHTTPAccessStateBadRequestDoesNotDisableAccount(t *testing.T) {
 	repo := &openAIStream403AccountRepo{}
 	svc := &OpenAIGatewayService{rateLimitService: &RateLimitService{accountRepo: repo}}
