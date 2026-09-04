@@ -375,6 +375,17 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Model mapping applied: %s -> %s (account: %s, isCodexCLI: %v)", requestedModel, billingModel, account.Name, isCodexCLI)
 	}
 	reqModel = billingModel
+	agnesModel := isAgnesReasoningModel(upstreamModel) || isAgnesReasoningModel(billingModel) || isAgnesReasoningModel(requestedModel)
+	if account.IsOpenAIApiKey() && !passthroughEnabled && !compactPath && agnesModel &&
+		needsOpenAIResponsesClientToolAdaptation(body) {
+		adaptedBody, mapping, adaptErr := adaptOpenAIResponsesClientTools(body)
+		if adaptErr != nil {
+			return nil, fmt.Errorf("adapt Agnes Responses client tools: %w", adaptErr)
+		}
+		body = adaptedBody
+		requestView = newOpenAIRequestView(body)
+		setOpenAIResponsesClientToolMapping(c, mapping)
+	}
 	if normalized, changed := normalizeAgnesOpenAIReasoningEffortForModels(body, upstreamModel, billingModel, requestedModel); changed {
 		body = normalized
 		requestView = newOpenAIRequestView(body)
