@@ -16,7 +16,7 @@ import (
 const openAIAPIKeyHealthBreakerReason = "openai_apikey_health_breaker"
 
 func isOpenAIAPIKeyHealthBreakerAccount(account *Account) bool {
-	return account != nil && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey && account.IsPoolMode()
+	return account != nil && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey
 }
 
 func classifyOpenAIAPIKeyHealthFailure(err error) (int, []byte, bool) {
@@ -26,16 +26,11 @@ func classifyOpenAIAPIKeyHealthFailure(err error) (int, []byte, bool) {
 
 	var failoverErr *UpstreamFailoverError
 	if errors.As(err, &failoverErr) {
-		// These failures already have dedicated recovery/state handling or are not
-		// attributable to the selected account.
-		if failoverErr.IsCredentialFailure() ||
-			failoverErr.RequestScopedTransient ||
-			failoverErr.RetryableOnSameAccount ||
-			failoverErr.Scope == GatewayFailureScopeRequest ||
-			failoverErr.Scope == GatewayFailureScopeProvider {
+		// 凭据错误有独立禁用逻辑；请求参数类错误不能处罚账号。
+		if failoverErr.IsCredentialFailure() || failoverErr.StatusCode < http.StatusInternalServerError {
 			return failoverErr.StatusCode, failoverErr.ResponseBody, false
 		}
-		if failoverErr.StatusCode == http.StatusTooManyRequests || failoverErr.StatusCode >= http.StatusInternalServerError {
+		if failoverErr.StatusCode >= http.StatusInternalServerError {
 			return failoverErr.StatusCode, failoverErr.ResponseBody, true
 		}
 		return failoverErr.StatusCode, failoverErr.ResponseBody, false
@@ -43,7 +38,7 @@ func classifyOpenAIAPIKeyHealthFailure(err error) (int, []byte, bool) {
 
 	var imageErr *OpenAIImagesUpstreamError
 	if errors.As(err, &imageErr) {
-		if imageErr.StatusCode == http.StatusTooManyRequests || imageErr.StatusCode >= http.StatusInternalServerError {
+		if imageErr.StatusCode >= http.StatusInternalServerError {
 			return imageErr.StatusCode, []byte(strings.TrimSpace(imageErr.Message)), true
 		}
 	}

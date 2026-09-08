@@ -2114,9 +2114,9 @@ func (r *accountRepository) ListSchedulableByGroupIDAndPlatforms(ctx context.Con
 	})
 }
 
-// ListModelAvailabilityCandidates 返回用于判断模型是否配置过的账号池。
-// 正常可调度账号和错误状态账号都保留在诊断池中，避免上游余额或凭据错误
-// 把“暂时没有可用账号”误判为“模型未配置”。实际调度仍只选择可用账号。
+// ListModelAvailabilityCandidates 返回用于判断模型是否配置过及停调恢复的账号池。
+// active 账号即使暂时停止调度也保留，error 账号同样保留；disabled 账号
+// 是管理员明确关闭的账号，不参与自动恢复。
 func (r *accountRepository) ListModelAvailabilityCandidates(
 	ctx context.Context,
 	groupID *int64,
@@ -2151,14 +2151,20 @@ func (r *accountRepository) ListModelAvailabilityCandidates(
 	return r.accountsToService(ctx, accounts)
 }
 
-// modelAvailabilityConfiguredPredicate 保留正常可调度账号与错误状态账号。
-// inactive/disabled 账号是明确退出配置的账号，不参与模型支持诊断。
+func (r *accountRepository) ListAccountRecoveryCandidates(
+	ctx context.Context,
+	groupID *int64,
+	platforms []string,
+	includeGrouped bool,
+) ([]service.Account, error) {
+	return r.ListModelAvailabilityCandidates(ctx, groupID, platforms, includeGrouped)
+}
+
+// modelAvailabilityConfiguredPredicate 保留 active 与 error 状态账号。
+// disabled 账号是管理员明确退出配置的账号，不参与诊断和自动恢复。
 func modelAvailabilityConfiguredPredicate() dbpredicate.Account {
 	return dbaccount.Or(
-		dbaccount.And(
-			dbaccount.StatusEQ(service.StatusActive),
-			dbaccount.SchedulableEQ(true),
-		),
+		dbaccount.StatusEQ(service.StatusActive),
 		dbaccount.StatusEQ(service.StatusError),
 	)
 }
@@ -2514,9 +2520,7 @@ func (r *accountRepository) SetSchedulable(ctx context.Context, id int64, schedu
 	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
 		logger.LegacyPrintf("repository.account", "[SchedulerOutbox] enqueue schedulable change failed: account=%d err=%v", id, err)
 	}
-	if !schedulable {
-		r.syncSchedulerAccountSnapshot(ctx, id)
-	}
+	r.syncSchedulerAccountSnapshot(ctx, id)
 	return nil
 }
 

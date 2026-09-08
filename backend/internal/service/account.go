@@ -82,6 +82,9 @@ type Account struct {
 	headerOverrideCacheRawPtr         uintptr
 	headerOverrideCacheRawLen         int
 	headerOverrideCacheRawSig         uint64
+
+	// recoveryProbe 仅标记本次请求由停调账号恢复池选出，不持久化。
+	recoveryProbe bool
 }
 
 type OpenAIEndpointCapability string

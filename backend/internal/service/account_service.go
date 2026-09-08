@@ -91,8 +91,8 @@ type AccountRepository interface {
 	ListSchedulableByGroupIDAndPlatforms(ctx context.Context, groupID int64, platforms []string) ([]Account, error)
 	ListSchedulableUngroupedByPlatform(ctx context.Context, platform string) ([]Account, error)
 	ListSchedulableUngroupedByPlatforms(ctx context.Context, platforms []string) ([]Account, error)
-	// ListModelAvailabilityCandidates 返回用于模型支持诊断的配置账号。
-	// 结果包含正常可调度账号和错误状态账号，但排除 inactive/disabled 账号；
+	// ListModelAvailabilityCandidates 返回用于模型支持诊断和停调恢复的配置账号。
+	// 结果包含 active 与 error 状态账号，但排除 disabled 账号；
 	// groupID 为空时，includeGrouped 决定是否包含已绑定分组的账号。
 	ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error)
 
@@ -120,6 +120,11 @@ type AccountRepository interface {
 	// ListShadowsByParent 返回指定父账号的影子账号；当前实现仅查 quota_dimension='spark'（唯一预设）。
 	// ⚠️ 新增影子维度时：须更新此函数（或新增维度专用列举），并检查所有调用点（级联删除/一母一影校验/type 守卫），否则会静默漏掉新维度。
 	ListShadowsByParent(ctx context.Context, parentID int64) ([]*Account, error)
+}
+
+// AccountRecoveryCandidateRepository 仅由支持停调账号探活的仓库实现。
+type AccountRecoveryCandidateRepository interface {
+	ListAccountRecoveryCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error)
 }
 
 type AccountDuplicateRepository interface {

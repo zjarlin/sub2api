@@ -27,6 +27,9 @@ type rateLimitClearRepoStub struct {
 	clearAntigravityErr       error
 	clearModelRateLimitErr    error
 	clearTempUnschedulableErr error
+	setSchedulableCalls       int
+	setSchedulableValue       bool
+	setSchedulableErr         error
 }
 
 func (r *rateLimitClearRepoStub) GetByID(ctx context.Context, id int64) (*Account, error) {
@@ -60,6 +63,12 @@ func (r *rateLimitClearRepoStub) ClearModelRateLimits(ctx context.Context, id in
 func (r *rateLimitClearRepoStub) ClearTempUnschedulable(ctx context.Context, id int64) error {
 	r.clearTempUnschedCalls++
 	return r.clearTempUnschedulableErr
+}
+
+func (r *rateLimitClearRepoStub) SetSchedulable(_ context.Context, _ int64, schedulable bool) error {
+	r.setSchedulableCalls++
+	r.setSchedulableValue = schedulable
+	return r.setSchedulableErr
 }
 
 type tempUnschedCacheRecorder struct {
@@ -237,6 +246,34 @@ func TestRateLimitService_RecoverAccountAfterSuccessfulTest_ClearsErrorAndRateLi
 	require.Equal(t, 1, repo.clearTempUnschedCalls)
 	require.Equal(t, []int64{42}, cache.deletedIDs)
 	require.Equal(t, []int64{42}, blocker.clearedIDs)
+}
+
+func TestRateLimitService_RecoverProbeEnablesSchedulingAfterSuccess(t *testing.T) {
+	repo := &rateLimitClearRepoStub{
+		getByIDAccount: &Account{ID: 42, Status: StatusError, Schedulable: false},
+	}
+	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+
+	result, err := svc.RecoverAccountState(context.Background(), 42, AccountRecoveryOptions{EnableScheduling: true})
+	require.NoError(t, err)
+	require.True(t, result.ClearedError)
+	require.True(t, result.EnabledScheduling)
+	require.Equal(t, 1, repo.setSchedulableCalls)
+	require.True(t, repo.setSchedulableValue)
+}
+
+func TestOpenAIAccountSchedulerRecoverySuccessEnablesScheduling(t *testing.T) {
+	repo := &rateLimitClearRepoStub{
+		getByIDAccount: &Account{ID: 42, Status: StatusActive, Schedulable: false},
+	}
+	svc := &OpenAIGatewayService{
+		rateLimitService: NewRateLimitService(repo, nil, &config.Config{}, nil, nil),
+	}
+
+	svc.ReportOpenAIAccountScheduleResult(&Account{ID: 42, recoveryProbe: true}, "gpt-6-astra", true, nil)
+
+	require.Equal(t, 1, repo.setSchedulableCalls)
+	require.True(t, repo.setSchedulableValue)
 }
 
 func TestRateLimitService_RecoverAccountAfterSuccessfulTest_NoRecoverableStateIsNoop(t *testing.T) {

@@ -58,6 +58,33 @@ func (r schedulerTestOpenAIAccountRepo) ListSchedulableUngroupedByPlatform(ctx c
 	return r.ListSchedulableByPlatform(ctx, platform)
 }
 
+func (r schedulerTestOpenAIAccountRepo) ListModelAvailabilityCandidates(_ context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error) {
+	allowedPlatforms := make(map[string]struct{}, len(platforms))
+	for _, platform := range platforms {
+		allowedPlatforms[platform] = struct{}{}
+	}
+	result := make([]Account, 0, len(r.accounts))
+	for _, account := range r.accounts {
+		if _, allowed := allowedPlatforms[account.Platform]; !allowed {
+			continue
+		}
+		if groupID != nil && !openAIStickyAccountMatchesGroup(&account, groupID) {
+			continue
+		}
+		if groupID == nil && !includeGrouped && !openAIStickyAccountMatchesGroup(&account, nil) {
+			continue
+		}
+		if account.Status == StatusActive || account.Status == StatusError {
+			result = append(result, account)
+		}
+	}
+	return result, nil
+}
+
+func (r schedulerTestOpenAIAccountRepo) ListAccountRecoveryCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error) {
+	return r.ListModelAvailabilityCandidates(ctx, groupID, platforms, includeGrouped)
+}
+
 type schedulerGroupAwareOpenAIAccountRepo struct {
 	schedulerTestOpenAIAccountRepo
 }
@@ -222,6 +249,99 @@ func newSchedulerTestSubscriptionPriorityConfig() *config.Config {
 	cfg.Gateway.OpenAIWS.SchedulerScoreWeights.ErrorRate = 0
 	cfg.Gateway.OpenAIWS.SchedulerScoreWeights.TTFT = 0
 	return cfg
+}
+
+func TestOpenAIAccountSchedulerRecoversStoppedModelMappedAccountFirst(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	groupID := int64(6)
+	accounts := []Account{
+		{
+			ID: 1, Name: "passthrough", Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+			Status: StatusActive, Schedulable: false, Priority: 0, Concurrency: 1,
+			Extra:         map[string]any{"openai_passthrough": true},
+			AccountGroups: []AccountGroup{{GroupID: groupID}},
+		},
+		{
+			ID: 2, Name: "mapped", Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+			Status: StatusError, Schedulable: false, Priority: 10, Concurrency: 1,
+			Credentials:   map[string]any{"model_mapping": map[string]any{"gpt-6-astra": "gpt-6-astra-upstream"}},
+			AccountGroups: []AccountGroup{{GroupID: groupID}},
+		},
+	}
+	svc := &OpenAIGatewayService{
+		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
+		cfg:                &config.Config{},
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+	}
+
+	selection, decision, err := svc.SelectAccountWithSchedulerForCapability(
+		context.Background(), &groupID, "", "", "gpt-6-astra", nil,
+		OpenAIUpstreamTransportAny, "", false, false, true,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.Equal(t, int64(2), selection.Account.ID)
+	require.True(t, selection.Account.recoveryProbe)
+	require.Equal(t, openAIAccountScheduleLayerRecoveryProbe, decision.Layer)
+	selection.ReleaseFunc()
+}
+
+func TestOpenAIAccountSchedulerRecoversStoppedPassthroughForUnknownModel(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	groupID := int64(6)
+	accounts := []Account{
+		{
+			ID: 830, Name: "passthrough", Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+			Status: StatusActive, Schedulable: false, Concurrency: 1,
+			Extra:         map[string]any{"openai_passthrough": true},
+			AccountGroups: []AccountGroup{{GroupID: groupID}},
+		},
+	}
+	svc := &OpenAIGatewayService{
+		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
+		cfg:                &config.Config{},
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+	}
+
+	selection, decision, err := svc.SelectAccountWithSchedulerForCapability(
+		context.Background(), &groupID, "", "", "gpt-6-astra", nil,
+		OpenAIUpstreamTransportAny, "", false, false, true,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.Equal(t, int64(830), selection.Account.ID)
+	require.True(t, selection.Account.recoveryProbe)
+	require.Equal(t, openAIAccountScheduleLayerRecoveryProbe, decision.Layer)
+	selection.ReleaseFunc()
+}
+
+func TestOpenAIAccountSchedulerRecoveryExcludesFailedAndAdminDisabledAccounts(t *testing.T) {
+	resetOpenAIAdvancedSchedulerSettingCacheForTest()
+	groupID := int64(6)
+	accounts := []Account{
+		{
+			ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+			Status: StatusActive, Schedulable: false, Concurrency: 1,
+			Extra: map[string]any{"openai_passthrough": true}, AccountGroups: []AccountGroup{{GroupID: groupID}},
+		},
+		{
+			ID: 2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+			Status: StatusDisabled, Schedulable: false, Concurrency: 1,
+			Extra: map[string]any{"openai_passthrough": true}, AccountGroups: []AccountGroup{{GroupID: groupID}},
+		},
+	}
+	svc := &OpenAIGatewayService{
+		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
+		cfg:                &config.Config{},
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+	}
+
+	selection, _, err := svc.SelectAccountWithSchedulerForCapability(
+		context.Background(), &groupID, "", "", "gpt-6-astra", map[int64]struct{}{1: {}},
+		OpenAIUpstreamTransportAny, "", false, false, true,
+	)
+	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	require.Nil(t, selection)
 }
 
 type openAIAdvancedSchedulerSettingRepoStub struct {

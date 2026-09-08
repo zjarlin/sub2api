@@ -24,6 +24,7 @@ const (
 	openAIAccountScheduleLayerGuardianParent   = "guardian_parent"
 	openAIAccountScheduleLayerSessionSticky    = "session_hash"
 	openAIAccountScheduleLayerLoadBalance      = "load_balance"
+	openAIAccountScheduleLayerRecoveryProbe    = "recovery_probe"
 	openAIAdvancedSchedulerSettingKey          = "openai_advanced_scheduler_enabled"
 )
 
@@ -2137,13 +2138,8 @@ func (s *OpenAIGatewayService) SelectAccountWithSchedulerForImages(
 	return selection, decision, err
 }
 
-// selectAccountWithScheduler wraps selectAccountWithSchedulerOnce with a
-// fail-open second pass for the proxy stream circuit (#5056): when the only
-// reason no account is available is that every candidate sits behind a
-// quarantined proxy, the quarantine must degrade to a preference instead of
-// zeroing out capacity. The retry re-runs the exact same selection with the
-// quarantine checks bypassed, so healthy proxies always win the first pass
-// and quarantined ones only serve when nothing else can.
+// selectAccountWithScheduler 先走正常账号池；正常池耗尽后，依次放宽代理隔离与
+// 自动停调状态，使被熔断的账号能通过真实请求探活并恢复。
 func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	ctx context.Context,
 	groupID *int64,
@@ -2160,22 +2156,43 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	useUpstreamTokenCost bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
 	selection, decision, err := s.selectAccountWithSchedulerOnce(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
-	if err == nil || openAIProxyStreamQuarantineBypassed(ctx) {
+	if err == nil {
 		return selection, decision, err
 	}
 	if !errors.Is(err, ErrNoAvailableAccounts) && !errors.Is(err, ErrNoAvailableCompactAccounts) {
 		return selection, decision, err
 	}
-	// The circuit only ever quarantines PlatformOpenAI accounts.
-	if NormalizeOpenAICompatiblePlatform(platform) != PlatformOpenAI {
-		return selection, decision, err
+
+	if !openAIProxyStreamQuarantineBypassed(ctx) && NormalizeOpenAICompatiblePlatform(platform) == PlatformOpenAI {
+		blocked := s.getOpenAIProxyStreamCircuit().activeBlockCount(time.Now())
+		if blocked > 0 {
+			s.logOpenAIProxyStreamQuarantineFailOpen(requestedModel, blocked)
+			selection, decision, err = s.selectAccountWithSchedulerOnce(withOpenAIProxyStreamQuarantineBypass(ctx), groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
+			if err == nil {
+				return selection, decision, nil
+			}
+		}
 	}
-	blocked := s.getOpenAIProxyStreamCircuit().activeBlockCount(time.Now())
-	if blocked == 0 {
-		return selection, decision, err
+
+	if errors.Is(err, ErrNoAvailableAccounts) {
+		recovery, recoveryDecision, recoveryErr := s.selectOpenAIRecoveryAccount(ctx, OpenAIAccountScheduleRequest{
+			GroupID:                 groupID,
+			Platform:                platform,
+			RequestedModel:          requestedModel,
+			RequiredTransport:       requiredTransport,
+			RequiredCapability:      requiredCapability,
+			RequiredImageCapability: requiredImageCapability,
+			RequireCompact:          requireCompact,
+			ExcludedIDs:             excludedIDs,
+			RequirePrivacySet:       s.openAIGroupRequiresPrivacySet(ctx, groupID),
+		})
+		if recoveryErr != nil {
+			slog.Warn("openai recovery account lookup failed", "model", requestedModel, "error", recoveryErr)
+		} else if recovery != nil {
+			return recovery, recoveryDecision, nil
+		}
 	}
-	s.logOpenAIProxyStreamQuarantineFailOpen(requestedModel, blocked)
-	return s.selectAccountWithSchedulerOnce(withOpenAIProxyStreamQuarantineBypass(ctx), groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
+	return selection, decision, err
 }
 
 type openAIGroupPrivacyRequirementContextKey struct{}
@@ -2424,6 +2441,21 @@ func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(account *Accoun
 	healthTripped := false
 	if s != nil && s.rateLimitService != nil {
 		if success {
+			if account.recoveryProbe {
+				recoveryCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+				result, err := s.rateLimitService.RecoverAccountState(recoveryCtx, account.ID, AccountRecoveryOptions{EnableScheduling: true})
+				cancel()
+				if err != nil {
+					slog.Warn("openai recovery account enable failed", "account_id", account.ID, "error", err)
+				} else {
+					slog.Info("openai recovery account enabled",
+						"account_id", account.ID,
+						"cleared_error", result.ClearedError,
+						"cleared_rate_limit", result.ClearedRateLimit,
+						"enabled_scheduling", result.EnabledScheduling,
+					)
+				}
+			}
 			s.rateLimitService.ObserveOpenAIAPIKeyHealthSuccess(context.Background(), account)
 		} else if len(observedErr) > 0 && observedErr[0] != nil {
 			healthTripped = s.rateLimitService.ObserveOpenAIAPIKeyHealthFailure(context.Background(), account, observedErr[0])
