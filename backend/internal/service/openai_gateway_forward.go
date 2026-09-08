@@ -386,6 +386,12 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		requestView = newOpenAIRequestView(body)
 		setOpenAIResponsesClientToolMapping(c, mapping)
 	}
+	if agnesModel {
+		if normalized, changed := normalizeOpenAIResponsesWebSearchPreview(body); changed {
+			body = normalized
+			requestView = newOpenAIRequestView(body)
+		}
+	}
 	if normalized, changed := normalizeAgnesOpenAIReasoningEffortForModels(body, upstreamModel, billingModel, requestedModel); changed {
 		body = normalized
 		requestView = newOpenAIRequestView(body)

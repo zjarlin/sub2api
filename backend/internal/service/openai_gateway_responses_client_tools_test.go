@@ -198,7 +198,7 @@ func TestDeepSeekAdaptiveResponsesForwardRestoresClientToolsNonStreaming(t *test
 
 func TestAgnesResponsesForwardLowersClientTools(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	body := openAIClientToolsRequestForModel("agness-2.0-flash", false)
+	body := []byte(`{"model":"agness-2.0-flash","input":"fix it","stream":false,"tools":[{"type":"custom","name":"exec"},{"type":"web_search","search_context_size":"medium"}],"tool_choice":{"type":"web_search"}}`)
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
@@ -226,7 +226,11 @@ func TestAgnesResponsesForwardLowersClientTools(t *testing.T) {
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	assertOpenAIClientToolsLowered(t, upstream.lastBody)
+	require.Equal(t, "function", gjson.GetBytes(upstream.lastBody, "tools.0.type").String())
+	require.Equal(t, "exec", gjson.GetBytes(upstream.lastBody, "tools.0.name").String())
+	require.Equal(t, "web_search_preview", gjson.GetBytes(upstream.lastBody, "tools.1.type").String())
+	require.Equal(t, "medium", gjson.GetBytes(upstream.lastBody, "tools.1.search_context_size").String())
+	require.Equal(t, "web_search_preview", gjson.GetBytes(upstream.lastBody, "tool_choice.type").String())
 	require.Equal(t, "/v1/responses", upstream.lastReq.URL.Path)
 	require.Equal(t, "custom_tool_call", gjson.Get(recorder.Body.String(), "output.0.type").String())
 	require.Equal(t, "pwd", gjson.Get(recorder.Body.String(), "output.0.input").String())
