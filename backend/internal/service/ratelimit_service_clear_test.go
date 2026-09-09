@@ -30,6 +30,8 @@ type rateLimitClearRepoStub struct {
 	setSchedulableCalls       int
 	setSchedulableValue       bool
 	setSchedulableErr         error
+	clearUnsupportedCalls     int
+	clearUnsupportedErr       error
 }
 
 func (r *rateLimitClearRepoStub) GetByID(ctx context.Context, id int64) (*Account, error) {
@@ -69,6 +71,15 @@ func (r *rateLimitClearRepoStub) SetSchedulable(_ context.Context, _ int64, sche
 	r.setSchedulableCalls++
 	r.setSchedulableValue = schedulable
 	return r.setSchedulableErr
+}
+
+func (r *rateLimitClearRepoStub) SetUnsupportedModel(context.Context, int64, string, UnsupportedModelObservation) error {
+	return nil
+}
+
+func (r *rateLimitClearRepoStub) ClearUnsupportedModels(context.Context, int64) error {
+	r.clearUnsupportedCalls++
+	return r.clearUnsupportedErr
 }
 
 type tempUnschedCacheRecorder struct {
@@ -260,6 +271,25 @@ func TestRateLimitService_RecoverProbeEnablesSchedulingAfterSuccess(t *testing.T
 	require.True(t, result.EnabledScheduling)
 	require.Equal(t, 1, repo.setSchedulableCalls)
 	require.True(t, repo.setSchedulableValue)
+}
+
+func TestRateLimitService_SuccessfulTestClearsUnsupportedModels(t *testing.T) {
+	repo := &rateLimitClearRepoStub{
+		getByIDAccount: &Account{
+			ID:     42,
+			Status: StatusActive,
+			Extra: map[string]any{
+				UnsupportedModelsExtraKey: map[string]any{"gpt-6-astra": map[string]any{}},
+			},
+		},
+	}
+	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+
+	result, err := svc.RecoverAccountAfterSuccessfulTest(context.Background(), 42)
+
+	require.NoError(t, err)
+	require.True(t, result.ClearedUnsupportedModels)
+	require.Equal(t, 1, repo.clearUnsupportedCalls)
 }
 
 func TestOpenAIAccountSchedulerRecoverySuccessEnablesScheduling(t *testing.T) {

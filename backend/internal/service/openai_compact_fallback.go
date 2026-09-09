@@ -141,7 +141,9 @@ func isExplicitOpenAIModelAvailabilityMessage(value string) bool {
 		return strings.Contains(value, " does not exist") ||
 			strings.Contains(value, " was not found") ||
 			strings.Contains(value, " is unavailable") ||
-			strings.Contains(value, " is not available")
+			strings.Contains(value, " is not available") ||
+			strings.Contains(value, " is unsupported") ||
+			strings.Contains(value, " is not supported")
 	}
 	return false
 }

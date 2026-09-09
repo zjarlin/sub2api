@@ -127,6 +127,12 @@ type AccountRecoveryCandidateRepository interface {
 	ListAccountRecoveryCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error)
 }
 
+// AccountUnsupportedModelRepository 持久化账号的负向模型能力，并同步调度快照。
+type AccountUnsupportedModelRepository interface {
+	SetUnsupportedModel(ctx context.Context, accountID int64, model string, observation UnsupportedModelObservation) error
+	ClearUnsupportedModels(ctx context.Context, accountID int64) error
+}
+
 type AccountDuplicateRepository interface {
 	// CreateWithAccountGroups atomically persists an account, its exact group priorities,
 	// and the scheduler outbox event for the new routing snapshot.
