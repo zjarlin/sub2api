@@ -36,3 +36,18 @@ func TestListModelHealthObservationsFiltersByGroupAndPlatform(t *testing.T) {
 	}}, observations)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestListModelHealthObservationsRequiresLatestOutcomeToBeSuccess(t *testing.T) {
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(sqlmock.QueryMatcherRegexp))
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	mock.ExpectQuery(`last_failure_at IS NULL OR h.last_success_at > h.last_failure_at`).
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "model", "checked_at"}))
+
+	repo := newUsageLogRepositoryWithSQL(nil, db)
+	observations, err := repo.ListModelHealthObservations(context.Background(), nil, "")
+	require.NoError(t, err)
+	require.Empty(t, observations)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
