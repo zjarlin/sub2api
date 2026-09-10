@@ -19,11 +19,17 @@ import (
 
 type accountTestHealthRecorder struct {
 	*snapshotUpdateAccountRepo
-	healthCalls chan ModelHealthObservation
+	healthCalls  chan ModelHealthObservation
+	failureCalls chan ModelHealthObservation
 }
 
 func (r *accountTestHealthRecorder) RecordAccountModelHealthSuccess(_ context.Context, accountID int64, model string, checkedAt time.Time) error {
 	r.healthCalls <- ModelHealthObservation{AccountID: accountID, Model: model, CheckedAt: checkedAt}
+	return nil
+}
+
+func (r *accountTestHealthRecorder) RecordAccountModelHealthFailure(_ context.Context, accountID int64, model string, checkedAt time.Time) error {
+	r.failureCalls <- ModelHealthObservation{AccountID: accountID, Model: model, CheckedAt: checkedAt}
 	return nil
 }
 
@@ -55,7 +61,8 @@ func TestAccountTestService_TestAccountConnection_OpenAICompactOAuthSuccessPersi
 			stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
 			updateExtraCalls:      updateCalls,
 		},
-		healthCalls: make(chan ModelHealthObservation, 1),
+		healthCalls:  make(chan ModelHealthObservation, 1),
+		failureCalls: make(chan ModelHealthObservation, 1),
 	}
 	upstream := &httpUpstreamRecorder{resp: &http.Response{
 		StatusCode: http.StatusOK,
@@ -99,6 +106,11 @@ func TestAccountTestService_TestAccountConnection_OpenAICompactOAuthSuccessPersi
 	require.Equal(t, account.ID, health.AccountID)
 	require.Equal(t, "gpt-5.4", health.Model)
 	require.False(t, health.CheckedAt.IsZero())
+	select {
+	case failure := <-repo.failureCalls:
+		t.Fatalf("successful test unexpectedly recorded failure: %+v", failure)
+	default:
+	}
 }
 
 func TestAccountTestService_TestAccountConnection_OpenAICompactOAuth404MarksUnsupported(t *testing.T) {
@@ -123,7 +135,8 @@ func TestAccountTestService_TestAccountConnection_OpenAICompactOAuth404MarksUnsu
 			stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
 			updateExtraCalls:      updateCalls,
 		},
-		healthCalls: make(chan ModelHealthObservation, 1),
+		healthCalls:  make(chan ModelHealthObservation, 1),
+		failureCalls: make(chan ModelHealthObservation, 1),
 	}
 	upstream := &httpUpstreamRecorder{resp: &http.Response{
 		StatusCode: http.StatusNotFound,
@@ -146,11 +159,10 @@ func TestAccountTestService_TestAccountConnection_OpenAICompactOAuth404MarksUnsu
 	require.Equal(t, false, updates["openai_compact_supported"])
 	require.Equal(t, http.StatusNotFound, updates["openai_compact_last_status"])
 	require.Contains(t, rec.Body.String(), `"type":"error"`)
-	select {
-	case health := <-repo.healthCalls:
-		t.Fatalf("failed test unexpectedly recorded health: %+v", health)
-	default:
-	}
+	failure := <-repo.failureCalls
+	require.Equal(t, account.ID, failure.AccountID)
+	require.Equal(t, "gpt-5.4", failure.Model)
+	require.False(t, failure.CheckedAt.IsZero())
 }
 
 func TestAccountTestService_TestAccountConnection_OpenAICompactAPIKeyUsesNativeResponsesPath(t *testing.T) {

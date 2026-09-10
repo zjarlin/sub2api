@@ -297,14 +297,27 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 
 	defer func() {
 		model := strings.TrimSpace(modelID)
-		if testErr != nil || model == "" {
+		if model == "" {
+			return
+		}
+		recordCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), accountModelHealthPersistTimeout)
+		defer cancel()
+		checkedAt := time.Now()
+		if testErr != nil {
+			recorder, ok := s.accountRepo.(AccountModelHealthFailureRecorder)
+			if !ok {
+				return
+			}
+			if err := recorder.RecordAccountModelHealthFailure(recordCtx, accountID, model, checkedAt); err != nil {
+				log.Printf("Account test model health failure persistence failed: account=%d model=%s error=%v", accountID, model, err)
+			}
 			return
 		}
 		recorder, ok := s.accountRepo.(AccountModelHealthRecorder)
 		if !ok {
 			return
 		}
-		if err := recorder.RecordAccountModelHealthSuccess(ctx, accountID, model, time.Now()); err != nil {
+		if err := recorder.RecordAccountModelHealthSuccess(recordCtx, accountID, model, checkedAt); err != nil {
 			log.Printf("Account test model health persistence failed: account=%d model=%s error=%v", accountID, model, err)
 		}
 	}()

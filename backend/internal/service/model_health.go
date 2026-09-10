@@ -6,6 +6,8 @@ import (
 	"time"
 )
 
+const accountModelHealthPersistTimeout = 3 * time.Second
+
 // ModelHealthObservation records a real successful request or scheduled
 // connectivity test for one account and public model ID.
 type ModelHealthObservation struct {
@@ -25,6 +27,25 @@ type ModelHealthObservationReader interface {
 // AccountRepository and every repository test double.
 type AccountModelHealthRecorder interface {
 	RecordAccountModelHealthSuccess(ctx context.Context, accountID int64, model string, checkedAt time.Time) error
+}
+
+// AccountModelHealthFailureRecorder persists failed probes so periodic checks
+// can advance to other models instead of retrying one bad candidate forever.
+type AccountModelHealthFailureRecorder interface {
+	RecordAccountModelHealthFailure(ctx context.Context, accountID int64, model string, checkedAt time.Time) error
+}
+
+type AccountModelHealthState struct {
+	AccountID     int64
+	Model         string
+	LastSuccessAt *time.Time
+	LastFailureAt *time.Time
+}
+
+// AccountModelHealthStateReader supplies the latest probe outcome per pair to
+// the bounded background health checker.
+type AccountModelHealthStateReader interface {
+	ListAccountModelHealthStates(ctx context.Context) ([]AccountModelHealthState, error)
 }
 
 func (s *GatewayService) ModelsRequireHealthCheck() bool {

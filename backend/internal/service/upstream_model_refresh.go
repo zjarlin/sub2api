@@ -119,4 +119,5 @@ func (s *UpstreamModelRefreshService) refresh(parent context.Context) {
 		}(account)
 	}
 	wg.Wait()
+	s.probeDueModels(ctx, accounts)
 }
