@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -72,14 +73,56 @@ func (s *gatewayModelsAccountRepoStub) ListByGroup(ctx context.Context, groupID 
 	return s.ListSchedulableByGroupID(ctx, groupID)
 }
 
-func newGatewayModelsHandlerForTest(repo service.AccountRepository) *GatewayHandler {
+func newGatewayModelsHandlerForTest(repo service.AccountRepository, healthRepos ...service.UsageLogRepository) *GatewayHandler {
+	var healthRepo service.UsageLogRepository
+	if len(healthRepos) > 0 {
+		healthRepo = healthRepos[0]
+	}
 	return &GatewayHandler{
 		gatewayService: service.NewGatewayService(
 			repo,
-			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+			nil, healthRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 		),
 	}
+}
+
+type gatewayModelsHealthRepoStub struct {
+	service.UsageLogRepository
+	observations []service.ModelHealthObservation
+}
+
+func (r *gatewayModelsHealthRepoStub) ListRecentModelHealthObservations(context.Context, *int64, string, time.Time) ([]service.ModelHealthObservation, error) {
+	return append([]service.ModelHealthObservation(nil), r.observations...), nil
+}
+
+func TestGatewayModelsHealthCheckDoesNotFallbackToStaticDefaults(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	groupID := int64(6)
+	h := newGatewayModelsHandlerForTest(
+		&gatewayModelsAccountRepoStub{byGroup: map[int64][]service.Account{
+			groupID: {{
+				ID:          820,
+				Platform:    service.PlatformOpenAI,
+				Credentials: map[string]any{"model_mapping": map[string]any{"gpt-unverified": "gpt-unverified"}},
+			}},
+		}},
+		&gatewayModelsHealthRepoStub{},
+	)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{Group: &service.Group{
+		ID:       groupID,
+		Platform: service.PlatformOpenAI,
+	}})
+
+	h.Models(c)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var got gatewayModelsResponseForTest
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
+	require.Empty(t, modelIDsForTest(got.Data))
 }
 
 func TestDefaultModelIDsForCompositeIncludesAntigravityDefaults(t *testing.T) {

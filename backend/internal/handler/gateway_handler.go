@@ -1072,6 +1072,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 // Falls back to default models if no whitelist is configured
 func (h *GatewayHandler) Models(c *gin.Context) {
 	apiKey, _ := middleware2.GetAPIKeyFromContext(c)
+	requireHealthCheck := h.gatewayService.ModelsRequireHealthCheck()
 
 	var groupID *int64
 	var platform string
@@ -1087,12 +1088,20 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	if platform == service.PlatformComposite {
 		availableModels := h.compositeAvailableModels(c.Request.Context(), groupID)
 		if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
-			availableModels = filterModelsByCustomList(availableModels, defaultModelIDsForPlatform(service.PlatformComposite), apiKey.Group.ModelsListConfig.Models)
+			fallbackModels := defaultModelIDsForPlatform(service.PlatformComposite)
+			if requireHealthCheck {
+				fallbackModels = nil
+			}
+			availableModels = filterModelsByCustomList(availableModels, fallbackModels, apiKey.Group.ModelsListConfig.Models)
 			writeCustomModelsList(c, service.PlatformComposite, availableModels)
 			return
 		}
 		if len(availableModels) > 0 {
 			writeModelsList(c, service.PlatformComposite, availableModels)
+			return
+		}
+		if requireHealthCheck {
+			writeModelsList(c, service.PlatformComposite, nil)
 			return
 		}
 		writeModelsList(c, service.PlatformComposite, defaultModelIDsForPlatform(service.PlatformComposite))
@@ -1103,6 +1112,9 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.CustomModelsListEnabled() {
 		fallbackModels := defaultModelIDsForPlatform(platform)
+		if requireHealthCheck {
+			fallbackModels = nil
+		}
 		availableModels = filterModelsByCustomList(customModelsListSource(platform, availableModels, fallbackModels), fallbackModels, apiKey.Group.ModelsListConfig.Models)
 		writeCustomModelsList(c, platform, availableModels)
 		return
@@ -1110,6 +1122,10 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 
 	if len(availableModels) > 0 {
 		writeModelsList(c, platform, availableModels)
+		return
+	}
+	if requireHealthCheck {
+		writeModelsList(c, platform, nil)
 		return
 	}
 
@@ -1189,6 +1205,9 @@ func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *servi
 	if platform == service.PlatformComposite {
 		availableModels := h.compositeAvailableModels(ctx, groupID)
 		fallbackModels := defaultCodexModelIDsForPlatform(service.PlatformComposite)
+		if h.gatewayService.ModelsRequireHealthCheck() {
+			fallbackModels = nil
+		}
 		if group.CustomModelsListEnabled() {
 			return filterModelsByCustomList(availableModels, fallbackModels, group.ModelsListConfig.Models)
 		}
@@ -1200,6 +1219,9 @@ func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *servi
 
 	availableModels := h.gatewayService.GetAvailableModels(ctx, groupID, platform)
 	fallbackModels := defaultCodexModelIDsForPlatform(platform)
+	if h.gatewayService.ModelsRequireHealthCheck() {
+		fallbackModels = nil
+	}
 	if group.CustomModelsListEnabled() {
 		return filterModelsByCustomList(
 			customModelsListSource(platform, availableModels, fallbackModels),
@@ -1220,9 +1242,10 @@ func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *
 	seen := make(map[string]struct{})
 	models := make([]string, 0)
 	schedulablePlatforms := h.gatewayService.GetSchedulablePlatforms(ctx, groupID)
+	requireHealthCheck := h.gatewayService.ModelsRequireHealthCheck()
 	for _, platform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformOpenAI, service.PlatformAntigravity, service.PlatformGrok, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek} {
 		platformModels := h.gatewayService.GetAvailableModels(ctx, groupID, platform)
-		if len(platformModels) == 0 {
+		if len(platformModels) == 0 && !requireHealthCheck {
 			// CN 供应商没有静态默认模型列表（defaultModelIDsForPlatform 的
 			// default 分支是 Claude 列表），composite 下只暴露账号映射键。
 			if _, ok := schedulablePlatforms[platform]; ok && !service.IsCNProvider(platform) {

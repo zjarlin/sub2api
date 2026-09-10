@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -194,6 +195,52 @@ func TestCodexModelsAppliesLocalFiltersBeforeClientETag(t *testing.T) {
 	if third.Body.Len() != 0 {
 		t.Fatalf("third body: got %q, want empty", third.Body.String())
 	}
+}
+
+func TestCodexModelsUsesHealthCheckedCatalogWithoutFetchingUpstream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	const groupID int64 = 143
+	repo := &codexModelsFailoverAccountRepo{accounts: []service.Account{{
+		ID:          820,
+		Name:        "health-checked-openai",
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeAPIKey,
+		Status:      service.StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"gpt-healthy":    "gpt-healthy",
+				"gpt-unverified": "gpt-unverified",
+			},
+		},
+	}}}
+	healthRepo := &gatewayModelsHealthRepoStub{observations: []service.ModelHealthObservation{{
+		AccountID: 820,
+		Model:     "gpt-healthy",
+		CheckedAt: time.Now(),
+	}}}
+	upstream := &codexModelsFailoverHTTPUpstream{}
+	gatewayService := service.NewOpenAIGatewayService(
+		repo,
+		healthRepo, nil, nil, nil, nil, nil, &config.Config{RunMode: config.RunModeSimple}, nil, nil, nil, nil, nil,
+		upstream,
+		nil, nil, nil, nil, nil, nil, nil, nil,
+	)
+	handler := &OpenAIGatewayHandler{gatewayService: gatewayService}
+
+	recorder := performCodexModelsRequestForGroup(
+		t,
+		handler,
+		&service.Group{ID: groupID, Platform: service.PlatformOpenAI},
+		"",
+	)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var manifest codexModelsResponseForTest
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &manifest))
+	require.Len(t, manifest.Models, 1)
+	require.Equal(t, "gpt-healthy", manifest.Models[0].Slug)
+	require.Empty(t, upstream.calls())
 }
 
 func TestCodexModelsAPIKeyCacheDoesNotLeakGroupFilters(t *testing.T) {

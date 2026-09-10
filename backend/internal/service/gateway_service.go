@@ -1406,6 +1406,14 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		}
 		accounts = filtered
 	}
+	if models, required := s.healthCheckedModels(ctx, groupID, platform, accounts); required {
+		sort.Strings(models)
+		if s.modelsListCache != nil {
+			s.modelsListCache.Set(cacheKey, cloneStringSlice(models), s.modelsListCacheTTL)
+			modelsListCacheStoreTotal.Add(1)
+		}
+		return cloneStringSlice(models)
+	}
 
 	// Collect unique models from all accounts
 	modelSet := make(map[string]struct{})

@@ -33,6 +33,23 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 	}
 
 	ifNoneMatch := c.GetHeader("If-None-Match")
+	healthManifest, healthChecked, err := h.gatewayService.BuildHealthCheckedCodexModelsManifest(
+		c.Request.Context(),
+		apiKey.Group,
+		ifNoneMatch,
+	)
+	if err != nil {
+		if c.Request.Context().Err() != nil {
+			return
+		}
+		h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to build health-checked Codex models manifest")
+		return
+	}
+	if healthChecked {
+		writeCodexModelsManifestResponse(c, healthManifest)
+		return
+	}
+
 	configuredManifest, configured, err := h.gatewayService.BuildGroupConfiguredCodexModelsManifest(
 		c.Request.Context(),
 		apiKey.Group,

@@ -102,6 +102,48 @@ type CodexModelsManifest struct {
 	NotModified                  bool
 }
 
+// BuildHealthCheckedCodexModelsManifest builds the client catalog exclusively
+// from recent successful requests or scheduled tests. The boolean is false
+// when the repository does not provide model-level health evidence.
+func (s *OpenAIGatewayService) BuildHealthCheckedCodexModelsManifest(
+	ctx context.Context,
+	group *Group,
+	ifNoneMatch string,
+) (*CodexModelsManifest, bool, error) {
+	if s == nil || s.accountRepo == nil || group == nil || group.Platform != PlatformOpenAI {
+		return nil, false, nil
+	}
+	if _, ok := s.usageLogRepo.(ModelHealthObservationReader); !ok {
+		return nil, false, nil
+	}
+
+	visible, catalog, err := loadCodexGroupCatalogAccounts(ctx, s.accountRepo, group.ID)
+	if err != nil {
+		return nil, true, fmt.Errorf("load health-checked Codex models: %w", err)
+	}
+	groupID := group.ID
+	models, _ := recentHealthCheckedModels(ctx, s.usageLogRepo, &groupID, PlatformOpenAI, visible)
+	body, err := buildCodexModelsManifestForAccounts(PlatformOpenAI, models, catalog, nil, true)
+	if err != nil {
+		return nil, true, fmt.Errorf("build health-checked Codex models: %w", err)
+	}
+	body, _, err = mergeConfiguredCodexModelsManifest(
+		body,
+		nil,
+		group.ModelsListConfig.Models,
+		group.CustomModelsListEnabled(),
+	)
+	if err != nil {
+		return nil, true, fmt.Errorf("filter health-checked Codex models: %w", err)
+	}
+	manifest := &CodexModelsManifest{Body: body, ETag: codexModelsManifestBodyETag(body)}
+	if codexModelsManifestETagMatches(ifNoneMatch, manifest.ETag) {
+		manifest.Body = nil
+		manifest.NotModified = true
+	}
+	return manifest, true, nil
+}
+
 // BuildGroupConfiguredCodexModelsManifest builds a Codex catalog exclusively
 // from the public model names configured on accounts in an OpenAI group. The
 // boolean result distinguishes "no explicit configuration" from a configured

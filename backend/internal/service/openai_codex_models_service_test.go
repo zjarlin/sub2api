@@ -971,6 +971,38 @@ func TestBuildGroupConfiguredCodexModelsManifestUsesAdministratorConfiguration(t
 	require.Equal(t, manifest.ETag, notModified.ETag)
 }
 
+func TestBuildHealthCheckedCodexModelsManifestExcludesUnverifiedModels(t *testing.T) {
+	t.Parallel()
+
+	const groupID int64 = 177
+	account := Account{
+		ID:       820,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{"model_mapping": map[string]any{
+			"gpt-healthy":    "gpt-healthy",
+			"gpt-unverified": "gpt-unverified",
+		}},
+	}
+	svc := &OpenAIGatewayService{
+		accountRepo: codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{
+			groupID: {account},
+		}},
+		usageLogRepo: &modelHealthUsageRepoStub{observations: []ModelHealthObservation{
+			{AccountID: account.ID, Model: "gpt-healthy", CheckedAt: time.Now()},
+		}},
+	}
+
+	manifest, healthChecked, err := svc.BuildHealthCheckedCodexModelsManifest(
+		context.Background(),
+		&Group{ID: groupID, Platform: PlatformOpenAI},
+		"",
+	)
+	require.NoError(t, err)
+	require.True(t, healthChecked)
+	require.Equal(t, []string{"gpt-healthy"}, codexManifestModelSlugs(t, manifest.Body))
+}
+
 // Scenario: OpenAI 通配映射展开组内精确选择，但不发布通配符 slug。
 func TestBuildGroupConfiguredCodexModelsManifestExpandsSelectedModelCoveredByWildcardMapping(t *testing.T) {
 	t.Parallel()
