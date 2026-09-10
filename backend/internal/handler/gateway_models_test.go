@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -92,7 +91,7 @@ type gatewayModelsHealthRepoStub struct {
 	observations []service.ModelHealthObservation
 }
 
-func (r *gatewayModelsHealthRepoStub) ListRecentModelHealthObservations(context.Context, *int64, string, time.Time) ([]service.ModelHealthObservation, error) {
+func (r *gatewayModelsHealthRepoStub) ListModelHealthObservations(context.Context, *int64, string) ([]service.ModelHealthObservation, error) {
 	return append([]service.ModelHealthObservation(nil), r.observations...), nil
 }
 

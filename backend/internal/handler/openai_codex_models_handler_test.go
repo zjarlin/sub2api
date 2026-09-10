@@ -223,11 +223,10 @@ func TestCodexModelsUsesHealthCheckedCatalogWithoutFetchingUpstream(t *testing.T
 		Models:   []string{"gpt-healthy", "gpt-unused"},
 	})
 	repo := &codexModelsFailoverAccountRepo{accounts: []service.Account{account}}
-	healthRepo := &gatewayModelsHealthRepoStub{observations: []service.ModelHealthObservation{{
-		AccountID: 820,
-		Model:     "gpt-healthy",
-		CheckedAt: time.Now(),
-	}}}
+	healthRepo := &gatewayModelsHealthRepoStub{observations: []service.ModelHealthObservation{
+		{AccountID: 820, Model: "gpt-healthy", CheckedAt: time.Now()},
+		{AccountID: 820, Model: "gpt-unused", CheckedAt: time.Now().AddDate(-1, 0, 0)},
+	}}
 	upstream := &codexModelsFailoverHTTPUpstream{}
 	gatewayService := service.NewOpenAIGatewayService(
 		repo,

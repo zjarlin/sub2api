@@ -24,7 +24,7 @@ type modelHealthUsageRepoStub struct {
 	err          error
 }
 
-func (r *modelHealthUsageRepoStub) ListRecentModelHealthObservations(context.Context, *int64, string, time.Time) ([]ModelHealthObservation, error) {
+func (r *modelHealthUsageRepoStub) ListModelHealthObservations(context.Context, *int64, string) ([]ModelHealthObservation, error) {
 	return append([]ModelHealthObservation(nil), r.observations...), r.err
 }
 
@@ -64,30 +64,25 @@ func TestGetAvailableModelsFailsClosedWhenHealthEvidenceCannotBeRead(t *testing.
 	require.Empty(t, svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI))
 }
 
-func TestGetAvailableModelsIncludesUnusedModelsFromFreshAccountCatalog(t *testing.T) {
+func TestGetAvailableModelsIncludesHistoricallyVerifiedUnusedModels(t *testing.T) {
 	groupID := int64(6)
 	account := Account{
 		ID:       820,
 		Platform: PlatformOpenAI,
-		Credentials: map[string]any{"model_mapping": map[string]any{
-			"public-unused": "upstream-unused",
-		}},
-		Extra: map[string]any{},
 	}
-	account.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
-		Source:   "upstream",
-		SyncedAt: time.Now().UTC().Format(time.RFC3339),
-		Models:   []string{"upstream-unused"},
-	})
 	svc := &GatewayService{
-		accountRepo:  &modelHealthAccountRepoStub{accounts: []Account{account}},
-		usageLogRepo: &modelHealthUsageRepoStub{},
+		accountRepo: &modelHealthAccountRepoStub{accounts: []Account{account}},
+		usageLogRepo: &modelHealthUsageRepoStub{observations: []ModelHealthObservation{{
+			AccountID: account.ID,
+			Model:     "gpt-unused",
+			CheckedAt: time.Now().AddDate(-1, 0, 0),
+		}}},
 	}
 
-	require.Equal(t, []string{"public-unused"}, svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI))
+	require.Equal(t, []string{"gpt-unused"}, svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI))
 }
 
-func TestGetAvailableModelsExcludesUnusedModelsFromStaleAccountCatalog(t *testing.T) {
+func TestGetAvailableModelsExcludesHistoricallyVerifiedModelsMissingFromFreshCatalog(t *testing.T) {
 	groupID := int64(6)
 	account := Account{
 		ID:       820,
@@ -96,12 +91,16 @@ func TestGetAvailableModelsExcludesUnusedModelsFromStaleAccountCatalog(t *testin
 	}
 	account.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
 		Source:   "upstream",
-		SyncedAt: time.Now().Add(-upstreamSupportedModelsFreshness - time.Minute).UTC().Format(time.RFC3339),
-		Models:   []string{"gpt-stale"},
+		SyncedAt: time.Now().UTC().Format(time.RFC3339),
+		Models:   []string{"gpt-current"},
 	})
 	svc := &GatewayService{
-		accountRepo:  &modelHealthAccountRepoStub{accounts: []Account{account}},
-		usageLogRepo: &modelHealthUsageRepoStub{},
+		accountRepo: &modelHealthAccountRepoStub{accounts: []Account{account}},
+		usageLogRepo: &modelHealthUsageRepoStub{observations: []ModelHealthObservation{{
+			AccountID: account.ID,
+			Model:     "gpt-retired",
+			CheckedAt: time.Now().AddDate(-1, 0, 0),
+		}}},
 	}
 
 	require.Empty(t, svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI))

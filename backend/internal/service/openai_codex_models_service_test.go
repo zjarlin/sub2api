@@ -997,6 +997,7 @@ func TestBuildHealthCheckedCodexModelsManifestExcludesUnverifiedModels(t *testin
 		}},
 		usageLogRepo: &modelHealthUsageRepoStub{observations: []ModelHealthObservation{
 			{AccountID: account.ID, Model: "gpt-healthy", CheckedAt: time.Now()},
+			{AccountID: account.ID, Model: "gpt-unused", CheckedAt: time.Now().AddDate(-1, 0, 0)},
 		}},
 	}
 

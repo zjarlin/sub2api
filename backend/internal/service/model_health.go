@@ -6,8 +6,6 @@ import (
 	"time"
 )
 
-const modelHealthFreshness = 6 * time.Hour
-
 // ModelHealthObservation records a real successful request or scheduled
 // connectivity test for one account and public model ID.
 type ModelHealthObservation struct {
@@ -20,7 +18,7 @@ type ModelHealthObservation struct {
 // The usage repository implements this without expanding UsageLogRepository's
 // broad interface and its test doubles.
 type ModelHealthObservationReader interface {
-	ListRecentModelHealthObservations(ctx context.Context, groupID *int64, platform string, since time.Time) ([]ModelHealthObservation, error)
+	ListModelHealthObservations(ctx context.Context, groupID *int64, platform string) ([]ModelHealthObservation, error)
 }
 
 func (s *GatewayService) ModelsRequireHealthCheck() bool {
@@ -31,7 +29,7 @@ func (s *GatewayService) ModelsRequireHealthCheck() bool {
 	return ok
 }
 
-func recentHealthCheckedModels(
+func healthCheckedModelIDs(
 	ctx context.Context,
 	usageLogRepo UsageLogRepository,
 	groupID *int64,
@@ -42,52 +40,28 @@ func recentHealthCheckedModels(
 	if !ok {
 		return nil, false
 	}
-	now := time.Now()
-	models := make(map[string]struct{})
-	for i := range accounts {
-		addFreshAccountCatalogModels(models, &accounts[i], now)
-	}
-	observations, err := reader.ListRecentModelHealthObservations(
+	observations, err := reader.ListModelHealthObservations(
 		ctx,
 		groupID,
 		platform,
-		now.Add(-modelHealthFreshness),
 	)
+	if err != nil {
+		return []string{}, true
+	}
 
 	accountsByID := make(map[int64]*Account, len(accounts))
 	for i := range accounts {
 		accountsByID[accounts[i].ID] = &accounts[i]
 	}
-	if err == nil {
-		for _, observation := range observations {
-			addHealthCheckedModel(models, accountsByID[observation.AccountID], observation.Model)
-		}
+	models := make(map[string]struct{}, len(observations))
+	for _, observation := range observations {
+		addHealthCheckedModel(models, accountsByID[observation.AccountID], observation.Model)
 	}
 	out := make([]string, 0, len(models))
 	for model := range models {
 		out = append(out, model)
 	}
 	return out, true
-}
-
-func addFreshAccountCatalogModels(models map[string]struct{}, account *Account, now time.Time) {
-	snapshot := account.GetUpstreamSupportedModelsSnapshot()
-	if !upstreamSupportedModelsSnapshotFresh(snapshot, now) {
-		return
-	}
-	mapping := account.GetModelMapping()
-	for _, model := range snapshot.Models {
-		model = strings.TrimSpace(model)
-		if len(mapping) == 0 || account.IsOpenAIPassthroughEnabled() || mappingSupportsRequestedModel(mapping, model) {
-			addHealthCheckedModel(models, account, model)
-		}
-	}
-	for publicModel := range mapping {
-		if strings.Contains(publicModel, "*") {
-			continue
-		}
-		addHealthCheckedModel(models, account, publicModel)
-	}
 }
 
 func addHealthCheckedModel(models map[string]struct{}, account *Account, model string) {
@@ -104,5 +78,5 @@ func (s *GatewayService) healthCheckedModels(
 	platform string,
 	accounts []Account,
 ) ([]string, bool) {
-	return recentHealthCheckedModels(ctx, s.usageLogRepo, groupID, platform, accounts)
+	return healthCheckedModelIDs(ctx, s.usageLogRepo, groupID, platform, accounts)
 }

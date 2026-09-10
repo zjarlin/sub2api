@@ -103,7 +103,7 @@ type CodexModelsManifest struct {
 }
 
 // BuildHealthCheckedCodexModelsManifest builds the client catalog exclusively
-// from recent successful requests or scheduled tests. The boolean is false
+// from durable successful requests or scheduled tests. The boolean is false
 // when the repository does not provide model-level health evidence.
 func (s *OpenAIGatewayService) BuildHealthCheckedCodexModelsManifest(
 	ctx context.Context,
@@ -122,7 +122,7 @@ func (s *OpenAIGatewayService) BuildHealthCheckedCodexModelsManifest(
 		return nil, true, fmt.Errorf("load health-checked Codex models: %w", err)
 	}
 	groupID := group.ID
-	models, _ := recentHealthCheckedModels(ctx, s.usageLogRepo, &groupID, PlatformOpenAI, visible)
+	models, _ := healthCheckedModelIDs(ctx, s.usageLogRepo, &groupID, PlatformOpenAI, visible)
 	body, err := buildCodexModelsManifestForAccounts(PlatformOpenAI, models, catalog, nil, true)
 	if err != nil {
 		return nil, true, fmt.Errorf("build health-checked Codex models: %w", err)
