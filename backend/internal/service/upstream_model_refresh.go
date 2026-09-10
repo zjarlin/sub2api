@@ -11,6 +11,7 @@ import (
 const (
 	upstreamModelRefreshInterval   = 6 * time.Hour
 	upstreamModelRefreshRunTimeout = 10 * time.Minute
+	upstreamModelRefreshTimeout    = 30 * time.Second
 	upstreamModelRefreshWorkers    = 3
 )
 
@@ -103,7 +104,9 @@ func (s *UpstreamModelRefreshService) refresh(parent context.Context) {
 		go func(account *Account) {
 			defer wg.Done()
 			defer func() { <-sem }()
-			_, syncErr := s.syncer.SyncUpstreamModelCatalog(ctx, account)
+			accountCtx, accountCancel := context.WithTimeout(ctx, upstreamModelRefreshTimeout)
+			defer accountCancel()
+			_, syncErr := s.syncer.SyncUpstreamModelCatalog(accountCtx, account)
 			if syncErr == nil {
 				return
 			}
