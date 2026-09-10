@@ -85,11 +85,13 @@ func (a *Account) GetUpstreamSupportedModelsSnapshot() *UpstreamSupportedModelsS
 	return &snapshot
 }
 
-// upstreamModelCatalogSupport returns known=false for missing or stale data so
-// a catalog outage cannot permanently hide newly released models.
+// upstreamModelCatalogSupport keeps positive observations from stale catalogs,
+// while stale absence remains unknown so a catalog outage cannot hide newly
+// released models. Deterministic negative observations are checked first by
+// Account.IsModelSupported.
 func (a *Account) upstreamModelCatalogSupport(requestedModel string, now time.Time) (known, supported bool) {
 	snapshot := a.GetUpstreamSupportedModelsSnapshot()
-	if !upstreamSupportedModelsSnapshotFresh(snapshot, now) {
+	if snapshot == nil {
 		return false, false
 	}
 	model := unsupportedModelKeyForAccount(a, requestedModel)
@@ -100,6 +102,9 @@ func (a *Account) upstreamModelCatalogSupport(requestedModel string, now time.Ti
 		if normalizeUnsupportedModelKey(candidate) == model {
 			return true, true
 		}
+	}
+	if !upstreamSupportedModelsSnapshotFresh(snapshot, now) {
+		return false, false
 	}
 	return true, false
 }

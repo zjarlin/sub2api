@@ -49,9 +49,11 @@ func TestAccountIsModelSupportedUsesFreshUpstreamCatalog(t *testing.T) {
 	account.Extra[UpstreamSupportedModelsExtraKey] = UpstreamSupportedModelsSnapshot{
 		Source:   "upstream",
 		SyncedAt: now.Add(-upstreamSupportedModelsFreshness - time.Minute).Format(time.RFC3339),
-		Models:   []string{"upstream-good"},
+		Models:   []string{"upstream-good", "public-new"},
 	}
+	require.True(t, account.IsModelSupported("public-new"), "stale positive capability remains usable until a deterministic failure disproves it")
 	require.True(t, account.IsModelSupported("public-bad"), "stale catalogs must fail open")
+	require.False(t, account.IsModelSupported("public-unknown"), "stale absence must fall back to the configured mapping")
 }
 
 func TestUpstreamModelRefreshPersistsPositiveCapability(t *testing.T) {
