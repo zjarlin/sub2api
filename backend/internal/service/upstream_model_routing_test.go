@@ -38,11 +38,12 @@ func TestAccountIsModelSupportedUsesFreshUpstreamCatalog(t *testing.T) {
 		Extra: map[string]any{UpstreamSupportedModelsExtraKey: UpstreamSupportedModelsSnapshot{
 			Source:   "upstream",
 			SyncedAt: now.Format(time.RFC3339),
-			Models:   []string{"upstream-good"},
+			Models:   []string{"upstream-good", "public-new"},
 		}},
 	}
 
 	require.True(t, account.IsModelSupported("public-good"))
+	require.True(t, account.IsModelSupported("public-new"), "fresh upstream capability must not be rejected by a stale mapping allowlist")
 	require.False(t, account.IsModelSupported("public-bad"))
 
 	account.Extra[UpstreamSupportedModelsExtraKey] = UpstreamSupportedModelsSnapshot{

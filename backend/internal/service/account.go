@@ -830,8 +830,8 @@ func resolveRequestedModelInMapping(mapping map[string]string, requestedModel st
 	return matchWildcardMappingResult(mapping, requestedModel)
 }
 
-// IsModelSupported 检查模型是否在 model_mapping 中（支持通配符）
-// 如果未配置 mapping，返回 true（允许所有模型）。
+// IsModelSupported checks learned upstream capability first, then falls back
+// to model_mapping when no fresh upstream catalog is available.
 //
 // 例外：OpenAI OAuth 账号（Codex 上游）的空映射会排除明确属于其他厂商
 // 家族的模型（deepseek-*/glm-* 等）——转发阶段 normalizeOpenAIModelForUpstream
@@ -842,8 +842,8 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 	if a.IsModelKnownUnsupported(requestedModel) {
 		return false
 	}
-	if known, supported := a.upstreamModelCatalogSupport(requestedModel, time.Now()); known && !supported {
-		return false
+	if known, supported := a.upstreamModelCatalogSupport(requestedModel, time.Now()); known {
+		return supported
 	}
 	// 透传模式仅替换认证、模型语义完全交由上游决定，因此放行所有模型。
 	// 该短路必须在 model_mapping 判定之前：账号从"白名单模式"切换到透传后，
