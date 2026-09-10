@@ -2,11 +2,13 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
@@ -14,6 +16,16 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+type accountTestHealthRecorder struct {
+	*snapshotUpdateAccountRepo
+	healthCalls chan ModelHealthObservation
+}
+
+func (r *accountTestHealthRecorder) RecordAccountModelHealthSuccess(_ context.Context, accountID int64, model string, checkedAt time.Time) error {
+	r.healthCalls <- ModelHealthObservation{AccountID: accountID, Model: model, CheckedAt: checkedAt}
+	return nil
+}
 
 // compactProbeSSESuccessBody 是原生 v2 压缩成功的最小 SSE 形态：
 // output_item.done 携带 compaction item + response.completed。
@@ -38,9 +50,12 @@ func TestAccountTestService_TestAccountConnection_OpenAICompactOAuthSuccessPersi
 			"chatgpt_account_is_fedramp": true,
 		},
 	}
-	repo := &snapshotUpdateAccountRepo{
-		stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
-		updateExtraCalls:      updateCalls,
+	repo := &accountTestHealthRecorder{
+		snapshotUpdateAccountRepo: &snapshotUpdateAccountRepo{
+			stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
+			updateExtraCalls:      updateCalls,
+		},
+		healthCalls: make(chan ModelHealthObservation, 1),
 	}
 	upstream := &httpUpstreamRecorder{resp: &http.Response{
 		StatusCode: http.StatusOK,
@@ -80,6 +95,10 @@ func TestAccountTestService_TestAccountConnection_OpenAICompactOAuthSuccessPersi
 	require.Equal(t, true, updates["openai_compact_supported"])
 	require.Equal(t, http.StatusOK, updates["openai_compact_last_status"])
 	require.Contains(t, rec.Body.String(), `"type":"test_complete"`)
+	health := <-repo.healthCalls
+	require.Equal(t, account.ID, health.AccountID)
+	require.Equal(t, "gpt-5.4", health.Model)
+	require.False(t, health.CheckedAt.IsZero())
 }
 
 func TestAccountTestService_TestAccountConnection_OpenAICompactOAuth404MarksUnsupported(t *testing.T) {
@@ -99,9 +118,12 @@ func TestAccountTestService_TestAccountConnection_OpenAICompactOAuth404MarksUnsu
 			"chatgpt_account_id": "chatgpt-acc",
 		},
 	}
-	repo := &snapshotUpdateAccountRepo{
-		stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
-		updateExtraCalls:      updateCalls,
+	repo := &accountTestHealthRecorder{
+		snapshotUpdateAccountRepo: &snapshotUpdateAccountRepo{
+			stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
+			updateExtraCalls:      updateCalls,
+		},
+		healthCalls: make(chan ModelHealthObservation, 1),
 	}
 	upstream := &httpUpstreamRecorder{resp: &http.Response{
 		StatusCode: http.StatusNotFound,
@@ -124,6 +146,11 @@ func TestAccountTestService_TestAccountConnection_OpenAICompactOAuth404MarksUnsu
 	require.Equal(t, false, updates["openai_compact_supported"])
 	require.Equal(t, http.StatusNotFound, updates["openai_compact_last_status"])
 	require.Contains(t, rec.Body.String(), `"type":"error"`)
+	select {
+	case health := <-repo.healthCalls:
+		t.Fatalf("failed test unexpectedly recorded health: %+v", health)
+	default:
+	}
 }
 
 func TestAccountTestService_TestAccountConnection_OpenAICompactAPIKeyUsesNativeResponsesPath(t *testing.T) {

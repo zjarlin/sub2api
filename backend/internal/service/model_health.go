@@ -21,6 +21,12 @@ type ModelHealthObservationReader interface {
 	ListModelHealthObservations(ctx context.Context, groupID *int64, platform string) ([]ModelHealthObservation, error)
 }
 
+// AccountModelHealthRecorder records successful model probes without widening
+// AccountRepository and every repository test double.
+type AccountModelHealthRecorder interface {
+	RecordAccountModelHealthSuccess(ctx context.Context, accountID int64, model string, checkedAt time.Time) error
+}
+
 func (s *GatewayService) ModelsRequireHealthCheck() bool {
 	if s == nil || s.usageLogRepo == nil {
 		return false

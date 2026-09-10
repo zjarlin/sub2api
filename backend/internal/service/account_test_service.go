@@ -271,7 +271,7 @@ func createTestPayload(modelID string) (map[string]any, error) {
 // modelID is optional - if empty, defaults to claude.DefaultTestModel
 // mode is optional - "compact" routes OpenAI accounts to the /responses/compact probe path
 // opts is optional media (image/audio data URLs for real generation / STT).
-func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int64, modelID string, prompt string, mode string, opts ...AccountTestOptions) error {
+func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int64, modelID string, prompt string, mode string, opts ...AccountTestOptions) (testErr error) {
 	ctx := c.Request.Context()
 	testOpts := firstAccountTestOptions(opts)
 
@@ -294,6 +294,20 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 		return nil
 	}
+
+	defer func() {
+		model := strings.TrimSpace(modelID)
+		if testErr != nil || model == "" {
+			return
+		}
+		recorder, ok := s.accountRepo.(AccountModelHealthRecorder)
+		if !ok {
+			return
+		}
+		if err := recorder.RecordAccountModelHealthSuccess(ctx, accountID, model, time.Now()); err != nil {
+			log.Printf("Account test model health persistence failed: account=%d model=%s error=%v", accountID, model, err)
+		}
+	}()
 
 	// Route to platform-specific test method
 	if account.IsCNProvider() {
