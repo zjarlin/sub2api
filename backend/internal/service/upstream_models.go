@@ -23,7 +23,9 @@ const (
 	modelsDevRegistryURL                      = "https://models.dev/api.json"
 	modelsDevRegistryTTL                      = 6 * time.Hour
 	UpstreamModelMetadataExtraKey             = "upstream_model_metadata"
+	UpstreamSupportedModelsExtraKey           = "upstream_supported_models"
 	UpstreamModelMetadataIncompleteCode       = "upstream_model_metadata_incomplete"
+	upstreamSupportedModelsFreshness          = 12 * time.Hour
 )
 
 type UpstreamModelMetadata struct {
@@ -42,6 +44,72 @@ type UpstreamModelMetadataSnapshot struct {
 	Source   string                           `json:"source"`
 	SyncedAt string                           `json:"synced_at"`
 	Models   map[string]UpstreamModelMetadata `json:"models"`
+}
+
+// UpstreamSupportedModelsSnapshot is the authoritative model ID list returned
+// by the account's upstream. It is separate from optional metadata enrichment
+// so scheduling can still use a valid /models response when models.dev has no
+// matching provider or incomplete descriptions.
+type UpstreamSupportedModelsSnapshot struct {
+	Source   string   `json:"source"`
+	SyncedAt string   `json:"synced_at"`
+	Models   []string `json:"models"`
+}
+
+func (a *Account) SetUpstreamSupportedModelsSnapshot(snapshot UpstreamSupportedModelsSnapshot) {
+	if a == nil {
+		return
+	}
+	if a.Extra == nil {
+		a.Extra = make(map[string]any)
+	}
+	a.Extra[UpstreamSupportedModelsExtraKey] = snapshot
+}
+
+func (a *Account) GetUpstreamSupportedModelsSnapshot() *UpstreamSupportedModelsSnapshot {
+	if a == nil || a.Extra == nil {
+		return nil
+	}
+	raw, ok := a.Extra[UpstreamSupportedModelsExtraKey]
+	if !ok || raw == nil {
+		return nil
+	}
+	body, err := json.Marshal(raw)
+	if err != nil {
+		return nil
+	}
+	var snapshot UpstreamSupportedModelsSnapshot
+	if err := json.Unmarshal(body, &snapshot); err != nil || len(snapshot.Models) == 0 {
+		return nil
+	}
+	return &snapshot
+}
+
+// upstreamModelCatalogSupport returns known=false for missing or stale data so
+// a catalog outage cannot permanently hide newly released models.
+func (a *Account) upstreamModelCatalogSupport(requestedModel string, now time.Time) (known, supported bool) {
+	snapshot := a.GetUpstreamSupportedModelsSnapshot()
+	if !upstreamSupportedModelsSnapshotFresh(snapshot, now) {
+		return false, false
+	}
+	model := unsupportedModelKeyForAccount(a, requestedModel)
+	if model == "" {
+		return false, false
+	}
+	for _, candidate := range snapshot.Models {
+		if normalizeUnsupportedModelKey(candidate) == model {
+			return true, true
+		}
+	}
+	return true, false
+}
+
+func upstreamSupportedModelsSnapshotFresh(snapshot *UpstreamSupportedModelsSnapshot, now time.Time) bool {
+	if snapshot == nil || !strings.EqualFold(strings.TrimSpace(snapshot.Source), "upstream") {
+		return false
+	}
+	syncedAt, err := time.Parse(time.RFC3339, strings.TrimSpace(snapshot.SyncedAt))
+	return err == nil && !syncedAt.After(now.Add(5*time.Minute)) && now.Sub(syncedAt) <= upstreamSupportedModelsFreshness
 }
 
 type UpstreamModelCatalog struct {
@@ -200,6 +268,7 @@ func (s *AccountTestService) FetchUpstreamSupportedModels(ctx context.Context, a
 // and persists a normalized account snapshot when metadata is available.
 func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, account *Account) (*UpstreamModelCatalog, error) {
 	models, body, err := s.fetchUpstreamModelList(ctx, account)
+	liveModelList := err == nil
 	if err != nil {
 		configuredModels := configuredUpstreamModelsForCapabilitySync(account)
 		if !upstreamModelListEndpointUnsupported(err) || len(configuredModels) == 0 {
@@ -243,25 +312,49 @@ func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, accou
 		}
 	}
 
-	if upstreamCatalogNeedsRegistry(models, catalog.Metadata) {
+	metadataStillIncomplete := upstreamCatalogNeedsRegistry(models, catalog.Metadata)
+	if metadataStillIncomplete {
 		catalog.Warnings = append(catalog.Warnings, UpstreamModelSyncWarning{
 			Code:    UpstreamModelMetadataIncompleteCode,
 			Message: "Model IDs were synced, but capability metadata is incomplete.",
 		})
+	}
+	if account == nil || account.ID <= 0 || s.accountRepo == nil {
 		return catalog, nil
 	}
-	if len(catalog.Metadata) == 0 || account == nil || account.ID <= 0 || s.accountRepo == nil {
-		return catalog, nil
+	now := time.Now().UTC().Format(time.RFC3339)
+	updates := make(map[string]any, 2)
+	var supportedSnapshot *UpstreamSupportedModelsSnapshot
+	var metadataSnapshot *UpstreamModelMetadataSnapshot
+	if liveModelList {
+		snapshot := UpstreamSupportedModelsSnapshot{
+			Source:   "upstream",
+			SyncedAt: now,
+			Models:   dedupeAndSortModelIDs(models),
+		}
+		supportedSnapshot = &snapshot
+		updates[UpstreamSupportedModelsExtraKey] = snapshot
 	}
-	snapshot := UpstreamModelMetadataSnapshot{
-		Source:   source,
-		SyncedAt: time.Now().UTC().Format(time.RFC3339),
-		Models:   catalog.Metadata,
+	if !metadataStillIncomplete && len(catalog.Metadata) > 0 {
+		snapshot := UpstreamModelMetadataSnapshot{
+			Source:   source,
+			SyncedAt: now,
+			Models:   catalog.Metadata,
+		}
+		metadataSnapshot = &snapshot
+		updates[UpstreamModelMetadataExtraKey] = snapshot
 	}
-	if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{UpstreamModelMetadataExtraKey: snapshot}); err != nil {
-		return nil, newUpstreamModelSyncInternalError("Failed to save upstream model metadata", err)
+	if len(updates) > 0 {
+		if err := s.accountRepo.UpdateExtra(ctx, account.ID, updates); err != nil {
+			return nil, newUpstreamModelSyncInternalError("Failed to save upstream model catalog", err)
+		}
 	}
-	account.SetUpstreamModelMetadataSnapshot(snapshot)
+	if supportedSnapshot != nil {
+		account.SetUpstreamSupportedModelsSnapshot(*supportedSnapshot)
+	}
+	if metadataSnapshot != nil {
+		account.SetUpstreamModelMetadataSnapshot(*metadataSnapshot)
+	}
 	return catalog, nil
 }
 

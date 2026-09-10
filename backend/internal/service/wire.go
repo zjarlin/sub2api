@@ -272,6 +272,15 @@ func ProvideAccountTestService(
 	return service
 }
 
+func ProvideUpstreamModelRefreshService(
+	accountRepo AccountRepository,
+	accountTestService *AccountTestService,
+) *UpstreamModelRefreshService {
+	service := NewUpstreamModelRefreshService(accountRepo, accountTestService)
+	service.Start()
+	return service
+}
+
 func ProvideGrokQuotaService(
 	accountRepo AccountRepository,
 	proxyRepo ProxyRepository,
@@ -875,6 +884,7 @@ var ProviderSet = wire.NewSet(
 	ProvideRateLimitService,
 	ProvideAccountUsageService,
 	ProvideAccountTestService,
+	ProvideUpstreamModelRefreshService,
 	ProvideUpstreamBillingProbeService,
 	ProvideOllamaCloudUsageService,
 	ProvideSettingService,

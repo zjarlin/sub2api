@@ -765,7 +765,9 @@ func TestSyncUpstreamModelCatalogDoesNotOverwriteSnapshotWhenRegistryFails(t *te
 		Code:    UpstreamModelMetadataIncompleteCode,
 		Message: "Model IDs were synced, but capability metadata is incomplete.",
 	}}, catalog.Warnings)
-	require.Nil(t, repo.updates, "a failed metadata enrichment must not erase a previously saved snapshot")
+	require.NotNil(t, repo.updates)
+	require.NotContains(t, repo.updates, UpstreamModelMetadataExtraKey, "a failed metadata enrichment must not erase a previously saved metadata snapshot")
+	require.Contains(t, repo.updates, UpstreamSupportedModelsExtraKey, "the authoritative model IDs remain usable for routing")
 }
 
 func TestSyncUpstreamModelCatalogDoesNotPersistPartialMetadataWhenRegistryFails(t *testing.T) {
@@ -792,7 +794,9 @@ func TestSyncUpstreamModelCatalogDoesNotPersistPartialMetadataWhenRegistryFails(
 	require.Equal(t, []string{"partially-described-model"}, catalog.Models)
 	require.Equal(t, "Partial Model", catalog.Metadata["partially-described-model"].DisplayName)
 	require.Equal(t, UpstreamModelMetadataIncompleteCode, catalog.Warnings[0].Code)
-	require.Nil(t, repo.updates, "partial metadata must not replace a more complete persisted snapshot")
+	require.NotNil(t, repo.updates)
+	require.NotContains(t, repo.updates, UpstreamModelMetadataExtraKey, "partial metadata must not replace a more complete persisted metadata snapshot")
+	require.Contains(t, repo.updates, UpstreamSupportedModelsExtraKey, "the authoritative model IDs remain usable for routing")
 }
 
 func TestFetchUpstreamSupportedModelsUsesConfiguredBodyLimit(t *testing.T) {

@@ -34,6 +34,7 @@ const (
 	// ponytail: cap probes added when cost ordering expands configured Top-K;
 	// use bulk acquisition if a measured workload needs a higher ceiling.
 	openAIAccountSelectionProbeLimit = 64
+	openAIModelRuntimeStatsLimit     = 8192
 )
 
 const (
@@ -120,7 +121,7 @@ type OpenAIAccountSchedulerMetricsSnapshot struct {
 
 type OpenAIAccountScheduler interface {
 	Select(ctx context.Context, req OpenAIAccountScheduleRequest) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error)
-	ReportResult(accountID int64, success bool, firstTokenMs *int)
+	ReportResult(accountID int64, model string, success bool, firstTokenMs *int)
 	ReportSwitch()
 	SnapshotMetrics() OpenAIAccountSchedulerMetricsSnapshot
 }
@@ -184,12 +185,20 @@ func (m *openAIAccountSchedulerMetrics) recordSwitch() {
 
 type openAIAccountRuntimeStats struct {
 	accounts     sync.Map
+	models       sync.Map
 	accountCount atomic.Int64
+	modelCount   atomic.Int64
+}
+
+type openAIAccountModelRuntimeKey struct {
+	accountID int64
+	model     string
 }
 
 type openAIAccountRuntimeStat struct {
 	errorRateEWMABits atomic.Uint64
 	ttftEWMABits      atomic.Uint64
+	sampleCount       atomic.Int64
 }
 
 func newOpenAIAccountRuntimeStats() *openAIAccountRuntimeStats {
@@ -222,8 +231,44 @@ func updateEWMAAtomic(target *atomic.Uint64, sample float64, alpha float64) {
 	for {
 		oldBits := target.Load()
 		oldValue := math.Float64frombits(oldBits)
-		newValue := alpha*sample + (1-alpha)*oldValue
+		newValue := sample
+		if !math.IsNaN(oldValue) {
+			newValue = alpha*sample + (1-alpha)*oldValue
+		}
 		if target.CompareAndSwap(oldBits, math.Float64bits(newValue)) {
+			return
+		}
+	}
+}
+
+func observeOpenAIAccountRuntimeStat(stat *openAIAccountRuntimeStat, success bool, firstTokenMs *int) {
+	if stat == nil {
+		return
+	}
+	const alpha = 0.2
+	errorSample := 1.0
+	if success {
+		errorSample = 0.0
+	}
+	updateEWMAAtomic(&stat.errorRateEWMABits, errorSample, alpha)
+	stat.sampleCount.Add(1)
+
+	if firstTokenMs == nil || *firstTokenMs <= 0 {
+		return
+	}
+	ttft := float64(*firstTokenMs)
+	ttftBits := math.Float64bits(ttft)
+	for {
+		oldBits := stat.ttftEWMABits.Load()
+		oldValue := math.Float64frombits(oldBits)
+		if math.IsNaN(oldValue) {
+			if stat.ttftEWMABits.CompareAndSwap(oldBits, ttftBits) {
+				return
+			}
+			continue
+		}
+		newValue := alpha*ttft + (1-alpha)*oldValue
+		if stat.ttftEWMABits.CompareAndSwap(oldBits, math.Float64bits(newValue)) {
 			return
 		}
 	}
@@ -233,33 +278,34 @@ func (s *openAIAccountRuntimeStats) report(accountID int64, success bool, firstT
 	if s == nil || accountID <= 0 {
 		return
 	}
-	const alpha = 0.2
 	stat := s.loadOrCreate(accountID)
+	observeOpenAIAccountRuntimeStat(stat, success, firstTokenMs)
+}
 
-	errorSample := 1.0
-	if success {
-		errorSample = 0.0
+func (s *openAIAccountRuntimeStats) reportModel(accountID int64, model string, success bool, firstTokenMs *int) {
+	s.report(accountID, success, firstTokenMs)
+	model = normalizeUnsupportedModelKey(model)
+	if s == nil || accountID <= 0 || model == "" {
+		return
 	}
-	updateEWMAAtomic(&stat.errorRateEWMABits, errorSample, alpha)
-
-	if firstTokenMs != nil && *firstTokenMs > 0 {
-		ttft := float64(*firstTokenMs)
-		ttftBits := math.Float64bits(ttft)
-		for {
-			oldBits := stat.ttftEWMABits.Load()
-			oldValue := math.Float64frombits(oldBits)
-			if math.IsNaN(oldValue) {
-				if stat.ttftEWMABits.CompareAndSwap(oldBits, ttftBits) {
-					break
-				}
-				continue
-			}
-			newValue := alpha*ttft + (1-alpha)*oldValue
-			if stat.ttftEWMABits.CompareAndSwap(oldBits, math.Float64bits(newValue)) {
-				break
-			}
-		}
+	key := openAIAccountModelRuntimeKey{accountID: accountID, model: model}
+	if value, ok := s.models.Load(key); ok {
+		stored, _ := value.(*openAIAccountRuntimeStat)
+		observeOpenAIAccountRuntimeStat(stored, success, firstTokenMs)
+		return
 	}
+	if s.modelCount.Load() >= openAIModelRuntimeStatsLimit {
+		return
+	}
+	stat := &openAIAccountRuntimeStat{}
+	stat.errorRateEWMABits.Store(math.Float64bits(math.NaN()))
+	stat.ttftEWMABits.Store(math.Float64bits(math.NaN()))
+	actual, loaded := s.models.LoadOrStore(key, stat)
+	if !loaded {
+		s.modelCount.Add(1)
+	}
+	stored, _ := actual.(*openAIAccountRuntimeStat)
+	observeOpenAIAccountRuntimeStat(stored, success, firstTokenMs)
 }
 
 func (s *openAIAccountRuntimeStats) snapshot(accountID int64) (errorRate float64, ttft float64, hasTTFT bool) {
@@ -280,6 +326,32 @@ func (s *openAIAccountRuntimeStats) snapshot(accountID int64) (errorRate float64
 		return errorRate, 0, false
 	}
 	return errorRate, ttftValue, true
+}
+
+func (s *openAIAccountRuntimeStats) snapshotModel(accountID int64, model string) (errorRate float64, ttft float64, hasTTFT bool, samples int64) {
+	model = normalizeUnsupportedModelKey(model)
+	if s != nil && accountID > 0 && model != "" {
+		key := openAIAccountModelRuntimeKey{accountID: accountID, model: model}
+		if value, ok := s.models.Load(key); ok {
+			if stat, _ := value.(*openAIAccountRuntimeStat); stat != nil {
+				errorRate = clamp01(math.Float64frombits(stat.errorRateEWMABits.Load()))
+				ttftValue := math.Float64frombits(stat.ttftEWMABits.Load())
+				if !math.IsNaN(ttftValue) {
+					ttft, hasTTFT = ttftValue, true
+				}
+				return errorRate, ttft, hasTTFT, stat.sampleCount.Load()
+			}
+		}
+	}
+	errorRate, ttft, hasTTFT = s.snapshot(accountID)
+	if s != nil && accountID > 0 {
+		if value, ok := s.accounts.Load(accountID); ok {
+			if stat, _ := value.(*openAIAccountRuntimeStat); stat != nil {
+				samples = stat.sampleCount.Load()
+			}
+		}
+	}
+	return errorRate, ttft, hasTTFT, samples
 }
 
 func (s *openAIAccountRuntimeStats) size() int {
@@ -556,7 +628,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		return nil, false, nil
 	}
 	escapeCfg := s.service.openAIStickyEscapeConfig()
-	if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, escapeCfg); shouldEscape {
+	if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, upstreamModel, escapeCfg); shouldEscape {
 		slog.Info("sticky_escape_triggered",
 			"account_id", accountID,
 			"reason", reason,
@@ -581,7 +653,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	// WaitPlan.MaxConcurrency 使用 Concurrency（非 EffectiveLoadFactor），因为 WaitPlan 控制的是 Redis 实际并发槽位等待。
 	if s.service.concurrencyService != nil {
 		if escapeCfg.enabled && acquireErr == nil && result != nil && !result.Acquired {
-			errorRate, ttft, _ := s.stats.snapshot(accountID)
+			errorRate, ttft, _, _ := s.stats.snapshotModel(accountID, upstreamModel)
 			slog.Info("sticky_escape_triggered",
 				"account_id", accountID,
 				"reason", "concurrency_full",
@@ -630,11 +702,11 @@ func openAIAccountSchedulingPriority(account *Account) int {
 	return account.Priority
 }
 
-func (s *defaultOpenAIAccountScheduler) shouldEscapeStickyAccount(accountID int64, cfg openAIStickyEscapeConfig) (reason string, errorRate float64, ttft float64, shouldEscape bool) {
+func (s *defaultOpenAIAccountScheduler) shouldEscapeStickyAccount(accountID int64, model string, cfg openAIStickyEscapeConfig) (reason string, errorRate float64, ttft float64, shouldEscape bool) {
 	if !cfg.enabled || s == nil || s.stats == nil || accountID <= 0 {
 		return "", 0, 0, false
 	}
-	errorRate, ttft, hasTTFT := s.stats.snapshot(accountID)
+	errorRate, ttft, hasTTFT, _ := s.stats.snapshotModel(accountID, model)
 	if hasTTFT && ttft > cfg.ttftMs {
 		return "ttft", errorRate, ttft, true
 	}
@@ -653,6 +725,17 @@ type openAIAccountCandidateScore struct {
 	errorRate float64
 	ttft      float64
 	hasTTFT   bool
+	samples   int64
+}
+
+func openAIModelSuccessAffinity(errorRate float64, samples int64) float64 {
+	const fullConfidenceSamples = 8.0
+	if samples <= 0 {
+		return 0.5
+	}
+	confidence := math.Min(float64(samples)/fullConfidenceSamples, 1)
+	successRate := 1 - clamp01(errorRate)
+	return 0.5 + (successRate-0.5)*confidence
 }
 
 type openAIAccountCandidateHeap []openAIAccountCandidateScore
@@ -860,9 +943,10 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			loadInfo = &AccountLoadInfo{AccountID: account.ID}
 			loadKnown = false
 		}
-		errorRate, ttft, hasTTFT := 0.0, 0.0, false
+		errorRate, ttft, hasTTFT, samples := 0.0, 0.0, false, int64(0)
 		if s.stats != nil {
-			errorRate, ttft, hasTTFT = s.stats.snapshot(account.ID)
+			model := canonicalOpenAIAccountSchedulingModel(account, req.RequestedModel)
+			errorRate, ttft, hasTTFT, samples = s.stats.snapshotModel(account.ID, model)
 		}
 		allCandidates = append(allCandidates, openAIAccountCandidateScore{
 			account:   account,
@@ -871,6 +955,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			errorRate: errorRate,
 			ttft:      ttft,
 			hasTTFT:   hasTTFT,
+			samples:   samples,
 		})
 	}
 
@@ -986,7 +1071,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 		}
 		loadFactor := 1 - clamp01(float64(item.loadInfo.LoadRate)/100.0)
 		queueFactor := 1 - clamp01(float64(item.loadInfo.WaitingCount)/float64(maxWaiting))
-		errorFactor := 1 - clamp01(item.errorRate)
+		errorFactor := openAIModelSuccessAffinity(item.errorRate, item.samples)
 		ttftFactor := 0.5
 		if item.hasTTFT && hasTTFTSample && maxTTFT > minTTFT {
 			ttftFactor = 1 - clamp01((item.ttft-minTTFT)/(maxTTFT-minTTFT))
@@ -1817,11 +1902,11 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	return true, ""
 }
 
-func (s *defaultOpenAIAccountScheduler) ReportResult(accountID int64, success bool, firstTokenMs *int) {
+func (s *defaultOpenAIAccountScheduler) ReportResult(accountID int64, model string, success bool, firstTokenMs *int) {
 	if s == nil || s.stats == nil {
 		return
 	}
-	s.stats.report(accountID, success, firstTokenMs)
+	s.stats.reportModel(accountID, model, success, firstTokenMs)
 }
 
 func (s *defaultOpenAIAccountScheduler) ReportSwitch() {
@@ -2469,7 +2554,7 @@ func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(account *Accoun
 	if scheduler == nil {
 		return healthTripped
 	}
-	scheduler.ReportResult(accountID, success, firstTokenMs)
+	scheduler.ReportResult(accountID, model, success, firstTokenMs)
 	return healthTripped
 }
 

@@ -287,6 +287,13 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(statusCode i
 	if isOpenAIToolCallContinuationError(upstreamMsg, upstreamBody) {
 		return true
 	}
+	// A deterministic account+model capability miss is retryable on another
+	// account even when the broad failover_on_400 switch is disabled. The
+	// side-effect path persists the negative capability before the handler
+	// excludes this account and re-enters scheduling.
+	if isDeterministicUnsupportedModelError(statusCode, upstreamBody) {
+		return true
+	}
 	if isOpenAIHTTPUpstreamAccessStateError(statusCode, upstreamMsg, upstreamBody) {
 		return true
 	}

@@ -109,6 +109,7 @@ var duplicateAccountDiscardedExtraKeys = map[string]struct{}{
 	// Provider observations, capability probes, and transient scheduling state.
 	"model_rate_limits":                      {},
 	UnsupportedModelsExtraKey:                {},
+	UpstreamSupportedModelsExtraKey:          {},
 	"session_window_utilization":             {},
 	"passive_usage_7d_utilization":           {},
 	"passive_usage_7d_reset":                 {},
@@ -664,6 +665,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			OllamaCloudUsageSnapshotExtraKey,
 			OpenAIAutoResetCreditStateExtraKey,
 			UnsupportedModelsExtraKey,
+			UpstreamSupportedModelsExtraKey,
 		} {
 			if v, ok := account.Extra[key]; ok {
 				normalizedExtra[key] = v

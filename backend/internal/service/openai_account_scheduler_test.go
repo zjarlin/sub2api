@@ -2982,7 +2982,7 @@ func TestDefaultOpenAIAccountScheduler_ShouldEscapeStickyAccount_ThresholdBounda
 	stats.report(accountID, true, nil)
 	scheduler := &defaultOpenAIAccountScheduler{stats: stats}
 
-	reason, errorRate, observedTTFT, shouldEscape := scheduler.shouldEscapeStickyAccount(accountID, openAIStickyEscapeConfig{
+	reason, errorRate, observedTTFT, shouldEscape := scheduler.shouldEscapeStickyAccount(accountID, "", openAIStickyEscapeConfig{
 		enabled:   true,
 		ttftMs:    15000,
 		errorRate: 0.5,
@@ -2995,14 +2995,14 @@ func TestDefaultOpenAIAccountScheduler_ShouldEscapeStickyAccount_ThresholdBounda
 	for i := 0; i < 4; i++ {
 		stats.report(accountID, false, nil)
 	}
-	reason, errorRate, _, shouldEscape = scheduler.shouldEscapeStickyAccount(accountID, openAIStickyEscapeConfig{
+	reason, errorRate, _, shouldEscape = scheduler.shouldEscapeStickyAccount(accountID, "", openAIStickyEscapeConfig{
 		enabled:   true,
 		ttftMs:    15000,
 		errorRate: 1,
 	})
 	require.False(t, shouldEscape)
 	require.Empty(t, reason)
-	reason, errorRate, observedTTFT, shouldEscape = scheduler.shouldEscapeStickyAccount(accountID, openAIStickyEscapeConfig{
+	reason, errorRate, observedTTFT, shouldEscape = scheduler.shouldEscapeStickyAccount(accountID, "", openAIStickyEscapeConfig{
 		enabled:   true,
 		ttftMs:    15000,
 		errorRate: errorRate,
@@ -3734,7 +3734,7 @@ func TestDefaultOpenAIAccountScheduler_ReportSwitchAndSnapshot(t *testing.T) {
 	require.True(t, ok)
 
 	ttft := 100
-	scheduler.ReportResult(1001, true, &ttft)
+	scheduler.ReportResult(1001, "gpt-test", true, &ttft)
 	scheduler.ReportSwitch()
 	scheduler.metrics.recordSelect(OpenAIAccountScheduleDecision{
 		Layer:             openAIAccountScheduleLayerLoadBalance,
