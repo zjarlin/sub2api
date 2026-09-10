@@ -312,6 +312,14 @@ func TestBuildSchedulerMetadataAccount_KeepsOpenAIWSFlags(t *testing.T) {
 			"codex_fingerprint_mode":                       "session",
 			"codex_fingerprint_seed":                       "11111111-1111-4111-8111-111111111111",
 			"mixed_scheduling":                             true,
+			service.UpstreamSupportedModelsExtraKey: service.UpstreamSupportedModelsSnapshot{
+				Source:   "upstream",
+				SyncedAt: "2026-09-10T01:47:30Z",
+				Models:   []string{"gpt-6-astra"},
+			},
+			service.UnsupportedModelsExtraKey: map[string]any{
+				"gpt-6-terra": map[string]any{"status_code": 404},
+			},
 			"unused_large_field":                           "drop-me",
 		},
 	}
@@ -326,6 +334,8 @@ func TestBuildSchedulerMetadataAccount_KeepsOpenAIWSFlags(t *testing.T) {
 	require.Equal(t, "session", got.Extra["codex_fingerprint_mode"])
 	require.Equal(t, "11111111-1111-4111-8111-111111111111", got.Extra["codex_fingerprint_seed"])
 	require.Equal(t, true, got.Extra["mixed_scheduling"])
+	require.Equal(t, account.Extra[service.UpstreamSupportedModelsExtraKey], got.Extra[service.UpstreamSupportedModelsExtraKey])
+	require.Equal(t, account.Extra[service.UnsupportedModelsExtraKey], got.Extra[service.UnsupportedModelsExtraKey])
 	require.Nil(t, got.Extra["unused_large_field"])
 }
 
