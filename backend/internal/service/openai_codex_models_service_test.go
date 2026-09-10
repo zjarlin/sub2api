@@ -981,9 +981,16 @@ func TestBuildHealthCheckedCodexModelsManifestExcludesUnverifiedModels(t *testin
 		Type:     AccountTypeAPIKey,
 		Credentials: map[string]any{"model_mapping": map[string]any{
 			"gpt-healthy":    "gpt-healthy",
+			"gpt-unused":     "gpt-unused",
 			"gpt-unverified": "gpt-unverified",
 		}},
+		Extra: map[string]any{},
 	}
+	account.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
+		Source:   "upstream",
+		SyncedAt: time.Now().UTC().Format(time.RFC3339),
+		Models:   []string{"gpt-healthy", "gpt-unused"},
+	})
 	svc := &OpenAIGatewayService{
 		accountRepo: codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{
 			groupID: {account},
@@ -1000,7 +1007,7 @@ func TestBuildHealthCheckedCodexModelsManifestExcludesUnverifiedModels(t *testin
 	)
 	require.NoError(t, err)
 	require.True(t, healthChecked)
-	require.Equal(t, []string{"gpt-healthy"}, codexManifestModelSlugs(t, manifest.Body))
+	require.Equal(t, []string{"gpt-healthy", "gpt-unused"}, codexManifestModelSlugs(t, manifest.Body))
 }
 
 // Scenario: OpenAI 通配映射展开组内精确选择，但不发布通配符 slug。

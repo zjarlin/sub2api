@@ -200,7 +200,7 @@ func TestCodexModelsAppliesLocalFiltersBeforeClientETag(t *testing.T) {
 func TestCodexModelsUsesHealthCheckedCatalogWithoutFetchingUpstream(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	const groupID int64 = 143
-	repo := &codexModelsFailoverAccountRepo{accounts: []service.Account{{
+	account := service.Account{
 		ID:          820,
 		Name:        "health-checked-openai",
 		Platform:    service.PlatformOpenAI,
@@ -211,10 +211,18 @@ func TestCodexModelsUsesHealthCheckedCatalogWithoutFetchingUpstream(t *testing.T
 		Credentials: map[string]any{
 			"model_mapping": map[string]any{
 				"gpt-healthy":    "gpt-healthy",
+				"gpt-unused":     "gpt-unused",
 				"gpt-unverified": "gpt-unverified",
 			},
 		},
-	}}}
+		Extra: map[string]any{},
+	}
+	account.SetUpstreamSupportedModelsSnapshot(service.UpstreamSupportedModelsSnapshot{
+		Source:   "upstream",
+		SyncedAt: time.Now().UTC().Format(time.RFC3339),
+		Models:   []string{"gpt-healthy", "gpt-unused"},
+	})
+	repo := &codexModelsFailoverAccountRepo{accounts: []service.Account{account}}
 	healthRepo := &gatewayModelsHealthRepoStub{observations: []service.ModelHealthObservation{{
 		AccountID: 820,
 		Model:     "gpt-healthy",
@@ -238,8 +246,9 @@ func TestCodexModelsUsesHealthCheckedCatalogWithoutFetchingUpstream(t *testing.T
 	require.Equal(t, http.StatusOK, recorder.Code)
 	var manifest codexModelsResponseForTest
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &manifest))
-	require.Len(t, manifest.Models, 1)
+	require.Len(t, manifest.Models, 2)
 	require.Equal(t, "gpt-healthy", manifest.Models[0].Slug)
+	require.Equal(t, "gpt-unused", manifest.Models[1].Slug)
 	require.Empty(t, upstream.calls())
 }
 

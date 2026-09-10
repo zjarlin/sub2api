@@ -63,3 +63,46 @@ func TestGetAvailableModelsFailsClosedWhenHealthEvidenceCannotBeRead(t *testing.
 
 	require.Empty(t, svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI))
 }
+
+func TestGetAvailableModelsIncludesUnusedModelsFromFreshAccountCatalog(t *testing.T) {
+	groupID := int64(6)
+	account := Account{
+		ID:       820,
+		Platform: PlatformOpenAI,
+		Credentials: map[string]any{"model_mapping": map[string]any{
+			"public-unused": "upstream-unused",
+		}},
+		Extra: map[string]any{},
+	}
+	account.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
+		Source:   "upstream",
+		SyncedAt: time.Now().UTC().Format(time.RFC3339),
+		Models:   []string{"upstream-unused"},
+	})
+	svc := &GatewayService{
+		accountRepo:  &modelHealthAccountRepoStub{accounts: []Account{account}},
+		usageLogRepo: &modelHealthUsageRepoStub{},
+	}
+
+	require.Equal(t, []string{"public-unused"}, svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI))
+}
+
+func TestGetAvailableModelsExcludesUnusedModelsFromStaleAccountCatalog(t *testing.T) {
+	groupID := int64(6)
+	account := Account{
+		ID:       820,
+		Platform: PlatformOpenAI,
+		Extra:    map[string]any{},
+	}
+	account.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
+		Source:   "upstream",
+		SyncedAt: time.Now().Add(-upstreamSupportedModelsFreshness - time.Minute).UTC().Format(time.RFC3339),
+		Models:   []string{"gpt-stale"},
+	})
+	svc := &GatewayService{
+		accountRepo:  &modelHealthAccountRepoStub{accounts: []Account{account}},
+		usageLogRepo: &modelHealthUsageRepoStub{},
+	}
+
+	require.Empty(t, svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI))
+}

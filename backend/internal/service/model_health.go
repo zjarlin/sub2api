@@ -42,34 +42,60 @@ func recentHealthCheckedModels(
 	if !ok {
 		return nil, false
 	}
+	now := time.Now()
+	models := make(map[string]struct{})
+	for i := range accounts {
+		addFreshAccountCatalogModels(models, &accounts[i], now)
+	}
 	observations, err := reader.ListRecentModelHealthObservations(
 		ctx,
 		groupID,
 		platform,
-		time.Now().Add(-modelHealthFreshness),
+		now.Add(-modelHealthFreshness),
 	)
-	if err != nil {
-		return []string{}, true
-	}
 
 	accountsByID := make(map[int64]*Account, len(accounts))
 	for i := range accounts {
 		accountsByID[accounts[i].ID] = &accounts[i]
 	}
-	models := make(map[string]struct{}, len(observations))
-	for _, observation := range observations {
-		account := accountsByID[observation.AccountID]
-		model := strings.TrimSpace(observation.Model)
-		if account == nil || model == "" || len(model) > unsupportedModelKeyMaxBytes || !account.IsModelSupported(model) {
-			continue
+	if err == nil {
+		for _, observation := range observations {
+			addHealthCheckedModel(models, accountsByID[observation.AccountID], observation.Model)
 		}
-		models[model] = struct{}{}
 	}
 	out := make([]string, 0, len(models))
 	for model := range models {
 		out = append(out, model)
 	}
 	return out, true
+}
+
+func addFreshAccountCatalogModels(models map[string]struct{}, account *Account, now time.Time) {
+	snapshot := account.GetUpstreamSupportedModelsSnapshot()
+	if !upstreamSupportedModelsSnapshotFresh(snapshot, now) {
+		return
+	}
+	mapping := account.GetModelMapping()
+	for _, model := range snapshot.Models {
+		model = strings.TrimSpace(model)
+		if len(mapping) == 0 || account.IsOpenAIPassthroughEnabled() || mappingSupportsRequestedModel(mapping, model) {
+			addHealthCheckedModel(models, account, model)
+		}
+	}
+	for publicModel := range mapping {
+		if strings.Contains(publicModel, "*") {
+			continue
+		}
+		addHealthCheckedModel(models, account, publicModel)
+	}
+}
+
+func addHealthCheckedModel(models map[string]struct{}, account *Account, model string) {
+	model = strings.TrimSpace(model)
+	if account == nil || model == "" || len(model) > unsupportedModelKeyMaxBytes || !account.IsModelSupported(model) {
+		return
+	}
+	models[model] = struct{}{}
 }
 
 func (s *GatewayService) healthCheckedModels(
