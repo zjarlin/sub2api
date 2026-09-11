@@ -2528,7 +2528,7 @@ func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(account *Accoun
 		if success {
 			if account.recoveryProbe {
 				recoveryCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-				result, err := s.rateLimitService.RecoverAccountState(recoveryCtx, account.ID, AccountRecoveryOptions{EnableScheduling: true})
+				result, err := s.rateLimitService.RecoverAccountState(recoveryCtx, account.ID, AccountRecoveryOptions{Automatic: true})
 				cancel()
 				if err != nil {
 					slog.Warn("openai recovery account enable failed", "account_id", account.ID, "error", err)

@@ -54,6 +54,7 @@ type SuccessfulTestRecoveryResult struct {
 
 // AccountRecoveryOptions 控制账号恢复时的附加行为。
 type AccountRecoveryOptions struct {
+	Automatic              bool
 	InvalidateToken        bool
 	EnableScheduling       bool
 	ClearUnsupportedModels bool
@@ -2026,6 +2027,9 @@ func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID in
 	}
 
 	result := &SuccessfulTestRecoveryResult{}
+	if options.Automatic && !accountAllowsAutomaticRecovery(account) {
+		return result, nil
+	}
 	if account.Status == StatusError {
 		if err := s.accountRepo.ClearError(ctx, accountID); err != nil {
 			return nil, err

@@ -263,7 +263,7 @@ func TestOpenAIAccountSchedulerRecoversStoppedModelMappedAccountFirst(t *testing
 		},
 		{
 			ID: 2, Name: "mapped", Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
-			Status: StatusError, Schedulable: false, Priority: 10, Concurrency: 1,
+			Status: StatusError, Schedulable: true, Priority: 10, Concurrency: 1,
 			Credentials:   map[string]any{"model_mapping": map[string]any{"gpt-6-astra": "gpt-6-astra-upstream"}},
 			AccountGroups: []AccountGroup{{GroupID: groupID}},
 		},
@@ -289,12 +289,14 @@ func TestOpenAIAccountSchedulerRecoversStoppedModelMappedAccountFirst(t *testing
 func TestOpenAIAccountSchedulerRecoversStoppedPassthroughForUnknownModel(t *testing.T) {
 	resetOpenAIAdvancedSchedulerSettingCacheForTest()
 	groupID := int64(6)
+	blockedUntil := time.Now().Add(time.Minute)
 	accounts := []Account{
 		{
 			ID: 830, Name: "passthrough", Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
-			Status: StatusActive, Schedulable: false, Concurrency: 1,
-			Extra:         map[string]any{"openai_passthrough": true},
-			AccountGroups: []AccountGroup{{GroupID: groupID}},
+			Status: StatusActive, Schedulable: true, Concurrency: 1,
+			TempUnschedulableUntil: &blockedUntil,
+			Extra:                  map[string]any{"openai_passthrough": true},
+			AccountGroups:          []AccountGroup{{GroupID: groupID}},
 		},
 	}
 	svc := &OpenAIGatewayService{

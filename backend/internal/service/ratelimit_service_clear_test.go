@@ -125,6 +125,18 @@ func TestRateLimitService_ClearRateLimit_AlsoClearsTempUnschedulable(t *testing.
 	require.Equal(t, []int64{42}, cache.deletedIDs)
 }
 
+func TestAutomaticRecoveryRespectsAccountClosedDuringProbe(t *testing.T) {
+	for _, status := range []string{StatusActive, StatusError, StatusDisabled} {
+		repo := &rateLimitClearRepoStub{getByIDAccount: &Account{ID: 42, Status: status, Schedulable: false}}
+		svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+		result, err := svc.RecoverAccountState(context.Background(), 42, AccountRecoveryOptions{Automatic: true})
+		require.NoError(t, err)
+		require.Equal(t, &SuccessfulTestRecoveryResult{}, result)
+		require.Zero(t, repo.clearErrorCalls)
+		require.Zero(t, repo.setSchedulableCalls)
+	}
+}
+
 func TestRateLimitService_ClearRateLimit_ClearTempUnschedulableFailed(t *testing.T) {
 	repo := &rateLimitClearRepoStub{
 		clearTempUnschedulableErr: errors.New("clear temp unsched failed"),
@@ -292,7 +304,7 @@ func TestRateLimitService_SuccessfulTestClearsUnsupportedModels(t *testing.T) {
 	require.Equal(t, 1, repo.clearUnsupportedCalls)
 }
 
-func TestOpenAIAccountSchedulerRecoverySuccessEnablesScheduling(t *testing.T) {
+func TestOpenAIAccountSchedulerRecoverySuccessKeepsClosedScheduling(t *testing.T) {
 	repo := &rateLimitClearRepoStub{
 		getByIDAccount: &Account{ID: 42, Status: StatusActive, Schedulable: false},
 	}
@@ -302,8 +314,8 @@ func TestOpenAIAccountSchedulerRecoverySuccessEnablesScheduling(t *testing.T) {
 
 	svc.ReportOpenAIAccountScheduleResult(&Account{ID: 42, recoveryProbe: true}, "gpt-6-astra", true, nil)
 
-	require.Equal(t, 1, repo.setSchedulableCalls)
-	require.True(t, repo.setSchedulableValue)
+	require.Zero(t, repo.setSchedulableCalls)
+	require.False(t, repo.setSchedulableValue)
 }
 
 func TestRateLimitService_RecoverAccountAfterSuccessfulTest_NoRecoverableStateIsNoop(t *testing.T) {

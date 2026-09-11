@@ -43,7 +43,7 @@ func (s *OpenAIGatewayService) selectOpenAIRecoveryAccount(ctx context.Context, 
 
 	for i := range accounts {
 		account := &accounts[i]
-		if account.Status != StatusActive && account.Status != StatusError {
+		if !accountAllowsAutomaticRecovery(account) {
 			continue
 		}
 		if account.IsSchedulable() {
@@ -98,6 +98,13 @@ func (s *OpenAIGatewayService) selectOpenAIRecoveryAccount(ctx context.Context, 
 		}), decision, nil
 	}
 	return nil, decision, nil
+}
+
+// A closed scheduling switch is an administrative boundary, even when the
+// account also has an error or a temporary runtime block.
+func accountAllowsAutomaticRecovery(account *Account) bool {
+	return account != nil && account.Schedulable &&
+		(account.Status == StatusActive || account.Status == StatusError)
 }
 
 func openAIRecoveryModelRank(account *Account, requestedModel string) int {
