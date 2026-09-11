@@ -2274,7 +2274,7 @@ func TestOpenAIResponses_APIKeyPassthroughPoolAuthFailureRetriesThenSwitchesToHe
 	}
 }
 
-func TestOpenAIResponses_APIKeyPassthroughSSERateLimitUsesConfiguredPoolRetry(t *testing.T) {
+func TestOpenAIResponses_APIKeyPassthroughSSERateLimitUsesConfiguredPoolRetryPerModel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	groupID := int64(4204)
 	accounts := []service.Account{
@@ -2349,7 +2349,9 @@ func TestOpenAIResponses_APIKeyPassthroughSSERateLimitUsesConfiguredPoolRetry(t 
 
 	h.Responses(c)
 
-	require.Equal(t, []int64{9912, 9912}, upstream.calls())
+	// Each model gets the configured single pool retry, then the chain ends.
+	require.Equal(t, []int64{9912, 9912, 9912, 9912}, upstream.calls())
+	require.Equal(t, "gpt-5.5", rec.Header().Get("X-Sub2api-Fallback-Model"))
 	require.Equal(t, http.StatusTooManyRequests, rec.Code)
 	require.Equal(t, "1", rec.Header().Get("Retry-After"))
 	require.Equal(t, "rate_limit_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
