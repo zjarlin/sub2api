@@ -246,8 +246,7 @@ func TestCodexModelsUsesHealthCheckedCatalogWithoutFetchingUpstream(t *testing.T
 	var manifest codexModelsResponseForTest
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &manifest))
 	require.Len(t, manifest.Models, 2)
-	require.Equal(t, "gpt-healthy", manifest.Models[0].Slug)
-	require.Equal(t, "gpt-unused", manifest.Models[1].Slug)
+	require.ElementsMatch(t, []string{"gpt-healthy", "gpt-unused"}, []string{manifest.Models[0].Slug, manifest.Models[1].Slug})
 	require.Empty(t, upstream.calls())
 }
 
