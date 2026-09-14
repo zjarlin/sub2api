@@ -269,6 +269,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		return nil, policyErr
 	}
 	body = updatedBody
+	body = s.restoreDeepSeekReasoning(c, account, body)
 
 	apiKey := getAPIKeyFromContext(c)
 	// 同一 attempt 的最终 model/body 只判定一次，权限检查与后续图片状态设置共用该结果。
@@ -387,6 +388,13 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			probeBody := s.readUpstreamErrorBody(resp)
 			_ = resp.Body.Close()
 			resp.Body = io.NopCloser(bytes.NewReader(probeBody))
+			if retryBody, retry := deepSeekReasoningReplayRetry(c, account, resp.StatusCode, body, probeBody); retry {
+				body = retryBody
+				reasoningEffort = new(string)
+				*reasoningEffort = "none"
+				logger.LegacyPrintf("service.openai_gateway", "DeepSeek reasoning replay unavailable; retrying this request without thinking (account: %d)", account.ID)
+				continue
+			}
 			if retryBody, reason, changed, retryErr := normalizeOpenAIResponsesRejectedFieldRetryBody(resp.StatusCode, body, probeBody); retryErr != nil {
 				return nil, fmt.Errorf("normalize passthrough rejected Responses field retry body: %w", retryErr)
 			} else if changed && rejectedFieldRetryState.Allow(retryBody) {
@@ -1839,6 +1847,12 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			trimmedData := strings.TrimSpace(data)
 			rawEventType := effectiveOpenAISSEEventType(dataBytes, pendingSSEEventType)
 			observer.ObserveOpenAI(dataBytes, rawEventType)
+			if preserved := s.preserveDeepSeekReasoning(c, account, dataBytes); !bytes.Equal(preserved, dataBytes) {
+				dataBytes = preserved
+				data = string(preserved)
+				trimmedData = strings.TrimSpace(data)
+				line = "data: " + data
+			}
 			if needModelReplace && strings.Contains(data, mappedModel) {
 				line = s.replaceModelInSSELine(line, mappedModel, originalModel)
 				if replacedData, replaced := extractOpenAISSEDataLine(line); replaced {
@@ -2123,6 +2137,7 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	if isEventStreamResponse(resp.Header) {
 		return s.handlePassthroughSSEToJSON(resp, c, account, body, originalModel, mappedModel)
 	}
+	body = s.preserveDeepSeekReasoning(c, account, body)
 
 	usage := &OpenAIUsage{}
 	usageParsed := false
@@ -2203,6 +2218,7 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 		}
 		finalResponse = supplementCompactionItemFromSSE(c, finalResponse, bodyText)
 		body = finalResponse
+		body = s.preserveDeepSeekReasoning(c, account, body)
 		if originalModel != "" && mappedModel != "" && originalModel != mappedModel {
 			body = s.replaceModelInResponseBody(body, mappedModel, originalModel)
 		}
