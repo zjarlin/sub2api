@@ -380,6 +380,12 @@ func (s *OpenAIGatewayService) newOpenAIAccountFailoverErrorWithClassificationHe
 	shouldDisable bool,
 	retryableOnSameAccount bool,
 ) *UpstreamFailoverError {
+	if isUpstreamConcurrencyLimit(statusCode, responseBody) {
+		return &UpstreamFailoverError{
+			StatusCode: statusCode, ResponseBody: responseBody, ResponseHeaders: responseHeaders.Clone(),
+			Scope: GatewayFailureScopeAccount, NextAccountAction: NextAccountRetry,
+		}
+	}
 	oauth429Retry := s.shouldRetryOpenAIOAuth429OnSameAccountWithResponse(account, statusCode, shouldDisable, classificationHeaders, responseBody)
 	failoverErr := newOpenAIUpstreamFailoverError(
 		statusCode,

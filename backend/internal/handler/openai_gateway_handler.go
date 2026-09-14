@@ -532,6 +532,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	var passthroughFailoverState openAIPassthroughFailoverState
+	var busyRetry concurrencyRetry
 	advanceModel := func() bool {
 		attempt, ok := h.nextGPTFallback(c, apiKey, reqModel, forwardBody, legacyCompact)
 		if !ok {
@@ -545,6 +546,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		lastFailoverErr = nil
 		oauth429FailoverState = service.OpenAIOAuth429FailoverState{}
 		passthroughFailoverState = openAIPassthroughFailoverState{}
+		busyRetry = concurrencyRetry{}
 		return true
 	}
 
@@ -595,6 +597,12 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
+			if errors.Is(err, service.ErrNoAvailableAccounts) && busyRetry.retry(c.Request.Context(), failedAccountIDs) {
+				continue
+			}
+			if failoverClientGone(c) {
+				return
+			}
 			if len(failedAccountIDs) == 0 {
 				if (errors.Is(err, service.ErrNoAvailableAccounts) || errors.Is(err, service.ErrNoAvailableCompactAccounts)) && advanceModel() {
 					continue
@@ -646,6 +654,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			zap.Float64("load_skew", scheduleDecision.LoadSkew),
 		)
 		account := selection.Account
+		busyRetry.record(account.ID, nil)
 		if previousResponseID != "" && requestPlatform == service.PlatformOpenAI && !account.IsOpenAIApiKey() {
 			// The public Responses HTTP API supports previous_response_id on API-key
 			// accounts. OAuth/SetupToken upstreams do not, so keep searching instead
@@ -829,6 +838,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					h.gatewayService.RecordOpenAIAccountSwitch()
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
+					busyRetry.record(account.ID, failoverErr)
 					if switchCount >= maxAccountSwitches {
 						if advanceModel() {
 							continue
@@ -1179,6 +1189,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	effectiveMappedModel := preferredMappedModel
+	var busyRetry concurrencyRetry
 
 	// 分组利润控制：Messages 文本入口同样请求级装门并固定 pricingAt。
 	msgPricingCtx, pricingAt := h.gatewayService.WithOpenAIRequestPricingContext(c.Request.Context(), apiKey.GroupID)
@@ -1216,6 +1227,12 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
+			if errors.Is(err, service.ErrNoAvailableAccounts) && busyRetry.retry(c.Request.Context(), failedAccountIDs) {
+				continue
+			}
+			if failoverClientGone(c) {
+				return
+			}
 			if len(failedAccountIDs) == 0 {
 				if err != nil {
 					cls := classifyOpenAICompatibleNoAccountErrorFromGin(c, h.gatewayService, apiKey, currentRoutingModel, reqModel)
@@ -1244,6 +1261,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		}
 		account := selection.Account
 		sessionHash = ensureOpenAIPoolModeSessionHash(sessionHash, account)
+		busyRetry.record(account.ID, nil)
 		reqLog.Debug("openai_messages.account_selected", zap.Int64("account_id", account.ID), zap.String("account_name", account.Name))
 		_ = scheduleDecision
 		setOpsSelectedAccount(c, account.ID, account.Platform)
@@ -1390,6 +1408,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					h.gatewayService.RecordOpenAIAccountSwitch()
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
+					busyRetry.record(account.ID, failoverErr)
 					if switchCount >= maxAccountSwitches {
 						h.handleAnthropicFailoverExhausted(c, failoverErr, streamStarted)
 						return

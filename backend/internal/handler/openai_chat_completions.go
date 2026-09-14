@@ -151,6 +151,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
+	var busyRetry concurrencyRetry
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	advanceModel := func() bool {
 		attempt, ok := h.nextGPTFallback(c, apiKey, reqModel, body, false)
@@ -162,6 +163,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		sameAccountRetryCount = make(map[int64]int)
 		switchCount = 0
 		lastFailoverErr = nil
+		busyRetry = concurrencyRetry{}
 		oauth429FailoverState = service.OpenAIOAuth429FailoverState{}
 		return true
 	}
@@ -198,6 +200,12 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 				zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
+			if errors.Is(err, service.ErrNoAvailableAccounts) && busyRetry.retry(c.Request.Context(), failedAccountIDs) {
+				continue
+			}
+			if failoverClientGone(c) {
+				return
+			}
 			if len(failedAccountIDs) == 0 {
 				if errors.Is(err, service.ErrNoAvailableAccounts) && advanceModel() {
 					continue
@@ -234,6 +242,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		}
 		account := selection.Account
 		sessionHash = ensureOpenAIPoolModeSessionHash(sessionHash, account)
+		busyRetry.record(account.ID, nil)
 		reqLog.Debug("openai_chat_completions.account_selected", zap.Int64("account_id", account.ID), zap.String("account_name", account.Name))
 		_ = scheduleDecision
 		setOpsSelectedAccount(c, account.ID, account.Platform)
@@ -378,6 +387,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					h.gatewayService.RecordOpenAIAccountSwitch()
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
+					busyRetry.record(account.ID, failoverErr)
 					if switchCount >= maxAccountSwitches {
 						if advanceModel() {
 							continue

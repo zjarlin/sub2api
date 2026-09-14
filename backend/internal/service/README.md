@@ -7,3 +7,6 @@ automatic recovery never enables that switch.
 `reasoning_replay.go` preserves exact DeepSeek Responses reasoning content in
 API-key-scoped cache references. Only an explicit missing-reasoning rejection
 allows a bounded, observable non-thinking retry for unrecoverable old history.
+
+`upstream_concurrency.go` recognizes explicit in-flight capacity rejections.
+They cause a short runtime cooldown, not a model-support or account-health failure.
