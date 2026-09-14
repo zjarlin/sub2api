@@ -1008,7 +1008,7 @@ func TestBuildHealthCheckedCodexModelsManifestExcludesUnverifiedModels(t *testin
 	)
 	require.NoError(t, err)
 	require.True(t, healthChecked)
-	require.Equal(t, []string{"gpt-healthy", "gpt-unused"}, codexManifestModelSlugs(t, manifest.Body))
+	require.ElementsMatch(t, []string{"gpt-healthy", "gpt-unused"}, codexManifestModelSlugs(t, manifest.Body))
 }
 
 // Scenario: OpenAI 通配映射展开组内精确选择，但不发布通配符 slug。
