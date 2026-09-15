@@ -27,7 +27,7 @@ func TestAgnesNamespaceOnlyToolsRoundTrip(t *testing.T) {
 						{"type":"namespace","name":"beta","tools":[{"type":"function","name":"run","parameters":{"type":"object","properties":{}}}]}
 					],
 					"tool_choice":{"type":"function","namespace":"beta","name":"run"},
-					"input":[{"type":"function_call","call_id":"old","namespace":"alpha","name":"run","arguments":"{}"},{"type":"function_call_output","call_id":"old","output":"done"},{"role":"assistant","content":[{"type":"output_text","text":"done"}]},{"role":"user","content":"run beta"}]}`, stream))
+					"input":[{"type":"function_call","call_id":"old","namespace":"alpha","name":"run","arguments":"{}"},{"type":"function_call_output","call_id":"old","output":"done"},{"type":"message","id":"msg_old","status":"completed","role":"assistant","content":[{"type":"output_text","text":"done"}]},{"role":"user","content":"run beta"}]}`, stream))
 				reply := `{"id":"resp_ns","status":"completed","output":[{"type":"function_call","id":"fc_new","call_id":"new","name":"beta__run","arguments":"{}"}],"usage":{"input_tokens":1,"output_tokens":1}}`
 				contentType := "application/json"
 				if stream {
@@ -51,8 +51,8 @@ func TestAgnesNamespaceOnlyToolsRoundTrip(t *testing.T) {
 				require.Equal(t, "beta__run", gjson.GetBytes(upstream.lastBody, "tool_choice.name").String())
 				require.Equal(t, "alpha__run", gjson.GetBytes(upstream.lastBody, "input.0.name").String())
 				require.False(t, gjson.GetBytes(upstream.lastBody, "input.0.namespace").Exists())
-				require.Equal(t, "[]", gjson.GetBytes(upstream.lastBody, "input.2.content.0.annotations").Raw)
-				require.Equal(t, "[]", gjson.GetBytes(upstream.lastBody, "input.2.content.0.logprobs").Raw)
+				require.Equal(t, "done", gjson.GetBytes(upstream.lastBody, "input.2.content").String())
+				require.False(t, gjson.GetBytes(upstream.lastBody, "input.2.status").Exists())
 				if stream {
 					require.Contains(t, recorder.Body.String(), `"namespace":"beta"`)
 					require.Contains(t, recorder.Body.String(), `"name":"run"`)

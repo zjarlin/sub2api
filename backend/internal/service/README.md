@@ -15,5 +15,6 @@ Agnes Responses forwarding lowers namespace-only tool declarations through the
 shared client-tool adapter, including history and tool choice. JSON and SSE
 responses restore the original namespace/name; native namespace routes keep
 their existing behavior.
-Replayed assistant `output_text` also receives empty `annotations` and `logprobs`
-when absent, as Agnes validates the full output schema for input history.
+Text-only assistant output messages are replayed as input messages (`role` and
+string `content`) for Agnes. This avoids its output-schema validation during
+tool-result replay; reasoning, tool calls, and multimodal parts are unchanged.

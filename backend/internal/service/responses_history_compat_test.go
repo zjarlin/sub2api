@@ -7,23 +7,24 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-func TestNormalizeResponsesOutputTextMetadata(t *testing.T) {
+func TestNormalizeResponsesAssistantHistory(t *testing.T) {
 	body := []byte(`{"input":[
 		{"role":"assistant","content":[{"type":"output_text","text":"answer"},{"type":"output_text","text":"cited","annotations":[{"type":"url_citation","url":"https://example.com"}],"logprobs":[{"token":"cited"}]}]},
 		{"role":"assistant","content":[{"type":"output_text","text":"","annotations":null,"logprobs":null}]},
 		{"role":"user","content":[{"type":"input_text","text":"next"}]},
-		{"type":"function_call","namespace":"probe","name":"ping","arguments":"{}"}
+		{"type":"function_call","namespace":"probe","name":"ping","arguments":"{}"},
+		{"role":"assistant","content":[{"type":"output_text","text":"image"},{"type":"image","url":"https://example.com/image"}]},
+		{"type":"reasoning","content":[{"type":"reasoning_text","text":"exact reasoning"}]}
 	]}`)
-	got, err := normalizeResponsesOutputTextMetadata(body)
+	got, err := normalizeResponsesAssistantHistory(body)
 	require.NoError(t, err)
-	for _, path := range []string{"input.0.content.0.annotations", "input.0.content.0.logprobs", "input.1.content.0.annotations", "input.1.content.0.logprobs"} {
-		require.Equal(t, "[]", gjson.GetBytes(got, path).Raw)
+	require.Equal(t, "answercited", gjson.GetBytes(got, "input.0.content").String())
+	require.Equal(t, gjson.String, gjson.GetBytes(got, "input.1.content").Type)
+	require.Empty(t, gjson.GetBytes(got, "input.1.content").String())
+	for _, path := range []string{"input.2", "input.3", "input.4", "input.5"} {
+		require.Equal(t, gjson.GetBytes(body, path).Raw, gjson.GetBytes(got, path).Raw)
 	}
-	require.Equal(t, "answer", gjson.GetBytes(got, "input.0.content.0.text").String())
-	require.Equal(t, gjson.GetBytes(body, "input.0.content.1").Raw, gjson.GetBytes(got, "input.0.content.1").Raw)
-	require.Equal(t, gjson.GetBytes(body, "input.2").Raw, gjson.GetBytes(got, "input.2").Raw)
-	require.Equal(t, gjson.GetBytes(body, "input.3").Raw, gjson.GetBytes(got, "input.3").Raw)
-	again, err := normalizeResponsesOutputTextMetadata(got)
+	again, err := normalizeResponsesAssistantHistory(got)
 	require.NoError(t, err)
 	require.Equal(t, got, again)
 }

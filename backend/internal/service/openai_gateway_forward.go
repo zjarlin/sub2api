@@ -120,7 +120,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			}
 			body = adapted
 			setOpenAIResponsesClientToolMapping(c, mapping)
-			body, err = normalizeResponsesOutputTextMetadata(body)
+			body, err = normalizeResponsesAssistantHistory(body)
 			if err != nil {
 				return nil, fmt.Errorf("normalize Agnes Responses history: %w", err)
 			}
