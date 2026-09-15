@@ -404,7 +404,7 @@ func (s *OpenAIGatewayService) newOpenAIAccountFailoverErrorWithClassificationHe
 const (
 	openAIUpstreamAccessUnavailableClientMessage = "Upstream access is temporarily unavailable, please retry later"
 	// OpenAIUpstreamAccessStateReason marks a provider credential whose
-	// account, workspace, or organization is unavailable.
+	// account, workspace, organization, or billing quota is unavailable.
 	OpenAIUpstreamAccessStateReason = GatewayFailureReason("openai_upstream_access_state")
 	// OpenAIHTTPContinuationUnsupportedReason identifies accounts that cannot
 	// preserve an official Responses HTTP continuation without dropping state.
@@ -428,7 +428,13 @@ func isOpenAIUpstreamAccessStateError(_ string, body []byte) bool {
 
 func isOpenAIUpstreamAccessStateCode(value string) bool {
 	value = strings.ToLower(strings.TrimSpace(value))
-	if value == "deactivated_workspace" {
+	switch value {
+	case "deactivated_workspace", "insufficient_user_quota", "insufficient_quota":
+		// Exhausted upstream quota makes this credential unavailable to the
+		// request, regardless of whether the provider uses 403 or 429. Use
+		// the durable account block and next-account retry path immediately.
+		// Generic billing_error / TOO_MANY_REQUESTS codes can instead mean
+		// a temporary concurrency limit and must not disable the account.
 		return true
 	}
 	for _, subject := range []string{"workspace", "account", "organization", "org"} {

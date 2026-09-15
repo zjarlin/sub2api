@@ -791,6 +791,9 @@ func shouldFailoverOpenAIPassthroughResponse(account *Account, statusCode int, r
 	if isOpenAIToolCallContinuationError("", responseBody) {
 		return true
 	}
+	if isDeterministicUnsupportedModelError(statusCode, responseBody) {
+		return true
+	}
 	if isOpenAIHTTPUpstreamAccessStateError(statusCode, "", responseBody) {
 		return true
 	}
