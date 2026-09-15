@@ -32,7 +32,22 @@ func hasOpenAIResponsesClientToolMapping(mapping apicompat.ResponsesClientToolMa
 }
 
 func adaptOpenAIResponsesClientTools(body []byte) ([]byte, apicompat.ResponsesClientToolMapping, error) {
-	if !needsOpenAIResponsesClientToolAdaptation(body) {
+	return adaptOpenAIResponsesClientToolsWithNamespaces(body, false)
+}
+
+// Older Responses schemas require namespace-only declarations to be lowered too.
+// Keep this opt-in: native namespace upstreams must retain their tool addressing.
+func adaptOpenAIResponsesClientToolsWithNamespaces(body []byte, flattenNamespaces bool) ([]byte, apicompat.ResponsesClientToolMapping, error) {
+	needsAdaptation := needsOpenAIResponsesClientToolAdaptation(body)
+	if flattenNamespaces && !needsAdaptation {
+		for _, tool := range gjson.GetBytes(body, "tools").Array() {
+			if tool.Get("type").String() == "namespace" {
+				needsAdaptation = true
+				break
+			}
+		}
+	}
+	if !needsAdaptation {
 		return body, apicompat.ResponsesClientToolMapping{}, nil
 	}
 
@@ -232,9 +247,10 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 		}
 	}
 
+	_, clientToolsAdapted := openAIResponsesClientToolMapping(c)
 	if account != nil && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey &&
-		!isOpenAIResponsesCompactPath(c) && needsOpenAIResponsesClientToolAdaptation(body) {
-		adaptedBody, mapping, adaptErr := adaptOpenAIResponsesClientTools(body)
+		!isOpenAIResponsesCompactPath(c) && !clientToolsAdapted {
+		adaptedBody, mapping, adaptErr := adaptOpenAIResponsesClientToolsWithNamespaces(body, isAgnesReasoningModel(gjson.GetBytes(body, "model").String()))
 		if adaptErr != nil {
 			return nil, adaptErr
 		}

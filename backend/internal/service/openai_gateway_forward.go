@@ -109,6 +109,19 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	wsDecision = resolveOpenAIWSDecisionByClientTransport(wsDecision, GetOpenAIClientTransport(c))
 	passthroughEnabled := account.IsOpenAIPassthroughEnabled()
 	compactPath := isOpenAIResponsesCompactPath(c)
+	// Rewrite namespaced history before generic input cleanup removes namespace.
+	if account.IsOpenAIApiKey() && !compactPath && (passthroughEnabled || wsDecision.Transport != OpenAIUpstreamTransportResponsesWebsocketV2) {
+		requested := gjson.GetBytes(body, "model").String()
+		billing, upstream := resolveOpenAIForwardMappedModels(account, requested, false)
+		if isAgnesReasoningModel(requested) || isAgnesReasoningModel(billing) || isAgnesReasoningModel(upstream) {
+			adapted, mapping, adaptErr := adaptOpenAIResponsesClientToolsWithNamespaces(body, true)
+			if adaptErr != nil {
+				return nil, fmt.Errorf("adapt Agnes Responses client tools: %w", adaptErr)
+			}
+			body = adapted
+			setOpenAIResponsesClientToolMapping(c, mapping)
+		}
+	}
 	if shouldFlattenOpenAIResponsesNamespaces(account, wsDecision.Transport, passthroughEnabled, compactPath) {
 		body, err = flattenOpenAIResponsesNamespaces(c, body)
 		if err != nil {
@@ -377,16 +390,6 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 	reqModel = billingModel
 	agnesModel := isAgnesReasoningModel(upstreamModel) || isAgnesReasoningModel(billingModel) || isAgnesReasoningModel(requestedModel)
-	if account.IsOpenAIApiKey() && !passthroughEnabled && !compactPath && agnesModel &&
-		needsOpenAIResponsesClientToolAdaptation(body) {
-		adaptedBody, mapping, adaptErr := adaptOpenAIResponsesClientTools(body)
-		if adaptErr != nil {
-			return nil, fmt.Errorf("adapt Agnes Responses client tools: %w", adaptErr)
-		}
-		body = adaptedBody
-		requestView = newOpenAIRequestView(body)
-		setOpenAIResponsesClientToolMapping(c, mapping)
-	}
 	if agnesModel {
 		if normalized, changed := normalizeOpenAIResponsesWebSearchPreview(body); changed {
 			body = normalized

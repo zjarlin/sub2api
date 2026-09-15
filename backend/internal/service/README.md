@@ -10,3 +10,8 @@ allows a bounded, observable non-thinking retry for unrecoverable old history.
 
 `upstream_concurrency.go` recognizes explicit in-flight capacity rejections.
 They cause a short runtime cooldown, not a model-support or account-health failure.
+
+Agnes Responses forwarding lowers namespace-only tool declarations through the
+shared client-tool adapter, including history and tool choice. JSON and SSE
+responses restore the original namespace/name; native namespace routes keep
+their existing behavior.
