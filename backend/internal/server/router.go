@@ -118,6 +118,9 @@ func registerRoutes(
 
 	// API v1
 	v1 := r.Group("/api/v1")
+	if h.ChannelMonitorV2 != nil {
+		h.ChannelMonitorV2.RegisterRoutingMetrics(v1)
+	}
 
 	// 面板 API 限流器：认证接口按用户 ID、公开接口按安全客户端 IP，
 	// 防止高频刷管理面接口打爆数据库（阈值可在系统设置中调整）。
