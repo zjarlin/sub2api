@@ -1801,6 +1801,8 @@
         />
       </div>
 
+      <ModelProbeSettings v-model="modelProbePolicy" />
+
       <OllamaCloudUsageSettings
         v-if="account?.ollama_cloud_usage?.eligible"
         :account="account"
@@ -2865,6 +2867,8 @@ import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import OllamaCloudUsageSettings from '@/components/account/OllamaCloudUsageSettings.vue'
+import ModelProbeSettings from '@/components/account/ModelProbeSettings.vue'
+import { readModelProbePolicy, writeModelProbePolicy } from '@/components/account/modelProbePolicy'
 import {
   applyAntigravityProjectID,
   applyHeaderOverride,
@@ -3162,6 +3166,7 @@ const autoResetCreditEnabled = ref(false)
 const autoResetCredit5hThreshold = ref(100)
 const autoResetCredit7dThreshold = ref(100)
 const upstreamBillingAutoProbeEnabled = ref(false)
+const modelProbePolicy = ref(readModelProbePolicy())
 const upstreamBillingRateSyncEnabled = ref(false)
 const mixedScheduling = ref(false) // For antigravity accounts: enable mixed scheduling
 const allowOverages = ref(false) // For antigravity accounts: enable AI Credits overages
@@ -3683,6 +3688,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   mixedScheduling.value = false
   allowOverages.value = false
 	const extra = newAccount.extra as Record<string, unknown> | undefined
+	modelProbePolicy.value = readModelProbePolicy(extra)
 	mixedScheduling.value = extra?.mixed_scheduling === true
 	allowOverages.value = extra?.allow_overages === true
 	autoPause5hThreshold.value = typeof extra?.auto_pause_5h_threshold === 'number' ? extra.auto_pause_5h_threshold * 100 : null
@@ -5275,6 +5281,9 @@ const handleSubmit = async () => {
       writeQuotaNotifyToExtra(newExtra, 'update')
       updatePayload.extra = newExtra
     }
+
+    updatePayload.extra = writeModelProbePolicy(modelProbePolicy.value,
+      (updatePayload.extra as Record<string, unknown>) || (props.account.extra as Record<string, unknown>) || {})
 
     const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {
       await submitUpdateAccount(accountID, updatePayload)

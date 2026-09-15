@@ -1,5 +1,11 @@
 export default {
     accounts: {
+      modelProbe: {
+        title: '自动模型可用性探测',
+        hint: '会发送真实测试请求，付费模型可能扣额度。关闭不影响正常调用、模型列表同步和手动测试。',
+        interval: '探测间隔（小时，24–8760）',
+        gptExcluded: 'GPT 系列不参与自动探测。默认每账号 7 天最多测试一个模型；近期真实调用的健康记录会推迟探测。'
+      },
       title: '账号管理',
       description: '管理 AI 平台账号和 Cookie',
       createAccount: '添加账号',

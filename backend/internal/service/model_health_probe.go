@@ -14,7 +14,6 @@ const (
 	modelHealthProbeLimit       = 10
 	modelHealthProbeWorkers     = 3
 	modelHealthProbeTimeout     = 45 * time.Second
-	modelHealthProbeFreshness   = 24 * time.Hour
 	modelHealthProbeLogCategory = "upstream_model_health_probe"
 )
 
@@ -54,6 +53,12 @@ func (s *UpstreamModelRefreshService) probeDueModels(parent context.Context, acc
 			defer func() { <-sem }()
 			ctx, cancel := context.WithTimeout(parent, modelHealthProbeTimeout)
 			defer cancel()
+			// Re-read settings after queuing so a just-disabled account is not
+			// tested from the catalog refresh's older account snapshot.
+			account, err := s.accountRepo.GetByID(ctx, candidate.AccountID)
+			if err != nil || account == nil || !account.IsSchedulable() || !account.allowsAutomaticModelProbe(candidate.Model) {
+				return
+			}
 			result, runErr := s.syncer.RunTestBackground(ctx, candidate.AccountID, candidate.Model)
 			if runErr != nil {
 				slog.Warn(modelHealthProbeLogCategory+"_failed", "account_id", candidate.AccountID, "model", candidate.Model, "error", runErr)
@@ -79,14 +84,24 @@ func collectModelHealthProbeCandidates(
 		return nil
 	}
 	stateByPair := make(map[string]AccountModelHealthState, len(states))
+	lastCheckedByAccount := make(map[int64]*time.Time)
 	for _, state := range states {
 		stateByPair[modelHealthProbeKey(state.AccountID, state.Model)] = state
+		if checked := latestModelHealthCheck(state); checked != nil {
+			if last := lastCheckedByAccount[state.AccountID]; last == nil || checked.After(*last) {
+				lastCheckedByAccount[state.AccountID] = checked
+			}
+		}
 	}
 
-	buckets := make([][]modelHealthProbeCandidate, 0, len(accounts))
+	selected := make([]modelHealthProbeCandidate, 0, limit)
 	for i := range accounts {
 		account := &accounts[i]
-		if !account.IsSchedulable() {
+		policy := account.ModelProbePolicy()
+		if !account.IsSchedulable() || !policy.Enabled {
+			continue
+		}
+		if last := lastCheckedByAccount[account.ID]; last != nil && last.After(now.Add(-policy.Interval)) {
 			continue
 		}
 		snapshot := account.GetUpstreamSupportedModelsSnapshot()
@@ -96,14 +111,11 @@ func collectModelHealthProbeCandidates(
 		bucket := make([]modelHealthProbeCandidate, 0, len(snapshot.Models))
 		for _, model := range snapshot.Models {
 			model = strings.TrimSpace(model)
-			if !isTextModelHealthProbeCandidate(model) {
+			if !isTextModelHealthProbeCandidate(model) || !account.allowsAutomaticModelProbe(model) {
 				continue
 			}
-			state, exists := stateByPair[modelHealthProbeKey(account.ID, model)]
+			state := stateByPair[modelHealthProbeKey(account.ID, model)]
 			checkedAt := latestModelHealthCheck(state)
-			if exists && checkedAt != nil && checkedAt.After(now.Add(-modelHealthProbeFreshness)) {
-				continue
-			}
 			bucket = append(bucket, modelHealthProbeCandidate{AccountID: account.ID, Model: model, CheckedAt: checkedAt})
 		}
 		sort.Slice(bucket, func(i, j int) bool {
@@ -121,25 +133,12 @@ func collectModelHealthProbeCandidates(
 			return left.Model < right.Model
 		})
 		if len(bucket) > 0 {
-			buckets = append(buckets, bucket)
-		}
-	}
-
-	selected := make([]modelHealthProbeCandidate, 0, limit)
-	for round := 0; len(selected) < limit; round++ {
-		added := false
-		for _, bucket := range buckets {
-			if round >= len(bucket) {
-				continue
-			}
-			selected = append(selected, bucket[round])
-			added = true
+			// One inference per account per interval, even when its catalog
+			// contains many models that have never been called.
+			selected = append(selected, bucket[0])
 			if len(selected) == limit {
 				break
 			}
-		}
-		if !added {
-			break
 		}
 	}
 	return selected

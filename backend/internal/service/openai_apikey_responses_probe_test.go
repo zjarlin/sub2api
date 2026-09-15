@@ -21,8 +21,9 @@ func TestProbeOpenAIAPIKeyResponsesSupportUsesCodexProbeHeaders(t *testing.T) {
 		Type:        AccountTypeAPIKey,
 		Concurrency: 1,
 		Credentials: map[string]any{
-			"api_key":  "sk-test",
-			"base_url": "https://compat-upstream.example/v1",
+			"model_mapping": map[string]any{"agnes-3.0-flash": "agnes-3.0-flash"},
+			"api_key":       "sk-test",
+			"base_url":      "https://compat-upstream.example/v1",
 		},
 	}
 	repo := &snapshotUpdateAccountRepo{
@@ -85,6 +86,27 @@ func TestProbeOpenAIAPIKeyResponsesSupportCNProviders(t *testing.T) {
 			updates := <-updateCalls
 			require.Equal(t, tc.wantSupport, updates[openai_compat.ExtraKeyResponsesSupported])
 			require.Equal(t, tc.wantMode, updates[openai_compat.ExtraKeyResponsesMode])
+		})
+	}
+}
+
+func TestResponsesProbeHonorsOptOutAndGPTExclusion(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		model   string
+		enabled bool
+	}{
+		{"disabled", "agnes-3.0-flash", false},
+		{"gpt", "gpt-6-astra", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			account := Account{ID: 283, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+				Credentials: map[string]any{"api_key": "test", "model_mapping": map[string]any{tc.model: tc.model}},
+				Extra:       map[string]any{ModelHealthProbeEnabledKey: tc.enabled}}
+			repo := &stubOpenAIAccountRepo{accounts: []Account{account}}
+			// A nil upstream client ensures even a single unexpected paid call fails the test.
+			svc := &AccountTestService{accountRepo: repo, cfg: &config.Config{}}
+			svc.ProbeOpenAIAPIKeyResponsesSupport(context.Background(), account.ID)
 		})
 	}
 }

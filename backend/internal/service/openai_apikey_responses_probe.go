@@ -163,6 +163,9 @@ func (s *AccountTestService) ProbeOpenAIAPIKeyResponsesSupport(ctx context.Conte
 
 	probeURL := buildOpenAIResponsesURL(normalizedBaseURL)
 	probeModel := selectResponsesProbeModel(account)
+	if !account.allowsAutomaticModelProbe(probeModel) {
+		return
+	}
 
 	probeCtx, cancel := context.WithTimeout(ctx, openaiResponsesProbeTimeout)
 	defer cancel()

@@ -324,6 +324,20 @@ function mountModal(account = buildAccount()) {
 }
 
 describe('EditAccountModal', () => {
+  it('loads and saves the model probe opt-out without changing account scheduling', async () => {
+    const account = buildAccount()
+    account.extra = { model_health_probe_enabled: false, model_health_probe_interval_hours: 336, retained: 'keep' }
+    updateAccountMock.mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    const settings = wrapper.findComponent({ name: 'ModelProbeSettings' })
+    expect(settings.props('modelValue')).toEqual({ enabled: false, intervalHours: 336 })
+    settings.vm.$emit('update:modelValue', { enabled: true, intervalHours: 720 })
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.lastCall?.[1].extra).toMatchObject({
+      retained: 'keep', model_health_probe_enabled: true, model_health_probe_interval_hours: 720
+    })
+    expect(updateAccountMock.mock.lastCall?.[1].schedulable).toBeUndefined()
+  })
   beforeEach(() => {
     authIsSimpleMode.value = true
   })
