@@ -30,3 +30,13 @@ func TestRoutingModelsKeepsRawNamesAndCredentialScope(t *testing.T) {
 	require.Equal(t, []string{"only-dashboard-model"}, r.config.Platforms[0].Models)
 	require.False(t, r.config.Platforms[0].Enabled)
 }
+
+func TestRoutingMetricsEnablesPassiveAggregationWithoutDashboard(t *testing.T) {
+	t.Setenv("ROUTER_METRICS_KEY_SHA256", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	t.Setenv("ROUTER_METRICS_GROUP_ID", "6")
+	aggregator := NewChannelMonitorV2Aggregator(&routingMetricsRepo{}, nil, nil)
+	require.True(t, aggregator.passiveAggregationAllowed(context.Background()))
+	require.False(t, aggregator.dashboardAggregationAllowed(context.Background()))
+	t.Setenv("ROUTER_METRICS_GROUP_ID", "0")
+	require.False(t, NewChannelMonitorV2Aggregator(&routingMetricsRepo{}, nil, nil).passiveAggregationAllowed(context.Background()))
+}
