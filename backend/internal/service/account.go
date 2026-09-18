@@ -21,6 +21,7 @@ import (
 )
 
 type Account struct {
+	OwnerUserID             *int64
 	ID                      int64
 	Name                    string
 	Notes                   *string
@@ -85,6 +86,19 @@ type Account struct {
 
 	// recoveryProbe 仅标记本次请求由停调账号恢复池选出，不持久化。
 	recoveryProbe bool
+}
+
+const AccountPublicSharingExtraKey = "shared_for_public_scheduling"
+
+func (a *Account) IsPubliclyShared() bool {
+	if a == nil {
+		return false
+	}
+	if a.OwnerUserID == nil {
+		return true
+	}
+	shared, ok := a.Extra[AccountPublicSharingExtraKey].(bool)
+	return ok && shared
 }
 
 type OpenAIEndpointCapability string
@@ -830,8 +844,8 @@ func resolveRequestedModelInMapping(mapping map[string]string, requestedModel st
 	return matchWildcardMappingResult(mapping, requestedModel)
 }
 
-// IsModelSupported checks learned upstream capability first, then falls back
-// to model_mapping when no fresh upstream catalog is available.
+// IsModelSupported 优先使用上游模型目录，目录未知时回退到显式模型配置。
+// OpenAI API Key 账号和透传账号必须有模型支持依据，不能把未知能力当成全部支持。
 //
 // 例外：OpenAI OAuth 账号（Codex 上游）的空映射会排除明确属于其他厂商
 // 家族的模型（deepseek-*/glm-* 等）——转发阶段 normalizeOpenAIModelForUpstream
@@ -839,25 +853,25 @@ func resolveRequestedModelInMapping(mapping map[string]string, requestedModel st
 // 请求卡死在该账号上、无法 failover 到真正支持该模型的 API Key 账号（#3662）。
 // 未知/自定义别名仍保持允许（兼容渠道级映射），见 isOpenAIOAuthServableModel。
 func (a *Account) IsModelSupported(requestedModel string) bool {
+	if a == nil {
+		return false
+	}
 	if a.IsModelKnownUnsupported(requestedModel) {
 		return false
 	}
 	if known, supported := a.upstreamModelCatalogSupport(requestedModel, time.Now()); known {
 		return supported
 	}
-	// 透传模式仅替换认证、模型语义完全交由上游决定，因此放行所有模型。
-	// 该短路必须在 model_mapping 判定之前：账号从"白名单模式"切换到透传后，
-	// credentials 里常残留旧的非空 model_mapping，若不在此放行，透传账号会被
-	// model_mapping 白名单错误排除出候选集，导致 no available accounts / 404（issue #4936）。
-	if a.IsOpenAIPassthroughEnabled() {
-		return true
-	}
 	mapping := a.GetModelMapping()
+	// 透传仍按原始模型名转发，映射键只用于调度白名单，不改写请求模型。
+	if a.IsOpenAIPassthroughEnabled() {
+		return mappingSupportsRequestedModel(mapping, requestedModel)
+	}
 	if len(mapping) == 0 {
 		if a.IsOpenAIOAuth() {
 			return isOpenAIOAuthServableModel(requestedModel)
 		}
-		return true // 无映射 = 允许所有
+		return !(a.IsOpenAI() && a.Type == AccountTypeAPIKey)
 	}
 	if mappingSupportsRequestedModel(mapping, requestedModel) {
 		return true

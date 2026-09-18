@@ -1,0 +1,495 @@
+{
+  "validated_at": "2026-09-15T22:20:37+08:00",
+  "desktop_version": "2.29.10",
+  "desktop_aid": "582478",
+  "runtime_version": "3.37.0",
+  "adapter": {
+    "transport": "pure_http",
+    "desktop_process_required": false,
+    "browser_required": false,
+    "server": "192.168.31.252",
+    "architecture": "linux/amd64",
+    "container": "sub2api-doubao-desktop",
+    "image": "sub2api-desktop:20260917-incremental-v2",
+    "listen": "127.0.0.1:18089",
+    "restart_policy": "unless-stopped"
+  },
+  "sub2api": {
+    "base_url": "http://192.168.31.252:18080/v1",
+    "account_id": 834,
+    "group_id": 21,
+    "group_name": "豆包桌面套餐实验-20260915",
+    "exclusive": true,
+    "models": [
+      "doubao-auto",
+      "doubao-pro"
+    ]
+  },
+  "checks": {
+    "unit_tests_passed": 17,
+    "compose_configuration_valid": true,
+    "anonymous_models_http_status": 401,
+    "arm64_adapter_auto_json_exact_reply": true,
+    "arm64_adapter_pro_sse_exact_reply": true,
+    "amd64_adapter_pro_json_exact_reply": true,
+    "sub2api_pro_json_exact_reply": true,
+    "sub2api_auto_sse_exact_reply": true,
+    "sub2api_sse_finished": true,
+    "new_desktop_conversation_ack_enforced": true
+  },
+  "limitations": [
+    "text_only",
+    "buffered_sse",
+    "no_native_tool_call_protocol",
+    "no_native_system_role",
+    "no_token_usage_claim",
+    "no_verified_upstream_cancel",
+    "session_lifetime_unverified",
+    "future_verification_requires_session_refresh"
+  ],
+  "pricing_validation": {
+    "validated_at": "2026-09-16T14:37:27+08:00",
+    "details": "pricing.json",
+    "group_ids": [
+      6,
+      21
+    ],
+    "admin_api_readback": true,
+    "database_readback": true,
+    "gateway_live_models": [
+      "doubao-auto",
+      "doubao-pro"
+    ],
+    "gateway_live_group_id": 6,
+    "usage_log_ids": [
+      624710,
+      624711
+    ],
+    "billing_mode": "per_request",
+    "expected_actual_costs_verified": true,
+    "other_group_settings_preserved": true
+  },
+  "continuation_validation": {
+    "validated_at": "2026-09-16T12:00:12+08:00",
+    "image": "sub2api-desktop:20260916-continuation",
+    "image_id": "sha256:b7264b1468156dd5e4c6cdac11580fac90efd1533a13e54a0e415eb44bfbea80",
+    "local_tests_passed": 61,
+    "amd64_tests_passed": 61,
+    "history_roles_preserved": true,
+    "pending_tool_results_still_required": true,
+    "container_status": "running",
+    "restart_count": 0,
+    "health_status": "ready",
+    "source_backup": "/opt/sub2api/desktop-api-before-continuation.p2Ielj",
+    "rollback_container": "sub2api-doubao-desktop-rollback-20260916-continuation",
+    "gateway_validation": {
+      "http_status": 401,
+      "error_code": "INVALID_API_KEY"
+    },
+    "requests": [
+      {
+        "container_role": "candidate",
+        "through_sub2api": false,
+        "model": "doubao-pro",
+        "stream": false,
+        "response_format": "json_object",
+        "tail_role": "assistant",
+        "call_count": 1,
+        "first_request_bytes": 945,
+        "continuation_request_bytes": 1368,
+        "http_status": 200,
+        "assistant_exact_match": true,
+        "finished": true
+      },
+      {
+        "container_role": "candidate",
+        "through_sub2api": false,
+        "model": "doubao-auto",
+        "stream": true,
+        "response_format": "json_object",
+        "tail_role": "assistant",
+        "request_bytes": 70482,
+        "http_status": 200,
+        "assistant_exact_match": true,
+        "finished": true,
+        "response_model_matches": true
+      },
+      {
+        "container_role": "production",
+        "through_sub2api": false,
+        "model": "doubao-auto",
+        "stream": true,
+        "response_format": "json_object",
+        "tail_role": "assistant",
+        "parallel_tool_calls": true,
+        "call_count": 2,
+        "first_request_bytes": 908,
+        "continuation_request_bytes": 1659,
+        "http_status": 200,
+        "assistant_exact_match": true,
+        "finished": true
+      }
+    ]
+  },
+  "tool_calls_validation": {
+    "validated_at": "2026-09-16T11:29:09+08:00",
+    "image": "sub2api-desktop:20260916-tools",
+    "image_id": "sha256:d90a733785847575bde35c38b6c8a6a44ad44eff57062642b2e2522abfa2dc1a",
+    "local_tests_passed": 55,
+    "amd64_tests_passed": 55,
+    "strategy": "validated function decisions; tool execution belongs to the caller",
+    "markers_generated_after_receiving_calls": true,
+    "gateway_validation": {
+      "http_status": 401,
+      "error_code": "INVALID_API_KEY"
+    },
+    "round_trips": [
+      {
+        "container_role": "production",
+        "through_sub2api": false,
+        "model": "doubao-pro",
+        "stream": false,
+        "tool_choice": "named_function",
+        "parallel_tool_calls": false,
+        "response_format": "json_object",
+        "call_count": 1,
+        "first_request_bytes": 945,
+        "continuation_request_bytes": 1228,
+        "http_status": 200,
+        "assistant_exact_match": true,
+        "finished": true
+      },
+      {
+        "container_role": "candidate",
+        "through_sub2api": false,
+        "model": "doubao-auto",
+        "stream": true,
+        "tool_choice": "required",
+        "parallel_tool_calls": true,
+        "response_format": "json_object",
+        "call_count": 2,
+        "first_request_bytes": 908,
+        "continuation_request_bytes": 1519,
+        "http_status": 200,
+        "assistant_exact_match": true,
+        "finished": true
+      }
+    ]
+  },
+  "response_format_validation": {
+    "validated_at": "2026-09-16T11:11:15+08:00",
+    "image": "sub2api-desktop:20260916-response-format-v2",
+    "image_id": "sha256:7fe0ee2931c4e2dad0167f7a2c61b05e4db2f1a125edbc065ad4e6d18316fc9c",
+    "local_tests_passed": 37,
+    "amd64_tests_passed": 37,
+    "formats": [
+      "text",
+      "json_object",
+      "json_schema"
+    ],
+    "strategy": "prompt instruction and buffered validation before JSON or SSE success",
+    "gateway_validation": {
+      "http_status": 401,
+      "error_code": "INVALID_API_KEY"
+    },
+    "requests": [
+      {
+        "container_role": "candidate",
+        "through_sub2api": false,
+        "model": "doubao-auto",
+        "stream": true,
+        "response_format": "json_object",
+        "request_bytes": 70384,
+        "http_status": 200,
+        "assistant_exact_match": true,
+        "finished": true,
+        "response_model_matches": true
+      },
+      {
+        "container_role": "production",
+        "through_sub2api": false,
+        "model": "doubao-pro",
+        "stream": false,
+        "response_format": "json_schema",
+        "request_bytes": 525,
+        "http_status": 200,
+        "assistant_exact_match": true,
+        "finished": true,
+        "response_model_matches": true
+      }
+    ]
+  },
+  "body_limit_validation": {
+    "validated_at": "2026-09-16T10:54:13+08:00",
+    "image": "sub2api-desktop:20260916-body32m-sse2",
+    "image_id": "sha256:aca9b652961db6b0aa80f7e65939f275ed62907f3debcac8dfbc90751c7b5fb8",
+    "max_request_body_bytes": 33554432,
+    "local_tests_passed": 27,
+    "amd64_tests_passed": 27,
+    "gateway_validation": {
+      "http_status": 401,
+      "error_code": "INVALID_API_KEY",
+      "reason": "Dedicated test API key was deleted; no credentials were restored or created"
+    },
+    "requests": [
+      {
+        "through_sub2api": false,
+        "model": "doubao-pro",
+        "stream": false,
+        "request_bytes": 84841,
+        "http_status": 200,
+        "assistant_exact_match": true,
+        "finished": true,
+        "response_model_matches": true
+      },
+      {
+        "through_sub2api": false,
+        "model": "doubao-auto",
+        "stream": true,
+        "request_bytes": 84841,
+        "http_status": 200,
+        "assistant_exact_match": true,
+        "finished": true,
+        "response_model_matches": true
+      }
+    ]
+  },
+  "model_names_validation": {
+    "validated_at": "2026-09-16T08:21:12+08:00",
+    "models": [
+      "doubao-auto",
+      "doubao-pro"
+    ],
+    "unit_tests_passed": 17,
+    "requests": [
+      {
+        "http_status": 200,
+        "through_sub2api": true,
+        "model": "doubao-pro",
+        "stream": false,
+        "assistant_exact_match": true,
+        "finished": true,
+        "response_model_matches": true
+      },
+      {
+        "http_status": 200,
+        "through_sub2api": true,
+        "model": "doubao-auto",
+        "stream": true,
+        "assistant_exact_match": true,
+        "finished": true,
+        "response_model_matches": true
+      }
+    ]
+  },
+  "incremental_session_validation": {
+    "validated_at": "2026-09-17T09:17:23+08:00",
+    "image": "sub2api-desktop:20260917-incremental-v2",
+    "source_hashes_match": true,
+    "deployed_python_files": 16,
+    "status": "running",
+    "restart_count": 0,
+    "image_id": "sha256:bd1abbe341a42c1c43d6f611718c1c3ae69391f2424f90409a98e1532c239f7f",
+    "local_tests_passed": 77,
+    "amd64_tests_passed": 77,
+    "compose_configuration_valid": true,
+    "transport": "doubao_desktop_subscription_http",
+    "upstream_origin": "https://www.doubao.com",
+    "same_conversation_cursor_verified": true,
+    "restart_continuation_verified": true,
+    "history_edit_branch_scope_model_expiry_isolation_tested": true,
+    "state_file": "/opt/sub2api/desktop-api/state/conversations.json",
+    "stable_rollback_container": "sub2api-doubao-desktop-rollback-20260917-incremental",
+    "stable_source_backup": "/opt/sub2api/desktop-api-before-incremental.CziiY7",
+    "candidate_plain_text": {
+      "model": "doubao-pro",
+      "same_conversation": true,
+      "retry_replayed": true,
+      "upstream_input_bytes": [
+        71676,
+        1497,
+        1288
+      ]
+    },
+    "gateway_responses": {
+      "gateway": "http://192.168.31.252:18080/v1/responses",
+      "model": "doubao-pro",
+      "same_conversation": true,
+      "tool_result_verified": true,
+      "retry_replayed": true,
+      "streamed_third_turn_verified": true,
+      "metrics": [
+        {
+          "conversation": "249f78a1c8b9ebc0",
+          "continued": false,
+          "upstream_input_bytes": 31700,
+          "http_status": 200,
+          "stream": false
+        },
+        {
+          "conversation": "249f78a1c8b9ebc0",
+          "continued": true,
+          "upstream_input_bytes": 1482,
+          "http_status": 200,
+          "stream": false
+        },
+        {
+          "conversation": "249f78a1c8b9ebc0",
+          "continued": true,
+          "upstream_input_bytes": 1482,
+          "http_status": 200,
+          "stream": false
+        },
+        {
+          "conversation": "249f78a1c8b9ebc0",
+          "continued": true,
+          "upstream_input_bytes": 1245,
+          "http_status": 200,
+          "stream": true
+        }
+      ]
+    },
+    "native_tool_probe": {
+      "registration_business_code": 0,
+      "custom_function_available_to_work_model": false,
+      "enabled": false,
+      "active_tool_strategy": "validated_text_json_bridge",
+      "model": "doubao-pro"
+    },
+    "protocol_reminder": "Resend the small output envelope contract each turn; unchanged system messages and function schemas are omitted.",
+    "production_auto_sse": {
+      "model": "doubao-auto",
+      "stream": true,
+      "same_conversation": true,
+      "tool_result_verified": true,
+      "retry_replayed": true,
+      "three_turns_verified": true,
+      "upstream_input_bytes": [
+        71973,
+        1783,
+        1585
+      ]
+    },
+    "process_restart": {
+      "fresh_python_process_restored_state": true,
+      "same_conversation": true,
+      "marker_verified": true,
+      "continuation_input_bytes": 332
+    }
+  },
+  "capacity_timeout_validation": {
+    "validated_at": "2026-09-17T08:40:43.525268+00:00",
+    "image": "sub2api-desktop:20260917-capacity-fix",
+    "image_id": "sha256:5d9d93d517fc347104305c89c2181ef2d0897a3cb0d3590b902bd1847193cc86",
+    "local_tests": 84,
+    "linux_amd64_python312_tests": 84,
+    "deployed_modules_sha256_match": 16,
+    "read_timeout_seconds": 120,
+    "stream_deadline_seconds": 600,
+    "model_capacity_cooldown_seconds": 30,
+    "legacy_account834_failures": {
+      "window_start": "2026-09-17T07:00:00Z",
+      "invalid_tool_calls": 6,
+      "generic_502_latency_ms": [
+        22122,
+        22401
+      ],
+      "exact_exception_not_logged_by_old_version": true
+    },
+    "observed_capacity_notice": "当前高峰期算力紧张，优先通道暂时繁忙。我们正在优先为你调度资源，请稍后再试。",
+    "production_capacity_failure": {
+      "model": "doubao-pro",
+      "request_id": "80172e668fb44b0087d8287cbeb0923a",
+      "adapter_status": 503,
+      "adapter_code": "upstream_capacity",
+      "elapsed_ms": 2585,
+      "gateway_status": 502,
+      "large_context_test_succeeded": false
+    },
+    "gateway_checks": [
+      {
+        "gateway": "http://192.168.31.252:18080/v1/responses",
+        "model": "doubao-auto",
+        "same_conversation": true,
+        "tool_result_verified": true,
+        "retry_replayed": true,
+        "streamed_third_turn_verified": true,
+        "metrics": [
+          {
+            "conversation": "01ef7b3ecbb7125c",
+            "continued": false,
+            "upstream_input_bytes": 3700,
+            "http_status": 200,
+            "stream": false
+          },
+          {
+            "conversation": "01ef7b3ecbb7125c",
+            "continued": true,
+            "upstream_input_bytes": 1482,
+            "http_status": 200,
+            "stream": false
+          },
+          {
+            "conversation": "01ef7b3ecbb7125c",
+            "continued": true,
+            "upstream_input_bytes": 1482,
+            "http_status": 200,
+            "stream": false
+          },
+          {
+            "conversation": "01ef7b3ecbb7125c",
+            "continued": true,
+            "upstream_input_bytes": 1245,
+            "http_status": 200,
+            "stream": true
+          }
+        ]
+      },
+      {
+        "gateway": "http://192.168.31.252:18080/v1/responses",
+        "model": "doubao-pro",
+        "same_conversation": true,
+        "tool_result_verified": true,
+        "retry_replayed": true,
+        "streamed_third_turn_verified": true,
+        "metrics": [
+          {
+            "conversation": "0f94c8baf064d9a6",
+            "continued": false,
+            "upstream_input_bytes": 3700,
+            "http_status": 200,
+            "stream": false
+          },
+          {
+            "conversation": "0f94c8baf064d9a6",
+            "continued": true,
+            "upstream_input_bytes": 1482,
+            "http_status": 200,
+            "stream": false
+          },
+          {
+            "conversation": "0f94c8baf064d9a6",
+            "continued": true,
+            "upstream_input_bytes": 1482,
+            "http_status": 200,
+            "stream": false
+          },
+          {
+            "conversation": "0f94c8baf064d9a6",
+            "continued": true,
+            "upstream_input_bytes": 1245,
+            "http_status": 200,
+            "stream": true
+          }
+        ]
+      }
+    ],
+    "rollback_container": "sub2api-doubao-desktop-rollback-20260917-capacity",
+    "limitations": [
+      "Upstream capacity is intermittent; a successful run does not prove sustained availability.",
+      "The old two generic 502 exceptions were not recorded; their timing is consistent with the old 20 second timeout.",
+      "Gateway may aggregate upstream 503 to a client-facing 502.",
+      "Custom client tools still use the validated text bridge; native cloud/local custom-tool execution is not integrated."
+    ]
+  }
+}

@@ -19,6 +19,7 @@ import (
 
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
+	c.Set(deepSeekCompactContextKey, false)
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
@@ -28,7 +29,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if filterErr != nil {
 		return nil, filterErr
 	}
-	body = filteredBody
+	body, filterErr = s.restoreDeepSeekCompaction(filteredBody)
+	if filterErr != nil {
+		return nil, filterErr
+	}
 	clearGrokResponsesClientToolMapping(c)
 	clearOpenAIResponsesClientToolMapping(c)
 	clearOpenAIResponsesNamespaceNames(c)
@@ -53,6 +57,13 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		})
 		return nil, errors.New("codex_cli_only restriction: only codex official clients are allowed")
 	}
+
+	visionBody, visionErr := s.prepareVisionFallback(ctx, c, account, body)
+	if visionErr != nil {
+		writeVisionFallbackError(c, visionErr)
+		return nil, visionErr
+	}
+	body = visionBody
 
 	normalizedBody, normalized, err := normalizeOpenAICodexCompactReasoningEffortForAccount(c, account, body)
 	if err != nil {
@@ -167,7 +178,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	requestView := newOpenAIRequestView(body)
 	reqModel, reqStream, promptCacheKey := requestView.Model, requestView.Stream, requestView.PromptCacheKey
 	originalModel := reqModel
-	if nativeDeepSeekResponses && !account.IsOpenAIPassthroughEnabled() && isOpenAINativeCompactionV2(c) {
+	if shouldBridgeDeepSeekCompaction(c, account, body) {
+		c.Set(deepSeekCompactContextKey, true)
 		body, err = buildDeepSeekCompactRequestBody(body)
 		if err != nil {
 			return nil, err
@@ -175,6 +187,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		requestView = newOpenAIRequestView(body)
 		reqModel, reqStream, promptCacheKey = requestView.Model, requestView.Stream, requestView.PromptCacheKey
 		originalModel = reqModel
+		originalBody = body
 		MarkOpenAICompactClientStream(c)
 	}
 
@@ -349,7 +362,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if apiKey != nil {
 		imageGenerationAllowed = GroupAllowsImageGeneration(apiKey.Group)
 	}
-	codexImageGenerationBridgeEnabled := isCodexCLI &&
+	codexImageGenerationBridgeEnabled := !c.GetBool(visionFallbackInternalKey) && isCodexCLI &&
 		!isOpenAIResponsesLiteHeader(c.GetHeader(responsesLiteHeader)) &&
 		imageGenerationAllowed &&
 		codexImageGenerationExplicitToolPolicy != codexImageGenerationExplicitToolPolicyStrip &&

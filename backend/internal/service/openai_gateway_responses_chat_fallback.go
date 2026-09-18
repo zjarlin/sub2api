@@ -151,6 +151,28 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 	if s.responseHeaderFilter != nil {
 		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	}
+	// GLM 等只支持 Chat Completions 的上游无法返回原生 compaction item：
+	// 摘要回合的普通 message 结果必须在此压成 Codex 要求的单个 compaction 输出。
+	if isDeepSeekNativeCompaction(c) {
+		converted, err := json.Marshal(responsesResp)
+		if err != nil {
+			return nil, fmt.Errorf("marshal compact fallback response: %w", err)
+		}
+		if err := s.writeCompatibleCompactionJSON(c, http.StatusOK, converted); err != nil {
+			return nil, fmt.Errorf("convert compact fallback response: %w", err)
+		}
+		return &OpenAIForwardResult{
+			RequestID:       requestID,
+			Usage:           usage,
+			Model:           originalModel,
+			BillingModel:    billingModel,
+			UpstreamModel:   upstreamModel,
+			ReasoningEffort: reasoningEffort,
+			ServiceTier:     resolvedOpenAIUpstreamServiceTier(c, serviceTier),
+			Stream:          false,
+			Duration:        time.Since(startTime),
+		}, nil
+	}
 	c.JSON(http.StatusOK, responsesResp)
 
 	return &OpenAIForwardResult{

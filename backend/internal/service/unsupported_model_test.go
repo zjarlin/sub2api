@@ -43,7 +43,8 @@ func TestAccountUnsupportedModelIgnoresStaleMappingInPassthroughMode(t *testing.
 	}
 
 	require.False(t, account.IsModelSupported("public-model"))
-	require.True(t, account.IsModelSupported("stale-model"))
+	require.False(t, account.IsModelKnownUnsupported("stale-model"))
+	require.False(t, account.IsModelSupported("stale-model"))
 	require.Equal(t, "public-model", observedUnsupportedModelKey(account, "public-model"))
 }
 

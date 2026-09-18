@@ -1109,7 +1109,7 @@ func (s *GatewayService) isAccountSchedulableForModelSelection(ctx context.Conte
 // isAccountInGroup checks if the account belongs to the specified group.
 // When groupID is nil, returns true only for ungrouped accounts (no group assignments).
 func (s *GatewayService) isAccountInGroup(account *Account, groupID *int64) bool {
-	if account == nil {
+	if !account.IsPubliclyShared() {
 		return false
 	}
 	if groupID == nil {
@@ -1447,6 +1447,9 @@ func (s *GatewayService) getSchedulableAccount(ctx context.Context, accountID in
 	}
 	if err != nil || account == nil {
 		return account, err
+	}
+	if !account.IsPubliclyShared() {
+		return nil, nil
 	}
 	if s.isAccountBlockedBySchedulingThreshold(ctx, account) {
 		return nil, nil

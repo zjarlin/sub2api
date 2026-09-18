@@ -28,6 +28,15 @@ func RegisterUserRoutes(
 		// 用户接口
 		user := authenticated.Group("/user")
 		{
+			accounts := user.Group("/accounts")
+			{
+				accounts.GET("", h.UserAccount.List)
+				accounts.POST("", h.UserAccount.Create)
+				accounts.GET("/:id", h.UserAccount.GetByID)
+				accounts.PUT("/:id", h.UserAccount.Update)
+				accounts.DELETE("/:id", h.UserAccount.Delete)
+				accounts.POST("/:id/test", panelRateLimiter.Heavy(), h.UserAccount.Test)
+			}
 			user.GET("/profile", h.User.GetProfile)
 			user.PUT("/password", h.User.ChangePassword)
 			user.PUT("", h.User.UpdateProfile)

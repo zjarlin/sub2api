@@ -944,6 +944,8 @@ const (
 
 // GatewayConfig API网关相关配置
 type GatewayConfig struct {
+	// VisionFallback 在当前分组内借助原生视觉模型描述图片，再交给原模型回答。
+	VisionFallback GatewayVisionFallbackConfig `mapstructure:"vision_fallback"`
 	// 等待上游响应头的超时时间（秒），0表示无超时
 	// 注意：这不影响流式数据传输，只控制等待响应头的时间
 	ResponseHeaderTimeout int `mapstructure:"response_header_timeout"`
@@ -1097,6 +1099,13 @@ type GatewayConfig struct {
 	// CNProviders: 国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）的余额检测配置。
 	// 仅作用于 payg（按量付费）账号：周期探测余额，低于阈值则临时停调。
 	CNProviders GatewayCNProvidersConfig `mapstructure:"cn_providers"`
+}
+
+// GatewayVisionFallbackConfig 不另存供应商凭据，复用分组账号及其模型能力快照。
+type GatewayVisionFallbackConfig struct {
+	Enabled bool `mapstructure:"enabled"`
+	// Model 为空时自动选择；非空时仅使用这个已配置的公开模型名。
+	Model string `mapstructure:"model"`
 }
 
 // GatewayGrokConfig holds Grok-specific gateway scheduling knobs.
@@ -2369,6 +2378,8 @@ func setDefaults() {
 	viper.SetDefault("gateway.disable_codex_identity_enforcement", false)
 	viper.SetDefault("gateway.disable_codex_originator_normalization", false)
 	viper.SetDefault("gateway.codex_image_generation_bridge_enabled", false)
+	viper.SetDefault("gateway.vision_fallback.enabled", true)
+	viper.SetDefault("gateway.vision_fallback.model", "")
 	viper.SetDefault("gateway.openai_passthrough_allow_timeout_headers", false)
 	viper.SetDefault("gateway.openai_compact_model", "gpt-5.4")
 	viper.SetDefault("gateway.live.max_session_duration_seconds", 3600)

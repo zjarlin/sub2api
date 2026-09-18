@@ -575,6 +575,12 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					return err
 				}
 			}
+			visionBody, visionErr := s.prepareVisionFallback(ctx, c, account, currentBridgePayload.payloadRaw)
+			if visionErr != nil {
+				return NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, visionErr.Error(), visionErr)
+			}
+			currentBridgePayload.payloadRaw = visionBody
+			currentBridgePayload.payloadBytes = len(visionBody)
 			if turnState != "" && c != nil && c.Request != nil {
 				c.Request.Header.Set(openAIWSTurnStateHeader, turnState)
 			}
@@ -1401,6 +1407,12 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 		}
 		skipBeforeTurn = false
+		visionBody, visionErr := s.prepareVisionFallback(ctx, c, account, currentPayload)
+		if visionErr != nil {
+			return NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, visionErr.Error(), visionErr)
+		}
+		currentPayload = visionBody
+		currentPayloadBytes = len(visionBody)
 		currentPreviousResponseID := openAIWSPayloadStringFromRaw(currentPayload, "previous_response_id")
 		expectedPrev := strings.TrimSpace(lastTurnResponseID)
 		toolSignals := ToolContinuationSignals{

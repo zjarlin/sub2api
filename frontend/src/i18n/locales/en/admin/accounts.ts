@@ -1,5 +1,19 @@
 export default {
     accounts: {
+      loadingTestModels: 'Loading test models (up to 10 seconds)…',
+      testModelsLoadFailed: 'Model list failed to load or timed out. Please retry.',
+      cancelTest: 'Cancel test',
+      testingCurrentModel: 'Waiting for {model}. You can cancel at any time. Timeout: 120 seconds per model.',
+      testCancelledPreserved: 'Test cancelled. Model configuration was preserved.',
+
+      batchTestModelsAndPrune: 'Test All and Prune',
+      batchTestingModelsProgress: 'Testing {done}/{total}',
+      batchTestModelsPruneHint: 'After testing, only successful models are kept; failed models are removed from this account model_mapping.',
+      batchTestModelPassed: 'Passed: {model}',
+      batchTestModelFailed: 'Failed: {model} - {error}',
+      batchTestModelsPruned: 'Pruned failed models and kept {count} successful model(s)',
+      batchTestModelsNoSuccess: 'No model passed, original model_mapping was kept and no pruning was applied',
+      batchTestModelsStopped: 'Test stopped without saving changes: {error}',
       modelProbe: {
         title: 'Automatic model health probes',
         hint: 'Sends real inference requests that may incur upstream charges. Disabling leaves normal requests, model catalog sync and manual tests available.',
@@ -668,7 +682,8 @@ export default {
         testMode: 'Test mode',
         testModeDefault: 'Default request',
         testModeCompact: 'Compact probe',
-        modelRestrictionDisabledByPassthrough: 'Automatic passthrough is enabled: model whitelist/mapping will not take effect.',
+        passthroughModelRestrictionHint: 'Passthrough still checks model support. Sync upstream models or configure a whitelist. Mapping keys control scheduling; model names are forwarded unchanged.',
+        modelSupportRequired: '(Only models confirmed by the upstream catalog are eligible. Sync models or configure a whitelist if no catalog is available.)',
       },
       grok: {
         baseUrlHint: 'Grok OAuth accounts forward to the official xAI API base URL.',

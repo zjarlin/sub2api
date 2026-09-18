@@ -79,7 +79,8 @@ func TestPassthroughUnsupportedModelPersistsAndLeavesResponseForFailover(t *test
 				ID: 831, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 				Status: StatusActive, Schedulable: true, Concurrency: 1,
 				Credentials: map[string]any{
-					"api_key": "sk-test", "base_url": "https://api.example.test",
+					"model_mapping": map[string]any{"agnes-*": "agnes-*"},
+					"api_key":       "sk-test", "base_url": "https://api.example.test",
 					"pool_mode": true, "pool_mode_retry_status_codes": []any{status},
 				},
 				Extra: map[string]any{"openai_passthrough": true},

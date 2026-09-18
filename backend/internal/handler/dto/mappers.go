@@ -239,6 +239,8 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		ID:                      a.ID,
 		Name:                    a.Name,
 		Notes:                   a.Notes,
+		OwnerUserID:             a.OwnerUserID,
+		Shared:                  a.IsPubliclyShared(),
 		Platform:                a.Platform,
 		Type:                    a.Type,
 		Credentials:             redactedCreds,

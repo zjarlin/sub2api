@@ -5,6 +5,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/tidwall/gjson"
 )
 
 // Only an explicit provider capacity message qualifies; a generic billing 429
@@ -14,7 +16,26 @@ var upstreamConcurrencyMessage = regexp.MustCompile(`^In-flight request cap reac
 const UpstreamConcurrencyCooldown = 2 * time.Second
 
 func isUpstreamConcurrencyLimit(status int, body []byte) bool {
-	return status == http.StatusTooManyRequests && upstreamConcurrencyMessage.MatchString(strings.TrimSpace(extractUpstreamErrorMessage(body)))
+	if status != http.StatusTooManyRequests && status != http.StatusServiceUnavailable {
+		return false
+	}
+	message := strings.TrimSpace(extractUpstreamErrorMessage(body))
+	if message == "" {
+		message = strings.TrimSpace(gjson.GetBytes(body, "response.error.message").String())
+	}
+	if status == http.StatusServiceUnavailable {
+		return message == "模型服务当前并发繁忙，请稍后重试"
+	}
+	if upstreamConcurrencyMessage.MatchString(message) {
+		return true
+	}
+	switch message {
+	case "Concurrency limit exceeded for account, please retry later",
+		"当前账号并发请求过多，请等待已有请求完成":
+		return true
+	default:
+		return false
+	}
 }
 
 func (e *UpstreamFailoverError) IsUpstreamConcurrencyLimited() bool {

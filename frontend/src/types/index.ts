@@ -1118,6 +1118,7 @@ export interface OllamaCloudUsageSettings {
 
 export interface Account {
   id: number
+  shared?: boolean
   name: string
   notes?: string | null
   platform: AccountPlatform
@@ -1429,6 +1430,7 @@ export interface OpenAIResponsesState {
 
 export interface CreateAccountRequest {
   name: string
+  shared?: boolean
   notes?: string | null
   platform: AccountPlatform
   type: AccountType
@@ -1448,6 +1450,7 @@ export interface CreateAccountRequest {
 
 export interface UpdateAccountRequest {
   name?: string
+  shared?: boolean
   notes?: string | null
   type?: AccountType
   credentials?: Record<string, unknown>

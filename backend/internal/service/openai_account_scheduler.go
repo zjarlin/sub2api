@@ -676,7 +676,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 }
 
 func openAIStickyAccountMatchesGroup(account *Account, groupID *int64) bool {
-	if account == nil {
+	if !account.IsPubliclyShared() {
 		return false
 	}
 	if groupID == nil {
@@ -1851,6 +1851,9 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatible(ctx context.C
 func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx context.Context, account *Account, req OpenAIAccountScheduleRequest) (bool, string) {
 	if account == nil {
 		return false, "account_nil"
+	}
+	if !account.IsPubliclyShared() {
+		return false, "account_not_shared"
 	}
 	if req.RequirePrivacySet && !account.IsPrivacySet() {
 		return false, "privacy_not_set"

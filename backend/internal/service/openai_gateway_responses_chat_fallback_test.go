@@ -5,6 +5,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -297,6 +298,74 @@ func forceChatResponsesFallbackAccount() *Account {
 		openai_compat.ExtraKeyResponsesMode: string(openai_compat.ResponsesSupportModeForceChatCompletions),
 	}
 	return account
+}
+
+func glmRawChatFallbackAccount() *Account {
+	account := forceChatResponsesFallbackAccount()
+	account.ID = 832
+	account.Name = "glm-raw-chat"
+	account.Platform = PlatformZhipu
+	account.Credentials = map[string]any{
+		"api_key":      "sk-glm",
+		"base_url":     "http://upstream.example",
+		"api_protocol": APIProtocolChatCompletions,
+	}
+	return account
+}
+
+// GLM 只支持 Chat Completions，remote compaction v2 的摘要回合经 raw Chat
+// 回退后必须压成 Codex 要求的单个 compaction item，而不是 reasoning+message。
+func TestForwardResponses_GLMRemoteCompactionBridgesToSingleCompactionItem(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"glm-5.3","stream":true,"input":[{"type":"message","role":"user","content":"remember GLM-COMPACT"},{"type":"compaction_trigger"}],"tools":[{"type":"function","name":"shell","parameters":{"type":"object"}}],"tool_choice":"auto"}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	MarkOpenAINativeCompactionV2(c)
+
+	response := `{"id":"chatcmpl_glm","object":"chat.completion","model":"glm-5.3","choices":[{"index":0,"message":{"role":"assistant","reasoning_content":"internal reasoning","content":"The marker is GLM-COMPACT"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":8,"total_tokens":18}}`
+	replayResponse := `{"id":"chatcmpl_glm_replay","object":"chat.completion","model":"glm-5.3","choices":[{"index":0,"message":{"role":"assistant","content":"The marker was GLM-COMPACT"},"finish_reason":"stop"}],"usage":{"prompt_tokens":20,"completion_tokens":6,"total_tokens":26}}`
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		newOpenAIRejectedFieldTestResponse(http.StatusOK, response),
+		newOpenAIRejectedFieldTestResponse(http.StatusOK, replayResponse),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+	svc.cfg.JWT.Secret = "compact-regression-test-secret"
+
+	result, err := svc.Forward(context.Background(), c, glmRawChatFallbackAccount(), body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "http://upstream.example/v1/chat/completions", upstream.lastReq.URL.String())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "tools").Exists())
+	require.NotContains(t, string(upstream.lastBody), "compaction_trigger")
+	require.Contains(t, string(upstream.lastBody), deepSeekCompactSummaryPrompt)
+
+	events := parseCompactBridgeSSE(t, rec.Body.String())
+	require.Len(t, events, 2)
+	require.Equal(t, "response.output_item.done", events[0][0])
+	require.Equal(t, "compaction", gjson.Get(events[0][1], "item.type").String())
+	require.True(t, strings.HasPrefix(gjson.Get(events[0][1], "item.encrypted_content").String(), deepSeekCompactTokenPrefix))
+	require.Equal(t, "response.completed", events[1][0])
+	require.Equal(t, "compaction", gjson.Get(events[1][1], "response.output.0.type").String())
+
+	// 下一轮回放：仅携带标准 compaction 字段时，网关必须解密回摘要供 GLM 续聊。
+	token := gjson.Get(events[0][1], "item.encrypted_content").String()
+	replay, err := json.Marshal(map[string]any{"model": "glm-5.3", "stream": false, "input": []any{
+		map[string]any{"type": "compaction", "encrypted_content": token},
+		map[string]any{"role": "user", "content": "what was the marker?"},
+	}})
+	require.NoError(t, err)
+	replayCtx := newOpenAIRejectedFieldTestContext(replay)
+	_, err = svc.Forward(context.Background(), replayCtx, glmRawChatFallbackAccount(), replay)
+	require.NoError(t, err)
+	require.Contains(t, string(upstream.lastBody), "GLM-COMPACT")
+	require.NotContains(t, string(upstream.lastBody), deepSeekCompactTokenPrefix)
 }
 
 // reasoningRecordingCache 记录 reasoning 缓存写入、并按需响应回查。

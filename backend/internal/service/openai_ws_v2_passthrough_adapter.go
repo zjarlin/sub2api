@@ -781,6 +781,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, blocked.Message, blocked)
 	}
 	firstClientMessage = updatedFirst
+	visionBody, visionErr := s.prepareVisionFallback(ctx, c, account, firstClientMessage)
+	if visionErr != nil {
+		return NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, visionErr.Error(), visionErr)
+	}
+	firstClientMessage = visionBody
 
 	// 在 policy filter 之后再提取 service_tier / reasoning_effort 用于
 	// usage 上报：filter
@@ -1093,6 +1098,13 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			//     覆盖（Store(nil)），因为 OpenAI 上游对该帧实际不传
 			//     service_tier 时按 default 处理，billing 应如实反映。
 			if policyErr == nil && blocked == nil && isResponseCreate {
+				// 透传后续回合不重新取得主账号槽，辅助调用须独立取得并发容量。
+				visionCtx := context.WithValue(ctx, visionFallbackPrimarySlotRequiredKey{}, true)
+				visionBody, visionErr := s.prepareVisionFallback(visionCtx, c, account, out)
+				if visionErr != nil {
+					return out, nil, NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, visionErr.Error(), visionErr)
+				}
+				out = visionBody
 				usageMeta.updateFromResponseCreate(out, model, requestModelForThisFrame)
 				_, actualModel := usageMeta.turnModels(requestModelForThisFrame)
 				SetOpsUpstreamModel(c, actualModel)

@@ -18,6 +18,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_CompactPrefersSupported
 	groupID := int64(91001)
 	accounts := []Account{
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.4")},
 			ID:          71001,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -28,6 +29,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_CompactPrefersSupported
 			Extra:       map[string]any{}, // unknown
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.4")},
 			ID:          71002,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -72,6 +74,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_CompactRejectsExplicitl
 	groupID := int64(91002)
 	accounts := []Account{
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.4")},
 			ID:          71010,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -82,6 +85,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_CompactRejectsExplicitl
 			Extra:       map[string]any{"openai_compact_mode": OpenAICompactModeForceOff},
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.4")},
 			ID:          71011,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -154,6 +158,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_NativeCompactionIgnores
 		t.Run(map[bool]string{false: "legacy_scheduler", true: "advanced_scheduler"}[advanced], func(t *testing.T) {
 			resetOpenAIAdvancedSchedulerSettingCacheForTest()
 			svc := newOpenAICompactionSchedulerTestService([]Account{{
+				Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1", "gpt-5.4", "gpt-5.6-sol", "gpt-test")},
 				ID:          71012,
 				Platform:    PlatformOpenAI,
 				Type:        AccountTypeAPIKey,
@@ -179,6 +184,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_NativeCompactionAllowsF
 		t.Run(map[bool]string{false: "legacy_scheduler", true: "advanced_scheduler"}[advanced], func(t *testing.T) {
 			resetOpenAIAdvancedSchedulerSettingCacheForTest()
 			svc := newOpenAICompactionSchedulerTestService([]Account{{
+				Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1", "gpt-5.4", "gpt-5.6-sol", "gpt-test")},
 				ID:          71013,
 				Platform:    PlatformOpenAI,
 				Type:        AccountTypeAPIKey,
@@ -204,6 +210,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_NativeCompactionRequire
 		t.Run(map[bool]string{false: "legacy_scheduler", true: "advanced_scheduler"}[advanced], func(t *testing.T) {
 			resetOpenAIAdvancedSchedulerSettingCacheForTest()
 			svc := newOpenAICompactionSchedulerTestService([]Account{{
+				Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1", "gpt-5.4", "gpt-5.6-sol", "gpt-test")},
 				ID:          71014,
 				Platform:    PlatformOpenAI,
 				Type:        AccountTypeAPIKey,
@@ -231,6 +238,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LegacyCompactionKeepsCo
 			resetOpenAIAdvancedSchedulerSettingCacheForTest()
 			svc := newOpenAICompactionSchedulerTestService([]Account{
 				{
+					Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1", "gpt-5.4", "gpt-5.6-sol", "gpt-test")},
 					ID:          71015,
 					Platform:    PlatformOpenAI,
 					Type:        AccountTypeAPIKey,
@@ -243,6 +251,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LegacyCompactionKeepsCo
 					},
 				},
 				{
+					Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1", "gpt-5.4", "gpt-5.6-sol", "gpt-test")},
 					ID:          71016,
 					Platform:    PlatformOpenAI,
 					Type:        AccountTypeAPIKey,
@@ -273,6 +282,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_CompactRequiresResponse
 	ctx := context.Background()
 	groupID := int64(91005)
 	accounts := []Account{{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.4")},
 		ID:          71050,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -318,6 +328,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_CompactSkipsChatOnlyAcc
 	groupID := int64(91006)
 	accounts := []Account{
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.6-sol")},
 			ID:          71060,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -331,6 +342,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_CompactSkipsChatOnlyAcc
 			},
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.6-sol")},
 			ID:          71061,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -381,6 +393,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_CompactFallsBackToUnkno
 	groupID := int64(91003)
 	accounts := []Account{
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.4")},
 			ID:          71020,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -391,6 +404,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_CompactFallsBackToUnkno
 			Extra:       map[string]any{"openai_compact_supported": false}, // tier=0
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.4")},
 			ID:          71021,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,

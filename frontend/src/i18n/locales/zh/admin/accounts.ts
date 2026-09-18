@@ -1,5 +1,19 @@
 export default {
     accounts: {
+      loadingTestModels: '正在加载测试模型，最多等待 10 秒…',
+      testModelsLoadFailed: '模型列表加载失败或超时，请重试。',
+      cancelTest: '取消测试',
+      testingCurrentModel: '正在等待 {model} 返回结果，可随时取消。单个模型最多等待 120 秒。',
+      testCancelledPreserved: '测试已取消，保留原模型配置。',
+
+      batchTestModelsAndPrune: '测试全部并清理',
+      batchTestingModelsProgress: '测试中 {done}/{total}',
+      batchTestModelsPruneHint: '逐个发送真实测试请求，可能产生费用。完成后删除失败模型；全部失败或中断时保留配置。',
+      batchTestModelPassed: '通过：{model}',
+      batchTestModelFailed: '失败：{model} - {error}',
+      batchTestModelsPruned: '已清理失败模型，当前保留 {count} 个成功模型',
+      batchTestModelsNoSuccess: '没有任何模型测试成功，已保留原配置，未执行清理',
+      batchTestModelsStopped: '测试已停止，配置未修改：{error}',
       modelProbe: {
         title: '自动模型可用性探测',
         hint: '会发送真实测试请求，付费模型可能扣额度。关闭不影响正常调用、模型列表同步和手动测试。',
@@ -746,7 +760,8 @@ export default {
         testMode: '测试模式',
         testModeDefault: '常规请求',
         testModeCompact: 'Compact 探测',
-        modelRestrictionDisabledByPassthrough: '已开启自动透传：模型白名单/映射不会生效。',
+        passthroughModelRestrictionHint: '透传仍校验模型支持范围。请同步上游模型或配置白名单；映射键用于调度，模型名称不会改写。',
+        modelSupportRequired: '（仅调度上游目录已确认的模型；无目录时请先同步或配置白名单）',
       },
       grok: {
         baseUrlHint: 'Grok OAuth 账号会转发到官方 xAI API Base URL。',

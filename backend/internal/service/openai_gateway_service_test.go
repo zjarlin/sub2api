@@ -155,6 +155,7 @@ func TestOpenAIGatewayService_ForwardAsAnthropic_CapacityShedReturnsRequestScope
 		ID: 5099, Name: "temporary-unschedulable", Platform: PlatformOpenAI,
 		Type: AccountTypeAPIKey, Concurrency: 1,
 		Credentials: map[string]any{
+			"model_mapping":              testModelMapping("gpt-5.4"),
 			"api_key":                    "sk-test",
 			"base_url":                   "http://upstream.example",
 			"model_provider":             "env-openai",
@@ -203,6 +204,7 @@ func TestFailoverOpenAIUpstreamHTTPError_NilContextSkipsTempUnschedulablePolicy(
 	account := &Account{
 		ID: 5099, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 		Credentials: map[string]any{
+			"model_mapping":              testModelMapping("gpt-5.4"),
 			"temp_unschedulable_enabled": true,
 			"temp_unschedulable_rules": []any{map[string]any{
 				"error_code":       float64(http.StatusBadRequest),
@@ -565,7 +567,8 @@ func TestOpenAIGatewayService_BindHTTPResponseAccount(t *testing.T) {
 	SetOpenAIHTTPResponseOwner(c, 601, 501)
 
 	svc := &OpenAIGatewayService{}
-	account := &Account{ID: 37001, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	account := &Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1", "gpt-5.4", "gpt-5.6-sol", "gpt-test")}, ID: 37001, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
 	svc.bindHTTPResponseAccount(context.Background(), c, account, "resp_http_001")
 
 	got, err := svc.getOpenAIWSStateStore().GetResponseAccount(context.Background(), groupID, "resp_http_001")
@@ -768,6 +771,7 @@ func TestOpenAISelectAccountWithLoadAwareness_FiltersUnschedulable(t *testing.T)
 	groupID := int64(1)
 
 	rateLimited := Account{
+		Credentials:      map[string]any{"model_mapping": testModelMapping("gpt-5.2")},
 		ID:               1,
 		Platform:         PlatformOpenAI,
 		Type:             AccountTypeAPIKey,
@@ -778,6 +782,7 @@ func TestOpenAISelectAccountWithLoadAwareness_FiltersUnschedulable(t *testing.T)
 		RateLimitResetAt: &resetAt,
 	}
 	available := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.2")},
 		ID:          2,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -812,6 +817,7 @@ func TestOpenAISelectAccountWithLoadAwareness_ImageRateLimitSkipsOnlyImageReques
 	groupID := int64(1)
 
 	imageLimited := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.4")},
 		ID:          1,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -828,6 +834,7 @@ func TestOpenAISelectAccountWithLoadAwareness_ImageRateLimitSkipsOnlyImageReques
 		},
 	}
 	available := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.4")},
 		ID:          2,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -864,6 +871,7 @@ func TestOpenAISelectAccountWithLoadAwareness_FiltersUnschedulableWhenNoConcurre
 	groupID := int64(1)
 
 	rateLimited := Account{
+		Credentials:      map[string]any{"model_mapping": testModelMapping("gpt-5.2")},
 		ID:               1,
 		Platform:         PlatformOpenAI,
 		Type:             AccountTypeAPIKey,
@@ -874,6 +882,7 @@ func TestOpenAISelectAccountWithLoadAwareness_FiltersUnschedulableWhenNoConcurre
 		RateLimitResetAt: &resetAt,
 	}
 	available := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.2")},
 		ID:          2,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -1808,7 +1817,8 @@ func TestOpenAIStreamingResponseFailedBeforeOutputCapacityErrorReturnsFailover(t
 		Type:     AccountTypeAPIKey,
 		Name:     "pool-account",
 		Credentials: map[string]any{
-			"pool_mode": true,
+			"model_mapping": testModelMapping("gpt-5.1", "gpt-5.4", "gpt-5.6-sol", "gpt-test"),
+			"pool_mode":     true,
 		},
 	}
 	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, account, time.Now(), "model", "model")
@@ -1864,7 +1874,7 @@ func TestOpenAIStreamingResponseFailedBeforeOutputServerOverloadedCodeReturnsFai
 	require.Empty(t, rec.Body.String())
 }
 
-func TestOpenAIStreamingResponseFailedBeforeOutputRateLimitUsesPoolRetryPolicy(t *testing.T) {
+func TestOpenAIStreamingResponseFailedBeforeOutputConcurrencySkipsPoolRetry(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{
 		Gateway: config.GatewayConfig{
@@ -1900,6 +1910,7 @@ func TestOpenAIStreamingResponseFailedBeforeOutputRateLimitUsesPoolRetryPolicy(t
 		Type:     AccountTypeAPIKey,
 		Name:     "pool-account",
 		Credentials: map[string]any{
+			"model_mapping":                testModelMapping("gpt-5.1", "gpt-5.4", "gpt-5.6-sol", "gpt-test"),
 			"pool_mode":                    true,
 			"pool_mode_retry_count":        float64(1),
 			"pool_mode_retry_status_codes": []any{float64(http.StatusTooManyRequests)},
@@ -1911,7 +1922,9 @@ func TestOpenAIStreamingResponseFailedBeforeOutputRateLimitUsesPoolRetryPolicy(t
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, http.StatusTooManyRequests, failoverErr.StatusCode)
-	require.True(t, failoverErr.RetryableOnSameAccount)
+	require.False(t, failoverErr.RetryableOnSameAccount)
+	require.True(t, failoverErr.ShouldReportAccountScheduleFailure())
+	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
 	require.Equal(t, "1", failoverErr.ResponseHeaders.Get("Retry-After"))
 	require.Equal(t, "rate_limit_error", gjson.GetBytes(failoverErr.ResponseBody, "error.type").String())
 	require.Contains(t, string(failoverErr.ResponseBody), "Concurrency limit exceeded")
@@ -1950,7 +1963,7 @@ func TestOpenAIStreamingResponseFailedRateLimitDoesNotBlockAccountScheduling(t *
 			`data: {"type":"response.created","response":{"id":"resp_1"}}`,
 			"",
 			"event: response.failed",
-			`data: {"type":"response.failed","response":{"id":"resp_1","status":"failed","error":{"code":"rate_limit_exceeded","message":"Concurrency limit exceeded for account, please retry later"}}}`,
+			`data: {"type":"response.failed","response":{"id":"resp_1","status":"failed","error":{"code":"rate_limit_exceeded","message":"Rate limit exceeded, please retry later"}}}`,
 			"",
 		}, "\n"))),
 		Header: http.Header{
@@ -2429,7 +2442,8 @@ func TestOpenAIStreamingPassthroughMissingTerminalEventReturnsIncompleteError(t 
 func TestOpenAIStreamingPassthroughPostOutputDisconnectQuarantinesSharedProxy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	proxyID := int64(4698)
-	account := &Account{ID: 469804, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, ProxyID: &proxyID}
+	account := &Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1", "gpt-5.4", "gpt-5.6-sol", "gpt-test")}, ID: 469804, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, ProxyID: &proxyID}
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}
 	// collapseInterval 0: the loop below records within the production collapse
 	// window and must count as distinct failure events here.
@@ -2907,9 +2921,10 @@ func TestOpenAIInvalidBaseURLWhenAllowlistDisabled(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
 
 	account := &Account{
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Credentials: map[string]any{"base_url": "://invalid-url"},
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"model_mapping": testModelMapping("gpt-5.1", "gpt-5.4", "gpt-5.6-sol", "gpt-test"), "base_url": "://invalid-url"},
 	}
 
 	_, err := svc.buildUpstreamRequest(c.Request.Context(), c, account, []byte("{}"), "token", false, "", false)
@@ -3095,7 +3110,8 @@ func TestOpenAIBuildUpstreamRequestOpenAIPassthroughPreservesExplicitAPIKeyBetaH
 			URLAllowlist: config.URLAllowlistConfig{Enabled: false},
 		},
 	}}
-	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	account := &Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5")}, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
 
 	req, err := svc.buildUpstreamRequestOpenAIPassthrough(c.Request.Context(), c, account, []byte(`{"model":"gpt-5"}`), "token")
 	require.NoError(t, err)
@@ -3159,9 +3175,10 @@ func TestOpenAIBuildUpstreamRequestPreservesCompactPathForAPIKeyBaseURL(t *testi
 		},
 	}}
 	account := &Account{
-		Type:        AccountTypeAPIKey,
-		Platform:    PlatformOpenAI,
-		Credentials: map[string]any{"base_url": "https://example.com/v1"},
+		Type:     AccountTypeAPIKey,
+		Platform: PlatformOpenAI,
+		Credentials: map[string]any{
+			"model_mapping": testModelMapping("gpt-5"), "base_url": "https://example.com/v1"},
 	}
 
 	req, err := svc.buildUpstreamRequest(c.Request.Context(), c, account, []byte(`{"model":"gpt-5"}`), "token", false, "", false)
@@ -3185,7 +3202,8 @@ func TestOpenAIBuildUpstreamRequestPreservesCodexIdentityHeaders(t *testing.T) {
 			URLAllowlist: config.URLAllowlistConfig{Enabled: false},
 		},
 	}}
-	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	account := &Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5")}, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
 
 	req, err := svc.buildUpstreamRequest(c.Request.Context(), c, account, body, "token", false, "", true)
 	require.NoError(t, err)
@@ -3681,7 +3699,8 @@ func TestHandleNonStreamingResponse_APIKeyFallsBackToSSEBodyWhenContentTypeIsWro
 			`data: [DONE]`,
 		}, "\n"))),
 	}
-	account := &Account{ID: 1, Type: AccountTypeAPIKey}
+	account := &Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.4")}, ID: 1, Type: AccountTypeAPIKey}
 
 	result, err := svc.handleNonStreamingResponse(context.Background(), resp, c, account, "gpt-5.4", "gpt-5.4")
 	require.NoError(t, err)
@@ -3742,7 +3761,8 @@ func TestHandleNonStreamingResponse_ObservesUpstreamModelBeforeClientRewrite(t *
 			`{"id":"resp_model_audit","object":"response","model":"gpt-5.5","status":"completed","output":[],"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}}`,
 		)),
 	}
-	account := &Account{ID: 1, Type: AccountTypeAPIKey}
+	account := &Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.5", "gpt-5.6-sol")}, ID: 1, Type: AccountTypeAPIKey}
 
 	result, err := svc.handleNonStreamingResponse(context.Background(), resp, c, account, "gpt-5.6-sol", "gpt-5.5")
 	require.NoError(t, err)

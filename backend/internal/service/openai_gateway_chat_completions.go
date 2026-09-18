@@ -82,6 +82,15 @@ func (s *OpenAIGatewayService) ForwardAsChatCompletions(
 		return nil, errors.New("codex_cli_only restriction: only codex official clients are allowed")
 	}
 
+	// 在原生 Chat、Responses 和 Anthropic 分流之前统一处理图片，保留原始消息及工具结构。
+	visionBody, visionErr := s.prepareVisionFallback(ctx, c, account, body)
+	if visionErr != nil {
+		MarkResponseCommitted(c)
+		writeVisionFallbackError(c, visionErr)
+		return nil, visionErr
+	}
+	body = visionBody
+
 	if account.Platform == PlatformGrok {
 		if account.IsGrokOAuth() {
 			if eligible, reason := grokChatResponsesBridgeEligibility(body); eligible {

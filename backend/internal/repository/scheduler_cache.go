@@ -864,6 +864,7 @@ func (c *schedulerCache) mgetChunked(ctx context.Context, keys []string) ([]any,
 
 func buildSchedulerMetadataAccount(account service.Account) service.Account {
 	return service.Account{
+		OwnerUserID:             account.OwnerUserID,
 		ID:                      account.ID,
 		Name:                    account.Name,
 		Platform:                account.Platform,
@@ -972,6 +973,7 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		return nil
 	}
 	keys := []string{
+		service.AccountPublicSharingExtraKey,
 		"quota_limit",
 		"quota_used",
 		"quota_daily_limit",

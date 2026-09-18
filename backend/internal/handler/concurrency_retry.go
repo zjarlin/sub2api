@@ -2,11 +2,22 @@ package handler
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"go.uber.org/zap"
 )
+
+func openAILocalCapacityFailover() *service.UpstreamFailoverError {
+	return &service.UpstreamFailoverError{
+		StatusCode:        http.StatusTooManyRequests,
+		ClientStatusCode:  http.StatusTooManyRequests,
+		ClientMessage:     "Concurrency limit exceeded for account, please retry later",
+		Scope:             service.GatewayFailureScopeAccount,
+		NextAccountAction: service.NextAccountRetry,
+	}
+}
 
 // Other candidates are tried first. Only explicit busy-account exclusions are
 // reopened after exhaustion; authentication/model/policy failures stay excluded.

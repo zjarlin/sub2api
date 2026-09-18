@@ -228,6 +228,7 @@ func resolveUsageBillingRequestID(ctx context.Context, upstreamRequestID string)
 func isForcedUsageBillingRequestID(requestID string) bool {
 	id := strings.TrimSpace(requestID)
 	return strings.HasPrefix(id, "web_search:") ||
+		strings.HasPrefix(id, "vision_helper:") ||
 		strings.HasPrefix(id, "grok-video:") ||
 		strings.HasPrefix(id, "grok_audio:") ||
 		strings.HasPrefix(id, "grok_realtime:")
@@ -533,6 +534,10 @@ func detachStreamUpstreamContext(ctx context.Context, stream bool) (context.Cont
 }
 
 func detachUpstreamContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	// 辅助视觉请求必须遵守整体截止时间和客户端取消，避免后台继续产生费用。
+	if ctx != nil && ctx.Value(visionFallbackContextKey{}) == true {
+		return ctx, func() {}
+	}
 	if ctx == nil {
 		return context.Background(), func() {}
 	}

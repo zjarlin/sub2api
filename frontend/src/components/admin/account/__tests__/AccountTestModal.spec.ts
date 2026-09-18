@@ -220,4 +220,45 @@ describe('AccountTestModal', () => {
       mode: 'compact'
     })
   })
+  it('模型列表失败后可重试，成功后恢复测试按钮', async () => {
+    getAvailableModels.mockRejectedValueOnce(new Error('timeout'))
+    const wrapper = mountModal()
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').text()).toContain('testModelsLoadFailed')
+    await wrapper.find('[role="alert"] button').trigger('click')
+    await flushPromises()
+    const start = wrapper.findAll('button').find(button => button.text().includes('admin.accounts.startTest'))!
+    expect(start.attributes('disabled')).toBeUndefined()
+    expect(getAvailableModels).toHaveBeenLastCalledWith(42, expect.objectContaining({ timeout: 10000, signal: expect.any(AbortSignal) }))
+    wrapper.unmount()
+  })
+
+  it('旧弹窗的模型响应不会覆盖重新打开后的账号', async () => {
+    let finish!: (models: unknown[]) => void
+    getAvailableModels.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const wrapper = mountModal()
+    await wrapper.setProps({ show: true })
+    await wrapper.setProps({ show: false })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    finish([{ id: 'stale-model', display_name: 'Old model' }])
+    await flushPromises()
+    expect((wrapper.vm as any).selectedModelId).toBe('gemini-3.1-flash-image')
+    wrapper.unmount()
+  })
+
+  it('单模型响应断流后退出测试中状态，允许重新测试', async () => {
+    global.fetch = vi.fn().mockResolvedValue(createStreamResponse(['data: {"type":"content","text":"hello"}\n'])) as any
+    const wrapper = mountModal()
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+    expect((wrapper.vm as any).status).toBe('error')
+    const retry = wrapper.findAll('button').find(button => button.text().includes('admin.accounts.retry'))!
+    expect(retry.attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
 })

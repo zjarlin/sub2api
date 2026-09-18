@@ -60,6 +60,9 @@ func (Account) Fields() []ent.Field {
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "text"}),
 
+		// 用户贡献账号的归属；调度仍按绑定分组执行。
+		field.Int64("owner_user_id").Optional().Nillable(),
+
 		// platform: 所属平台，如 "claude", "gemini", "openai" 等
 		field.String("platform").
 			MaxLen(50).

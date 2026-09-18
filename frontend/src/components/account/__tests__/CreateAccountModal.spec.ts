@@ -155,7 +155,9 @@ function mountModal(groups: any[] = []) {
 }
 
 async function selectButtonByText(wrapper: ReturnType<typeof mountModal>, text: string) {
-  const button = wrapper.findAll('button').find((candidate) => candidate.text().includes(text))
+  const buttons = wrapper.findAll('button')
+  const button = buttons.find(candidate => candidate.text().trim() === text) ??
+    buttons.find(candidate => candidate.text().includes(text))
   expect(button).toBeDefined()
   await button?.trigger('click')
 }
@@ -272,6 +274,24 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('syncCredentials')).toMatchObject({
       model_mapping: { 'public-glm': 'public-glm' }
     })
+  })
+
+  it('keeps model restrictions editable and persists them with passthrough enabled', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('[data-testid="create-openai-passthrough-toggle"]').trigger('click')
+    expect(wrapper.text()).toContain('admin.accounts.openai.passthroughModelRestrictionHint')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Passthrough account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    await wrapper.get('[data-testid="model-whitelist-selector"]').trigger('click')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials?.model_mapping).toEqual({
+      'public-glm': 'public-glm'
+    })
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra?.openai_passthrough).toBe(true)
   })
 
   it('runs formal capability sync after creating an account with explicit mappings', async () => {

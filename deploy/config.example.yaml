@@ -276,6 +276,13 @@ gateway:
   # 默认 false：保持纯文本 Codex 请求不被改写；客户端显式提供 image_generation tool 时，
   # 仍会在分组允许图片生成的情况下正常转发。
   codex_image_generation_bridge_enabled: false
+  # 为纯文本模型提供图片描述辅助；仅使用当前 API Key 分组内已确认支持视觉的 API Key 账号。
+  # 辅助调用单独记录用量和计费；纯文本请求不调用。模型能力目录会同步声明 image。
+  vision_fallback:
+    enabled: true
+    # 留空时按账号优先级选择；可填写分组中已配置的视觉模型公开名，不自动猜测模型 ID。
+    model: ""
+
   # Optional: template file used to build the final top-level Codex `instructions`.
   # 可选：用于构建最终 Codex 顶层 `instructions` 的模板文件路径。
   #

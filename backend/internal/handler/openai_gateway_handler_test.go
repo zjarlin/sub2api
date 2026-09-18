@@ -1940,20 +1940,33 @@ func (u *openAIHTTPPassthroughAuthFailoverUpstream) calls() []int64 {
 
 type openAIHTTPPassthroughSSERateLimitUpstream struct {
 	service.HTTPUpstream
-	mu         sync.Mutex
-	accountIDs []int64
+	mu               sync.Mutex
+	accountIDs       []int64
+	healthyAccountID int64
+	genericRateLimit bool
 }
 
 func (u *openAIHTTPPassthroughSSERateLimitUpstream) Do(_ *http.Request, _ string, accountID int64, _ int) (*http.Response, error) {
 	u.mu.Lock()
 	u.accountIDs = append(u.accountIDs, accountID)
 	u.mu.Unlock()
+	if accountID == u.healthyAccountID {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+			Body:       io.NopCloser(strings.NewReader("event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"id\":\"resp_healthy\",\"status\":\"completed\",\"model\":\"gpt-5.6-sol\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1}}}\n\n")),
+		}, nil
+	}
+	message := "Concurrency limit exceeded for account, please retry later"
+	if u.genericRateLimit {
+		message = "Rate limit exceeded, please retry later"
+	}
 	body := strings.Join([]string{
 		"event: response.created",
 		`data: {"type":"response.created","response":{"id":"resp_rate_limited"}}`,
 		"",
 		"event: response.failed",
-		`data: {"type":"response.failed","response":{"id":"resp_rate_limited","status":"failed","error":{"code":"rate_limit_exceeded","message":"Concurrency limit exceeded for account, please retry later"}}}`,
+		`data: {"type":"response.failed","response":{"id":"resp_rate_limited","status":"failed","error":{"code":"rate_limit_exceeded","message":"` + message + `"}}}`,
 		"",
 	}, "\n")
 	return &http.Response{
@@ -2090,6 +2103,7 @@ func TestOpenAIResponses_APIKeyPassthroughPool5xxRetriesThenExhaustsMaxSwitches(
 			ID: 9910, Name: "pool-api-key", Platform: service.PlatformOpenAI,
 			Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Priority: 1,
 			Credentials: map[string]any{
+				"model_mapping":                map[string]any{"gpt-5.2": "gpt-5.2"},
 				"api_key":                      "sk-pool",
 				"base_url":                     "https://api.example.test",
 				"pool_mode":                    true,
@@ -2102,8 +2116,9 @@ func TestOpenAIResponses_APIKeyPassthroughPool5xxRetriesThenExhaustsMaxSwitches(
 			ID: 9911, Name: "fallback-api-key", Platform: service.PlatformOpenAI,
 			Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Priority: 2,
 			Credentials: map[string]any{
-				"api_key":  "sk-fallback",
-				"base_url": "https://api.example.test",
+				"model_mapping": map[string]any{"gpt-5.2": "gpt-5.2"},
+				"api_key":       "sk-fallback",
+				"base_url":      "https://api.example.test",
 			},
 			Extra: map[string]any{"openai_passthrough": true},
 		},
@@ -2190,6 +2205,7 @@ func TestOpenAIResponses_APIKeyPassthroughPoolAuthFailureRetriesThenSwitchesToHe
 					ID: 9910, Name: "pool-api-key", Platform: service.PlatformOpenAI,
 					Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Priority: 1,
 					Credentials: map[string]any{
+						"model_mapping":                map[string]any{"gpt-5.2": "gpt-5.2"},
 						"api_key":                      "sk-pool",
 						"base_url":                     "https://api.example.test",
 						"pool_mode":                    true,
@@ -2202,8 +2218,9 @@ func TestOpenAIResponses_APIKeyPassthroughPoolAuthFailureRetriesThenSwitchesToHe
 					ID: 9911, Name: "fallback-api-key", Platform: service.PlatformOpenAI,
 					Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Priority: 2,
 					Credentials: map[string]any{
-						"api_key":  "sk-fallback",
-						"base_url": "https://api.example.test",
+						"model_mapping": map[string]any{"gpt-5.2": "gpt-5.2"},
+						"api_key":       "sk-fallback",
+						"base_url":      "https://api.example.test",
 					},
 					Extra: map[string]any{"openai_passthrough": true},
 				},
@@ -2282,6 +2299,7 @@ func TestOpenAIResponses_APIKeyPassthroughSSERateLimitUsesConfiguredPoolRetryPer
 			ID: 9912, Name: "pool-sse-rate-limit", Platform: service.PlatformOpenAI,
 			Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Priority: 1,
 			Credentials: map[string]any{
+				"model_mapping":                map[string]any{"gpt-5.6-sol": "gpt-5.6-sol", "gpt-5.5": "gpt-5.5"},
 				"api_key":                      "sk-pool",
 				"base_url":                     "https://api.example.test",
 				"pool_mode":                    true,
@@ -2297,7 +2315,7 @@ func TestOpenAIResponses_APIKeyPassthroughSSERateLimitUsesConfiguredPoolRetryPer
 	cfg.Gateway.MaxAccountSwitches = 1
 
 	accountRepo := &openAIWSFailoverHandlerAccountRepoStub{accounts: accounts}
-	upstream := &openAIHTTPPassthroughSSERateLimitUpstream{}
+	upstream := &openAIHTTPPassthroughSSERateLimitUpstream{genericRateLimit: true}
 	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billingCacheSvc.Stop)
 	gatewaySvc := service.NewOpenAIGatewayService(
@@ -2356,6 +2374,56 @@ func TestOpenAIResponses_APIKeyPassthroughSSERateLimitUsesConfiguredPoolRetryPer
 	require.Equal(t, "1", rec.Header().Get("Retry-After"))
 	require.Equal(t, "rate_limit_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
 	require.Equal(t, "Upstream rate limit exceeded, please retry later", gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
+}
+
+func TestOpenAIResponses_Concurrency429SwitchesAccountWithoutChangingModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	groupID := int64(4205)
+	accounts := make([]service.Account, 0, 2)
+	for index, accountID := range []int64{9912, 9913} {
+		accounts = append(accounts, service.Account{
+			ID: accountID, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+			Status: service.StatusActive, Schedulable: true, Priority: index + 1,
+			Credentials: map[string]any{
+				"model_mapping": map[string]any{"gpt-5.6-sol": "gpt-5.6-sol"},
+				"api_key":       "sk-test", "base_url": "https://api.example.test",
+				"pool_mode": true, "pool_mode_retry_count": float64(3),
+				"pool_mode_retry_status_codes": []any{float64(http.StatusTooManyRequests)},
+			},
+			Extra: map[string]any{"openai_passthrough": true},
+		})
+	}
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	cfg.Default.RateMultiplier = 1
+	cfg.Gateway.MaxAccountSwitches = 2
+	accountRepo := &openAIWSFailoverHandlerAccountRepoStub{accounts: accounts}
+	upstream := &openAIHTTPPassthroughSSERateLimitUpstream{healthyAccountID: 9913}
+	billingCache := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
+	t.Cleanup(billingCache.Stop)
+	gateway := service.NewOpenAIGatewayService(
+		accountRepo, nil, nil, nil, nil, nil, nil, cfg, nil, nil,
+		service.NewBillingService(cfg, nil), nil, billingCache, upstream,
+		&service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil,
+	)
+	handler := NewOpenAIGatewayHandler(gateway, service.NewConcurrencyService(nil), billingCache,
+		service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg)
+	recorder := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(recorder)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", strings.NewReader(`{"model":"gpt-5.6-sol","input":"hello","stream":true}`))
+	ctx.Request.Header.Set("Content-Type", "application/json")
+	ctx.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{
+		ID: 1805, GroupID: &groupID,
+		User:  &service.User{ID: 1705, Status: service.StatusActive},
+		Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI, Status: service.StatusActive},
+	})
+	ctx.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1705})
+	handler.Responses(ctx)
+	require.Equal(t, []int64{9912, 9913}, upstream.calls())
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Contains(t, recorder.Body.String(), "resp_healthy")
+	require.NotContains(t, recorder.Body.String(), "resp_rate_limited")
+	require.Empty(t, recorder.Header().Get("X-Sub2api-Fallback-Model"))
+	require.Empty(t, accountRepo.rateLimitedIDs)
 }
 
 func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T) {
@@ -2417,8 +2485,9 @@ func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T
 			Concurrency: 1,
 			Priority:    1,
 			Credentials: map[string]any{
-				"api_key":  "sk-first",
-				"base_url": firstUpstream.URL,
+				"model_mapping": map[string]any{"gpt-5.1": "gpt-5.1"},
+				"api_key":       "sk-first",
+				"base_url":      firstUpstream.URL,
 			},
 			Extra: map[string]any{
 				"openai_apikey_responses_websockets_v2_enabled": true,
@@ -2435,8 +2504,9 @@ func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T
 			Concurrency: 1,
 			Priority:    2,
 			Credentials: map[string]any{
-				"api_key":  "sk-second",
-				"base_url": secondUpstream.URL,
+				"model_mapping": map[string]any{"gpt-5.1": "gpt-5.1"},
+				"api_key":       "sk-second",
+				"base_url":      secondUpstream.URL,
 			},
 			Extra: map[string]any{
 				"openai_apikey_responses_websockets_v2_enabled": true,
@@ -2628,7 +2698,8 @@ func TestOpenAIResponsesWebSocket_FirstOutputTimeoutWithoutDownstreamReusesClien
 			Schedulable: true,
 			Concurrency: 1,
 			Priority:    1,
-			Credentials: map[string]any{"api_key": "sk-first", "base_url": firstUpstream.URL},
+			Credentials: map[string]any{
+				"model_mapping": map[string]any{"gpt-5.1": "gpt-5.1"}, "api_key": "sk-first", "base_url": firstUpstream.URL},
 			Extra: map[string]any{
 				"openai_apikey_responses_websockets_v2_enabled": true,
 				"openai_apikey_responses_websockets_v2_mode":    service.OpenAIWSIngressModePassthrough,
@@ -2643,7 +2714,8 @@ func TestOpenAIResponsesWebSocket_FirstOutputTimeoutWithoutDownstreamReusesClien
 			Schedulable: true,
 			Concurrency: 1,
 			Priority:    2,
-			Credentials: map[string]any{"api_key": "sk-second", "base_url": secondUpstream.URL},
+			Credentials: map[string]any{
+				"model_mapping": map[string]any{"gpt-5.1": "gpt-5.1"}, "api_key": "sk-second", "base_url": secondUpstream.URL},
 			Extra: map[string]any{
 				"openai_apikey_responses_websockets_v2_enabled": true,
 				"openai_apikey_responses_websockets_v2_mode":    service.OpenAIWSIngressModePassthrough,
@@ -2841,6 +2913,19 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	}
 	if strings.TrimSpace(tc.ingressMode) != "" {
 		account.Extra["openai_apikey_responses_websockets_v2_mode"] = tc.ingressMode
+	}
+	// 测试上游明确支持用例中的模型，避免依赖空配置放行所有模型。
+	if len(tc.accountModelMapping) == 0 {
+		models := []string{gjson.Get(tc.firstPayload, "model").String()}
+		if tc.secondPayload != "" {
+			models = append(models, gjson.Get(tc.secondPayload, "model").String())
+		}
+		for _, target := range tc.channelMapping {
+			models = append(models, target)
+		}
+		account.SetUpstreamSupportedModelsSnapshot(service.UpstreamSupportedModelsSnapshot{
+			Source: "upstream", SyncedAt: time.Now().UTC().Format(time.RFC3339), Models: models,
+		})
 	}
 
 	cfg := &config.Config{}

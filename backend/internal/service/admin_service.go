@@ -358,6 +358,7 @@ type UpdateGroupInput struct {
 }
 
 type CreateAccountInput struct {
+	OwnerUserID        *int64
 	Name               string
 	Notes              *string
 	Platform           string

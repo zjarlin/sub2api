@@ -75,10 +75,10 @@ func TestDiagnoseModelAvailabilityForPlatform_ExplicitMappingMatches(t *testing.
 	require.True(t, diag.HasModelSupport)
 }
 
-func TestDiagnoseModelAvailabilityForPlatform_EmptyMappingAllowsAll(t *testing.T) {
+func TestDiagnoseModelAvailabilityForPlatform_EmptyAPIKeyMappingRequiresEvidence(t *testing.T) {
 	repo := &mockAccountRepoForPlatform{
 		accounts: []Account{
-			{ID: 1, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true /* no ModelMapping = allow all */},
+			{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true},
 		},
 		accountsByID: map[int64]*Account{},
 	}
@@ -89,7 +89,8 @@ func TestDiagnoseModelAvailabilityForPlatform_EmptyMappingAllowsAll(t *testing.T
 
 	diag := svc.DiagnoseModelAvailabilityForPlatform(context.Background(), nil, "gpt-5.1-codex-mini", PlatformOpenAI)
 
-	require.True(t, diag.HasModelSupport, "empty model_mapping must be treated as 'allow all' (Account.IsModelSupported semantics)")
+	require.True(t, diag.HasAccountsInPool)
+	require.False(t, diag.HasModelSupport)
 }
 
 func TestDiagnoseModelAvailabilityForPlatform_WildcardMappingMatches(t *testing.T) {

@@ -274,3 +274,7 @@ router.currentRoute.value
 - [ ] Add route transition animations
 - [ ] Implement route prefetching for anticipated navigation
 - [ ] Add navigation analytics tracking
+
+## 用户贡献账号
+
+`/my-accounts` 恢复用户账号管理，登录用户可管理自己的上游账号，后端按账号归属鉴权。

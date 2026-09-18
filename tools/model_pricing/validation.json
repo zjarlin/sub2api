@@ -1,0 +1,146 @@
+{
+  "verified_at": "2026-09-16T07:13:03.483578+00:00",
+  "newly_configured_model_names": 176,
+  "preserved_models": [
+    "doubao-auto",
+    "doubao-pro"
+  ],
+  "advertised_group6_models_covered": 34,
+  "channels": [
+    {
+      "id": 10,
+      "groups": [
+        6
+      ],
+      "cards": 144,
+      "exact_prices_verified": true
+    },
+    {
+      "id": 7,
+      "groups": [
+        7
+      ],
+      "cards": 9,
+      "exact_prices_verified": true
+    },
+    {
+      "id": 2,
+      "groups": [
+        8,
+        13
+      ],
+      "cards": 10,
+      "exact_prices_verified": true
+    },
+    {
+      "id": 9,
+      "groups": [
+        19
+      ],
+      "cards": 13,
+      "exact_prices_verified": true
+    },
+    {
+      "id": 8,
+      "groups": [
+        20
+      ],
+      "cards": 11,
+      "exact_prices_verified": true
+    }
+  ],
+  "video_prices_verified": true,
+  "unrelated_group_settings_preserved": true,
+  "scheduling_bindings_and_user_discounts_preserved": true,
+  "ledger_verified": [
+    {
+      "id": 625012,
+      "model": "deepseek-v4-flash",
+      "input_tokens": 8,
+      "output_tokens": 40,
+      "cache_read_tokens": 0,
+      "total_cost": 7.7973e-06,
+      "actual_cost": 2.3392e-06,
+      "rate_multiplier": 0.3,
+      "channel_id": 10,
+      "billing_mode": "token",
+      "account_id": 832,
+      "billing_entries": null,
+      "dedup_recorded": true,
+      "billing_commit_evidence": "usage_billing_dedup 与余额扣减在同一事务中提交；本版本普通消费不写 billing_usage_entries"
+    },
+    {
+      "id": 625013,
+      "model": "nvidia/nemotron-3.5-lightning-30b-a3b",
+      "input_tokens": 20,
+      "output_tokens": 32,
+      "cache_read_tokens": 0,
+      "total_cost": 8e-06,
+      "actual_cost": 2.4e-06,
+      "rate_multiplier": 0.3,
+      "channel_id": 10,
+      "billing_mode": "token",
+      "account_id": 180,
+      "billing_entries": null,
+      "dedup_recorded": true,
+      "billing_commit_evidence": "usage_billing_dedup 与余额扣减在同一事务中提交；本版本普通消费不写 billing_usage_entries"
+    }
+  ],
+  "real_request_samples": [
+    {
+      "requested_model": "gpt-5.6-luna",
+      "marker": "market-price-f5893517890948e4b76d511b55b2f1c9",
+      "started_at": "2026-09-16T07:04:59.076012+00:00",
+      "http_status": 502,
+      "error": "{\"error\":{\"message\":\"Upstream access forbidden, please contact administrator\",\"type\":\"upstream_error\"}}"
+    },
+    {
+      "requested_model": "meta/llama-3.1-8b-instruct",
+      "marker": "market-price-5d0266f03e0446adb43cdabf8feac982",
+      "started_at": "2026-09-16T07:04:59.285208+00:00",
+      "http_status": 404,
+      "error": "{\"error\":{\"message\":\"Model \\\"meta/llama-3.1-8b-instruct\\\" is not supported by any configured account in this group\",\"type\":\"model_not_found\"}}"
+    },
+    {
+      "requested_model": "q3-4b",
+      "marker": "market-price-9a942afddeed49b0935b548251fb7dd6",
+      "started_at": "2026-09-16T07:04:59.328358+00:00",
+      "http_status": 502,
+      "error": "{\"error\":{\"message\":\"Upstream access forbidden, please contact administrator\",\"type\":\"upstream_error\"}}"
+    },
+    {
+      "requested_model": "deepseek-v4-flash",
+      "marker": "market-price-72aa418de52c4ab3afd46cf579f740a4",
+      "started_at": "2026-09-16T07:07:35.781632+00:00",
+      "http_status": 200,
+      "response_id": "resp_3f60e98b-ad0",
+      "model": "deepseek-v4-flash",
+      "usage": {
+        "prompt_tokens": 8,
+        "completion_tokens": 40,
+        "total_tokens": 48
+      },
+      "has_content": true
+    },
+    {
+      "requested_model": "nvidia/nemotron-3.5-lightning-30b-a3b",
+      "marker": "market-price-8f20d631299a448b9f218b2e65894886",
+      "started_at": "2026-09-16T07:07:37.266839+00:00",
+      "http_status": 200,
+      "response_id": "chatcmpl-e145e697-0307-43bc-9199-106a7ef1ff06",
+      "model": "nvidia/nemotron-3.5-lightning-30b-a3b",
+      "usage": {
+        "prompt_tokens": 20,
+        "completion_tokens": 32,
+        "total_tokens": 52
+      },
+      "has_content": true
+    }
+  ],
+  "limitations": [
+    "三次抽测失败：gpt-5.6-luna 与 q3-4b 返回上游访问拒绝，旧 Llama 3.1 模型无可用账号；未因此修改调度",
+    "长上下文、媒体输出及无可用账号的分组完成配置回读，未执行收费生成",
+    "模型广场原开关关闭，未为验证开启"
+  ],
+  "backup": "/Users/zjarlin/aio/workspace/zjarlin/sub2api-chat-playground/tools/desktop_session/runtime/market-pricing-backup-20260916T070344Z.json"
+}

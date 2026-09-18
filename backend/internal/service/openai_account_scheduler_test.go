@@ -256,7 +256,8 @@ func TestOpenAIAccountSchedulerRecoversStoppedModelMappedAccountFirst(t *testing
 	groupID := int64(6)
 	accounts := []Account{
 		{
-			ID: 1, Name: "passthrough", Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-6-astra", "gpt-6-astra-upstream")},
+			ID:          1, Name: "passthrough", Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 			Status: StatusActive, Schedulable: false, Priority: 0, Concurrency: 1,
 			Extra:         map[string]any{"openai_passthrough": true},
 			AccountGroups: []AccountGroup{{GroupID: groupID}},
@@ -286,7 +287,7 @@ func TestOpenAIAccountSchedulerRecoversStoppedModelMappedAccountFirst(t *testing
 	selection.ReleaseFunc()
 }
 
-func TestOpenAIAccountSchedulerRecoversStoppedPassthroughForUnknownModel(t *testing.T) {
+func TestOpenAIAccountSchedulerDoesNotRecoverPassthroughForUnknownModel(t *testing.T) {
 	resetOpenAIAdvancedSchedulerSettingCacheForTest()
 	groupID := int64(6)
 	blockedUntil := time.Now().Add(time.Minute)
@@ -305,16 +306,12 @@ func TestOpenAIAccountSchedulerRecoversStoppedPassthroughForUnknownModel(t *test
 		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
 	}
 
-	selection, decision, err := svc.SelectAccountWithSchedulerForCapability(
+	selection, _, err := svc.SelectAccountWithSchedulerForCapability(
 		context.Background(), &groupID, "", "", "gpt-6-astra", nil,
 		OpenAIUpstreamTransportAny, "", false, false, true,
 	)
-	require.NoError(t, err)
-	require.NotNil(t, selection)
-	require.Equal(t, int64(830), selection.Account.ID)
-	require.True(t, selection.Account.recoveryProbe)
-	require.Equal(t, openAIAccountScheduleLayerRecoveryProbe, decision.Layer)
-	selection.ReleaseFunc()
+	require.Error(t, err)
+	require.Nil(t, selection)
 }
 
 func TestOpenAIAccountSchedulerFiltersPersistedUnsupportedModelBeforeSelection(t *testing.T) {
@@ -322,7 +319,8 @@ func TestOpenAIAccountSchedulerFiltersPersistedUnsupportedModelBeforeSelection(t
 	groupID := int64(6)
 	accounts := []Account{
 		{
-			ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-6-astra")},
+			ID:          1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 			Status: StatusActive, Schedulable: true, Concurrency: 1,
 			Extra: map[string]any{
 				"openai_passthrough": true,
@@ -333,7 +331,8 @@ func TestOpenAIAccountSchedulerFiltersPersistedUnsupportedModelBeforeSelection(t
 			AccountGroups: []AccountGroup{{GroupID: groupID}},
 		},
 		{
-			ID: 2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-6-astra")},
+			ID:          2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 			Status: StatusActive, Schedulable: true, Concurrency: 1,
 			Extra:         map[string]any{"openai_passthrough": true},
 			AccountGroups: []AccountGroup{{GroupID: groupID}},
@@ -361,12 +360,14 @@ func TestOpenAIAccountSchedulerRecoveryExcludesFailedAndAdminDisabledAccounts(t 
 	groupID := int64(6)
 	accounts := []Account{
 		{
-			ID: 1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-6-astra")},
+			ID:          1, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 			Status: StatusActive, Schedulable: false, Concurrency: 1,
 			Extra: map[string]any{"openai_passthrough": true}, AccountGroups: []AccountGroup{{GroupID: groupID}},
 		},
 		{
-			ID: 2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-6-astra")},
+			ID:          2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 			Status: StatusDisabled, Schedulable: false, Concurrency: 1,
 			Extra: map[string]any{"openai_passthrough": true}, AccountGroups: []AccountGroup{{GroupID: groupID}},
 		},
@@ -577,6 +578,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_DefaultDisabledUsesLega
 	groupID := int64(10106)
 	accounts := []Account{
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          36001,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -586,6 +588,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_DefaultDisabledUsesLega
 			Priority:    5,
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          36002,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -661,6 +664,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_DefaultDisabled_LoadBat
 		},
 	}
 	excluded := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-4o", "gpt-5.4-mini")},
 		ID:          36005,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -703,6 +707,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_DefaultDisabled_Require
 	groupID := int64(10108)
 	accounts := []Account{
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          36011,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -712,6 +717,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_DefaultDisabled_Require
 			Priority:    0,
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          36012,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -757,6 +763,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_DefaultDisabled_Require
 	groupID := int64(10109)
 	accounts := []Account{
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          36021,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -805,6 +812,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_DefaultDisabled_Embeddi
 			Concurrency: 1,
 			Priority:    0,
 			Credentials: map[string]any{
+				"model_mapping":       testModelMapping("text-embedding-3-small"),
 				"openai_capabilities": []any{"chat_completions"},
 			},
 		},
@@ -817,6 +825,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_DefaultDisabled_Embeddi
 			Concurrency: 1,
 			Priority:    5,
 			Credentials: map[string]any{
+				"model_mapping":       testModelMapping("text-embedding-3-small"),
 				"openai_capabilities": []any{"chat_completions", "embeddings"},
 			},
 		},
@@ -858,17 +867,20 @@ func TestOpenAIGatewayService_SelectAccountForTokenCount_DoesNotAcquireGeneratio
 		{
 			ID: 36501, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 			Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0,
-			Credentials: map[string]any{"openai_capabilities": []any{"chat_completions"}},
+			Credentials: map[string]any{
+				"model_mapping": testModelMapping("gpt-4o", "gpt-5.1"), "openai_capabilities": []any{"chat_completions"}},
 		},
 		{
 			ID: 36502, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 			Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5,
-			Credentials: map[string]any{"openai_capabilities": []any{"embeddings"}},
+			Credentials: map[string]any{
+				"model_mapping": testModelMapping("gpt-4o", "gpt-5.1"), "openai_capabilities": []any{"embeddings"}},
 		},
 		{
 			ID: 36503, Platform: PlatformGrok, Type: AccountTypeAPIKey,
 			Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 10,
-			Credentials: map[string]any{"openai_capabilities": []any{"chat_completions"}},
+			Credentials: map[string]any{
+				"model_mapping": testModelMapping("gpt-4o", "gpt-5.1"), "openai_capabilities": []any{"chat_completions"}},
 		},
 		{
 			ID: 36504, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
@@ -924,12 +936,14 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_ResponsesCapabilityExcl
 	}
 
 	supported := Account{
-		ID: 37001, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1", "gpt-image-2")},
+		ID:          37001, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 		Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0,
 	}
 	// 更高优先级但探测确认不支持 Responses——若门控失效会被优先选中。
 	unsupported := Account{
-		ID: 37002, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1", "gpt-image-2")},
+		ID:          37002, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 		Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5,
 		Extra: map[string]any{"openai_responses_supported": false},
 	}
@@ -982,6 +996,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_AlphaSearchAllowsAPIKey
 	groupID := int64(10125)
 	accounts := []Account{
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.6-sol")},
 			ID:          38001,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -1238,6 +1253,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_NoAvailableErrorAggrega
 		},
 	}
 	excluded := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-4o", "gpt-5.4-mini")},
 		ID:          38123,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -1292,6 +1308,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_EnabledUsesAdvancedPrev
 	groupID := int64(10107)
 	accounts := []Account{
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          37001,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -1304,6 +1321,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_EnabledUsesAdvancedPrev
 			},
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          37002,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -1357,6 +1375,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_StickyWeightedSessionIn
 	groupID := int64(101071)
 	accounts := []Account{
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          37101,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -1367,6 +1386,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_StickyWeightedSessionIn
 			GroupIDs:    []int64{groupID},
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          37102,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -1425,6 +1445,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_StickyWeightedPreviousR
 	groupID := int64(101072)
 	accounts := []Account{
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          37111,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -1438,6 +1459,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_StickyWeightedPreviousR
 			},
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          37112,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -1524,6 +1546,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_PreviousResponseCompact
 	groupID := int64(101073)
 	accounts := []Account{
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          37121,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -1538,6 +1561,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_PreviousResponseCompact
 			},
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          37122,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -1609,6 +1633,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_Enabled_EmbeddingsSkips
 			Concurrency: 1,
 			Priority:    0,
 			Credentials: map[string]any{
+				"model_mapping":       testModelMapping("text-embedding-3-small"),
 				"openai_capabilities": []any{"chat_completions"},
 			},
 		},
@@ -1621,6 +1646,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_Enabled_EmbeddingsSkips
 			Concurrency: 1,
 			Priority:    5,
 			Credentials: map[string]any{
+				"model_mapping":       testModelMapping("text-embedding-3-small"),
 				"openai_capabilities": []any{"chat_completions", "embeddings"},
 			},
 		},
@@ -1671,6 +1697,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_Enabled_EmbeddingsSkips
 			Concurrency: 1,
 			Priority:    0,
 			Credentials: map[string]any{
+				"model_mapping":       testModelMapping("text-embedding-3-small"),
 				"openai_capabilities": []any{"chat_completions"},
 			},
 			Extra: map[string]any{
@@ -1686,6 +1713,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_Enabled_EmbeddingsSkips
 			Concurrency: 1,
 			Priority:    5,
 			Credentials: map[string]any{
+				"model_mapping":       testModelMapping("text-embedding-3-small"),
 				"openai_capabilities": []any{"chat_completions", "embeddings"},
 			},
 			Extra: map[string]any{
@@ -1848,6 +1876,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyRateLimite
 func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_AutoPauseBy5hThreshold(t *testing.T) {
 	ctx := context.Background()
 	primary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 		ID:          35001,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -1860,7 +1889,8 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_AutoPauseBy5hT
 			"auto_pause_5h_threshold": 0.95,
 		},
 	}
-	secondary := Account{ID: 35002, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
+	secondary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")}, ID: 35002, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
 	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{primary, secondary}}, cfg: &config.Config{}}
 
 	account, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-5.1", nil)
@@ -1872,6 +1902,7 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_AutoPauseBy5hT
 func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_AllowsBelow5hThreshold(t *testing.T) {
 	ctx := context.Background()
 	primary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 		ID:          35101,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -1884,7 +1915,8 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_AllowsBelow5hT
 			"auto_pause_5h_threshold": 0.95,
 		},
 	}
-	secondary := Account{ID: 35102, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
+	secondary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")}, ID: 35102, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
 	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{primary, secondary}}, cfg: &config.Config{}}
 
 	account, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-5.1", nil)
@@ -1896,6 +1928,7 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_AllowsBelow5hT
 func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_AutoPauseBy7dThreshold(t *testing.T) {
 	ctx := context.Background()
 	primary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 		ID:          35201,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -1908,7 +1941,8 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_AutoPauseBy7dT
 			"auto_pause_7d_threshold": 0.95,
 		},
 	}
-	secondary := Account{ID: 35202, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
+	secondary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")}, ID: 35202, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
 	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{primary, secondary}}, cfg: &config.Config{}}
 
 	account, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-5.1", nil)
@@ -1919,8 +1953,10 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_AutoPauseBy7dT
 
 func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_UnconfiguredThresholdKeepsLegacyBehavior(t *testing.T) {
 	ctx := context.Background()
-	primary := Account{ID: 35301, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, Extra: map[string]any{"codex_5h_used_percent": 99.0, "codex_7d_used_percent": 99.0}}
-	secondary := Account{ID: 35302, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
+	primary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")}, ID: 35301, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, Extra: map[string]any{"codex_5h_used_percent": 99.0, "codex_7d_used_percent": 99.0}}
+	secondary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")}, ID: 35302, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
 	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{primary, secondary}}, cfg: &config.Config{}}
 
 	account, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-5.1", nil)
@@ -1932,6 +1968,7 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_UnconfiguredTh
 func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_UsesGlobalDefaultThreshold(t *testing.T) {
 	ctx := withOpenAIQuotaAutoPauseSettings(context.Background(), OpsOpenAIAccountQuotaAutoPauseSettings{DefaultThreshold5h: 0.95})
 	primary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 		ID:          35401,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -1943,7 +1980,8 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_UsesGlobalDefa
 			"codex_5h_used_percent": 95.0,
 		},
 	}
-	secondary := Account{ID: 35402, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
+	secondary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")}, ID: 35402, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
 	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{primary, secondary}}, cfg: &config.Config{}}
 
 	account, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-5.1", nil)
@@ -1961,6 +1999,7 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_PerAccountDisa
 	// Account has high usage AND no per-account threshold (would normally fall back to
 	// the global default and get paused), but the explicit disable flag is set.
 	primary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 		ID:          35701,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -1973,7 +2012,8 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_PerAccountDisa
 			"auto_pause_5h_disabled": true,
 		},
 	}
-	secondary := Account{ID: 35702, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
+	secondary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")}, ID: 35702, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
 	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{primary, secondary}}, cfg: &config.Config{}}
 
 	account, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-5.1", nil)
@@ -1986,6 +2026,7 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_PerAccountDisa
 func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_PerWindowDisableScoped(t *testing.T) {
 	ctx := context.Background()
 	primary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 		ID:          35801,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -2000,7 +2041,8 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_PerWindowDisab
 			"auto_pause_7d_threshold": 0.95,
 		},
 	}
-	secondary := Account{ID: 35802, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
+	secondary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")}, ID: 35802, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
 	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{primary, secondary}}, cfg: &config.Config{}}
 
 	account, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-5.1", nil)
@@ -2015,6 +2057,7 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_StaleUsageWind
 	// cached percentage is stale (the real window rolled over) and the account must NOT
 	// stay paused — otherwise it could be skipped forever with no traffic to refresh it.
 	primary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 		ID:          35501,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -2028,7 +2071,8 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_StaleUsageWind
 			"codex_5h_reset_at":       time.Now().Add(-time.Minute).Format(time.RFC3339),
 		},
 	}
-	secondary := Account{ID: 35502, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
+	secondary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")}, ID: 35502, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
 	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{primary, secondary}}, cfg: &config.Config{}}
 
 	account, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-5.1", nil)
@@ -2041,6 +2085,7 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_FreshUsageWind
 	ctx := context.Background()
 	// Same as above but the window has not reset yet, so the account stays paused.
 	primary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 		ID:          35601,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -2054,7 +2099,8 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_FreshUsageWind
 			"codex_5h_reset_at":       time.Now().Add(time.Hour).Format(time.RFC3339),
 		},
 	}
-	secondary := Account{ID: 35602, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
+	secondary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")}, ID: 35602, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
 	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{primary, secondary}}, cfg: &config.Config{}}
 
 	account, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-5.1", nil)
@@ -2071,6 +2117,7 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_FreshUsageWind
 func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_StaleUsageSnapshotSkipsPause_Issue2994(t *testing.T) {
 	ctx := context.Background()
 	primary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 		ID:          35701,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -2087,7 +2134,8 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_StaleUsageSnap
 			"codex_usage_updated_at": time.Now().Add(-3 * time.Hour).Format(time.RFC3339),
 		},
 	}
-	secondary := Account{ID: 35702, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
+	secondary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")}, ID: 35702, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
 	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{primary, secondary}}, cfg: &config.Config{}}
 
 	account, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-5.1", nil)
@@ -2102,6 +2150,7 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_StaleUsageSnap
 func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_FreshExhaustedSnapshotStillPauses_Issue2994(t *testing.T) {
 	ctx := context.Background()
 	primary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 		ID:          35801,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -2117,7 +2166,8 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_FreshExhausted
 			"codex_usage_updated_at": time.Now().Add(-time.Minute).Format(time.RFC3339),
 		},
 	}
-	secondary := Account{ID: 35802, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
+	secondary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")}, ID: 35802, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
 	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{primary, secondary}}, cfg: &config.Config{}}
 
 	account, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-5.1", nil)
@@ -2153,6 +2203,7 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_ModelRateLimit
 	ctx := context.Background()
 	resetAt := time.Now().Add(30 * time.Minute).Format(time.RFC3339)
 	primary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.3", "gpt-5.4")},
 		ID:          32101,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -2169,6 +2220,7 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_ModelRateLimit
 		},
 	}
 	secondary := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.3", "gpt-5.4")},
 		ID:          32102,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -2253,8 +2305,10 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_DBRuntimeReche
 func TestOpenAIGatewayService_SelectAccountWithScheduler_DBFreshGroupRecheckReleasesMovedAccount(t *testing.T) {
 	ctx := context.Background()
 	groupID, otherGroupID := int64(10105), int64(10106)
-	stalePrimary := &Account{ID: 34101, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, GroupIDs: []int64{groupID}}
-	staleBackup := &Account{ID: 34102, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 10, GroupIDs: []int64{groupID}}
+	stalePrimary := &Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")}, ID: 34101, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, GroupIDs: []int64{groupID}}
+	staleBackup := &Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")}, ID: 34102, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 10, GroupIDs: []int64{groupID}}
 	dbPrimary := *stalePrimary
 	dbPrimary.GroupIDs = []int64{otherGroupID}
 	dbBackup := *staleBackup
@@ -2291,8 +2345,10 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_DBFreshGroupRecheckRele
 func TestOpenAIGatewayService_SelectAccountWithLoadAwareness_DBFreshGroupRecheckWaitsOnValidAccount(t *testing.T) {
 	ctx := context.Background()
 	groupID, otherGroupID := int64(10107), int64(10108)
-	stalePrimary := &Account{ID: 34201, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, GroupIDs: []int64{groupID}}
-	staleBackup := &Account{ID: 34202, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 10, GroupIDs: []int64{groupID}}
+	stalePrimary := &Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")}, ID: 34201, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, GroupIDs: []int64{groupID}}
+	staleBackup := &Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")}, ID: 34202, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 10, GroupIDs: []int64{groupID}}
 	dbPrimary := *stalePrimary
 	dbPrimary.GroupIDs = []int64{otherGroupID}
 	dbBackup := *staleBackup
@@ -2319,7 +2375,8 @@ func TestOpenAIGatewayService_SelectAccountWithLoadAwareness_DBFreshGroupRecheck
 }
 
 func TestOpenAIGatewayService_RecheckSelectedOpenAIAccountFromDB_SimpleModeUsesFullPool(t *testing.T) {
-	grouped := Account{ID: 34301, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{99}}
+	grouped := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")}, ID: 34301, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{99}}
 	svc := &OpenAIGatewayService{
 		accountRepo:       schedulerTestOpenAIAccountRepo{accounts: []Account{grouped}},
 		cfg:               &config.Config{RunMode: config.RunModeSimple},
@@ -2349,6 +2406,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_PreviousResponseSticky(
 	ctx := context.Background()
 	groupID := int64(9)
 	account := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 		ID:          1001,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -2453,6 +2511,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyBusyKeepsS
 	groupID := int64(10100)
 	accounts := []Account{
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          21001,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -2463,6 +2522,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyBusyKeepsS
 			GroupIDs:    []int64{groupID},
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          21002,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -2537,6 +2597,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyEscapeByTT
 	groupID := int64(10101)
 	accounts := []Account{
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          21101,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -2547,6 +2608,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyEscapeByTT
 			GroupIDs:    []int64{groupID},
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          21102,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -2609,8 +2671,10 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyEscapeByEr
 	ctx := context.Background()
 	groupID := int64(10102)
 	accounts := []Account{
-		{ID: 21201, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, GroupIDs: []int64{groupID}},
-		{ID: 21202, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1, GroupIDs: []int64{groupID}},
+		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")}, ID: 21201, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, GroupIDs: []int64{groupID}},
+		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")}, ID: 21202, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1, GroupIDs: []int64{groupID}},
 	}
 	cache := &schedulerTestGatewayCache{sessionBindings: map[string]int64{"openai:session_hash_sticky_error_rate": 21201}}
 	cfg := &config.Config{}
@@ -2659,8 +2723,10 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyBusyEscape
 	ctx := context.Background()
 	groupID := int64(10103)
 	accounts := []Account{
-		{ID: 21301, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, GroupIDs: []int64{groupID}},
-		{ID: 21302, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1, GroupIDs: []int64{groupID}},
+		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")}, ID: 21301, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, GroupIDs: []int64{groupID}},
+		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")}, ID: 21302, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1, GroupIDs: []int64{groupID}},
 	}
 	cache := &schedulerTestGatewayCache{sessionBindings: map[string]int64{"openai:session_hash_sticky_busy_escape": 21301}}
 	cfg := &config.Config{}
@@ -2702,8 +2768,10 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SessionStickyEscapeDisa
 	ctx := context.Background()
 	groupID := int64(10104)
 	accounts := []Account{
-		{ID: 21401, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, GroupIDs: []int64{groupID}},
-		{ID: 21402, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1, GroupIDs: []int64{groupID}},
+		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")}, ID: 21401, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0, GroupIDs: []int64{groupID}},
+		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")}, ID: 21402, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1, GroupIDs: []int64{groupID}},
 	}
 	cache := &schedulerTestGatewayCache{sessionBindings: map[string]int64{"openai:session_hash_sticky_disabled": 21401}}
 	cfg := &config.Config{}
@@ -2809,6 +2877,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SubscriptionPriorityFal
 			Credentials: map[string]any{"plan_type": "team"},
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          21612,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -2862,6 +2931,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SubscriptionPriorityDis
 			Credentials: map[string]any{"plan_type": "pro"},
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          21622,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -2903,6 +2973,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_UsesAccountPriorityWith
 	groupID := int64(10123)
 	accounts := []Account{
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          21631,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -2916,6 +2987,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_UsesAccountPriorityWith
 			GroupIDs: []int64{groupID},
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          21632,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -2953,7 +3025,8 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_UsesAccountPriorityWith
 
 func TestOpenAIAccountScheduler_SkipsAccountBlockedForRequestedModel(t *testing.T) {
 	now := time.Now()
-	account := &Account{ID: 21633, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	account := &Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.5", "gpt-5.6-sol")}, ID: 21633, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
 	svc := &OpenAIGatewayService{openaiModelTransient: newOpenAIAccountModelTransientState(128)}
 	svc.openaiModelTransient.recordFailure(account.ID, "gpt-5.5", now)
 	svc.openaiModelTransient.recordFailure(account.ID, "gpt-5.5", now.Add(time.Millisecond))
@@ -3070,6 +3143,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_RequiredWSV2_SkipsStick
 	groupID := int64(1011)
 	accounts := []Account{
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          2201,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -3080,6 +3154,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_RequiredWSV2_SkipsStick
 			GroupIDs:    []int64{groupID},
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          2202,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -3143,6 +3218,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_ClearsStickyAccountOuts
 	groupID := int64(1013)
 	accounts := []Account{
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          2401,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -3152,6 +3228,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_ClearsStickyAccountOuts
 			Priority:    0,
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          2402,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -3244,6 +3321,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceTopKFallback
 	groupID := int64(11)
 	accounts := []Account{
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          3001,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -3253,6 +3331,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceTopKFallback
 			Priority:    0,
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          3002,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -3262,6 +3341,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceTopKFallback
 			Priority:    0,
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          3003,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -3332,6 +3412,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceTopKExcludes
 	groupID := int64(110)
 	accounts := []Account{
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          37001,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -3345,6 +3426,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceTopKExcludes
 			},
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          37002,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -3406,6 +3488,7 @@ func TestOpenAIGatewayService_OpenAIAccountSchedulerMetrics(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(12)
 	account := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 		ID:          4001,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -3570,6 +3653,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceDistributesA
 	groupID := int64(15)
 	accounts := []Account{
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          5101,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -3579,6 +3663,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceDistributesA
 			Priority:    0,
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          5102,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -3588,6 +3673,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceDistributesA
 			Priority:    0,
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          5103,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -3811,6 +3897,7 @@ func TestDefaultOpenAIAccountScheduler_IsAccountTransportCompatible_Branches(t *
 	cfg := newSchedulerTestOpenAIWSV2Config()
 	scheduler.service = &OpenAIGatewayService{cfg: cfg}
 	account := &Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1", "gpt-5.4", "gpt-5.6-sol", "gpt-test")},
 		ID:          8801,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -3845,6 +3932,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_StickyWeightedFallbackS
 	otherGroupID := int64(101082)
 	accounts := []Account{
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          38001,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -3855,6 +3943,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_StickyWeightedFallbackS
 			GroupIDs:    []int64{groupID},
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			// 会话粘连绑定指向的账号已被移出请求分组（绑定 TTL 内账号改组的场景）。
 			ID:          38002,
 			Platform:    PlatformOpenAI,
@@ -3931,6 +4020,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_SubscriptionPriorityWai
 			Extra:       map[string]any{"openai_compact_supported": true},
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			// 常规账号：明确不支持 compact，无法服务本次请求。
 			ID:          38012,
 			Platform:    PlatformOpenAI,

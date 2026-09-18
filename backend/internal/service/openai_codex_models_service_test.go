@@ -584,6 +584,7 @@ func TestBuildCodexModelsManifestForGroupUsesConservativeProviderImageCapabiliti
 			model: "gpt-5.6-sol",
 			accounts: []Account{{
 				ID: 17, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+				Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.6-sol")},
 			}},
 			modalities: []any{"text", "image"},
 		},
@@ -592,6 +593,7 @@ func TestBuildCodexModelsManifestForGroupUsesConservativeProviderImageCapabiliti
 			model: "gpt-3.5-turbo",
 			accounts: []Account{{
 				ID: 20, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+				Credentials: map[string]any{"model_mapping": testModelMapping("gpt-3.5-turbo")},
 			}},
 			modalities: []any{"text"},
 		},
@@ -600,7 +602,7 @@ func TestBuildCodexModelsManifestForGroupUsesConservativeProviderImageCapabiliti
 			model: "gpt-5.6-sol",
 			accounts: []Account{{
 				ID: 18, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
-				Credentials: map[string]any{"base_url": "https://openai-compatible.example.test/v1"},
+				Credentials: map[string]any{"base_url": "https://openai-compatible.example.test/v1", "model_mapping": testModelMapping("gpt-5.6-sol")},
 			}},
 			modalities: []any{"text"},
 		},

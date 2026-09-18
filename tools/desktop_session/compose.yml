@@ -1,0 +1,26 @@
+services:
+  desktop-api:
+    build: .
+    image: sub2api-desktop:local
+    user: "${DESKTOP_UID:?Run prepare.py first}:${DESKTOP_GID:?Run prepare.py first}"
+    restart: unless-stopped
+    environment:
+      DESKTOP_MAX_REQUEST_BODY_BYTES: "${DESKTOP_MAX_REQUEST_BODY_BYTES:-33554432}"
+      DESKTOP_STATE_FILE: /var/lib/desktop-session/conversations.json
+      DESKTOP_UPSTREAM_TIMEOUT_SECONDS: "${DESKTOP_UPSTREAM_TIMEOUT_SECONDS:-120}"
+      DESKTOP_GENERATION_TIMEOUT_SECONDS: "${DESKTOP_GENERATION_TIMEOUT_SECONDS:-600}"
+    ports:
+      - "127.0.0.1:${DESKTOP_PORT:-18089}:8080"
+    volumes:
+      - "${DESKTOP_SECRET_DIR:?Run prepare.py first}:/run/secrets:ro"
+      - "${DESKTOP_STATE_DIR:?Create a private writable state directory}:/var/lib/desktop-session"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 256m
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

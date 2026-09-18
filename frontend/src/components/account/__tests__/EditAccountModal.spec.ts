@@ -566,6 +566,23 @@ describe('EditAccountModal', () => {
     })
   })
 
+  it('edits and saves the scheduling whitelist of a passthrough account', async () => {
+    const account = buildAccount()
+    account.extra = { openai_passthrough: true }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+
+    expect(wrapper.text()).toContain('admin.accounts.openai.passthroughModelRestrictionHint')
+    await wrapper.get('[data-testid="rewrite-to-snapshot"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock.mock.lastCall?.[1].credentials.model_mapping).toEqual({
+      'gpt-5.2-2025-12-11': 'gpt-5.2-2025-12-11'
+    })
+    expect(updateAccountMock.mock.lastCall?.[1].extra.openai_passthrough).toBe(true)
+  })
+
   it('submits OpenAI compact mode and compact-only model mapping', async () => {
     const account = buildAccount()
     account.extra = {
