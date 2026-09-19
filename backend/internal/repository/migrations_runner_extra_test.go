@@ -325,6 +325,47 @@ func TestApplyMigrationsFS_ReadMigrationError(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestApplyMigrationsFS_SkipDotAndUnderscorePrefixedFiles(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	prepareMigrationsBootstrapExpectations(mock)
+
+	// 只有 001_valid.sql 会被查询；._ 与 _ 开头文件必须被 listMigrationFiles 过滤，
+	// 否则 macOS AppleDouble 垃圾文件会被当作迁移执行导致启动失败（2026-09-19 事故）。
+	validSQL := "CREATE TABLE t(id int);"
+	checksum := migrationChecksum(validSQL)
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs("001_valid.sql").
+		WillReturnRows(sqlmock.NewRows([]string{"checksum"}).AddRow(checksum))
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+		WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	fsys := fstest.MapFS{
+		"._001_init.sql":   &fstest.MapFile{Data: []byte("\x00\x05\x16\x07AppleDouble garbage")},
+		"_002_skipped.sql": &fstest.MapFile{Data: []byte("SELECT 1;")},
+		"001_valid.sql":    &fstest.MapFile{Data: []byte(validSQL)},
+	}
+	err = applyMigrationsFS(context.Background(), db, fsys)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestLatestMigrationBaseline_SkipsDotAndUnderscoreFiles(t *testing.T) {
+	fsys := fstest.MapFS{
+		"._999_junk.sql":   &fstest.MapFile{Data: []byte("\x00\x05\x16\x07AppleDouble garbage")},
+		"_010_skipped.sql": &fstest.MapFile{Data: []byte("SELECT 1;")},
+		"010_real.sql":     &fstest.MapFile{Data: []byte("CREATE TABLE t2(id int);")},
+	}
+	version, description, hash, err := latestMigrationBaseline(fsys)
+	require.NoError(t, err)
+	require.Equal(t, "010_real", version)
+	require.Equal(t, "010_real", description)
+	require.Len(t, hash, 64)
+}
+
 func TestPgAdvisoryLockAndUnlock_ErrorBranches(t *testing.T) {
 	t.Run("context_cancelled_while_not_locked", func(t *testing.T) {
 		db, mock, err := sqlmock.New()
