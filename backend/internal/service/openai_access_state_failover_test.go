@@ -77,7 +77,7 @@ func TestOpenAIUpstreamAccessStateClassification(t *testing.T) {
 			if !tt.want {
 				return
 			}
-			require.True(t, (&OpenAIGatewayService{}).shouldFailoverOpenAIUpstreamResponse(http.StatusForbidden, "", body))
+			require.True(t, (&OpenAIGatewayService{}).shouldFailoverOpenAIUpstreamResponse(newOpenAIUpstreamErrorTestAccount(), http.StatusForbidden, "", body))
 			require.True(t, shouldFailoverOpenAIPassthroughResponse(&Account{Type: AccountTypeOAuth}, http.StatusForbidden, body))
 
 			err := newOpenAIUpstreamFailoverError(http.StatusForbidden, nil, body, "", true)
@@ -105,7 +105,7 @@ func TestOpenAIHTTPAccessStateDoesNotTrustBadRequestMessage(t *testing.T) {
 
 	require.False(t, isOpenAIUpstreamAccessStateError("", body), "free-form stream messages are not durable account evidence")
 	require.False(t, isOpenAIHTTPUpstreamAccessStateError(http.StatusBadRequest, "", body))
-	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(http.StatusBadRequest, "", body))
+	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(newOpenAIUpstreamErrorTestAccount(), http.StatusBadRequest, "", body))
 	require.False(t, shouldFailoverOpenAIPassthroughResponse(&Account{Type: AccountTypeOAuth}, http.StatusBadRequest, body))
 
 	err := newOpenAIUpstreamFailoverError(http.StatusBadRequest, nil, body, "", false)
@@ -119,7 +119,7 @@ func TestOpenAIToolCallContinuationErrorTriggersAccountFailover(t *testing.T) {
 	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
 
 	require.True(t, isOpenAIToolCallContinuationError(message, body))
-	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(http.StatusBadRequest, message, body))
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(account, http.StatusBadRequest, message, body))
 	require.True(t, shouldFailoverOpenAIPassthroughResponse(account, http.StatusBadRequest, body))
 	require.True(t, openAIStreamFailedEventShouldFailover(body, message))
 	require.True(t, openAIStreamErrorEventShouldFailover(body, message))
@@ -137,7 +137,7 @@ func TestOpenAIToolCallContinuationErrorTriggersAccountFailover(t *testing.T) {
 func TestOpenAIToolCallContinuationErrorDoesNotScanEchoedRequestContent(t *testing.T) {
 	body := []byte(`{"error":{"type":"invalid_request_error","message":"Invalid input"},"echo":"No tool call found for function call output with call_id fco_123."}`)
 	require.False(t, isOpenAIToolCallContinuationError("Invalid input", body))
-	require.False(t, (&OpenAIGatewayService{}).shouldFailoverOpenAIUpstreamResponse(http.StatusBadRequest, "Invalid input", body))
+	require.False(t, (&OpenAIGatewayService{}).shouldFailoverOpenAIUpstreamResponse(newOpenAIUpstreamErrorTestAccount(), http.StatusBadRequest, "Invalid input", body))
 	require.False(t, shouldFailoverOpenAIPassthroughResponse(&Account{Type: AccountTypeAPIKey}, http.StatusBadRequest, body))
 }
 
@@ -177,7 +177,7 @@ func TestOpenAIHTTPAccessStateTrustsStructuredCode(t *testing.T) {
 	body := []byte(`{"error":{"code":"organization_deactivated","message":"request rejected"}}`)
 
 	require.True(t, isOpenAIHTTPUpstreamAccessStateError(http.StatusBadRequest, "", body))
-	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(http.StatusBadRequest, "", body))
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(newOpenAIUpstreamErrorTestAccount(), http.StatusBadRequest, "", body))
 	require.True(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusBadRequest, nil, body))
 	require.Equal(t, 1, repo.setErrorCalls)
 	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
@@ -218,7 +218,7 @@ func TestOpenAIHTTPAuthMessagesUseExistingStatusPolicies(t *testing.T) {
 func TestOpenAICyberPolicyWrapped5xxNeverFailsOver(t *testing.T) {
 	body := []byte(`{"error":{"code":"cyber_policy","message":"blocked"}}`)
 	svc := &OpenAIGatewayService{}
-	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(http.StatusBadGateway, "wrapped upstream failure", body))
+	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(newOpenAIUpstreamErrorTestAccount(), http.StatusBadGateway, "wrapped upstream failure", body))
 	require.False(t, shouldFailoverOpenAIPassthroughResponse(&Account{Type: AccountTypeOAuth}, http.StatusBadGateway, body))
 }
 
