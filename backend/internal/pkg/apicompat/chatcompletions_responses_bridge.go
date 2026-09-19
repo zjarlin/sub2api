@@ -256,10 +256,19 @@ func customToolCallName(name string, customTools, functionTools map[string]bool,
 	if _, ok := namespaceTools[name]; ok {
 		return "", false
 	}
+	// 点号寻址必须优先属于真实 namespace 子工具，不能误还原成同名 custom 工具。
+	for _, tool := range namespaceTools {
+		if name == tool.Namespace+"."+tool.Name || name == "functions."+tool.Namespace+"."+tool.Name {
+			return "", false
+		}
+	}
+	if customName, prefixed := strings.CutPrefix(name, "functions."); prefixed && customTools[customName] {
+		return customName, true
+	}
 	match := ""
 	for customName := range customTools {
 		for _, namespaceTool := range namespaceTools {
-			if flattenNamespaceToolName(namespaceTool.Namespace, customName) != name {
+			if flattenNamespaceToolName(namespaceTool.Namespace, customName) != name && namespaceTool.Namespace+"."+customName != name {
 				continue
 			}
 			if match != "" && match != customName {

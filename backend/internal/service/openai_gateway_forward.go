@@ -83,6 +83,11 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	if legacyIngressChanged {
 		body = legacyIngressBody
 	}
+	// 在 namespace 摊平和各上游分流前修正历史别名，避免跨模型续接反复携带非法 name。
+	body, err = normalizeResponsesToolCallNames(body)
+	if err != nil {
+		return nil, fmt.Errorf("normalize Responses tool call names: %w", err)
+	}
 	// 在分流到 passthrough / Codex transform / 原生 ChatCompletions 之前统一修正
 	// 显式为 null 的工具 Schema type，否则 upstream 的 400 会被归一成可重试的 502，
 	// 同一份坏定义在账号池里反复重放。
