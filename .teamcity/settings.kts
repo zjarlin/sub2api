@@ -32,7 +32,7 @@ object Deploy252Cluster : BuildType({
     triggers {
         trigger {
             type = "vcsTrigger"
-            param("branchFilter", "+:refs/heads/local/main-customizations")
+            param("branchFilter", "+:<default>")
         }
     }
 
@@ -60,7 +60,7 @@ object Deploy252Cluster : BuildType({
                 docker build \
                   --build-arg VERSION="${'$'}SHORT_SHA" \
                   --build-arg COMMIT="${'$'}SHA" \
-                  --build-arg DATE="${'$'}(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                  --build-arg DATE="${'$'}(date -u +%%Y-%%m-%%dT%%H:%%M:%%SZ)" \
                   -t "${'$'}IMAGE" .
                 echo "##teamcity[progressFinish '构建不可变镜像']"
 
