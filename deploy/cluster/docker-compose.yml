@@ -1,0 +1,25 @@
+services:
+  sub2api:
+    image: ${SUB2API_IMAGE:?SUB2API_IMAGE is required}
+    container_name: !reset null
+    ports: !reset []
+
+  gateway:
+    image: nginx:1.27-alpine
+    container_name: sub2api-gateway
+    restart: unless-stopped
+    depends_on:
+      sub2api:
+        condition: service_healthy
+    ports:
+      - "${CLUSTER_BIND_HOST:-0.0.0.0}:18080:80"
+    volumes:
+      - ./deploy/cluster/nginx.conf:/etc/nginx/nginx.conf:ro
+    networks:
+      - sub2api-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-T", "5", "-O", "/dev/null", "http://127.0.0.1/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
