@@ -17,7 +17,7 @@ object Deploy252Cluster : BuildType({
     }
 
     requirements {
-        equals("agent.name", "ip_172.19.0.1")
+        equals("teamcity.agent.name", "ip_172.19.0.1")
     }
 
     params {
