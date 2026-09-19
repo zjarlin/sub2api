@@ -29,7 +29,7 @@ fi
 rollback() {
   if [ -n "$CURRENT_IMAGE" ] && docker image inspect "$CURRENT_IMAGE" >/dev/null 2>&1; then
     echo "Deployment failed; restoring $CURRENT_IMAGE"
-    SUB2API_IMAGE="$CURRENT_IMAGE" "${COMPOSE[@]}" up -d --scale "sub2api=$REPLICAS" gateway sub2api || true
+    SUB2API_IMAGE="$CURRENT_IMAGE" "${COMPOSE[@]}" up -d --no-deps --scale "sub2api=$REPLICAS" sub2api gateway || true
   fi
 }
 trap rollback ERR
@@ -42,13 +42,13 @@ fi
 
 export SUB2API_IMAGE="$IMAGE"
 "${COMPOSE[@]}" config >/dev/null
-"${COMPOSE[@]}" up -d --scale "sub2api=$REPLICAS" --no-recreate postgres redis
+"${COMPOSE[@]}" up -d --no-recreate postgres redis
 echo "Starting canary with replicas=$CANARY_REPLICAS"
-"${COMPOSE[@]}" up -d --wait --wait-timeout 180 --scale "sub2api=$CANARY_REPLICAS" gateway sub2api
+"${COMPOSE[@]}" up -d --wait --wait-timeout 180 --no-deps --scale "sub2api=$CANARY_REPLICAS" sub2api gateway
 
 curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18080/health >/dev/null
 echo "Canary healthy; scaling to replicas=$REPLICAS"
-"${COMPOSE[@]}" up -d --wait --wait-timeout 180 --scale "sub2api=$REPLICAS" gateway sub2api
+"${COMPOSE[@]}" up -d --wait --wait-timeout 180 --no-deps --scale "sub2api=$REPLICAS" sub2api gateway
 curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18080/health >/dev/null
 docker ps --filter "label=com.docker.compose.project=$PROJECT_NAME" --format '{{.Names}} {{.Status}}' > "$RELEASE_DIR/containers"
 printf '%s\n' "$IMAGE" > "$DEPLOY_DIR/DEPLOYED_IMAGE"
