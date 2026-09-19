@@ -53,7 +53,16 @@ object Deploy252Cluster : BuildType({
                 echo "##teamcity[progressStart '校验代码']"
                 cd "${'$'}CHECKOUT"
                 test -x deploy/cluster/deploy-252.sh
-                SUB2API_IMAGE="validation" docker compose -f deploy/docker-compose.yml -f deploy/cluster/docker-compose.yml config >/dev/null
+                test -f "${'$'}DEPLOY_DIR/.env"
+                test -f "${'$'}DEPLOY_DIR/docker-compose.override.yml"
+                SUB2API_IMAGE="validation" docker compose \
+                  --project-name sub2api \
+                  --project-directory "${'$'}DEPLOY_DIR" \
+                  --env-file "${'$'}DEPLOY_DIR/.env" \
+                  -f deploy/docker-compose.yml \
+                  -f "${'$'}DEPLOY_DIR/docker-compose.override.yml" \
+                  -f deploy/cluster/docker-compose.yml \
+                  config >/dev/null
                 echo "##teamcity[progressFinish '校验代码']"
 
                 echo "##teamcity[progressStart '构建不可变镜像']"
