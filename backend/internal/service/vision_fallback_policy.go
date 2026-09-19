@@ -26,6 +26,10 @@ func accountHasNativeVision(account *Account, model string) bool {
 	if metadata, ok := account.GetUpstreamModelMetadata(upstream); ok && len(metadata.InputModalities) > 0 {
 		return stringSliceContains(normalizeCodexInputModalities(metadata.InputModalities), "image")
 	}
+	// 第三方兼容端点不能只凭 GPT 型号名继承原生视觉能力，必须提供显式能力快照。
+	if account.IsOpenAIApiKey() && !isOfficialOpenAIModelsBaseURL(account.GetOpenAIBaseURL()) {
+		return false
+	}
 	return accountCodexModelSupportsImageInput(account, upstream)
 }
 

@@ -28,7 +28,7 @@ func TestQuotaExhaustedDisablesOnFirstFailure(t *testing.T) {
 				account := &Account{ID: 287, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true}
 				body := []byte(fmt.Sprintf(`{"error":{"code":%q,"message":"Failed to pre-consume quota, remaining: 0.013068, required: 0.018516","type":"AgnesAI_error"}}`, code))
 
-				require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(status, "", body))
+				require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(account, status, "", body))
 				require.True(t, shouldFailoverOpenAIPassthroughResponse(account, status, body))
 				require.True(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, status, nil, body))
 				require.Equal(t, 1, repo.setErrorCalls)

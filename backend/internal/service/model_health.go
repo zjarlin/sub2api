@@ -4,6 +4,8 @@ import (
 	"context"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 )
 
 const accountModelHealthPersistTimeout = 3 * time.Second
@@ -66,6 +68,13 @@ func healthCheckedModelIDs(
 	reader, ok := usageLogRepo.(ModelHealthObservationReader)
 	if !ok {
 		return nil, false
+	}
+	if platform == PlatformOpenAI {
+		for i := range accounts {
+			if accounts[i].IsOpenAIPassthroughEnabled() {
+				return openai.DefaultModelIDs(), true
+			}
+		}
 	}
 	observations, err := reader.ListModelHealthObservations(
 		ctx,

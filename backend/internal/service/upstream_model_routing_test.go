@@ -105,11 +105,13 @@ func TestOpenAIModelSuccessAffinityIsModelScoped(t *testing.T) {
 func TestDeterministicUnsupportedModelAlwaysFailsOver(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(
+		newOpenAIUpstreamErrorTestAccount(),
 		http.StatusBadRequest,
 		"The model gpt-missing is not supported",
 		[]byte(`{"error":{"code":"unsupported_model","message":"The model gpt-missing is not supported"}}`),
 	))
 	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(
+		newOpenAIUpstreamErrorTestAccount(),
 		http.StatusBadRequest,
 		"Parameter tools is not supported for this model",
 		[]byte(`{"error":{"message":"Parameter tools is not supported for this model"}}`),
