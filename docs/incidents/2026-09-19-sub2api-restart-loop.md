@@ -42,31 +42,13 @@ apply migration ._001_init.sql: pq: invalid message format
 3. `cd /opt/sub2api && docker compose up -d sub2api`
 4. 验证：容器 `Up (healthy)`，日志正常启动（定价 239 模型、网关 bootstrap），迁移不再执行失败
 
-## 根治建议（未执行）
+## 根治建议
 
-### 1. 代码层（防回归，推荐）
+### 1. 代码层（防回归，✅ 已实施，提交 d69c9a91b）
 
-`backend/internal/repository/migrations_runner.go` 枚举迁移后跳过点/下划线开头文件：
+`backend/internal/repository/migrations_runner.go` 新增 `listMigrationFiles()`，枚举迁移后跳过点/下划线开头文件，并用于 `applyMigrationsFS` 与 `latestMigrationBaseline` 两处；新增回归测试 `TestApplyMigrationsFS_SkipDotAndUnderscorePrefixedFiles`、`TestLatestMigrationBaseline_SkipsDotAndUnderscoreFiles`（`go test ./internal/repository/` 通过）。
 
-```go
-files, err := fs.Glob(fsys, "*.sql")
-if err != nil {
-    return fmt.Errorf("list migrations: %w", err)
-}
-// 跳过 macOS AppleDouble（._*）等点开头垃圾文件，避免被当作迁移执行
-filtered := files[:0]
-for _, name := range files {
-    base := name
-    if strings.HasPrefix(base, ".") || strings.HasPrefix(base, "_") {
-        continue
-    }
-    filtered = append(filtered, name)
-}
-files = filtered
-sort.Strings(files)
-```
-
-### 2. 构建层
+### 2. 构建层（待执行）
 
 - 构建前清理：`find backend/migrations -name "._*" -delete`（及任何 embed 目录）
 - 或把 embed 改为目录形式（`//go:embed migrations`，目录 embed 天然排除 `.`/`_` 开头文件）——需调整包路径与 `migrations.FS`
