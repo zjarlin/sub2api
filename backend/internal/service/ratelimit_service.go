@@ -1044,6 +1044,13 @@ func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account
 		)
 		return false
 	}
+	// 余额不足与 402 采用相同停调语义，不能十分钟后当作普通权限冷却自动重试。
+	balanceMessage := strings.ToLower(strings.TrimSpace(upstreamMsg))
+	if account.IsOpenAIApiKey() && (balanceMessage == "insufficient account balance" ||
+		balanceMessage == "insufficient balance" || balanceMessage == "余额不足") {
+		s.handleAuthError(ctx, account, "Payment required (403): "+upstreamMsg)
+		return true
+	}
 
 	msg := buildForbiddenErrorMessage(
 		"Access forbidden (403):",

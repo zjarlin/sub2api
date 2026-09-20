@@ -422,7 +422,9 @@ func applyUpstreamModelMetadataToCodexDescriptor(
 	}
 	if metadata.MaxContextWindow > 0 {
 		descriptor.MaxContextWindow = metadata.MaxContextWindow
-		descriptor.ContextWindow = min(descriptor.ContextWindow, metadata.MaxContextWindow)
+		if descriptor.ContextWindow <= 0 || descriptor.ContextWindow > metadata.MaxContextWindow {
+			descriptor.ContextWindow = metadata.MaxContextWindow
+		}
 	}
 }
 

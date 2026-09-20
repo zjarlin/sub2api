@@ -16,12 +16,12 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"go.uber.org/zap"
 )
 
 const (
 	visionFallbackInternalKey = "vision_fallback_internal"
 	visionFallbackUsageKey    = "vision_fallback_usage"
-	visionFallbackMaxImages   = 8
 	visionDescriptionMaxBytes = 32 << 10
 	visionDescriptionTTL      = 10 * time.Minute
 )
@@ -175,8 +175,8 @@ func (s *OpenAIGatewayService) prepareVisionFallback(ctx context.Context, c *gin
 	// 整次辅助阶段共享截止时间，防止多张图片将延迟上限成倍放大。
 	helperCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 	defer cancel()
-	for _, image := range images {
-		description, describeErr := s.describeVisionInput(helperCtx, c, apiKey, account, candidates, image)
+	for imageIndex, image := range images {
+		description, describeErr := s.describeVisionInput(helperCtx, c, apiKey, account, candidates, image, imageIndex, len(images))
 		if describeErr != nil {
 			return nil, describeErr
 		}
@@ -225,9 +225,6 @@ func collectVisionInputImages(payload map[string]any) ([]visionInputImage, error
 				return nil, err
 			}
 			images = append(images, visionInputImage{part: part, image: image, context: contextText, textType: textType})
-			if len(images) > visionFallbackMaxImages {
-				return nil, &visionFallbackError{http.StatusBadRequest, "Image assistance supports at most 8 images per request"}
-			}
 		}
 	}
 	return images, nil
@@ -269,9 +266,9 @@ func normalizeVisionInputImage(part map[string]any) (map[string]any, error) {
 	return map[string]any{"type": "input_image", "image_url": imageURL, "detail": detail}, nil
 }
 
-func (s *OpenAIGatewayService) describeVisionInput(ctx context.Context, parent *gin.Context, apiKey *APIKey, primary *Account, candidates []visionFallbackCandidate, image visionInputImage) (string, error) {
+func (s *OpenAIGatewayService) describeVisionInput(ctx context.Context, parent *gin.Context, apiKey *APIKey, primary *Account, candidates []visionFallbackCandidate, image visionInputImage, imageIndex, imageCount int) (string, error) {
 	var lastErr error
-	for _, candidate := range candidates {
+	for candidateIndex, candidate := range candidates {
 		if ctx.Err() != nil {
 			break
 		}
@@ -311,7 +308,7 @@ func (s *OpenAIGatewayService) describeVisionInput(ctx context.Context, parent *
 			// 单个助手不能耗尽整次请求的辅助预算，失败后继续尝试目录中的候选。
 			candidateCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			defer cancel()
-			return s.callVisionHelper(candidateCtx, parent, apiKey, candidate, body)
+			return s.callVisionHelper(candidateCtx, parent, apiKey, candidate, body, imageIndex, imageCount, candidateIndex, len(candidates))
 		}()
 		if callErr != nil {
 			lastErr = callErr
@@ -326,7 +323,7 @@ func (s *OpenAIGatewayService) describeVisionInput(ctx context.Context, parent *
 	return "", &visionFallbackError{http.StatusServiceUnavailable, "No image assistance capacity is currently available"}
 }
 
-func (s *OpenAIGatewayService) callVisionHelper(ctx context.Context, parent *gin.Context, apiKey *APIKey, candidate visionFallbackCandidate, body []byte) (string, error) {
+func (s *OpenAIGatewayService) callVisionHelper(ctx context.Context, parent *gin.Context, apiKey *APIKey, candidate visionFallbackCandidate, body []byte, imageIndex, imageCount, candidateIndex, candidateCount int) (string, error) {
 	ctx = context.WithValue(ctx, visionFallbackContextKey{}, true)
 	writer := newVisionResponseWriter()
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "/v1/responses", bytes.NewReader(body))
@@ -348,14 +345,44 @@ func (s *OpenAIGatewayService) callVisionHelper(ctx context.Context, parent *gin
 		}
 		appendVisionFallbackUsage(parent, VisionFallbackUsage{Result: result, Account: candidate.account, PayloadHash: HashUsageRequestPayload(body), PricingAt: pricingAt})
 	}
-	if forwardErr != nil || result == nil || writer.Status() >= 400 || writer.overflow {
-		logger.LegacyPrintf("service.vision_fallback", "视觉辅助转发失败: account_id=%d model=%s status=%d", candidate.account.ID, candidate.model, writer.Status())
+	response := gjson.ParseBytes(writer.body.Bytes())
+	responseStatus := response.Get("status").String()
+	responseComplete := responseStatus == "completed" && !response.Get("error").IsObject()
+	if forwardErr != nil || result == nil || writer.Status() >= 400 || writer.overflow || !responseComplete {
+		upstreamRequestID := strings.TrimSpace(writer.Header().Get("x-request-id"))
+		upstreamEndpoint := GetActualOpenAIUpstreamEndpoint(child)
+		if result != nil {
+			if upstreamRequestID == "" {
+				upstreamRequestID = strings.TrimSpace(result.ResponseHeaders.Get("x-request-id"))
+			}
+			if upstreamEndpoint == "" {
+				upstreamEndpoint = strings.TrimSpace(result.UpstreamEndpoint)
+			}
+		}
+		var failoverErr *UpstreamFailoverError
+		if errors.As(forwardErr, &failoverErr) && failoverErr != nil && upstreamRequestID == "" {
+			upstreamRequestID = strings.TrimSpace(failoverErr.ResponseHeaders.Get("x-request-id"))
+		}
+		fields := []zap.Field{
+			zap.Int64("account_id", candidate.account.ID),
+			zap.String("account_name", candidate.account.Name),
+			zap.String("model", candidate.model),
+			zap.Int("image_index", imageIndex+1),
+			zap.Int("image_count", imageCount),
+			zap.Int("candidate_index", candidateIndex+1),
+			zap.Int("candidate_count", candidateCount),
+			zap.Int("status", writer.Status()),
+			zap.String("response_status", responseStatus),
+			zap.String("upstream_request_id", upstreamRequestID),
+			zap.String("upstream_endpoint", upstreamEndpoint),
+			zap.Bool("response_overflow", writer.overflow),
+		}
+		if forwardErr != nil {
+			fields = append(fields, zap.Error(forwardErr))
+		}
+		logger.FromContext(ctx).Warn("gateway.vision_helper_failed", fields...)
 		// 不向客户端泄漏辅助账号、图片 URL、供应商凭据或内部响应体。
 		return "", &visionFallbackError{http.StatusBadGateway, "The vision helper could not describe the image; please retry later"}
-	}
-	response := gjson.ParseBytes(writer.body.Bytes())
-	if response.Get("status").String() != "completed" || response.Get("error").IsObject() {
-		return "", &visionFallbackError{http.StatusBadGateway, "The vision helper did not complete the image description"}
 	}
 	var parts []string
 	for _, item := range response.Get("output").Array() {

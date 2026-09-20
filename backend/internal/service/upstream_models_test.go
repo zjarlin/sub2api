@@ -127,6 +127,81 @@ func TestBuildOpenAIModelsURL(t *testing.T) {
 	}
 }
 
+func TestUpstreamMetadataFromCapabilityEntryPreservesMaximumContextWindow(t *testing.T) {
+	t.Parallel()
+
+	metadata := upstreamMetadataFromCapabilityEntry("q3-4b", upstreamModelCapabilityEntry{
+		ContextWindow:    272_000,
+		MaxContextWindow: 65_536,
+	})
+
+	require.Equal(t, int64(272_000), metadata.ContextWindow)
+	require.Equal(t, int64(65_536), metadata.MaxContextWindow)
+
+	conservative := upstreamMetadataFromCapabilityEntry("q3-4b", upstreamModelCapabilityEntry{
+		ContextWindow:    272_000,
+		MaxContextWindow: -1,
+		Limit:            modelsDevLimit{Context: 1_050_000},
+	})
+	require.Equal(t, int64(272_000), conservative.ContextWindow)
+	require.Equal(t, int64(272_000), conservative.MaxContextWindow)
+}
+
+func TestMergeUpstreamModelMetadataKeepsDirectContextAsConservativeMaximum(t *testing.T) {
+	t.Parallel()
+
+	merged, changed := mergeUpstreamModelMetadata(
+		UpstreamModelMetadata{ID: "q3-4b", ContextWindow: 272_000},
+		UpstreamModelMetadata{ID: "q3-4b", ContextWindow: 1_050_000, MaxContextWindow: 1_050_000},
+	)
+
+	require.True(t, changed)
+	require.Equal(t, int64(272_000), merged.ContextWindow)
+	require.Equal(t, int64(272_000), merged.MaxContextWindow)
+}
+
+func TestAccountTestModelsUseLiveOpenAICatalogAndPublicMapping(t *testing.T) {
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Body: io.NopCloser(strings.NewReader(`{"object":"list","data":[
+			{"id":"gpt-6-astra","display_name":"GPT-6 Astra"},
+			{"id":"gpt-5.6-sol"}]}`)),
+	}}
+	svc := &AccountTestService{httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}
+	account := &Account{
+		ID: 2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "test-key", "base_url": "https://provider.example/v1"},
+	}
+
+	models, err := svc.FetchOpenAIAccountModels(context.Background(), account)
+	require.NoError(t, err)
+	require.Len(t, models, 2)
+	require.Equal(t, []string{"gpt-6-astra", "gpt-5.6-sol"}, []string{models[0].ID, models[1].ID})
+	require.Equal(t, "GPT-6 Astra", models[0].DisplayName)
+	require.Equal(t, "GPT-5.6 Sol", models[1].DisplayName)
+	require.Equal(t, "https://provider.example/v1/models", upstream.requests[0].URL.String())
+
+	account.Credentials["model_mapping"] = map[string]any{"latest": "gpt-6-astra", "missing": "gpt-7"}
+	upstream.resp.Body = io.NopCloser(strings.NewReader(`{"data":[{"id":"gpt-6-astra"}]}`))
+	mapped, err := svc.FetchOpenAIAccountModels(context.Background(), account)
+	require.NoError(t, err)
+	require.Len(t, mapped, 1)
+	require.Equal(t, "latest", mapped[0].ID)
+	require.Equal(t, "latest", mapped[0].DisplayName)
+}
+
+func TestAccountTestModelsRejectInvalidLiveCatalog(t *testing.T) {
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(`{"error":"unavailable"}`)),
+	}}
+	svc := &AccountTestService{httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}
+	account := &Account{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "test-key", "base_url": "https://provider.example/v1"}}
+	_, err := svc.FetchOpenAIAccountModels(context.Background(), account)
+	require.Error(t, err)
+}
+
 func TestBuildGeminiModelsURL(t *testing.T) {
 	t.Parallel()
 

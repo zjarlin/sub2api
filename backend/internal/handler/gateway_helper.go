@@ -10,13 +10,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
 
-const gatewayStreamHeartbeatBytesKey = "gateway_stream_heartbeat_bytes"
+const gatewayStreamHeartbeatBytesKey = ctxkey.GatewayStreamHeartbeatBytes
 
 func recordGatewayStreamHeartbeat(c *gin.Context, written int) {
 	if c == nil || written <= 0 {

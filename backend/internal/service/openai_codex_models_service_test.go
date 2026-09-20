@@ -2374,6 +2374,30 @@ func TestCompleteAPIKeyCodexModelsManifestForClientFillsMissingProviderFieldsWit
 	require.EqualValues(t, 64_000, models[0]["max_context_window"])
 }
 
+func TestCompleteAPIKeyCodexModelsManifestForClientCapsProviderContextBySyncedMaximum(t *testing.T) {
+	t.Parallel()
+
+	account := newCodexModelsAPIKeyTestAccount("https://upstream.example/v1")
+	account.SetUpstreamModelMetadataSnapshot(UpstreamModelMetadataSnapshot{Models: map[string]UpstreamModelMetadata{
+		"q3-4b": {
+			ID:               "q3-4b",
+			ContextWindow:    272_000,
+			MaxContextWindow: 65_536,
+		},
+	}})
+	manifest := &OpenAIModelsResponse{Body: []byte(`{"models":[{
+		"slug":"q3-4b",
+		"context_window":272000
+	}]}`)}
+	svc := &OpenAIGatewayService{}
+
+	require.NoError(t, svc.CompleteAPIKeyCodexModelsManifestForClient(manifest, account))
+	models := decodeCodexManifestModels(t, manifest.Body)
+	require.Len(t, models, 1)
+	require.EqualValues(t, 65_536, models[0]["context_window"])
+	require.EqualValues(t, 65_536, models[0]["max_context_window"])
+}
+
 // Scenario: 原生 manifest 的缺失字段在命中缓存后仍使用账号当前同步快照，而不是缓存中的本地默认值。
 func TestCompleteAPIKeyCodexModelsManifestForClientUsesCurrentSnapshotForCachedNativeManifest(t *testing.T) {
 	t.Parallel()

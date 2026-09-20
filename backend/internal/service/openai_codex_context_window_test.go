@@ -47,8 +47,7 @@ func TestCodexContextWindowSyncRoundTrip(t *testing.T) {
 			require.Len(t, upstream.requests, 1)
 			require.Equal(t, account.ID, repo.accountID)
 
-			// Reload the JSON representation persisted in account.extra, replacing
-			// the legacy snapshot so the test exercises resync as well as parsing.
+			// 重新加载持久化到 account.extra 的 JSON，替换旧快照以同时覆盖重同步和解析路径。
 			persisted, err := json.Marshal(repo.updates)
 			require.NoError(t, err)
 			account.Extra = nil

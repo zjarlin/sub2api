@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"testing"
 	"time"
@@ -11,6 +12,25 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
+
+func TestRateLimitService_OpenAI403InsufficientBalanceStopsSchedulingImmediately(t *testing.T) {
+	for _, message := range []string{"Insufficient account balance", "insufficient balance", "余额不足"} {
+		t.Run(message, func(t *testing.T) {
+			repo := &rateLimitAccountRepoStub{}
+			counter := &countingOpenAI403CounterCache{}
+			svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+			svc.SetOpenAI403CounterCache(counter)
+			account := &Account{ID: 836, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+			body, err := json.Marshal(map[string]any{"error": map[string]any{"message": message}})
+			require.NoError(t, err)
+			require.True(t, svc.HandleUpstreamError(context.Background(), account, http.StatusForbidden, http.Header{}, body))
+			require.Equal(t, 1, repo.setErrorCalls)
+			require.Equal(t, 0, repo.tempCalls)
+			require.Equal(t, 0, counter.increments)
+			require.Contains(t, repo.lastErrorMsg, "Payment required (403)")
+		})
+	}
+}
 
 type runtimeBlockRecorder struct {
 	accounts   []*Account

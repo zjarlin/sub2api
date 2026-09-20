@@ -11,11 +11,9 @@ type responsesToolOutputMedia struct {
 	imageURL string
 }
 
-// LiftResponsesToolOutputMedia moves image parts out of Responses tool outputs
-// and into a following user message. Native Responses endpoints such as
-// DeepSeek accept function_call_output.output as a string, but Codex view_image
-// returns an array containing input_image. Keeping the image inside the tool
-// output makes the upstream report "No tool output found for tool call ...".
+// LiftResponsesToolOutputMedia 将工具结果编码为字符串，并把图片移到后续用户消息。
+// DeepSeek 等原生 Responses 端点无法直接读取数组形式的工具结果；
+// 并行结果之间的开发者通知统一保留在结果批次之后，避免上游误报缺少结果。
 func LiftResponsesToolOutputMedia(input any) (any, bool) {
 	items, ok := input.([]any)
 	if !ok {
@@ -25,9 +23,7 @@ func LiftResponsesToolOutputMedia(input any) (any, bool) {
 	rewritten := make([]any, 0, len(items)+1)
 	changed := false
 
-	// DeepSeek validates parallel tool outputs as one contiguous run. Codex can
-	// inject developer notices between image outputs, so keep those notices
-	// pending until the full batch and its lifted media have been emitted.
+	// DeepSeek 要求并行工具结果连续出现，开发者通知在结果和图片之后发送。
 	for index := 0; index < len(items); {
 		item, ok := items[index].(map[string]any)
 		if !ok || !isResponsesToolOutputItem(item) {
@@ -49,6 +45,10 @@ func LiftResponsesToolOutputMedia(input any) (any, bool) {
 				break
 			}
 			if isResponsesToolOutputItem(item) {
+				// 开发者通知可能插在并行结果之间；先发完结果再保留通知。
+				if len(trailing) > 0 {
+					batchChanged = true
+				}
 				rewrittenItem, media, didRewrite := liftResponsesToolOutputMediaItem(item)
 				if didRewrite {
 					batchChanged = true
@@ -97,7 +97,12 @@ func liftResponsesToolOutputMediaItem(item map[string]any) (any, []responsesTool
 
 	outputText, media, didRewrite := extractToolOutputMedia(outputRaw)
 	if !didRewrite {
-		return item, nil, false
+		// 原生 DeepSeek 的工具结果只接收字符串；文本数组也必须编码，不能丢弃。
+		if _, isString := output.(string); isString || output == nil {
+			return item, nil, false
+		}
+		item["output"] = string(outputRaw)
+		return item, nil, true
 	}
 
 	item["output"] = outputText

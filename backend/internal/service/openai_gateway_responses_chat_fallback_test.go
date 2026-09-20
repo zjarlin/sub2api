@@ -510,3 +510,52 @@ func TestForwardResponses_ChatFallbackRestoresReasoningFromCache(t *testing.T) {
 	// 明文 summary 的 item 被回写进缓存（自愈）。
 	require.Equal(t, "plain thinking", cache.snapshotSets()["item_plain"])
 }
+
+func TestForwardResponses_GenericUpstream400RetriesViaChatCompletions(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"deepseek-v4.1-flash","input":"hello","stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		newOpenAIRejectedFieldTestResponse(http.StatusBadRequest, `{"error":{"message":"请求未能完成，请检查请求参数、模型名称或输入内容后重试。","type":"upstream_error","param":"","code":"upstream_error"}}`),
+		newOpenAIRejectedFieldTestResponse(http.StatusOK, `{"id":"chatcmpl_fallback","object":"chat.completion","model":"deepseek-v4.1-flash","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}`),
+	}}
+	account := rawChatCompletionsTestAccount()
+	account.Extra = map[string]any{
+		openai_compat.ExtraKeyResponsesSupported: true,
+	}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, "/v1/responses", upstream.requests[0].URL.Path)
+	require.Equal(t, "/v1/chat/completions", upstream.requests[1].URL.Path)
+	messages := gjson.GetBytes(upstream.lastBody, "messages").Array()
+	require.NotEmpty(t, messages)
+	require.Equal(t, "hello", messages[len(messages)-1].Get("content").String())
+	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
+}
+
+func TestResponsesChatFallbackPreservesSpecificUpstreamErrors(t *testing.T) {
+	account := rawChatCompletionsTestAccount()
+	account.Extra = map[string]any{openai_compat.ExtraKeyResponsesSupported: true}
+	for _, body := range []string{
+		`{"error":{"code":"invalid_request_error","type":"upstream_error","message":"Upstream request failed"}}`,
+		`{"error":{"code":"upstream_error","type":"invalid_request_error","message":"Upstream request failed"}}`,
+		`{"error":{"code":"upstream_error","type":"upstream_error","message":"Invalid schema for response_format"}}`,
+		`{"error":{"code":"upstream_error","type":"upstream_error","message":"Your input exceeds the context window"}}`,
+		`{"error":{"code":"upstream_error","type":"upstream_error","message":"blocked by content policy"}}`,
+		`{"error":{"code":"upstream_error","type":"upstream_error","param":"input","message":"Upstream request failed"}}`,
+	} {
+		require.False(t, shouldRetryOpenAIResponsesViaChatCompletions(http.StatusBadRequest, account, []byte(body)), body)
+	}
+}

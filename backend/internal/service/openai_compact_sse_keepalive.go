@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/gin-gonic/gin"
 )
 
@@ -191,7 +192,12 @@ func OpenAICompactKeepaliveAdjustedWrittenSize(c *gin.Context) int {
 	if size < 0 {
 		return size
 	}
-	keepaliveBytes := compactKeepaliveBytes + streamKeepaliveBytes
+	// 排队期间由 handler 发送的心跳同样不构成模型输出，不能阻止首帧失败换账号。
+	queueHeartbeatBytes := 0
+	if value, ok := c.Get(ctxkey.GatewayStreamHeartbeatBytes); ok {
+		queueHeartbeatBytes, _ = value.(int)
+	}
+	keepaliveBytes := compactKeepaliveBytes + streamKeepaliveBytes + queueHeartbeatBytes
 	if keepaliveBytes <= 0 {
 		return size
 	}

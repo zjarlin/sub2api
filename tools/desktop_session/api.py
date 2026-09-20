@@ -12,7 +12,7 @@ def parse_request(body):
     if not isinstance(body, dict):
         raise ValueError('Expected a JSON object')
     unsupported = set(body) - {'model', 'messages', 'stream', 'stream_options', 'n', 'response_format',
-                               'tools', 'tool_choice', 'parallel_tool_calls'}
+                               'tools', 'tool_choice', 'parallel_tool_calls', 'max_completion_tokens'}
     if unsupported:
         raise ValueError('Unsupported parameters: ' + ', '.join(sorted(unsupported)))
     if body.get('n', 1) != 1 or not isinstance(body.get('stream', False), bool):

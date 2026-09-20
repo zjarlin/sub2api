@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 
@@ -86,7 +87,10 @@ func TestFetchOpenAIAccountModelsOAuthLabelsLocalImageModelsLikeUpstream(t *test
 	newCodexModelsOAuthCacheServer(t, `{"models":[{"slug":"gpt-5.6-sol"}]}`)
 	svc := &AccountTestService{openaiGatewayService: &OpenAIGatewayService{}}
 	account := newCodexModelsTestAccount()
-	account.Credentials["model_mapping"] = map[string]any{"gpt-image-2.5-flare": "gpt-image-2.5-flare"}
+	account.Credentials["model_mapping"] = map[string]any{
+		"gpt-image-2.5-flare": "gpt-image-2.5-flare",
+		"gpt-5.6-sol":         "gpt-5.6-sol",
+	}
 	models, err := svc.FetchOpenAIAccountModels(context.Background(), account)
 	require.NoError(t, err)
 	byID := make(map[string]string, len(models))
@@ -110,4 +114,54 @@ func TestFetchOpenAIAccountModelsOAuthRespectsImageAllowlist(t *testing.T) {
 	}
 	require.Contains(t, ids, "gpt-image-2.5-flare")
 	require.NotContains(t, ids, "gpt-image-2.5-sunburst")
+}
+
+func TestFetchOpenAIAccountModelsProjectsAliasesAfterSharedCache(t *testing.T) {
+	calls := 0
+	gateway := newCodexModelsAPIKeyTestService(&codexModelsHTTPUpstreamStub{do: func(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+		calls++
+		return ordinaryModelsUpstreamResponse(`{"data":[{"id":"native-model","display_name":"Provider Model","owned_by":"provider","created":123}]}`), nil
+	}})
+	svc := &AccountTestService{openaiGatewayService: gateway}
+	account := newCodexModelsAPIKeyTestAccount("https://models.example/v1")
+	account.Credentials["model_mapping"] = map[string]any{"public-model": "native-model", "missing": "absent"}
+	ctx := context.Background()
+	before, err := gateway.FetchOpenAIModelsList(ctx, account)
+	require.NoError(t, err)
+
+	models, err := svc.FetchOpenAIAccountModels(ctx, account)
+	require.NoError(t, err)
+	require.Len(t, models, 1)
+	require.Equal(t, "public-model", models[0].ID)
+	require.Equal(t, "public-model", models[0].DisplayName)
+	require.Equal(t, "provider", models[0].OwnedBy)
+	require.EqualValues(t, 123, models[0].Created)
+
+	account.Credentials["model_mapping"] = map[string]any{"renamed": "native-model"}
+	models, err = svc.FetchOpenAIAccountModels(ctx, account)
+	require.NoError(t, err)
+	require.Len(t, models, 1)
+	require.Equal(t, "renamed", models[0].ID)
+
+	account.Extra = map[string]any{"openai_passthrough": true}
+	models, err = svc.FetchOpenAIAccountModels(ctx, account)
+	require.NoError(t, err)
+	require.Len(t, models, 1)
+	require.Equal(t, "native-model", models[0].ID)
+	require.Equal(t, "Provider Model", models[0].DisplayName)
+	after, err := gateway.FetchOpenAIModelsList(ctx, account)
+	require.NoError(t, err)
+	require.Equal(t, before.Body, after.Body)
+	require.Equal(t, 1, calls)
+}
+
+func TestFetchOpenAIAccountModelsDoesNotBypassFailedSharedDiscovery(t *testing.T) {
+	gateway := newCodexModelsAPIKeyTestService(&codexModelsHTTPUpstreamStub{do: func(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+		return nil, errors.New("shared discovery failed")
+	}})
+	native := &httpUpstreamRecorder{}
+	svc := &AccountTestService{openaiGatewayService: gateway, httpUpstream: native, cfg: upstreamModelSyncTestConfig()}
+	_, err := svc.FetchOpenAIAccountModels(context.Background(), newCodexModelsAPIKeyTestAccount("https://models.example/v1"))
+	require.Error(t, err)
+	require.Empty(t, native.requests)
 }

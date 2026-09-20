@@ -212,7 +212,7 @@ func TestVisionFallbackInputValidationBeforeAnyHelperCall(t *testing.T) {
 		`[{"type":"input_image","file_id":"file_from_other_provider"}]`,
 		`[{"type":"input_image","image_url":"file:///tmp/private.png"}]`,
 		`[{"type":"input_image","image_url":"http://example.com/image.png"}]`,
-		`[` + strings.TrimSuffix(strings.Repeat(`{"type":"input_image","image_url":"data:image/png;base64,AAAA"},`, 9), ",") + `]`,
+		`[` + strings.Repeat(`{"type":"input_image","image_url":"data:image/png;base64,AAAA"},`, 9) + `{"type":"input_image","file_id":"file_from_other_provider"}]`,
 	} {
 		body := []byte(`{"model":"text-model","input":[{"role":"user","content":` + content + `}]}`)
 		c, _ := visionTestContext(body, 9, 7)
@@ -635,7 +635,7 @@ func TestVisionFallbackConcurrencyAndSlotRelease(t *testing.T) {
 			apiKey := c.MustGet("api_key").(*APIKey)
 			ctx := context.WithValue(context.Background(), visionFallbackPrimarySlotRequiredKey{}, tc.forceAcquire)
 			image := visionInputImage{image: map[string]any{"type": "input_image", "image_url": "data:image/png;base64,AAAA"}}
-			_, err := svc.describeVisionInput(ctx, c, apiKey, &primary, []visionFallbackCandidate{{account: &helper, model: "vision-model"}}, image)
+			_, err := svc.describeVisionInput(ctx, c, apiKey, &primary, []visionFallbackCandidate{{account: &helper, model: "vision-model"}}, image, 0, 1)
 			if tc.wantCalls == 0 {
 				require.Error(t, err)
 			} else {

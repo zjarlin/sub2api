@@ -2313,7 +2313,7 @@ func applySyncedAPIKeyCodexModelMetadata(body []byte, account *Account, overwrit
 		if len(normalizeCodexInputModalities(metadata.InputModalities)) > 0 {
 			fields = append(fields, "input_modalities")
 		}
-		if metadata.ContextWindow > 0 {
+		if metadata.ContextWindow > 0 || metadata.MaxContextWindow > 0 {
 			fields = append(fields, "context_window", "max_context_window")
 		}
 
@@ -2333,6 +2333,16 @@ func applySyncedAPIKeyCodexModelMetadata(body []byte, account *Account, overwrit
 				continue
 			}
 			model[field] = value
+			modelChanged = true
+		}
+		var contextWindow int64
+		contextWindowErr := json.Unmarshal(model["context_window"], &contextWindow)
+		var maxContextWindow int64
+		maxContextWindowErr := json.Unmarshal(model["max_context_window"], &maxContextWindow)
+		if contextWindowErr == nil && maxContextWindowErr == nil &&
+			maxContextWindow > 0 && contextWindow > maxContextWindow {
+			// 最大窗口是硬上限，补全字段后必须同步压低已有的默认窗口。
+			model["context_window"] = append(json.RawMessage(nil), model["max_context_window"]...)
 			modelChanged = true
 		}
 		if !modelChanged {

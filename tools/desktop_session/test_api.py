@@ -6,9 +6,14 @@ from api import completion, encode_stream, parse_request
 
 class ApiTests(unittest.TestCase):
     def test_invalid_tool_definitions_and_generation_controls_are_rejected(self):
-        for extra in [{'tools': [{'type': 'function'}]}, {'max_tokens': 1}, {'n': 2}]:
+        for extra in [{'tools': [{'type': 'function'}]}, {'max_tokens': 1}, {'temperature': 0}, {'n': 2}]:
             with self.assertRaises(ValueError):
                 parse_request({'model': '9', 'messages': [{'role': 'user', 'content': 'hi'}], **extra})
+
+    def test_max_completion_tokens_is_accepted_for_openai_compatibility(self):
+        request = parse_request({'model': '9', 'max_completion_tokens': 128,
+                                 'messages': [{'role': 'user', 'content': 'hi'}]})
+        self.assertEqual(request.text, 'hi')
 
     def test_multi_turn_context_is_explicit_not_shared_server_state(self):
         messages = [{'role': 'user', 'content': 'The number is 7'},

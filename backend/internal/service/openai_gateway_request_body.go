@@ -132,7 +132,7 @@ func deleteOpenAIResponsesNoneReasoningEffortFromObject(account *Account, body m
 // Responses 均不支持服务端状态存储，携带这些字段会被拒绝）。
 // 非原生 Responses 协议账号原样返回。
 func normalizeDeepSeekResponsesRequestBody(account *Account, body []byte) []byte {
-	if account == nil || !account.UsesNativeCNResponses() {
+	if account == nil || (!account.UsesNativeCNResponses() && !(account.IsOpenAIApiKey() && isDeepSeekResponsesAccount(account))) {
 		return body
 	}
 	if normalized, err := normalizeDeepSeekCompactionReplayBody(body); err == nil {

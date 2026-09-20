@@ -570,11 +570,16 @@ func mergeUpstreamModelMetadata(primary, fallback UpstreamModelMetadata) (Upstre
 	}
 	if merged.ContextWindow <= 0 && fallback.ContextWindow > 0 {
 		merged.ContextWindow = fallback.ContextWindow
-		// Keep the registry's context limits together. A direct upstream default
-		// without an explicit maximum remains the conservative ceiling.
 		if merged.MaxContextWindow <= 0 {
 			merged.MaxContextWindow = fallback.MaxContextWindow
+			if merged.MaxContextWindow <= 0 {
+				merged.MaxContextWindow = fallback.ContextWindow
+			}
 		}
+		changed = true
+	} else if merged.ContextWindow > 0 && merged.MaxContextWindow <= 0 {
+		// 直连上游只提供默认窗口时，将其作为保守上限，避免注册表的较大值放大能力。
+		merged.MaxContextWindow = merged.ContextWindow
 		changed = true
 	}
 	if merged.MaxOutputTokens <= 0 && fallback.MaxOutputTokens > 0 {
@@ -1443,6 +1448,14 @@ func upstreamMetadataFromCapabilityEntry(modelID string, entry upstreamModelCapa
 	if contextWindow <= 0 {
 		contextWindow = entry.Limit.Context
 	}
+	maxContextWindow := entry.MaxContextWindow
+	if maxContextWindow <= 0 {
+		// 最大值缺失或无效时优先沿用直连上游的默认窗口，避免较大的注册表值放大上限。
+		maxContextWindow = contextWindow
+	}
+	if maxContextWindow <= 0 {
+		maxContextWindow = entry.Limit.Context
+	}
 	maxOutputTokens := entry.MaxOutputTokens
 	if maxOutputTokens <= 0 {
 		maxOutputTokens = entry.Limit.Output
@@ -1464,7 +1477,7 @@ func upstreamMetadataFromCapabilityEntry(modelID string, entry upstreamModelCapa
 		SupportedReasoningLevels: levels,
 		InputModalities:          normalizeCodexInputModalities(modalities),
 		ContextWindow:            contextWindow,
-		MaxContextWindow:         entry.MaxContextWindow,
+		MaxContextWindow:         maxContextWindow,
 		MaxOutputTokens:          maxOutputTokens,
 	}
 }

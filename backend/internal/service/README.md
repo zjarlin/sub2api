@@ -15,6 +15,20 @@ automatic recovery never enables that switch.
 API-key-scoped cache references. Only an explicit missing-reasoning rejection
 allows a bounded, observable non-thinking retry for unrecoverable old history.
 
+DeepSeek 官方地址下的旧 OpenAI API Key 账号也应用原生 Responses 无状态与工具结果适配：
+保留调用 ID 和结果内容，将非字符串工具结果编码为字符串，图片移到后续用户消息，
+并行结果之间的开发者通知移到结果批次之后。普通 OpenAI 兼容账号不应用该转换。
+上游明确以 `unsupported_value` 拒绝 `reasoning.effort=none` 时，才移除该值并沿用
+原模型的默认推理做有界重试；其他合法推理强度保持透传。OpenAI API Key 账号的明确
+余额不足 403 按支付失败停止调度，恢复余额后需通过正常账号恢复流程重新启用。
+
+对明确标记 `upstream_error`、无字段定位且只提供已知通用失败文案的 HTTP 400，
+已确认 Responses 支持的普通 API Key 转发先通过 Chat Completions 兼容桥尝试一次；
+兼容桥仍失败、透传或未确认协议能力时，使用现有重试预算换到支持同一模型的其他账号，
+不在原账号无限重试。两条路径共用严格的通用错误识别，明确的参数、上下文和策略错误保持原处理。
+首个模型输出前的故障转移会扣除排队、Responses 和 compact 的心跳字节；
+已有正文或工具调用输出后不再重放请求。
+
 `upstream_concurrency.go` 识别 HTTP / SSE 中明确的账号并发拒绝，以及已知的
 `service_busy` 容量提示。失败计入账号与模型的调度错误率，短暂冷却后恢复，
 不会删除模型支持信息或触发账号健康封禁。优先尝试支持同一模型的其他账号，

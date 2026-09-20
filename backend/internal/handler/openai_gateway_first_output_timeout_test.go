@@ -27,6 +27,21 @@ func TestOpenAIForwardMayFailoverOnlyAfterNonSemanticWrite(t *testing.T) {
 	require.False(t, openAIForwardMayFailover(c, before, &service.UpstreamFailoverError{}))
 }
 
+func TestOpenAIForwardMayFailoverAfterTrackedQueueHeartbeat(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	before := service.OpenAICompactKeepaliveAdjustedWrittenSize(c)
+	n, err := c.Writer.WriteString(": ping\n\n")
+	require.NoError(t, err)
+	recordGatewayStreamHeartbeat(c, n)
+	c.Writer.Flush()
+	require.True(t, openAIForwardMayFailover(c, before, &service.UpstreamFailoverError{}))
+	require.Equal(t, -1, service.OpenAICompactKeepaliveAdjustedWrittenSize(c))
+	_, err = c.Writer.WriteString("data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n")
+	require.NoError(t, err)
+	require.False(t, openAIForwardMayFailover(c, before, &service.UpstreamFailoverError{}))
+}
+
 func TestOpenAIFirstOutputFailoverStopsAfterOneAccountSwitch(t *testing.T) {
 	failoverErr := &service.UpstreamFailoverError{SafeToFailoverAfterWrite: true}
 	count := 0

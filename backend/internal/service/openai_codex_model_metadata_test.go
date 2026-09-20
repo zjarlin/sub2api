@@ -741,4 +741,37 @@ func TestCodexAliasFailoverMappingHonorsModelRouting(t *testing.T) {
 	})
 }
 
-// Scenario: mixed groups prefer capability metadata synced for the routed account.
+func TestBuildCodexModelsManifestForGroupCapsContextByMaximum(t *testing.T) {
+	t.Parallel()
+
+	const groupID int64 = 744
+	reasoning := false
+	account := Account{
+		ID: 44, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url":      "https://provider.example/v1",
+			"model_mapping": map[string]any{"q3-4b": "q3-4b"},
+		},
+	}
+	account.SetUpstreamModelMetadataSnapshot(UpstreamModelMetadataSnapshot{Models: map[string]UpstreamModelMetadata{
+		"q3-4b": {
+			ID:               "q3-4b",
+			Reasoning:        &reasoning,
+			InputModalities:  []string{"text"},
+			ContextWindow:    272_000,
+			MaxContextWindow: 65_536,
+		},
+	}})
+	svc := &GatewayService{accountRepo: codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{
+		groupID: {account},
+	}}}
+
+	body, err := svc.BuildCodexModelsManifestForGroup(
+		context.Background(), &Group{ID: groupID, Platform: PlatformOpenAI}, "", []string{"q3-4b"},
+	)
+	require.NoError(t, err)
+	models := decodeCodexManifestModels(t, body)
+	require.Len(t, models, 1)
+	require.EqualValues(t, 65_536, models[0]["context_window"])
+	require.EqualValues(t, 65_536, models[0]["max_context_window"])
+}

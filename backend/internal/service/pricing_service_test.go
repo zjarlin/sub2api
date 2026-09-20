@@ -324,6 +324,20 @@ func TestPricingService_BareGPT56AliasDeterministicallyUsesSol(t *testing.T) {
 	}
 }
 
+func TestGPT6AstraAliasesUseDedicatedFallbackPricing(t *testing.T) {
+	pricingSvc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{}}
+	billingSvc := NewBillingService(&config.Config{}, pricingSvc)
+	for _, alias := range []string{"gpt-6", "openai/gpt-6-astra"} {
+		pricing := pricingSvc.GetModelPricing(alias)
+		require.NotNil(t, pricing)
+		require.InDelta(t, 10e-6, pricing.InputCostPerToken, 1e-12)
+		fallback, err := billingSvc.GetModelPricing(alias)
+		require.NoError(t, err)
+		require.InDelta(t, 10e-6, fallback.InputPricePerToken, 1e-12)
+		require.InDelta(t, 50e-6, fallback.OutputPricePerToken, 1e-12)
+	}
+}
+
 func TestDefaultPricingIncludesOfficialGPT56Rates(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json"))
 	require.NoError(t, err)

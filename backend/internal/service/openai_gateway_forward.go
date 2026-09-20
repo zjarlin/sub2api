@@ -1092,6 +1092,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 
 	httpInvalidEncryptedContentRetryTried := false
 	compactModelFallbackRetried := false
+	responsesToChatFallbackRetried := false
 	agentTaskRecoveryTried := false
 	rejectedFieldRetryState := openAIResponsesRejectedFieldRetryStateForRequest(c, body)
 	for {
@@ -1229,6 +1230,15 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 					account.Name, fromModel, fallbackModel, upstreamCode,
 				)
 				continue
+			}
+			if !responsesToChatFallbackRetried && shouldRetryOpenAIResponsesViaChatCompletions(resp.StatusCode, account, respBody) {
+				responsesToChatFallbackRetried = true
+				logger.LegacyPrintf(
+					"service.openai_gateway",
+					"[OpenAI] Retrying Responses request via Chat Completions after generic upstream 400 (account: %s, code: %s)",
+					account.Name, upstreamCode,
+				)
+				return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
 			}
 			if s.shouldFailoverOpenAIUpstreamResponse(account, resp.StatusCode, upstreamMsg, respBody) {
 				upstreamDetail := ""
@@ -1432,6 +1442,28 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 		}
 	}
 	return !openai_compat.ShouldUseResponsesAPI(account.Extra)
+}
+
+// shouldRetryOpenAIResponsesViaChatCompletions 判断一个已声明支持 Responses 的
+// OpenAI APIKey 上游是否在泛化 400 上应回退到 Chat Completions 兼容桥。
+//
+// 一些第三方 OpenAI 兼容上游会探测通过 /v1/responses，但在携带工具、续接或
+// 特定模型请求时返回不带 param 的通用 upstream_error。此时继续按 Responses
+// 重试没有收益；转成 Chat Completions 通常能成功。只对泛化错误触发，避免掩盖
+// model not found、invalid_request_error 等需要直接返回给客户端的明确错误。
+func shouldRetryOpenAIResponsesViaChatCompletions(status int, account *Account, respBody []byte) bool {
+	if status != http.StatusBadRequest || account == nil || !account.IsOpenAIApiKey() {
+		return false
+	}
+	if account.IsCNProvider() || shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
+		return false
+	}
+	if openai_compat.ResolveResponsesSupport(account.Extra) != openai_compat.ResponsesSupportYes {
+		return false
+	}
+
+	// 协议兼容重试与换账号使用同一个判定，不能把明确的参数或策略拒绝当成通用故障。
+	return isOpenAIOpaqueUpstreamFailure(status, respBody)
 }
 
 func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, isStream bool, promptCacheKey string, isCodexCLI bool) (*http.Request, error) {

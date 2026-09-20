@@ -97,7 +97,7 @@ Linux 部署只需服务代码/镜像及上述两份私密文件；无需复制�
 - Schema 使用 JSON Schema draft 2020-12，根类型为 `object`，支持本地 `$defs` / `$ref`，拒绝外部引用及无法解析的引用；`format` 按该标准默认为注解。`strict` 为 true、false 或省略时均校验实际输出，参数本身不会透传给豆包。不合法的格式或 schema 在生成前返回 400。
 - `stream=true` 是**缓冲 SSE**：完整校验助手正文和结束状态后返回内容、结束块、`[DONE]`，没有实时首 token。
 - 支持 `tools` 中的 function 工具、`tool_choice` 的 `none` / `auto` / `required` / 指定函数，以及 `parallel_tool_calls`。通过文本 JSON 决策协议适配，校验所选名称、函数参数 schema、强制选择和并行数量后，返回标准 `assistant.tool_calls`、JSON 字符串 arguments、独立 call ID 和 `finish_reason=tool_calls`。SSE 调用块含 `index`。不合格模型决策返回 `502 / invalid_tool_calls`，不静默丢弃调用。
-- 工具由调用方执行，适配器不运行 shell、Python、浏览器或桌面动作，也不执行模型所列函数。调用方回传 `assistant.tool_calls` 和相同 `tool_call_id` 的 `role=tool` 消息后可继续生成，无需追加虚构的 user 消息。所有并行调用均须有且仅有一个结果；未知、重复或缺失的 ID 在生成前返回 400。支持字符串及纯 text 内容块，不支持附件、图片、custom 工具、Responses API 或生成参数（如 `temperature`、`max_tokens`）。
+- 工具由调用方执行，适配器不运行 shell、Python、浏览器或桌面动作，也不执行模型所列函数。调用方回传 `assistant.tool_calls` 和相同 `tool_call_id` 的 `role=tool` 消息后可继续生成，无需追加虚构的 user 消息。所有并行调用均须有且仅有一个结果；未知、重复或缺失的 ID 在生成前返回 400。支持字符串及纯 text 内容块，不支持附件、图片、custom 工具或 Responses API；为保持 OpenAI 兼容性接受并忽略 `max_completion_tokens`，其它生成参数（如 `temperature`、`max_tokens`）仍会被拒绝。
 - `response_format` 仅约束最终答案，不约束 `tool_calls` 的参数对象；函数参数独立按声明的 parameters 校验，strict 为 false 或省略时也会校验。工具桥接不等同于豆包原生工具协议，也不承诺模型每次都能产生有效决策。
 - 对话末条可以是 assistant、system、developer、user 或已完成的 tool 结果；空文本末条也可继续。assistant 末条按继续未完成的回答或任务处理，完整保留角色和历史，不伪造 user 消息。单条 system / developer / assistant 消息同样保留角色；未完成的工具调用仍须先返回结果。
 - 单账号仅允许一个在途生成；并发请求返回 429，不排队积压。响应读取有大小和超时限制。

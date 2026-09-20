@@ -236,6 +236,21 @@ func isOpenAIContextWindowError(upstreamMsg string, upstreamBody []byte) bool {
 		if strings.Contains(lower, "context length") && hasExceeded {
 			return true
 		}
+		hasChineseContext := strings.Contains(lower, "上下文长度") || strings.Contains(lower, "上下文窗口")
+		hasChineseNegation := strings.Contains(lower, "未超过") || strings.Contains(lower, "不超过") ||
+			strings.Contains(lower, "没有超过") || strings.Contains(lower, "未超出") ||
+			strings.Contains(lower, "不超出") || strings.Contains(lower, "没有超出")
+		if hasChineseContext && hasChineseNegation {
+			return false
+		}
+		if strings.Contains(lower, "最大上下文长度") &&
+			(strings.Contains(lower, "输入") || strings.Contains(lower, "标记") || strings.Contains(lower, "token")) {
+			return true
+		}
+		if hasChineseContext &&
+			(strings.Contains(lower, "超过") || strings.Contains(lower, "超出") || strings.Contains(lower, "过长") || strings.Contains(lower, "太长")) {
+			return true
+		}
 		return strings.Contains(lower, "token limit") &&
 			strings.Contains(lower, "context") &&
 			hasExceeded
@@ -313,6 +328,9 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(account *Acc
 		isOpenAICompatibleModelNotFound400(upstreamBody) {
 		return true
 	}
+	if isOpenAIOpaqueUpstreamFailure(statusCode, upstreamBody) {
+		return true
+	}
 	if s.shouldFailoverUpstreamError(statusCode) {
 		return true
 	}
@@ -364,6 +382,10 @@ func newOpenAIUpstreamFailoverError(
 		ResponseHeaders:        responseHeaders.Clone(),
 		RetryableOnSameAccount: retryableOnSameAccount || requestScopedCapacity,
 		RequestScopedTransient: requestScopedCapacity,
+	}
+	if isOpenAIOpaqueUpstreamFailure(statusCode, responseBody) {
+		failoverErr.RetryableOnSameAccount = false
+		failoverErr.NextAccountAction = NextAccountRetry
 	}
 	if isOpenAIRequestBodyTooLargeError(statusCode, upstreamMsg, responseBody) {
 		failoverErr.RetryableOnSameAccount = false
