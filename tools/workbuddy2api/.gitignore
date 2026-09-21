@@ -48,3 +48,5 @@ docs/
 *.md
 !README.md
 !README.sub2api.md
+# 提示词模板会被 go:embed 编译进适配器，必须随源码交付。
+!internal/prompt/*.md
