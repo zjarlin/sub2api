@@ -3,6 +3,10 @@ FROM golang:1.26-alpine AS build
 WORKDIR /src/workbuddy2api
 COPY builtinlogin /src/builtinlogin
 COPY workbuddy2api/go.mod workbuddy2api/go.sum ./
+# 构建机在国内网络，默认 proxy.golang.org 不可达；与主 Dockerfile 保持同一镜像源。
+ARG GOPROXY=https://goproxy.cn,direct
+ARG GOSUMDB=sum.golang.google.cn
+ENV GOPROXY=${GOPROXY} GOSUMDB=${GOSUMDB}
 RUN go mod download
 COPY workbuddy2api .
 # 一次编译全部二进制（工具进镜像，容器内可直接跑脚本）。全部 -trimpath -s -w。
