@@ -491,5 +491,156 @@
       "Gateway may aggregate upstream 503 to a client-facing 502.",
       "Custom client tools still use the validated text bridge; native cloud/local custom-tool execution is not integrated."
     ]
+  },
+  "chat_protocol_validation": {
+    "model": "doubao-chat-turbo",
+    "transport": "local HTTP adapter to real Doubao upstream",
+    "requests": [
+      {
+        "mode_id": "1",
+        "agent_mode": 2,
+        "conversation_mode": 1,
+        "model_item_key": "3",
+        "continued": false,
+        "has_general_task_param": false,
+        "has_client_tool_key": false,
+        "ack": {
+          "mode_id": "1",
+          "model_item_key": "3",
+          "inner_app_id": "582478"
+        },
+        "event_types": [
+          "FULL_MSG_NOTIFY",
+          "SSE_ACK",
+          "SSE_HEARTBEAT",
+          "SSE_REPLY_END",
+          "STREAM_CHUNK",
+          "STREAM_MSG_NOTIFY"
+        ],
+        "block_types": [
+          10000
+        ]
+      },
+      {
+        "mode_id": "1",
+        "agent_mode": 2,
+        "conversation_mode": 1,
+        "model_item_key": "3",
+        "continued": true,
+        "has_general_task_param": false,
+        "has_client_tool_key": false,
+        "ack": {
+          "mode_id": null,
+          "model_item_key": null,
+          "inner_app_id": null
+        },
+        "event_types": [
+          "FULL_MSG_NOTIFY",
+          "SSE_ACK",
+          "SSE_HEARTBEAT",
+          "SSE_REPLY_END",
+          "STREAM_CHUNK",
+          "STREAM_MSG_NOTIFY"
+        ],
+        "block_types": [
+          10000
+        ]
+      },
+      {
+        "mode_id": "1",
+        "agent_mode": 2,
+        "conversation_mode": 1,
+        "model_item_key": "3",
+        "continued": true,
+        "has_general_task_param": false,
+        "has_client_tool_key": false,
+        "ack": {
+          "mode_id": null,
+          "model_item_key": null,
+          "inner_app_id": null
+        },
+        "event_types": [
+          "FULL_MSG_NOTIFY",
+          "SSE_ACK",
+          "SSE_HEARTBEAT",
+          "SSE_REPLY_END",
+          "STREAM_CHUNK",
+          "STREAM_MSG_NOTIFY"
+        ],
+        "block_types": [
+          10000
+        ]
+      }
+    ],
+    "tool_call_verified": true,
+    "tool_choice": "auto",
+    "local_file_result_exact_match": true,
+    "tool_result_sse_verified": true,
+    "retry_replayed": true,
+    "third_turn_sse_verified": true,
+    "same_conversation": true,
+    "passed": true,
+    "date": "2026-09-20",
+    "installed_desktop_version": "2.29.12",
+    "wire_snapshot_version": "2.29.10",
+    "unit_tests_passed": 91,
+    "production_deployed": false,
+    "native_function_calling": false,
+    "tool_strategy": "validated_text_json_bridge",
+    "ordinary_chat_models_advertised": [
+      "0",
+      "3"
+    ],
+    "pro_chat_endpoint_verified": false,
+    "source_evidence": {
+      "bundle": "hot_fix/2.29.12/desktop2_web_resource/1.0.5.397/biz/hot_update_biz.pak",
+      "resources": {
+        "resource-608.js": "3962a29dcc907ccc5ca70cb9e89bc229f1ee18e75e03c838e2d7e69e6a232973",
+        "resource-1961.js": "c8e175615945b1f631c85c04a27acfdd010c1ff3571ddbe6ffd1a7eb17941b4c",
+        "resource-2005.js": "5f085d28a9834e5f8d6b90e602bd285ebac7b17fc6b71721c871b7c6b1cb860a",
+        "resource-2341.js": "f91da49615ad54c8a831fb25572d589631509085a37d3057647b6894497a5695"
+      },
+      "findings": [
+        "ConversationMode chat=1 and office=2",
+        "AgentMode Chat=2 and MOA=1",
+        "Chat mode 1 advertises model keys 0 and 3; work mode 3 advertises 9, 4 and 5",
+        "buildGeneralAgentConversationAgentTaskParam defaults runtime_type to CloudVM"
+      ]
+    }
+  },
+  "platform_integration_validation": {
+    "date": "2026-09-20",
+    "platform": "doubao",
+    "default_model": "doubao-chat-turbo",
+    "production_deployed": false,
+    "live_gateway": {
+      "transport": "Go OpenAIGatewayService -> local HTTP adapter -> real Doubao upstream",
+      "models": true,
+      "responses_function_call": true,
+      "caller_tool_result_continuation": true
+    },
+    "local_ui": {
+      "real_create_and_edit_components": true,
+      "backend": "mocked locally",
+      "create_payload_and_model_sync": true,
+      "edit_preserves_key": true,
+      "concurrency": 1
+    },
+    "database_migration": {
+      "file": "239_add_doubao_platform.sql",
+      "disposable_postgresql": true,
+      "preserves_previous_10_platforms": true,
+      "four_checks_accept_doubao": true,
+      "unknown_platform_rejected": true
+    },
+    "scope": "Connect an existing desktop-session adapter URL and API key; desktop cookie import is not implemented in the platform form.",
+    "automated_checks": {
+      "frontend_related_tests_passed": 123,
+      "frontend_typecheck": true,
+      "frontend_lint": true,
+      "frontend_build": true,
+      "backend_doubao_and_bulk_update_regressions": true,
+      "full_backend_suite": "not green; legacy failures remain; isolated overlay reproduced scheduler canonical score, DeepSeek replay, and pinned Codex catalog failures without Doubao routing changes"
+    }
   }
 }

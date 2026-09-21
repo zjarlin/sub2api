@@ -197,6 +197,68 @@ async function openCodexImportStep(toggleClicks = 0) {
 }
 
 describe('CreateAccountModal OpenAI long-context billing', () => {
+  it('creates a Doubao adapter account and synchronizes its model catalog', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="platform-doubao"]').trigger('click')
+    expect(wrapper.get('[data-testid="doubao-connection-hint"]').text()).toContain('doubao.connectionHint')
+    expect(wrapper.find('[data-testid="cn-adaptive-base-url-chat_completions"]').exists()).toBe(false)
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Doubao adapter')
+    expect(wrapper.find('form#create-account-form input[type="password"]').exists()).toBe(false)
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({
+      platform: 'doubao', type: 'apikey', concurrency: 1,
+      credentials: { api_protocol: 'chat_completions', openai_capabilities: ['chat_completions'] },
+    })
+    expect(syncUpstreamModelsMock).toHaveBeenCalledWith(42)
+  })
+
+  it('creates a TRAE Work account through the built-in adapter without URL or key', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="platform-traework"]').trigger('click')
+    expect(wrapper.get('[data-testid="traework-connection-hint"]').text()).toContain('traework.connectionHint')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('TRAE Work built-in')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    const payload = createAccountMock.mock.calls[0]?.[0]
+    expect(payload).toMatchObject({ platform: 'traework', type: 'apikey', concurrency: 1 })
+    expect(payload.credentials.api_protocol).toBe('chat_completions')
+    expect(payload.credentials.base_url).toBeUndefined()
+    expect(payload.credentials.api_key).toBeUndefined()
+    expect(syncUpstreamModelsMock).toHaveBeenCalledWith(42)
+  })
+
+  it('creates WorkBuddy through the built-in service and exposes browser authorization', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="platform-workbuddy"]').trigger('click')
+    expect(wrapper.find('[data-testid="builtin-adapter-login"]').exists()).toBe(true)
+    expect(wrapper.find('form#create-account-form input[type="password"]').exists()).toBe(false)
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('WorkBuddy')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const payload = createAccountMock.mock.calls[0]?.[0]
+    expect(payload).toMatchObject({ platform: 'workbuddy', type: 'apikey', concurrency: 1 })
+    expect(payload.credentials.api_protocol).toBe('chat_completions')
+    expect(payload.credentials.base_url).toBeUndefined()
+    expect(payload.credentials.api_key).toBeUndefined()
+    expect(syncUpstreamModelsMock).toHaveBeenCalledWith(42)
+  })
+
+  it('creates a Doubao account through the built-in adapter without URL or key', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="platform-doubao"]').trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Doubao built-in')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    const payload = createAccountMock.mock.calls[0]?.[0]
+    expect(payload).toMatchObject({ platform: 'doubao', type: 'apikey', concurrency: 1 })
+    expect(payload.credentials.base_url).toBeUndefined()
+    expect(payload.credentials.api_key).toBeUndefined()
+  })
+
   beforeEach(() => {
     authIsSimpleMode.value = true
     createAccountMock.mockReset().mockResolvedValue({ id: 42, platform: 'openai', type: 'apikey' })

@@ -27,15 +27,20 @@
       </div>
 
       <!-- API Key fields (only for apikey type) -->
+      <BuiltinAdapterLogin v-if="show && (account.platform === 'traework' || account.platform === 'workbuddy')" :key="account.platform" :platform="account.platform" />
       <div v-if="account.type === 'apikey'" class="space-y-4">
-        <div v-if="!isCNApiKeyAccount || editApiProtocol !== 'adaptive'">
+        <div v-if="!isBuiltinAdapterAccount && (!isCNApiKeyAccount || editApiProtocol !== 'adaptive')">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
             v-model="editBaseUrl"
             type="text"
             class="input"
             :placeholder="
-              account.platform === 'openai'
+              account.platform === 'doubao'
+                ? 'http://sub2api-desktop:8080/v1'
+                : account.platform === 'traework'
+                ? 'http://sub2api-traework:7864/v1'
+                : account.platform === 'openai'
                 ? 'https://api.openai.com'
                 : account.platform === 'gemini'
                   ? 'https://generativelanguage.googleapis.com'
@@ -62,7 +67,7 @@
             @select="onCnPresetSelect"
           />
         </div>
-        <div v-else>
+        <div v-else-if="!isBuiltinAdapterAccount">
           <label class="input-label">{{ t('admin.accounts.cnProviders.apiProtocol.endpoints') }}</label>
           <div class="mt-2 space-y-3">
             <div v-for="item in editAdaptiveProtocolOptions" :key="item.value">
@@ -204,7 +209,7 @@
           </div>
           <p class="input-hint mt-2">{{ t('admin.accounts.cnProviders.zhipuTeam.hint') }}</p>
         </div>
-        <div>
+        <div v-if="!isBuiltinAdapterAccount">
           <label class="input-label">{{ t('admin.accounts.apiKey') }}</label>
           <input
             v-model="editApiKey"
@@ -215,7 +220,11 @@
             data-lpignore="true"
             data-bwignore="true"
             :placeholder="
-              account.platform === 'openai'
+              account.platform === 'doubao'
+                ? 'adapter-api-key'
+                : account.platform === 'traework'
+                ? 'adapter-api-key'
+                : account.platform === 'openai'
                 ? 'sk-proj-...'
                 : account.platform === 'gemini'
                   ? 'AIza...'
@@ -1660,7 +1669,7 @@
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.concurrency') }}</label>
-          <input v-model.number="form.concurrency" type="number" min="1" class="input"
+          <input v-model.number="form.concurrency" type="number" min="1" :max="props.account?.platform === 'doubao' ? 1 : undefined" :readonly="props.account?.platform === 'doubao'" class="input"
             @input="form.concurrency = Math.max(1, form.concurrency || 1)" />
         </div>
         <div>
@@ -3021,6 +3030,7 @@
 </template>
 
 <script setup lang="ts">
+import BuiltinAdapterLogin from './BuiltinAdapterLogin.vue'
 import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -3125,6 +3135,7 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+const isBuiltinAdapterAccount = computed(() => ['doubao', 'traework', 'workbuddy'].includes(props.account?.platform ?? ''))
 const emit = defineEmits<{
   close: []
   updated: [account: Account]
@@ -3159,6 +3170,8 @@ const handleOllamaCloudUsageUpdated = (state: OllamaCloudUsageState) => {
 
 // Platform-specific hint for Base URL
 const baseUrlHint = computed(() => {
+  if (props.account?.platform === 'doubao') return t('admin.accounts.doubao.baseUrlHint')
+  if (props.account?.platform === 'traework') return t('admin.accounts.traework.baseUrlHint')
   if (!props.account) return t('admin.accounts.baseUrlHint')
   if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (props.account.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
@@ -3828,6 +3841,7 @@ const tempUnschedPresets = computed(() => [
 
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
+  if (props.account?.platform === 'doubao' || props.account?.platform === 'traework' || props.account?.platform === 'workbuddy') return ''
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
@@ -4269,7 +4283,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       }
     }
     const platformDefaultUrl =
-      newAccount.platform === 'openai'
+      (newAccount.platform === 'doubao' || newAccount.platform === 'traework' || newAccount.platform === 'workbuddy')
+        ? ''
+        : newAccount.platform === 'openai'
         ? 'https://api.openai.com'
         : newAccount.platform === 'gemini'
           ? 'https://generativelanguage.googleapis.com'
@@ -4347,7 +4363,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
   } else {
     const platformDefaultUrl =
-      newAccount.platform === 'openai'
+      (newAccount.platform === 'doubao' || newAccount.platform === 'traework' || newAccount.platform === 'workbuddy')
+        ? ''
+        : newAccount.platform === 'openai'
         ? 'https://api.openai.com'
         : newAccount.platform === 'gemini'
           ? 'https://generativelanguage.googleapis.com'
@@ -5005,8 +5023,19 @@ const handleSubmit = async () => {
 
       // Always update credentials for apikey type to handle model mapping changes
       const newCredentials: Record<string, unknown> = {
-        ...currentCredentials,
-        base_url: newBaseUrl
+        ...currentCredentials
+      }
+      // 内置适配器平台允许留空地址，交由后端注入内置地址。
+      if (newBaseUrl) {
+        newCredentials.base_url = newBaseUrl
+      } else {
+        delete newCredentials.base_url
+      }
+
+      if (props.account.platform === 'doubao' || props.account.platform === 'traework' || props.account.platform === 'workbuddy') {
+        newCredentials.api_protocol = 'chat_completions'
+        newCredentials.openai_capabilities = ['chat_completions']
+        updatePayload.concurrency = 1
       }
 
       // 国产供应商：模式与协议写入凭据（决定额度/余额探测与转发端点/格式）。

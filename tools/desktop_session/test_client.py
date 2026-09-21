@@ -13,7 +13,39 @@ class ClientTests(unittest.TestCase):
         self.client.cookies, self.client.params = {}, {}
         self.client.models = {'doubao-auto': {'id': 'doubao-auto', 'model_item_key': '9'}}
         self.client.selection = {'mode_id': '3', 'reasoning_effort': 5}
+        self.client.selections = {'doubao-auto': {**self.client.selection,
+                                                'model': {'model_item_key': '9'}}}
         self.client.read_timeout, self.client.generation_timeout = 120, 600
+
+    def catalog_client(self, models):
+        defaults = {'office': {'mode_id': '3', 'reasoning_effort': 5},
+                    'chat': {'mode_id': '1', 'reasoning_effort': 3}}
+        with patch('client.validate_context'), patch('client.read_catalog', return_value=(models, defaults)):
+            return DesktopClient({'cookies': {}, 'params': {}})
+
+    def test_chat_and_work_models_use_their_own_protocol_and_reasoning(self):
+        client = self.catalog_client([
+            {'model_item_key': '3', 'default_mode': '1', 'reasoning_effort_config': {'default_level': 4}},
+            {'model_item_key': '5', 'default_mode': '3'},
+            {'model_item_key': '9', 'default_mode': '3'}])
+        for name, key, mode, agent, conversation, reasoning in [
+                ('doubao-chat-turbo', '3', '1', 2, 1, 4),
+                ('doubao-pro', '5', '3', 1, 2, 5), ('doubao-auto', '9', '3', 1, 2, 5)]:
+            with self.subTest(model=name), patch('client.request') as send, patch('client.read_reply'):
+                client.complete('test', name)
+                payload = send.call_args.args[2]
+                self.assertEqual(payload['option']['conversation_init_ext'],
+                                 {'model_item_key': key, 'mode_id': mode, 'reasoning_effort': str(reasoning)})
+                self.assertEqual(payload['option']['agent_mode'], agent)
+                self.assertEqual(payload['option']['conversation_mode'], conversation)
+
+    def test_catalog_never_substitutes_a_different_model_or_mode(self):
+        client = self.catalog_client([{'model_item_key': '3', 'default_mode': '3'},
+                                      {'model_item_key': '5', 'default_mode': '1'}])
+        self.assertEqual(client.models, {})
+        for name in ('doubao-chat-turbo', 'doubao-pro'):
+            with self.assertRaises(ValueError):
+                client.resolve_model(name)
 
     def test_generation_uses_longer_network_and_stream_budgets(self):
         with patch('client.request') as request, patch('client.read_reply') as read:

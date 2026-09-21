@@ -482,6 +482,15 @@ func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Cont
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
 		testModelID = openai.DefaultTestModel
+		if account.IsDoubao() {
+			testModelID = DefaultDoubaoTestModel
+		}
+		if account.IsTraework() {
+			testModelID = DefaultTraeworkModel
+		}
+		if account.IsWorkbuddy() {
+			testModelID = DefaultWorkbuddyModel
+		}
 	}
 	testModelID = account.GetMappedModel(testModelID)
 

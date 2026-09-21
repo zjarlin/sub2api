@@ -38,6 +38,30 @@ type auditCaptureRepository struct {
 	logs []*service.AuditLog
 }
 
+// 登录回调的整段 URL 含刷新凭证，必须跳过请求体审计。
+func TestBuiltinLoginCallbackBodyOmitted(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repository := &auditCaptureRepository{}
+	auditService := service.NewAuditLogService(repository, nil)
+	auditService.Start()
+	router := gin.New()
+	router.Use(gin.HandlerFunc(NewAuditLogMiddleware(auditService)))
+	router.POST("/api/v1/admin/builtin-adapters/:platform/login-sessions/:session/:action", func(c *gin.Context) {
+		var body map[string]string
+		require.NoError(t, c.ShouldBindJSON(&body))
+		require.Contains(t, body["callback_url"], "audit-canary")
+		c.Status(http.StatusOK)
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/builtin-adapters/traework/login-sessions/abc/callback", bytes.NewBufferString(`{"callback_url":"http://127.0.0.1:18080/authorize?refreshToken=audit-canary"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+	auditService.Stop()
+	require.Len(t, repository.logs, 1)
+	require.Equal(t, "<credential-bearing body omitted>", repository.logs[0].RequestBody)
+}
+
 func (r *auditCaptureRepository) BatchInsert(_ context.Context, logs []*service.AuditLog) (int64, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

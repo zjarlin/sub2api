@@ -9,6 +9,26 @@ REPLICAS="${SUB2API_REPLICAS:-2}"
 CANARY_REPLICAS="${CANARY_REPLICAS:-1}"
 COMPOSE=(docker compose --project-name "$PROJECT_NAME" --project-directory "$DEPLOY_DIR" --env-file "$DEPLOY_DIR/.env" -f "$DEPLOY_DIR/deploy/docker-compose.yml" -f "$DEPLOY_DIR/docker-compose.override.yml" -f "$DEPLOY_DIR/deploy/cluster/docker-compose.yml")
 
+# 只读取编排开关，不执行 .env 中的 shell 内容；显式环境变量优先。
+BUILTIN_ADAPTERS_ENABLED="${SUB2API_BUILTIN_ADAPTERS:-}"
+if [ -z "$BUILTIN_ADAPTERS_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
+  BUILTIN_ADAPTERS_ENABLED="$(awk -F= '
+    $1 ~ /^[[:space:]]*(export[[:space:]]+)?SUB2API_BUILTIN_ADAPTERS[[:space:]]*$/ {
+      value=$2
+      sub(/#.*/, "", value)
+      gsub(/[[:space:]"\047]/, "", value)
+      result=value
+    }
+    END { if (result == "1") print "1"; else print "0" }
+  ' "$DEPLOY_DIR/.env")"
+fi
+
+# 显式开启后叠加豆包、TRAE Work 与 WorkBuddy 内置服务；编排文件缺失立即报错。
+if [ "$BUILTIN_ADAPTERS_ENABLED" = "1" ]; then
+  test -f "$DEPLOY_DIR/deploy/docker-compose.builtin-adapters.yml"
+  COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.builtin-adapters.yml")
+fi
+
 cd "$DEPLOY_DIR"
 mkdir -p releases
 
@@ -43,6 +63,10 @@ fi
 export SUB2API_IMAGE="$IMAGE"
 "${COMPOSE[@]}" config >/dev/null
 "${COMPOSE[@]}" up -d --no-recreate postgres redis
+if [ "$BUILTIN_ADAPTERS_ENABLED" = "1" ]; then
+  echo "Building and starting built-in adapters (doubao / traework / workbuddy)"
+  "${COMPOSE[@]}" up -d --build sub2api-desktop sub2api-traework sub2api-workbuddy
+fi
 echo "Starting canary with replicas=$CANARY_REPLICAS"
 "${COMPOSE[@]}" up -d --wait --wait-timeout 180 --no-deps --scale "sub2api=$CANARY_REPLICAS" sub2api gateway
 

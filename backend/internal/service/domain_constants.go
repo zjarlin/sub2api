@@ -48,6 +48,9 @@ const (
 	PlatformZhipu      = domain.PlatformZhipu
 	PlatformDeepseek   = domain.PlatformDeepseek
 	PlatformMiniMax    = domain.PlatformMiniMax
+	PlatformDoubao     = domain.PlatformDoubao
+	PlatformTraework   = domain.PlatformTraework
+	PlatformWorkbuddy  = domain.PlatformWorkbuddy
 	PlatformOpenCodeGo = domain.PlatformOpenCodeGo
 	PlatformComposite  = domain.PlatformComposite
 	// PlatformKiro is retained for unsupported-platform threshold tests and legacy
@@ -100,10 +103,10 @@ const (
 	DefaultOpenCodeZenAnthropicBaseURL = "https://opencode.ai/zen"
 )
 
-// IsCNProvider 报告 platform 是否为国产 OpenAI 兼容供应商（kimi/zhipu/deepseek/minimax）。
+// IsCNProvider 报告 platform 是否为国产 OpenAI 兼容供应商（含豆包桌面会话适配器）。
 func IsCNProvider(platform string) bool {
 	switch platform {
-	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax:
+	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformDoubao, PlatformTraework, PlatformWorkbuddy:
 		return true
 	default:
 		return false
@@ -116,7 +119,7 @@ func IsOpenCodeGo(platform string) bool {
 }
 
 // IsMultiProtocolAPIKeyProvider 报告 platform 是否为多协议 API Key 网关
-// （国产供应商 + OpenCode）：走 OpenAI 网关、支持 adaptive 协议分流。
+// （国产供应商 + OpenCode）：共用 OpenAI 网关；豆包固定 Chat Completions，其余按配置分流。
 func IsMultiProtocolAPIKeyProvider(platform string) bool {
 	return IsCNProvider(platform) || platform == PlatformOpenCodeGo
 }
@@ -135,6 +138,9 @@ var AllowedQuotaPlatforms = []string{
 	PlatformDeepseek,
 	PlatformMiniMax,
 	PlatformOpenCodeGo,
+	PlatformDoubao,
+	PlatformTraework,
+	PlatformWorkbuddy,
 }
 
 // AllowedSchedulingThresholdPlatforms 是允许设置账号自动停调阈值的平台列表。

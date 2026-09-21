@@ -324,6 +324,37 @@ function mountModal(account = buildAccount(), renderGroupSelector = false) {
 }
 
 describe('EditAccountModal', () => {
+  it('pins the TRAE Work built-in adapter protocol and single concurrency when editing', async () => {
+    const account = buildAccount()
+    account.platform = 'traework'
+    account.type = 'apikey'
+    account.credentials = { base_url: 'http://sub2api-traework:7864/v1', api_key: 'adapter-key', api_protocol: 'chat_completions' }
+    account.concurrency = 1
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    expect(wrapper.find('input[placeholder="http://sub2api-traework:7864/v1"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="builtin-adapter-login"]').exists()).toBe(true)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.lastCall?.[1]).toMatchObject({ concurrency: 1, credentials: {
+      api_protocol: 'chat_completions', openai_capabilities: ['chat_completions'],
+    } })
+  })
+
+  it('preserves the Doubao adapter credentials and pins its protocol when editing', async () => {
+    const account = buildAccount()
+    account.platform = 'doubao'
+    account.type = 'apikey'
+    account.credentials = { base_url: 'http://adapter.example/v1', api_key: 'adapter-key', api_protocol: 'chat_completions' }
+    account.concurrency = 1
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    expect(wrapper.find('input[placeholder="http://sub2api-desktop:8080/v1"]').exists()).toBe(false)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.lastCall?.[1]).toMatchObject({ concurrency: 1, credentials: {
+      base_url: 'http://adapter.example/v1', api_key: 'adapter-key', api_protocol: 'chat_completions', openai_capabilities: ['chat_completions'],
+    } })
+  })
+
   it('loads and saves the model probe opt-out without changing account scheduling', async () => {
     const account = buildAccount()
     account.extra = { model_health_probe_enabled: false, model_health_probe_interval_hours: 336, retained: 'keep' }

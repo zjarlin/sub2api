@@ -1235,6 +1235,9 @@ function generateRoutedCodexFiles(
     kimi: 'kimi-k2.5',
     zhipu: 'glm-4.7',
     deepseek: 'deepseek-v4-pro',
+    doubao: 'doubao-chat-turbo',
+    traework: 'glm-5.2',
+    workbuddy: 'glm-5.2',
     minimax: 'MiniMax-M3',
     opencode_go: 'glm-5.3',
     composite: 'gpt-5.5'
@@ -1250,6 +1253,9 @@ function generateRoutedCodexFiles(
     kimi: 'Kimi',
     zhipu: 'Zhipu',
     deepseek: 'DeepSeek',
+    doubao: 'Doubao',
+    traework: 'TRAE Work',
+    workbuddy: 'WorkBuddy',
     minimax: 'MiniMax',
     opencode_go: 'OpenCode',
     composite: 'Composite'

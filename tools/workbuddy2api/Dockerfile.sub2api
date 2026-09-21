@@ -1,0 +1,20 @@
+# 构建上下文为仓库 tools 目录，不把本地凭证或脚本复制进镜像。
+FROM golang:1.26-alpine AS build
+WORKDIR /src/workbuddy2api
+COPY builtinlogin /src/builtinlogin
+COPY workbuddy2api/go.mod workbuddy2api/go.sum ./
+RUN go mod download
+COPY workbuddy2api/cmd ./cmd
+COPY workbuddy2api/internal ./internal
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/adapter ./cmd/server
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates tzdata wget \
+ && adduser -D -u 10001 app \
+ && mkdir -p /app/auths /app/data && chown -R app:app /app
+WORKDIR /app
+COPY --from=build /out/adapter /app/adapter
+COPY workbuddy2api/config.sub2api.json /app/config.json
+USER app
+EXPOSE 7863
+ENTRYPOINT ["/app/adapter"]

@@ -1,6 +1,22 @@
 # 豆包桌面套餐 Docker 适配器
 
-复用本人已登录的豆包桌面会话，以纯 HTTP 调用桌面工作任务，提供 OpenAI Chat Completions 接口，接入本仓库现有 Sub2API。生成服务可在 Linux Docker 中独立运行，不包含豆包桌面、浏览器、AppleScript 或本地工具执行器。不是火山引擎 API。
+复用本人已登录的豆包桌面会话，以纯 HTTP 调用桌面对话或工作任务，提供 OpenAI Chat Completions 接口，接入本仓库现有 Sub2API。生成服务可在 Linux Docker 中独立运行，不包含豆包桌面、浏览器、AppleScript 或本地工具执行器。不是火山引擎 API。
+
+## 普通聊天与工具执行（2026-09-20）
+
+需要让调用方执行工具时，使用新增的 `doubao-chat-turbo`。它走客户端的“对话”协议；已有 `doubao-auto` 和 `doubao-pro` 仍走“工作任务”协议。实时目录和客户端资源均将 Pro 列在工作任务下，没有已验证的 Pro 普通聊天入口。
+
+| 公开模型 | 上游模型键 | mode_id | agent_mode | conversation_mode |
+| --- | --- | --- | --- | --- |
+| `doubao-chat-turbo` | `3`，豆包 2.1 Turbo | `1`（对话） | `2`（Chat） | `1`（chat） |
+| `doubao-auto` | `9`，自动 | `3`（工作任务） | `1`（MOA） | `2`（office） |
+| `doubao-pro` | `5`，豆包 2.1 Pro | `3`（工作任务） | `1`（MOA） | `2`（office） |
+
+调用方式仍是 `POST /v1/chat/completions`，传 `messages`、`tools`、`tool_choice`。收到 `assistant.tool_calls` 后，调用方执行对应函数，再将该 assistant 消息和 `role=tool`、相同 `tool_call_id`、真实执行结果放回 `messages`。例如调用方在本机运行，访问局域网的函数就在本机执行；调用方部署在远端，工具也在该远端执行。模型服务不需要连接本机或局域网。
+
+本轮真实 HTTP 验收使用 `tool_choice=auto`：Turbo 返回 `read_local_probe`，测试客户端读取本地随机文件并回传，模型通过 SSE 原样返回该标记；第三轮续聊仍能返回同一结果，相同请求重试复用已确认响应。三轮同一上游会话，首轮 ACK 确认模型键 `3`、模式 `1`，观测到的内容块只有文本 `10000`。91 项适配器测试通过，脱敏结果见 `validation.json` 的 `chat_protocol_validation`。
+
+这证明了普通聊天入口及客户端工具往返，不代表获取了豆包原生 function-calling API 或完全移除了上游系统提示词、所有内置能力。工具决策仍采用下文的 JSON 文本桥接，SSE 仍为缓冲输出。当前安装客户端为 `2.29.12`；本轮 HTTP 验证复用了已有 `2.29.10` 协议快照，没有修改线上登录态或生产部署。新模型需要部署适配器后，在 Sub2API 账号映射中加入同名模型并同步目录才能经网关使用。
 
 ## 实测依据（2026-09-15）
 
@@ -43,7 +59,7 @@ Linux 部署只需服务代码/镜像及上述两份私密文件；无需复制�
 
 生成请求返回 `X-Request-ID`；标准输出记录请求编号、规范模型名、处理阶段、耗时、状态码、异常类型和栈位置，不记录 Cookie、请求正文、助手正文或原始异常文本。可使用 `docker logs sub2api-doubao-desktop` 定位后续错误。
 
-官方客户端的 `buildGeneralAgentConversationAgentTaskParam` 在未指定环境时使用 `CloudVM`，因此工作会话可显示为“云电脑”。本适配器沿用工作模式，不能凭 `local_permissions: []` 或提示词关闭服务端内置工具。外部函数仍通过下文的文本桥接交由调用方执行；这与豆包原生云电脑/本机工具执行链路不同，目前未接通原生自定义工具注册与结果回传。
+官方客户端的 `buildGeneralAgentConversationAgentTaskParam` 在未指定环境时使用 `CloudVM`，因此工作会话可显示为“云电脑”。`doubao-auto`、`doubao-pro` 沿用工作模式，不能凭 `local_permissions: []` 或提示词关闭服务端内置工具。`doubao-chat-turbo` 使用独立对话模式，不提交 `general_task_param` 或 `client_tool_key`。外部函数仍通过下文的文本桥接交由调用方执行；这与豆包原生云电脑/本机工具执行链路不同，目前未接通原生自定义工具注册与结果回传。
 
 ## API
 
@@ -63,7 +79,7 @@ Linux 部署只需服务代码/镜像及上述两份私密文件；无需复制�
 }
 ```
 
-对外模型 ID 为 `doubao-auto` 和 `doubao-pro`，分别映射到上游菜单的 `自动`（键 `9`）和 `豆包 2.1 Pro`（键 `5`），工作模式均为 `3`。`/v1/models` 的 `name` 字段保留上游显示名称。服务读取账号的模型菜单，只公开这两个已验证的选项，并检查新会话记录是否采用所选键；这不证明底层模型权重或套餐具体扣费规则。
+对外模型 ID 为 `doubao-auto`、`doubao-pro` 和 `doubao-chat-turbo`，映射见上表。`/v1/models` 的 `name` 字段保留上游显示名称。服务读取账号的模型菜单，仅公开同时匹配已验证模型键和模式的选项，并检查新会话记录是否采用所选键及模式；这不证明底层模型权重或套餐具体扣费规则。
 
 ### 同一会话增量续接
 
@@ -92,7 +108,7 @@ Linux 部署只需服务代码/镜像及上述两份私密文件；无需复制�
 
 当前范围：
 
-- 纯文本。多条 `messages` 作为带角色的 JSON 上下文传入全新任务；不是豆包原生 system-role API，不保持服务端共享历史。
+- 纯文本。首次请求将多条 `messages` 作为带角色的 JSON 上下文传入新会话，后续按上文规则增量续接；不是豆包原生 system-role API。
 - 支持 `response_format: null`、`{"type":"text"}`、`{"type":"json_object"}` 和 `{"type":"json_schema","json_schema":{"name":"result","schema":{...},"strict":true}}`。JSON 模式使用提示约束及返回前校验，不是上游原生约束解码；不自动重试生成。只去除包裹整个回复的 JSON 代码围栏，不从解释文字中截取 JSON。无效 JSON、重复键、非有限数值、非对象结果或不符合 schema 的回复返回 `502 / invalid_response_format`，JSON 与 SSE 路径一致，不提前发出成功块。
 - Schema 使用 JSON Schema draft 2020-12，根类型为 `object`，支持本地 `$defs` / `$ref`，拒绝外部引用及无法解析的引用；`format` 按该标准默认为注解。`strict` 为 true、false 或省略时均校验实际输出，参数本身不会透传给豆包。不合法的格式或 schema 在生成前返回 400。
 - `stream=true` 是**缓冲 SSE**：完整校验助手正文和结束状态后返回内容、结束块、`[DONE]`，没有实时首 token。
@@ -107,16 +123,48 @@ Linux 部署只需服务代码/镜像及上述两份私密文件；无需复制�
 
 ## 接入已有 Sub2API
 
-使用 OpenAI API Key 账号的现有自定义 `base_url`，无需修改网关 Go 代码或 `.s2plugin` 协议。账号模板见 `sub2api-account.example.json`。
+平台已提供独立的 **豆包（doubao）** 类型。账号为 `apikey` 类型，协议固定 `chat_completions`，并发固定为 1；创建后自动同步 `/v1/models`。
 
-让适配器加入 Sub2API 的现有 Docker 网络：
+推荐使用 **内置适配器**：适配器随 Sub2API 部署一起启动，账号表单无需填写地址和密钥。
+
+1. 先在本目录生成会话快照与密钥（只需一次，会话失效后重跑）：
+
+   ```sh
+   python3 prepare.py
+   ```
+
+2. 在部署目录 `.env` 中设置：
+
+   ```sh
+   SUB2API_BUILTIN_ADAPTERS=1
+   DESKTOP_ADAPTER_KEY=<与 runtime/api_key 相同或留空由后端读取>
+   DESKTOP_SECRET_DIR=<本目录>/runtime
+   DESKTOP_STATE_DIR=<本目录>/state
+   ```
+
+3. 用内置适配器 overlay 启动：
+
+   ```sh
+   docker compose \
+     -f deploy/docker-compose.yml \
+     -f deploy/docker-compose.builtin-adapters.yml \
+     up -d --build
+   ```
+
+   252 集群部署脚本在 `SUB2API_BUILTIN_ADAPTERS=1` 时会自动叠加该文件。
+
+4. 在「添加账号」选择豆包，填名称即可；模型默认 `doubao-chat-turbo`。
+
+如需把适配器单独部署到已有 Docker 网络（不使用内置 overlay）：
 
 ```sh
 SUB2API_NETWORK=sub2api_sub2api-network \
   docker compose -f compose.yml -f compose.sub2api.yml up -d --build
 ```
 
-账号类型 `openai / apikey`；上游 `http://sub2api-doubao-desktop:8080`；API Key 为适配器密钥；仅启用 `chat_completions`；`extra.openai_responses_mode=force_chat_completions`；并发为 `1`；模型映射为 `doubao-auto→doubao-auto`、`doubao-pro→doubao-pro`，适配器内部解析为菜单键 `9`、`5`。绑定专用实验分组，关闭后台上游计费探测。
+此时可在账号表单显式填写适配器地址和密钥，覆盖内置注入值。账号模板见 `sub2api-account.example.json`。桌面登录会话仍由适配器持有，管理表单不导入桌面 Cookie。
+
+新账号类型 `doubao / apikey`；上游 `http://sub2api-doubao-desktop:8080/v1`；API Key 为适配器密钥；协议固定 `chat_completions`；网关负责 Responses / Messages 转换；并发为 `1`；模型映射为 `doubao-auto→doubao-auto`、`doubao-pro→doubao-pro`、`doubao-chat-turbo→doubao-chat-turbo`，适配器内部解析为上表所列模型和模式。绑定豆包或 Composite 分组，配置模型价格，并关闭后台上游计费探测（表单默认关闭）。旧 `openai / apikey` 账号及其 `extra.openai_responses_mode=force_chat_completions` 配置继续兼容，不自动迁移。普通聊天推荐 `doubao-chat-turbo`；平台不会把桌面工作模式当作本机工具执行。此配置为部署说明，2026-09-20 新平台与新模型尚未部署。
 
 252 上的独立容器名为 `sub2api-doubao-desktop`，部署目录 `/opt/sub2api/desktop-api`，镜像 `sub2api-desktop:20260916-continuation`。适配器宿主机入口仅为 `127.0.0.1:18089`，Sub2API 从容器网络访问它。账号 `834` 同时绑定 `6`（codex）与专属分组 `21`（豆包桌面套餐实验-20260915）。实验分组模型列表为 `doubao-auto`、`doubao-pro`，请求和响应的 `model` 使用同一名称。2026-09-16 已将这两个模型配置为按次计费，详见 `pricing.json`；实验分组仍仅授权当前管理员使用。协议验证结果见本目录 `validation.json`。旧网关实验密钥保存在被忽略的 `runtime/sub2api-access.json`，但已失效；不要提交或复制到普通日志。
 
@@ -159,6 +207,7 @@ tools/desktop_session/.venv/bin/python -m unittest discover -s tools/desktop_ses
 /usr/bin/python3 tools/desktop_session/smoke.py --response-format json_schema
 /usr/bin/python3 tools/desktop_session/smoke.py --response-format json_object --model doubao-auto --stream --padding-bytes 70000
 /usr/bin/python3 tools/desktop_session/smoke_tools.py --model doubao-pro
+/usr/bin/python3 tools/desktop_session/smoke_tools.py --model doubao-chat-turbo --stream
 /usr/bin/python3 tools/desktop_session/smoke_tools.py --model doubao-auto --stream --parallel
 /usr/bin/python3 tools/desktop_session/smoke.py --model doubao-auto --stream --tail-role assistant --padding-bytes 70000
 /usr/bin/python3 tools/desktop_session/smoke_tools.py --model doubao-pro --assistant-tail

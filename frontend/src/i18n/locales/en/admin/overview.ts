@@ -983,7 +983,10 @@ export default {
         zhipu: 'Zhipu GLM',
         deepseek: 'DeepSeek',
         minimax: 'MiniMax',
-        opencode_go: 'OpenCode',
+        doubao: 'Doubao',
+        traework: 'TRAE Work',
+        workbuddy: 'WorkBuddy',
+      opencode_go: 'OpenCode',
         composite: 'Composite',
       },
       deleteConfirm:

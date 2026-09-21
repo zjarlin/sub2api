@@ -521,6 +521,9 @@ export default {
       zhipu: 'Zhipu GLM',
       deepseek: 'DeepSeek',
       minimax: 'MiniMax',
+      doubao: 'Doubao',
+      traework: 'TRAE Work',
+      workbuddy: 'WorkBuddy',
       opencode_go: 'OpenCode'
     },
     // Check modes (how a monitor performs its checks)

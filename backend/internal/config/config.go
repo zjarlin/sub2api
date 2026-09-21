@@ -104,6 +104,43 @@ type Config struct {
 	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
 	ImageStorage            ImageStorageConfig            `mapstructure:"image_storage"`
 	Plugins                 PluginConfig                  `mapstructure:"plugins"`
+	BuiltinAdapter          BuiltinAdapterConfig          `mapstructure:"builtin_adapter"`
+}
+
+// BuiltinAdapterConfig 控制随 Sub2API 部署一起启动的豆包、TRAE 和 WorkBuddy 适配器。
+// 启用后账号表单不再要求手填地址与密钥，后端统一注入内部地址和共享密钥。
+type BuiltinAdapterConfig struct {
+	Enabled      bool   `mapstructure:"enabled"`
+	DesktopURL   string `mapstructure:"desktop_url"`
+	DesktopKey   string `mapstructure:"desktop_key"`
+	TraeworkURL  string `mapstructure:"traework_url"`
+	TraeworkKey  string `mapstructure:"traework_key"`
+	WorkbuddyURL string `mapstructure:"workbuddy_url"`
+	WorkbuddyKey string `mapstructure:"workbuddy_key"`
+}
+
+// DesktopBaseURL 返回豆包桌面适配器地址，未显式配置时使用编排内的服务名。
+func (c BuiltinAdapterConfig) DesktopBaseURL() string {
+	if strings.TrimSpace(c.DesktopURL) == "" {
+		return "http://sub2api-desktop:8080"
+	}
+	return strings.TrimSpace(c.DesktopURL)
+}
+
+// TraeworkBaseURL 返回 traework2api 适配器地址，未显式配置时使用编排内的服务名。
+func (c BuiltinAdapterConfig) TraeworkBaseURL() string {
+	if strings.TrimSpace(c.TraeworkURL) == "" {
+		return "http://sub2api-traework:7864"
+	}
+	return strings.TrimSpace(c.TraeworkURL)
+}
+
+// WorkbuddyBaseURL 返回内置 WorkBuddy 服务地址。
+func (c BuiltinAdapterConfig) WorkbuddyBaseURL() string {
+	if strings.TrimSpace(c.WorkbuddyURL) == "" {
+		return "http://sub2api-workbuddy:7863"
+	}
+	return strings.TrimSpace(c.WorkbuddyURL)
 }
 
 // PluginConfig 控制管理员手动上传的本地进程插件。
@@ -2001,6 +2038,13 @@ func configureConfigSource(setConfigFile, addConfigPath func(string)) {
 
 func setDefaults() {
 	viper.SetDefault("run_mode", RunModeStandard)
+	viper.SetDefault("builtin_adapter.enabled", false)
+	viper.SetDefault("builtin_adapter.desktop_url", "")
+	viper.SetDefault("builtin_adapter.desktop_key", "")
+	viper.SetDefault("builtin_adapter.traework_url", "")
+	viper.SetDefault("builtin_adapter.traework_key", "")
+	viper.SetDefault("builtin_adapter.workbuddy_url", "")
+	viper.SetDefault("builtin_adapter.workbuddy_key", "")
 
 	// Server
 	viper.SetDefault("server.host", "0.0.0.0")

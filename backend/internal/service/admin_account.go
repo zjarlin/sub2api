@@ -349,6 +349,9 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 }
 
 func normalizeAccountConcurrency(platform, accountType string, concurrency int) int {
+	if platform == PlatformDoubao || platform == PlatformTraework || platform == PlatformWorkbuddy {
+		return 1
+	}
 	if platform == PlatformGrok && accountType == AccountTypeOAuth {
 		if concurrency <= 0 {
 			return 1
@@ -413,6 +416,13 @@ func normalizeOpenAILongContextBillingUpdateExtra(account *Account, input *Updat
 // Grok media eligibility helpers live in account_grok_media_eligibility.go.
 
 func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]any) (*Account, error) {
+	applyBuiltinAdapterCredentials(input.Platform, input.Credentials)
+	if err := validateDoubaoCredentials(input.Platform, input.Type, input.Credentials); err != nil {
+		return nil, err
+	}
+	if err := validateBuiltinChatCredentials(input.Platform, input.Type, input.Credentials); err != nil {
+		return nil, err
+	}
 	// Probe/session state is system-managed. New accounts always start with automatic refresh disabled.
 	delete(accountExtra, UpstreamBillingProbeEnabledExtraKey)
 	delete(accountExtra, UpstreamBillingRateSyncEnabledExtraKey)
@@ -476,6 +486,13 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 }
 
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
+	applyBuiltinAdapterCredentials(input.Platform, input.Credentials)
+	if err := validateDoubaoCredentials(input.Platform, input.Type, input.Credentials); err != nil {
+		return nil, err
+	}
+	if err := validateBuiltinChatCredentials(input.Platform, input.Type, input.Credentials); err != nil {
+		return nil, err
+	}
 	accountExtra, err := normalizeOpenAILongContextBillingExtra(input.Platform, input.Extra)
 	if err != nil {
 		return nil, err
@@ -660,6 +677,13 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		// Strip SSO/password residue that must never sit next to OAuth tokens.
 		account.Credentials = SanitizeStoredCredentials(account.Platform, account.Credentials)
 	}
+	applyBuiltinAdapterCredentials(account.Platform, account.Credentials)
+	if err := validateDoubaoCredentials(account.Platform, account.Type, account.Credentials); err != nil {
+		return nil, err
+	}
+	if err := validateBuiltinChatCredentials(account.Platform, account.Type, account.Credentials); err != nil {
+		return nil, err
+	}
 	// Extra 使用 map：需要区分“未提供(nil)”与“显式清空({})”。
 	// 关闭配额限制时前端会删除 quota_* 键并提交 extra:{}，此时也必须落库。
 	requestedProbeEnabledUpdate := input.ProbeEnabled
@@ -788,6 +812,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	// 只在指针非 nil 时更新 Concurrency（支持设置为 0）
 	if input.Concurrency != nil {
 		account.Concurrency = normalizeAccountConcurrency(account.Platform, account.Type, *input.Concurrency)
+	}
+	if account.IsDoubao() || account.IsTraework() || account.IsWorkbuddy() {
+		account.Concurrency = 1
 	}
 	// 只在指针非 nil 时更新 Priority（支持设置为 0）
 	if input.Priority != nil {
@@ -987,7 +1014,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 
 	// 预取所有目标账号，供凭据守卫/代理守卫/混合渠道检查共用，避免多次 DB 查询。
 	var cachedTargets []*Account
-	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || openAISettings.any() || input.ProbeEnabled != nil || input.RateMultiplier != nil {
+	if len(input.Credentials) > 0 || input.Concurrency != nil || input.ProxyID != nil || needMixedChannelCheck || openAISettings.any() || input.ProbeEnabled != nil || input.RateMultiplier != nil {
 		loaded, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
 		if err != nil {
 			return nil, err
@@ -998,6 +1025,25 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	for _, account := range cachedTargets {
 		if account != nil {
 			targetsByID[account.ID] = account
+		}
+	}
+	// 批量路径直接合并数据库字段，需在首次写入前保护豆包协议与并发约束。
+	for _, account := range cachedTargets {
+		if !account.IsDoubao() && !account.IsTraework() && !account.IsWorkbuddy() {
+			continue
+		}
+		if input.Concurrency != nil && *input.Concurrency != 1 {
+			return nil, infraerrors.BadRequest("INVALID_BUILTIN_ADAPTER_CONCURRENCY", "built-in adapter accounts require concurrency 1; exclude them from this batch to use another value")
+		}
+		if len(input.Credentials) > 0 {
+			credentials := mergeMap(account.Credentials, input.Credentials)
+			applyBuiltinAdapterCredentials(account.Platform, credentials)
+			if err := validateDoubaoCredentials(account.Platform, account.Type, credentials); err != nil {
+				return nil, err
+			}
+			if err := validateBuiltinChatCredentials(account.Platform, account.Type, credentials); err != nil {
+				return nil, err
+			}
 		}
 	}
 	if openAISettings.any() {

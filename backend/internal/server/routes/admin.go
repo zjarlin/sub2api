@@ -355,6 +355,10 @@ func registerGroupRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 }
 
 func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAuth middleware.StepUpAuthMiddleware) {
+	login := admin.Group("/builtin-adapters/:platform/login-sessions")
+	login.POST("", h.Admin.Account.BuiltinAdapterLogin)
+	login.POST("/:session/:action", h.Admin.Account.BuiltinAdapterLogin)
+	login.DELETE("/:session", h.Admin.Account.BuiltinAdapterLogin)
 	accounts := admin.Group("/accounts")
 	{
 		accounts.GET("", h.Admin.Account.List)

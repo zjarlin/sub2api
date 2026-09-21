@@ -1,5 +1,32 @@
 export default {
     accounts: {
+      workbuddy: {
+        title: 'WorkBuddy',
+        baseUrlHint: '使用内置 WorkBuddy 服务，无需填写地址。',
+        apiKeyHint: '连接密钥由服务器管理。',
+      },
+      builtinLogin: {
+        traeworkHint: '打开 TRAE 授权页完成登录，再把浏览器地址栏的完整回调链接粘贴回来。页面无法打开 127.0.0.1 不影响导入。',
+        workbuddyHint: '打开 WorkBuddy 国内版授权页并登录，本页会自动获取授权结果。',
+        poolHint: '登录凭证保存到此部署的共享账号池，刷新由服务器维护。已有可用凭证时可直接保存账号；地址与连接密钥无需填写。',
+        start: '登录并接入', restart: '重新登录 / 添加登录账号', open: '打开授权页',
+        callback: '完整回调链接', callbackPlaceholder: 'http://127.0.0.1:18080/authorize?...',
+        complete: '完成授权', waiting: '正在等待浏览器授权…',
+        success: '已接入 {name}，凭证已保存并立即生效。',
+        failed: '授权失败，请重试。', expired: '授权已过期，请重新登录。',
+      },
+      doubao: {
+        title: '豆包',
+        connectionHint: '使用随 Sub2API 部署自动启动的豆包桌面适配器。支持普通对话 Turbo、自动和 Pro；工具由调用方执行。',
+        baseUrlHint: '可选。默认使用内置适配器地址，留空即可。',
+        apiKeyHint: '可选。留空时使用内置适配器共享密钥。',
+      },
+      traework: {
+        title: 'TRAE Work',
+        connectionHint: '使用随 Sub2API 部署自动启动的 traework2api 适配器。地址与密钥由后端注入，无需手填。',
+        baseUrlHint: '可选。默认使用内置 traework2api 地址，留空即可。',
+        apiKeyHint: '可选。留空时使用内置适配器共享密钥。',
+      },
       loadingTestModels: '正在加载测试模型，最多等待 10 秒…',
       testModelsLoadFailed: '模型列表加载失败或超时，请重试。',
       cancelTest: '取消测试',
@@ -98,6 +125,7 @@ export default {
       editAccount: '编辑账号',
       deleteAccount: '删除账号',
       searchAccounts: '搜索账号...',
+      searchAccountsOrId: '搜索账号或 ID...',
       notes: '备注',
       notesPlaceholder: '请输入备注',
       notesHint: '备注可选',
@@ -331,7 +359,10 @@ export default {
         zhipu: 'Zhipu GLM',
         deepseek: 'DeepSeek',
         minimax: 'MiniMax',
-        opencode_go: 'OpenCode',
+        doubao: '豆包',
+        traework: 'TRAE Work',
+        workbuddy: 'WorkBuddy',
+      opencode_go: 'OpenCode',
       },
       cnProviders: {
         accountMode: {

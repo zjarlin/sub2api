@@ -23,6 +23,11 @@ const (
 	PlatformGemini      = "gemini"
 	PlatformAntigravity = "antigravity"
 	PlatformGrok        = "grok"
+	// 豆包桌面会话适配器，独立于火山方舟平台。
+	PlatformDoubao = "doubao"
+	// TRAE Work (SOLO CN) 反向代理适配器。
+	PlatformTraework  = "traework"
+	PlatformWorkbuddy = "workbuddy"
 	// 国产 OpenAI 兼容供应商（经 OpenAI 网关转发，按 Chat Completions 协议）。
 	PlatformKimi     = "kimi"     // Kimi (月之暗面 / Moonshot)
 	PlatformZhipu    = "zhipu"    // 智谱 GLM (bigmodel)

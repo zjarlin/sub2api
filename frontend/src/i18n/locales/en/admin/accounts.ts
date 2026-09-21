@@ -1,5 +1,32 @@
 export default {
     accounts: {
+      workbuddy: {
+        title: 'WorkBuddy',
+        baseUrlHint: 'Uses the built-in WorkBuddy service. No URL is required.',
+        apiKeyHint: 'The server manages the adapter key.',
+      },
+      builtinLogin: {
+        traeworkHint: 'Open TRAE authorization, sign in, then paste the full callback URL from the address bar. A connection error at 127.0.0.1 does not prevent import.',
+        workbuddyHint: 'Open WorkBuddy CN authorization and sign in. This page retrieves the authorization result automatically.',
+        poolHint: 'Credentials join this deployment’s shared account pool and refresh on the server. You can save directly if credentials already exist. No URL or adapter key is required.',
+        start: 'Sign in and connect', restart: 'Sign in again / add login', open: 'Open authorization page',
+        callback: 'Full callback URL', callbackPlaceholder: 'http://127.0.0.1:18080/authorize?...',
+        complete: 'Complete authorization', waiting: 'Waiting for browser authorization…',
+        success: 'Connected {name}. Credentials are saved and active.',
+        failed: 'Authorization failed. Please retry.', expired: 'Authorization expired. Please sign in again.',
+      },
+      doubao: {
+        title: 'Doubao',
+        connectionHint: 'Uses the Doubao desktop adapter started with this Sub2API deployment. Supports chat Turbo, Auto and Pro; the caller executes tools.',
+        baseUrlHint: 'Optional. Leave blank to use the built-in adapter URL.',
+        apiKeyHint: 'Optional. Leave blank to use the built-in adapter key.',
+      },
+      traework: {
+        title: 'TRAE Work',
+        connectionHint: 'Uses the traework2api adapter started with this Sub2API deployment. The server injects the URL and key.',
+        baseUrlHint: 'Optional. Leave blank to use the built-in traework2api URL.',
+        apiKeyHint: 'Optional. Leave blank to use the built-in adapter key.',
+      },
       loadingTestModels: 'Loading test models (up to 10 seconds)…',
       testModelsLoadFailed: 'Model list failed to load or timed out. Please retry.',
       cancelTest: 'Cancel test',
@@ -99,6 +126,7 @@ export default {
       editAccount: 'Edit Account',
       deleteAccount: 'Delete Account',
       searchAccounts: 'Search accounts...',
+      searchAccountsOrId: 'Search account or ID...',
       notes: 'Notes',
       notesPlaceholder: 'Enter notes',
       notesHint: 'Notes are optional',
@@ -128,7 +156,10 @@ export default {
         zhipu: 'Zhipu GLM',
         deepseek: 'DeepSeek',
         minimax: 'MiniMax',
-        opencode_go: 'OpenCode',
+        doubao: 'Doubao',
+        traework: 'TRAE Work',
+        workbuddy: 'WorkBuddy',
+      opencode_go: 'OpenCode',
       },
       cnProviders: {
         accountMode: {

@@ -89,6 +89,16 @@ function mountDialog() {
 }
 
 describe('channel monitor Grok provider', () => {
+  it('offers Doubao probes without advertising a quota API or public endpoint', async () => {
+    const wrapper = mountDialog()
+    await flushPromises()
+    await wrapper.get('[data-testid="monitor-provider-doubao"]').trigger('click')
+    expect(wrapper.get<HTMLInputElement>('[data-testid="monitor-endpoint"]').element.value).toBe('')
+    expect(wrapper.get<HTMLInputElement>('[data-testid="monitor-primary-model"]').element.value).toBe('doubao-chat-turbo')
+    expect(wrapper.get('[data-testid="monitor-check-mode-quota"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="monitor-check-mode-quota_probe"]').attributes('disabled')).toBeDefined()
+  })
+
   beforeEach(() => {
     listTemplates.mockReset().mockResolvedValue({ items: [] })
     accountsList.mockReset().mockResolvedValue({ items: [] })
@@ -101,7 +111,7 @@ describe('channel monitor Grok provider', () => {
 
     expect(PROVIDERS).toContain(PROVIDER_GROK)
     const providerButtons = wrapper.findAll('[data-testid^="monitor-provider-"]')
-    expect(providerButtons).toHaveLength(10)
+    expect(providerButtons).toHaveLength(PROVIDERS.length)
     expect(providerButtons[0].element.parentElement?.className).toContain('grid-cols-2')
     expect(providerButtons[0].element.parentElement?.className).toContain('sm:grid-cols-4')
 

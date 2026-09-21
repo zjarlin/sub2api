@@ -1047,6 +1047,28 @@ rate_limit:
 # Local OAuth Transport Plugins (Optional)
 # 本地 OAuth 出站传输插件（可选）
 # =============================================================================
+# =============================================================================
+# Built-in Adapters (Optional)
+# 内置适配器（可选）
+# =============================================================================
+# Start the Doubao desktop-session and TRAE Work (traework2api) sidecars with the
+# Sub2API deployment, then let account creation inject the internal URL and key.
+# 随 Sub2API 部署一起启动豆包桌面会话与 TRAE Work (traework2api) sidecar，
+# 账号创建时自动注入内部地址与共享密钥，表单无需手填。
+#
+# Compose overlay: deploy/docker-compose.builtin-adapters.yml
+# Enable on the 252 cluster deploy with SUB2API_BUILTIN_ADAPTERS=1.
+builtin_adapter:
+  enabled: false
+  # Internal service URLs; defaults match the compose service names.
+  # 内部服务地址，默认与 compose 服务名一致。
+  desktop_url: "http://sub2api-desktop:8080"
+  desktop_key: ""
+  traework_url: "http://sub2api-traework:7864"
+  traework_key: ""
+  workbuddy_url: "http://sub2api-workbuddy:7863"
+  workbuddy_key: ""
+
 plugins:
   # Empty means {{DATA_DIR}}/plugins, or ./data/plugins when DATA_DIR is unset.
   # 留空时使用 {{DATA_DIR}}/plugins；未设置 DATA_DIR 时使用 ./data/plugins。

@@ -261,7 +261,7 @@ func validatePayGAccount(account *Account) error {
 	if account == nil {
 		return infraerrors.New(http.StatusNotFound, "CN_BALANCE_ACCOUNT_NOT_FOUND", "account not found")
 	}
-	if !account.IsCNProvider() {
+	if !account.IsCNProvider() || account.IsDoubao() {
 		return infraerrors.New(http.StatusBadRequest, "CN_BALANCE_INVALID_PLATFORM", "account is not a CN provider account")
 	}
 	// coding 账号走额度探测，余额端点不适用。

@@ -7,7 +7,9 @@ import urllib.error
 from reply import UpstreamError, read_reply
 from transport import PARAMS, TESTED_VERSION, read_catalog, request
 
-MODEL_KEYS = {'doubao-auto': '9', 'doubao-pro': '5'}
+# 公开名称同时固定模型与模式，避免把工作模型悄悄换成聊天模型。
+MODEL_PROFILES = {'doubao-auto': ('9', '3'), 'doubao-pro': ('5', '3'),
+                  'doubao-chat-turbo': ('3', '1')}
 
 
 def timeout_setting(name, default):
@@ -36,20 +38,29 @@ class DesktopClient:
         self.cookies, self.params = context['cookies'], context['params']
         models, defaults = read_catalog(self.cookies, params=self.params)
         self.selection = defaults['office']
-        work_models = {m['model_item_key']: m for m in models if str(m['default_mode']) == '3'}
-        self.models = {name: {**work_models[key], 'id': name}
-                       for name, key in MODEL_KEYS.items() if key in work_models}
+        catalog = {(item['model_item_key'], str(item['default_mode'])): item for item in models}
+        self.models = {name: {**catalog[profile], 'id': name}
+                       for name, profile in MODEL_PROFILES.items() if profile in catalog}
+        self.selections = {}
+        for name, item in self.models.items():
+            scene = 'chat' if str(item['default_mode']) == '1' else 'office'
+            selected = defaults[scene]
+            reasoning = (item.get('reasoning_effort_config') or {}).get('default_level',
+                                                                      selected['reasoning_effort'])
+            self.selections[name] = {**selected, 'mode_id': str(item['default_mode']),
+                                     'model': {'model_item_key': item['model_item_key']},
+                                     'reasoning_effort': reasoning}
 
     def resolve_model(self, model):
         item = self.models.get(model) or next(
             (item for item in self.models.values() if item['model_item_key'] == model), None)
         if item is None:
-            raise ValueError('Unknown desktop work model; use /v1/models')
+            raise ValueError('Unknown desktop model; use /v1/models')
         return item
 
     def complete(self, text, model, cursor=None):
         item = self.resolve_model(model)
-        selection = {**self.selection, 'model': {'model_item_key': item['model_item_key']}}
+        selection = self.selections[item['id']]
         payload = chat_request(text, selection, cursor)
         try:
             with request(self.cookies, '/chat/completion', payload, params=self.params,
