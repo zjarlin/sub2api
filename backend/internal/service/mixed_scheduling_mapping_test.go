@@ -54,3 +54,15 @@ func TestOpenAIAccountMatchesPlatformWithMixedScheduling(t *testing.T) {
 	// traework 账号不能服务 anthropic 分组。
 	require.False(t, openAIAccountMatchesPlatform(mixedSchedulingAccount(PlatformTraework, true), PlatformAnthropic))
 }
+
+// 调度（selectByLoadBalance 与 sticky 命中）必须用与 openAIAccountMatchesPlatform
+// 一致的平台判定，否则 traework/workbuddy 账号会在调度阶段被 platform_mismatch 过滤。
+func TestSchedulerPlatformMatchUsesMixedMapping(t *testing.T) {
+	require.True(t, openAIAccountMatchesPlatform(mixedSchedulingAccount(PlatformTraework, true), PlatformOpenAI))
+	require.True(t, openAIAccountMatchesPlatform(mixedSchedulingAccount(PlatformWorkbuddy, true), PlatformOpenAI))
+	require.False(t, openAIAccountMatchesPlatform(mixedSchedulingAccount(PlatformTraework, false), PlatformOpenAI))
+	// 原生 openai 账号不受影响。
+	require.True(t, openAIAccountMatchesPlatform(&Account{Platform: PlatformOpenAI}, PlatformOpenAI))
+	// 非兼容平台仍被拒绝。
+	require.False(t, openAIAccountMatchesPlatform(&Account{Platform: PlatformKimi}, PlatformOpenAI))
+}
