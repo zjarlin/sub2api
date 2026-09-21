@@ -9,5 +9,8 @@
     "keepalive_enabled": true,
     "school_enabled": false,
     "cat_enabled": false
+  },
+  "prompt": {
+    "mode": "passthrough"
   }
 }
