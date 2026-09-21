@@ -56,6 +56,18 @@ func (r *grokCredentialHandlerRepo) ListSchedulableByGroupIDAndPlatform(ctx cont
 	return r.ListSchedulableByPlatform(ctx, platform)
 }
 
+func (r *grokCredentialHandlerRepo) ListSchedulableByGroupIDAndPlatforms(ctx context.Context, _ int64, platforms []string) ([]service.Account, error) {
+	result := make([]service.Account, 0)
+	for _, platform := range platforms {
+		items, err := r.ListSchedulableByPlatform(ctx, platform)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, items...)
+	}
+	return result, nil
+}
+
 func (r *grokCredentialHandlerRepo) ListSchedulableUngroupedByPlatform(ctx context.Context, platform string) ([]service.Account, error) {
 	return r.ListSchedulableByPlatform(ctx, platform)
 }

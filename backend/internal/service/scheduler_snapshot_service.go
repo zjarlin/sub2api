@@ -208,7 +208,7 @@ func (s *SchedulerSnapshotService) Stop() {
 }
 
 func (s *SchedulerSnapshotService) ListSchedulableAccounts(ctx context.Context, groupID *int64, platform string, hasForcePlatform bool) ([]Account, bool, error) {
-	useMixed := (platform == PlatformAnthropic || platform == PlatformGemini) && !hasForcePlatform
+	useMixed := len(MixedSchedulingSourcePlatforms(platform)) > 0 && !hasForcePlatform
 	mode := s.resolveMode(platform, hasForcePlatform)
 	bucket := s.bucketFor(groupID, platform, mode)
 	var writeToken SchedulerBucketWriteToken
@@ -609,13 +609,14 @@ func (s *SchedulerSnapshotService) handleBulkAccountEvent(ctx context.Context, p
 		}
 		accountGroupIDs := s.normalizeGroupIDs(account.GroupIDs)
 		switch account.Platform {
-		case PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformDoubao, PlatformTraework, PlatformWorkbuddy:
+		case PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformDoubao:
 			addPlatformGroups(account.Platform, accountGroupIDs)
-		case PlatformAntigravity:
-			// 批量更新可能刚关闭 mixed_scheduling，仍需清理两个兼容平台的旧快照。
-			addPlatformGroups(PlatformAntigravity, accountGroupIDs)
-			addPlatformGroups(PlatformAnthropic, accountGroupIDs)
-			addPlatformGroups(PlatformGemini, accountGroupIDs)
+		case PlatformAntigravity, PlatformTraework, PlatformWorkbuddy:
+			// 批量更新可能刚关闭 mixed_scheduling，仍需清理其兼容目标平台的旧快照。
+			addPlatformGroups(account.Platform, accountGroupIDs)
+			for _, target := range MixedSchedulingTargetPlatforms(account.Platform) {
+				addPlatformGroups(target, accountGroupIDs)
+			}
 		default:
 			return s.rebuildByGroupIDs(ctx, rebuildGroupIDs, "account_bulk_change", seen)
 		}
@@ -840,7 +841,7 @@ func schedulerCanonicalBucketCount() int {
 	count := 0
 	for _, platform := range schedulerSnapshotPlatforms() {
 		count += 2
-		if platform == PlatformAnthropic || platform == PlatformGemini {
+		if len(MixedSchedulingSourcePlatforms(platform)) > 0 {
 			count++
 		}
 	}
@@ -855,7 +856,7 @@ func schedulerCanonicalBuckets(groupID int64) []SchedulerBucket {
 			SchedulerBucket{GroupID: groupID, Platform: platform, Mode: SchedulerModeSingle},
 			SchedulerBucket{GroupID: groupID, Platform: platform, Mode: SchedulerModeForced},
 		)
-		if platform == PlatformAnthropic || platform == PlatformGemini {
+		if len(MixedSchedulingSourcePlatforms(platform)) > 0 {
 			buckets = append(buckets, SchedulerBucket{GroupID: groupID, Platform: platform, Mode: SchedulerModeMixed})
 		}
 	}
@@ -893,7 +894,7 @@ func (s *SchedulerSnapshotService) bucketsForPlatform(platform string, groupIDs 
 		}
 		buckets = append(buckets, SchedulerBucket{GroupID: gid, Platform: platform, Mode: SchedulerModeSingle})
 		buckets = append(buckets, SchedulerBucket{GroupID: gid, Platform: platform, Mode: SchedulerModeForced})
-		if platform == PlatformAnthropic || platform == PlatformGemini {
+		if len(MixedSchedulingSourcePlatforms(platform)) > 0 {
 			buckets = append(buckets, SchedulerBucket{GroupID: gid, Platform: platform, Mode: SchedulerModeMixed})
 		}
 	}
@@ -1476,7 +1477,7 @@ func (s *SchedulerSnapshotService) loadAccountsFromDB(ctx context.Context, bucke
 	}
 
 	if useMixed {
-		platforms := []string{bucket.Platform, PlatformAntigravity}
+		platforms := append([]string{bucket.Platform}, MixedSchedulingSourcePlatforms(bucket.Platform)...)
 		var accounts []Account
 		var err error
 		if groupID > 0 {
@@ -1491,10 +1492,13 @@ func (s *SchedulerSnapshotService) loadAccountsFromDB(ctx context.Context, bucke
 		}
 		filtered := make([]Account, 0, len(accounts))
 		for _, acc := range accounts {
-			if acc.Platform == PlatformAntigravity && !acc.IsMixedSchedulingEnabled() {
+			if acc.Platform == bucket.Platform {
+				filtered = append(filtered, acc)
 				continue
 			}
-			filtered = append(filtered, acc)
+			if acc.IsMixedSchedulingEnabled() && mixedSchedulingTargetsPlatform(acc.Platform, bucket.Platform) {
+				filtered = append(filtered, acc)
+			}
 		}
 		return filtered, nil
 	}
@@ -1579,7 +1583,7 @@ func (s *SchedulerSnapshotService) resolveMode(platform string, hasForcePlatform
 	if hasForcePlatform {
 		return SchedulerModeForced
 	}
-	if platform == PlatformAnthropic || platform == PlatformGemini {
+	if len(MixedSchedulingSourcePlatforms(platform)) > 0 {
 		return SchedulerModeMixed
 	}
 	return SchedulerModeSingle

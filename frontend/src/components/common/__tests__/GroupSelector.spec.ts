@@ -54,3 +54,41 @@ describe('GroupSelector simple-mode binding policy', () => {
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
   })
 })
+
+describe('GroupSelector mixed-scheduling platform filter', () => {
+  beforeEach(() => { authState.isSimpleMode = false })
+
+  const mixedGroups = [
+    { id: 10, name: 'Codex', platform: 'openai', status: 'active' },
+    { id: 11, name: 'Claude', platform: 'anthropic', status: 'active' },
+    { id: 12, name: 'Combined', platform: 'composite', status: 'active' }
+  ] as any
+
+  const mountMixed = (props: Record<string, unknown>) => mount(GroupSelector, {
+    props: { modelValue: [], groups: mixedGroups, ...props },
+    global: { stubs: { GroupBadge: { props: ['name'], template: '<span>{{ name }}</span>' }, Icon: true } }
+  })
+
+  it('hides openai groups from traework accounts without mixed scheduling', () => {
+    const wrapper = mountMixed({ platform: 'traework', mixedScheduling: false })
+    expect(wrapper.text()).not.toContain('Codex')
+    expect(wrapper.text()).toContain('Combined')
+  })
+
+  it('shows openai groups to traework accounts once mixed scheduling is enabled', () => {
+    const wrapper = mountMixed({ platform: 'traework', mixedScheduling: true })
+    expect(wrapper.text()).toContain('Codex')
+    expect(wrapper.text()).toContain('Combined')
+    expect(wrapper.text()).not.toContain('Claude')
+  })
+
+  it('shows openai groups to workbuddy accounts once mixed scheduling is enabled', () => {
+    const wrapper = mountMixed({ platform: 'workbuddy', mixedScheduling: true })
+    expect(wrapper.text()).toContain('Codex')
+  })
+
+  it('never shows anthropic groups to traework accounts', () => {
+    const wrapper = mountMixed({ platform: 'traework', mixedScheduling: true })
+    expect(wrapper.text()).not.toContain('Claude')
+  })
+})

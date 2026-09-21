@@ -2908,14 +2908,13 @@
           <Select v-model="form.status" :options="statusOptions" />
         </div>
 
-        <!-- Mixed Scheduling (only for antigravity accounts, read-only in edit mode) -->
-        <div v-if="account?.platform === 'antigravity'" class="flex items-center gap-2">
-          <label class="flex cursor-not-allowed items-center gap-2 opacity-60">
+        <!-- Mixed Scheduling: 支持混合调度的平台（antigravity / traework / workbuddy 等） -->
+        <div v-if="supportsMixedScheduling(account?.platform)" class="flex items-center gap-2">
+          <label class="flex cursor-pointer items-center gap-2">
             <input
               type="checkbox"
               v-model="mixedScheduling"
-              disabled
-              class="h-4 w-4 cursor-not-allowed rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
+              class="h-4 w-4 rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
             />
             <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t('admin.accounts.mixedScheduling') }}
@@ -3030,6 +3029,7 @@
 </template>
 
 <script setup lang="ts">
+import { supportsMixedScheduling } from '@/constants/platforms'
 import BuiltinAdapterLogin from './BuiltinAdapterLogin.vue'
 import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -5387,8 +5387,8 @@ const handleSubmit = async () => {
       updatePayload.credentials = newCredentials
     }
 
-    // For antigravity accounts, handle mixed_scheduling and allow_overages in extra
-    if (props.account.platform === 'antigravity') {
+    // 支持混合调度的平台：处理 mixed_scheduling（antigravity 还含 allow_overages）
+    if (supportsMixedScheduling(props.account.platform)) {
       const currentExtra = (props.account.extra as Record<string, unknown>) || {}
       const newExtra: Record<string, unknown> = { ...currentExtra }
       if (mixedScheduling.value) {
@@ -5396,10 +5396,12 @@ const handleSubmit = async () => {
       } else {
         delete newExtra.mixed_scheduling
       }
-      if (allowOverages.value) {
-        newExtra.allow_overages = true
-      } else {
-        delete newExtra.allow_overages
+      if (props.account.platform === 'antigravity') {
+        if (allowOverages.value) {
+          newExtra.allow_overages = true
+        } else {
+          delete newExtra.allow_overages
+        }
       }
       updatePayload.extra = newExtra
     }

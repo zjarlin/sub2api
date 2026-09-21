@@ -31,3 +31,30 @@ export const GROUP_PLATFORM_OPTIONS = [
   ...CONCRETE_PLATFORM_OPTIONS,
   { value: 'composite', label: 'Composite' }
 ] as const satisfies readonly PlatformOption<GroupPlatform>[]
+
+/**
+ * 混合调度兼容目标：来源平台启用 extra.mixed_scheduling 后，可加入这些目标平台分组。
+ * 与后端 MixedSchedulingCompatibleTargets 保持一致；新增平台只需扩展此表。
+ */
+export const MIXED_SCHEDULING_TARGETS: Partial<Record<AccountPlatform, GroupPlatform[]>> = {
+  antigravity: ['anthropic', 'gemini'],
+  traework: ['openai'],
+  workbuddy: ['openai'],
+}
+
+/** 平台是否支持开启混合调度（可加入其他分组）。 */
+export function supportsMixedScheduling(platform: string | undefined): boolean {
+  return !!platform && platform in MIXED_SCHEDULING_TARGETS
+}
+
+/** 某平台可加入的目标分组平台列表。 */
+export function mixedSchedulingTargets(platform: string | undefined): GroupPlatform[] {
+  if (!platform) return []
+  return MIXED_SCHEDULING_TARGETS[platform as AccountPlatform] ?? []
+}
+
+/** 来源平台启用混合调度后是否可加入目标平台分组。 */
+export function mixedSchedulingTargetsPlatform(source: string | undefined, target: string | undefined): boolean {
+  if (!source || !target) return false
+  return mixedSchedulingTargets(source).includes(target as GroupPlatform)
+}

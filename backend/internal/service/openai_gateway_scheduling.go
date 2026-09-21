@@ -299,6 +299,19 @@ func NormalizeOpenAICompatiblePlatform(platform string) string {
 	}
 }
 
+// openAIAccountMatchesPlatform 判定账号是否可服务目标平台请求。
+// 原生平台直接匹配；启用 mixed_scheduling 的来源平台可加入其兼容的 OpenAI 网关目标分组
+// （例如 traework/workbuddy 账号加入 openai/Codex 分组）。
+func openAIAccountMatchesPlatform(account *Account, platform string) bool {
+	if account == nil {
+		return false
+	}
+	if account.Platform == platform {
+		return true
+	}
+	return account.IsMixedSchedulingEnabled() && mixedSchedulingTargetsPlatform(account.Platform, platform)
+}
+
 // noAvailableOpenAISelectionError builds the standard "no account available" error
 // while preserving the legacy /responses/compact error when applicable.
 // details carries an optional machine-parseable exclusion summary (e.g.
@@ -392,7 +405,7 @@ func openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx context.Con
 	if account == nil {
 		return "account_nil"
 	}
-	if account.Platform != platform || !account.IsOpenAICompatible() {
+	if !openAIAccountMatchesPlatform(account, platform) || !account.IsOpenAICompatible() {
 		return "platform_mismatch"
 	}
 	if !account.IsSchedulableForModelWithContext(ctx, requestedModel) {

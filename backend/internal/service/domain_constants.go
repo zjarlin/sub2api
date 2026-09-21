@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
@@ -125,8 +126,6 @@ func IsMultiProtocolAPIKeyProvider(platform string) bool {
 }
 
 // AllowedQuotaPlatforms 是允许设置 user × platform quota 的平台列表（单一权威来源）。
-// ent/schema/user_platform_quota.go 的 Validate 函数独立维护（构建期约束），
-// 若新增平台需同步修改该 schema。
 var AllowedQuotaPlatforms = []string{
 	PlatformAnthropic,
 	PlatformOpenAI,
@@ -759,3 +758,39 @@ const AdminAPIKeyPrefix = "admin-"
 // SettingKeyAllowUserViewErrorRequests controls whether end users can view
 // their own failed requests on the usage page. Default false (opt-in).
 const SettingKeyAllowUserViewErrorRequests = "allow_user_view_error_requests"
+
+// MixedSchedulingCompatibleTargets 定义每个平台可加入的目标分组平台。
+// 启用账号的 extra.mixed_scheduling 后，账号即可参与这些目标平台分组的调度。
+// 后续新平台（如 zcode）只需扩展此表，调度核心无需改动。
+var MixedSchedulingCompatibleTargets = map[string][]string{
+	PlatformAntigravity: {PlatformAnthropic, PlatformGemini},
+	PlatformTraework:   {PlatformOpenAI},
+	PlatformWorkbuddy:  {PlatformOpenAI},
+}
+
+// MixedSchedulingSourcePlatforms 返回可加入某目标平台分组的来源平台列表。
+// 例如目标 openai 分组可由 traework/workbuddy 账号参与。结果按 map 值确定性排序。
+func MixedSchedulingSourcePlatforms(targetPlatform string) []string {
+	out := make([]string, 0)
+	for source, targets := range MixedSchedulingCompatibleTargets {
+		for _, target := range targets {
+			if target == targetPlatform {
+				out = append(out, source)
+				break
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// SupportsMixedScheduling 报告平台是否支持混合调度（可开启并加入其他分组）。
+func SupportsMixedScheduling(platform string) bool {
+	_, ok := MixedSchedulingCompatibleTargets[platform]
+	return ok
+}
+
+// MixedSchedulingTargetPlatforms 返回某平台可加入的目标分组平台列表。
+func MixedSchedulingTargetPlatforms(platform string) []string {
+	return MixedSchedulingCompatibleTargets[platform]
+}

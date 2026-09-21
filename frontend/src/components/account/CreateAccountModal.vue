@@ -3540,8 +3540,8 @@
       </div>
 
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
-        <!-- Mixed Scheduling (only for antigravity accounts) -->
-        <div v-if="form.platform === 'antigravity'" class="flex items-center gap-2">
+        <!-- Mixed Scheduling: 支持混合调度的平台（antigravity / traework / workbuddy 等） -->
+        <div v-if="supportsMixedScheduling(form.platform)" class="flex items-center gap-2">
           <label class="flex cursor-pointer items-center gap-2">
             <input
               type="checkbox"
@@ -4049,6 +4049,7 @@ import {
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import { getAccountExpiryTimestamp } from '@/components/account/accountExpiry'
 import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
+import { supportsMixedScheduling } from '@/constants/platforms'
 import {
   OPENAI_WS_MODE_CTX_POOL,
   OPENAI_WS_MODE_OFF,
@@ -4693,6 +4694,12 @@ function buildAntigravityExtra(): Record<string, unknown> | undefined {
   if (mixedScheduling.value) extra.mixed_scheduling = true
   if (allowOverages.value) extra.allow_overages = true
   return Object.keys(extra).length > 0 ? extra : undefined
+}
+
+// buildMixedSchedulingExtra 为支持混合调度的平台（含 traework/workbuddy）生成 extra。
+function buildMixedSchedulingExtra(): Record<string, unknown> | undefined {
+  if (!supportsMixedScheduling(form.platform) || !mixedScheduling.value) return undefined
+  return { mixed_scheduling: true }
 }
 
 const buildOpenAICompactModelMapping = () =>
@@ -6126,7 +6133,7 @@ const handleSubmit = async () => {
   }
 
   form.credentials = credentials
-  const extra = buildAnthropicExtra(buildOpenAIExtra())
+  const extra = buildAnthropicExtra(buildOpenAIExtra(buildMixedSchedulingExtra()))
 
   await doCreateAccount({
     ...form,

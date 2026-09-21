@@ -255,7 +255,8 @@ func TestSchedulerFallbackReturnsDBAccountsWhenBucketRetired(t *testing.T) {
 
 	accounts, useMixed, err := svc.ListSchedulableAccounts(context.Background(), &groupID, bucket.Platform, false)
 	require.NoError(t, err)
-	require.False(t, useMixed)
+	// openai 目标分组现在也走混合调度，useMixed 为 true。
+	require.True(t, useMixed)
 	require.Len(t, accounts, 1)
 	setAttempts, published := cache.counts(bucket)
 	require.Zero(t, setAttempts)

@@ -2082,10 +2082,12 @@ func (a *Account) IsOpenAITokenExpired() bool {
 	return time.Now().Add(60 * time.Second).After(*expiresAt)
 }
 
-// IsMixedSchedulingEnabled 检查 antigravity 账户是否启用混合调度
-// 启用后可参与 anthropic/gemini 分组的账户调度
+// IsMixedSchedulingEnabled 检查账号是否启用混合调度。
+// 启用后可加入其兼容的目标平台分组（见 MixedSchedulingTargetPlatforms）。
+// 目前支持 antigravity（anthropic/gemini 分组）与内置适配器平台
+// traework/workbuddy（openai/Codex 分组）；后续平台只需扩展目标映射表。
 func (a *Account) IsMixedSchedulingEnabled() bool {
-	if a.Platform != PlatformAntigravity {
+	if a == nil || !SupportsMixedScheduling(a.Platform) {
 		return false
 	}
 	if a.Extra == nil {

@@ -875,6 +875,18 @@ func (r *publicBatchImageAccountRepo) ListSchedulableByGroupIDAndPlatform(ctx co
 	return r.ListSchedulableByPlatform(ctx, platform)
 }
 
+func (r *publicBatchImageAccountRepo) ListSchedulableByGroupIDAndPlatforms(ctx context.Context, _ int64, platforms []string) ([]Account, error) {
+	result := make([]Account, 0)
+	for _, platform := range platforms {
+		items, err := r.ListSchedulableByPlatform(ctx, platform)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, items...)
+	}
+	return result, nil
+}
+
 type publicBatchImageQueue struct {
 	enqueued []string
 	err      error
