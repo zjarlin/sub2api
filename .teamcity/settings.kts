@@ -3,13 +3,13 @@ import jetbrains.buildServer.configs.kotlin.*
 version = "2025.11"
 
 project {
-    description = "Sub2API 252 集群部署：构建不可变镜像，双副本切换，保留回滚记录并验证 18080。"
+    description = "Sub2API 252 集群部署：构建不可变镜像，双副本切换，保留回滚记录并验证 18080；同时构建并上线边缘计算视觉服务 /vision。"
     buildType(Deploy252Cluster)
 }
 
 object Deploy252Cluster : BuildType({
     name = "Deploy 252 Cluster"
-    description = "在 252 Docker Agent 上构建镜像并部署两个 Sub2API 副本，18080 由稳定 Nginx 入口承载。"
+    description = "在 252 Docker Agent 上构建镜像并部署两个 Sub2API 副本，18080 由稳定 Nginx 入口承载；边缘视觉服务作为内部上游由 /vision 路径反代。"
 
     vcs {
         root(DslContext.settingsRoot)
@@ -25,6 +25,7 @@ object Deploy252Cluster : BuildType({
         param("env.CANARY_REPLICAS", "1")
         param("env.SUB2API_REPLICAS", "2")
         param("env.IMAGE_REPOSITORY", "zjarlin/sub2api")
+        param("env.EDGE_VISION_IMAGE_REPOSITORY", "zjarlin/edge-vision")
     }
 
     maxRunningBuilds = 1
@@ -77,6 +78,7 @@ object Deploy252Cluster : BuildType({
                 mkdir -p "${'$'}DEPLOY_DIR"
                 git archive "${'$'}SHA" | tar -x -C "${'$'}DEPLOY_DIR"
                 chmod +x "${'$'}DEPLOY_DIR/deploy/cluster/deploy-252.sh"
+                chmod +x "${'$'}DEPLOY_DIR/deploy/cluster/deploy-edge-vision.sh"
                 echo "##teamcity[progressFinish '同步部署文件']"
 
                 echo "##teamcity[progressStart '部署双副本']"
@@ -88,12 +90,20 @@ object Deploy252Cluster : BuildType({
                   "${'$'}DEPLOY_DIR/deploy/cluster/deploy-252.sh"
                 echo "##teamcity[progressFinish '部署双副本']"
 
+                echo "##teamcity[progressStart '部署边缘视觉服务']"
+                EDGE_VISION_IMAGE="%env.EDGE_VISION_IMAGE_REPOSITORY%:${'$'}SHORT_SHA" \
+                  DEPLOY_DIR="${'$'}DEPLOY_DIR" \
+                  "${'$'}DEPLOY_DIR/deploy/cluster/deploy-edge-vision.sh"
+                echo "##teamcity[progressFinish '部署边缘视觉服务']"
+
                 echo "##teamcity[progressStart '验证 252 入口']"
                 curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18080/health >/dev/null
+                curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18080/vision/health >/dev/null
                 test "${'$'}(docker ps --filter name=sub2api-gateway --filter status=running -q | wc -l | tr -d ' ')" = "1"
+                test "${'$'}(docker ps --filter name=edge-vision --filter health=healthy -q | wc -l | tr -d ' ')" = "1"
                 test "${'$'}(docker ps --filter label=com.docker.compose.service=sub2api --filter status=running -q | wc -l | tr -d ' ')" -ge "%env.SUB2API_REPLICAS%"
                 echo "##teamcity[progressFinish '验证 252 入口']"
-                echo "DEPLOYED ${'$'}IMAGE"
+                echo "DEPLOYED ${'$'}IMAGE EDGE_VISION=%env.EDGE_VISION_IMAGE_REPOSITORY%:${'$'}SHORT_SHA"
             """.trimIndent())
         }
     }

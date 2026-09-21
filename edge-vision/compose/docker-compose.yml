@@ -1,0 +1,47 @@
+# Edge Vision - 离线边缘计算视觉服务
+#
+# 设计：不单独对外暴露宿主端口。作为 sub2api 网关的内部上游，
+# 通过 sub2api-gateway 的 /vision/ 路径统一对外，对外入口仍是 18080。
+#
+# 该服务加入 sub2api 的现有 Compose 网络（外部网络），因此先启动 sub2api 集群，
+# 再启动本服务：
+#   docker compose -f edge-vision/compose/docker-compose.yml up -d
+services:
+  edge-vision:
+    image: ${EDGE_VISION_IMAGE:-zjarlin/edge-vision:latest}
+    container_name: edge-vision
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    # 不映射宿主端口；仅在 sub2api 内部网络暴露 18081 供网关反代
+    expose:
+      - "18081"
+    environment:
+      MODEL_DIR: /models
+      # 对外经网关 /vision 前缀访问，Swagger/OpenAPI 链接需要该前缀
+      ROOT_PATH: ${EDGE_VISION_ROOT_PATH:-/vision}
+      WORKERS: ${EDGE_VISION_WORKERS:-1}
+      ORT_NUM_THREADS: ${EDGE_VISION_THREADS:-4}
+      LOG_LEVEL: ${EDGE_VISION_LOG_LEVEL:-info}
+      TZ: ${TZ:-Asia/Shanghai}
+    volumes:
+      # 只读挂载，允许在不重建镜像的情况下替换 /models 下的 ONNX 模型
+      - ${EDGE_VISION_MODELS_DIR:-./models}:/models:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18081/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: ${EDGE_VISION_MEMORY_LIMIT:-4g}
+    networks:
+      - sub2api-network
+
+networks:
+  # 复用 sub2api 集群已创建的网络，不新建独立网络
+  sub2api-network:
+    external: true
+    name: ${SUB2API_NETWORK:-sub2api_sub2api-network}

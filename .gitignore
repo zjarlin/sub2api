@@ -119,11 +119,15 @@ backend/.installed
 tests
 !deploy/tests/
 !deploy/tests/**
+!edge-vision/tests/
+!edge-vision/tests/**
 CLAUDE.md
 .claude
 scripts
 !backend/scripts/
 !backend/scripts/resolve-version.sh
+!edge-vision/scripts/
+!edge-vision/scripts/**
 .code-review-state
 #openspec/
 code-reviews/
@@ -163,3 +167,6 @@ output/
 !tools/workbuddy2api/scripts/
 !tools/workbuddy2api/scripts/**
 !tools/builtinlogin/AGENTS.md
+
+# 边缘计算视觉服务的维护者约定需随源码交付。
+!edge-vision/AGENTS.md
