@@ -27,6 +27,15 @@ func (r *bulkEventAccountRepo) GetByIDs(context.Context, []int64) ([]*Account, e
 	return append([]*Account(nil), r.accounts...), nil
 }
 
+func (r *bulkEventAccountRepo) GetByID(_ context.Context, id int64) (*Account, error) {
+	for _, acc := range r.accounts {
+		if acc.ID == id {
+			return acc, nil
+		}
+	}
+	return nil, ErrAccountNotFound
+}
+
 type bulkEventSnapshotCache struct {
 	*batchSnapshotCache
 
@@ -223,4 +232,53 @@ func TestSchedulerBulkAccountEventUnknownPlatformFallsBackToAllPlatforms(t *test
 	require.NoError(t, err)
 	platforms := schedulerSnapshotPlatforms()
 	require.ElementsMatch(t, schedulerBucketsForTest([]int64{41, 42}, platforms[:]...), cache.capturedBuckets())
+}
+
+// 启用混合调度的来源平台账号变动时，必须同时重建其可加入的目标平台分组快照，
+// 否则新绑定的账号不会进入目标分组（如 traework 绑定 openai/codex 分组后调度不到）。
+func TestSchedulerAccountEventRebuildsMixedTargetBuckets(t *testing.T) {
+	cases := []struct {
+		platform       string
+		expectedTarget string
+	}{
+		{PlatformTraework, PlatformOpenAI},
+		{PlatformWorkbuddy, PlatformOpenAI},
+		{PlatformAntigravity, PlatformAnthropic},
+		{PlatformAntigravity, PlatformGemini},
+	}
+	for _, tc := range cases {
+		t.Run(tc.platform+"->"+tc.expectedTarget, func(t *testing.T) {
+			cache := newBulkEventSnapshotCache()
+			account := &Account{ID: 42, Platform: tc.platform, GroupIDs: []int64{77},
+				Extra: map[string]any{"mixed_scheduling": true}}
+			repo := newBulkEventAccountRepo(account)
+			svc := newBulkEventTestService(cache, repo)
+
+			accountID := int64(42)
+			err := svc.handleAccountEvent(context.Background(), &accountID, nil, make(map[batchSeenKey]struct{}))
+			require.NoError(t, err)
+
+			// 自身平台 bucket + 全部兼容目标平台 bucket 都应重建。
+			expected := schedulerBucketsForTest([]int64{77}, tc.platform)
+			for _, target := range MixedSchedulingTargetPlatforms(tc.platform) {
+				expected = append(expected, schedulerBucketsForTest([]int64{77}, target)...)
+			}
+			require.ElementsMatch(t, expected, cache.capturedBuckets())
+			require.Contains(t, bucketStrings(cache.capturedBuckets()),
+				SchedulerBucket{GroupID: 77, Platform: tc.expectedTarget, Mode: SchedulerModeMixed}.String())
+		})
+	}
+}
+
+// 未启用开关时不重建目标平台 bucket，避免无谓刷新。
+func TestSchedulerAccountEventSkipsMixedTargetBucketsWhenDisabled(t *testing.T) {
+	cache := newBulkEventSnapshotCache()
+	account := &Account{ID: 43, Platform: PlatformTraework, GroupIDs: []int64{78}}
+	repo := newBulkEventAccountRepo(account)
+	svc := newBulkEventTestService(cache, repo)
+
+	accountID := int64(43)
+	require.NoError(t, svc.handleAccountEvent(context.Background(), &accountID, nil, make(map[batchSeenKey]struct{})))
+
+	require.ElementsMatch(t, schedulerBucketsForTest([]int64{78}, PlatformTraework), cache.capturedBuckets())
 }

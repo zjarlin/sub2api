@@ -818,9 +818,12 @@ func (s *SchedulerSnapshotService) rebuildByAccount(ctx context.Context, account
 	}
 
 	buckets := s.bucketsForPlatform(account.Platform, groupIDs, seen)
-	if account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled() {
-		buckets = append(buckets, s.bucketsForPlatform(PlatformAnthropic, groupIDs, seen)...)
-		buckets = append(buckets, s.bucketsForPlatform(PlatformGemini, groupIDs, seen)...)
+	// 启用混合调度的账号变动时，其可加入的目标平台分组的快照也要重建
+	// （antigravity -> anthropic/gemini；traework/workbuddy -> openai）。
+	if account.IsMixedSchedulingEnabled() {
+		for _, target := range MixedSchedulingTargetPlatforms(account.Platform) {
+			buckets = append(buckets, s.bucketsForPlatform(target, groupIDs, seen)...)
+		}
 	}
 	return s.rebuildBuckets(ctx, buckets, reason)
 }

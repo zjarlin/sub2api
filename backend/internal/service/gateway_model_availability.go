@@ -63,10 +63,10 @@ func (s *GatewayService) DiagnoseModelAvailabilityForPlatform(
 		return ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: true}
 	}
 
-	useMixed := platform == PlatformAnthropic || platform == PlatformGemini
+	useMixed := len(MixedSchedulingSourcePlatforms(platform)) > 0
 	platforms := []string{platform}
 	if useMixed {
-		platforms = append(platforms, PlatformAntigravity)
+		platforms = append(platforms, MixedSchedulingSourcePlatforms(platform)...)
 	}
 
 	queryGroupID := groupID
@@ -92,7 +92,8 @@ func (s *GatewayService) DiagnoseModelAvailabilityForPlatform(
 
 	diag := ModelAvailabilityDiagnosis{}
 	for i := range accounts {
-		if useMixed && accounts[i].Platform == PlatformAntigravity && !accounts[i].IsMixedSchedulingEnabled() {
+		if useMixed && accounts[i].Platform != platform &&
+			!(accounts[i].IsMixedSchedulingEnabled() && mixedSchedulingTargetsPlatform(accounts[i].Platform, platform)) {
 			continue
 		}
 		diag.HasAccountsInPool = true
