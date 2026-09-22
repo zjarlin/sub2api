@@ -7,10 +7,116 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+func TestVisionFallbackTimeoutBudgets(t *testing.T) {
+	for _, tc := range []struct {
+		name                           string
+		candidateSeconds, totalSeconds int
+		parentTimeout, expected        time.Duration
+	}{
+		{name: "legacy_config_defaults", expected: 60 * time.Second},
+		{name: "configured_candidate", candidateSeconds: 45, totalSeconds: 100, expected: 45 * time.Second},
+		{name: "configured_total", candidateSeconds: 60, totalSeconds: 12, expected: 12 * time.Second},
+		{name: "default_total", candidateSeconds: 200, expected: 120 * time.Second},
+		{name: "parent_deadline", candidateSeconds: 60, totalSeconds: 120, parentTimeout: 5 * time.Second, expected: 5 * time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			primary := visionTestAccount(1, "text-model", "text")
+			helper := visionTestAccount(2, "vision-model", "text", "image")
+			cfg := visionTestConfig()
+			cfg.Gateway.VisionFallback.CandidateTimeoutSeconds = tc.candidateSeconds
+			cfg.Gateway.VisionFallback.TimeoutSeconds = tc.totalSeconds
+			calls := 0
+			svc := &OpenAIGatewayService{
+				cfg: cfg, accountRepo: &countingCodexModelsAccountRepo{accounts: []Account{helper}},
+				httpUpstream: &codexModelsHTTPUpstreamStub{do: func(req *http.Request, _ string, accountID int64, _ int) (*http.Response, error) {
+					calls++
+					require.Equal(t, helper.ID, accountID)
+					deadline, ok := req.Context().Deadline()
+					require.True(t, ok)
+					require.InDelta(t, tc.expected.Seconds(), time.Until(deadline).Seconds(), 1)
+					return visionTestResponse(helper.Name, "图片描述"), nil
+				}},
+			}
+			ctx := context.Background()
+			if tc.parentTimeout > 0 {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, tc.parentTimeout)
+				defer cancel()
+			}
+			body := []byte(visionTestInput)
+			c, _ := visionTestContext(body, 9, 7)
+			converted, err := svc.prepareVisionFallback(ctx, c, &primary, body)
+			require.NoError(t, err)
+			require.Contains(t, string(converted), "图片描述")
+			require.Equal(t, 1, calls)
+		})
+	}
+}
+
+func TestVisionFallbackTimeoutRetriesWithinTotalBudget(t *testing.T) {
+	for _, exhaustTotal := range []bool{false, true} {
+		name := "next_candidate_succeeds"
+		if exhaustTotal {
+			name = "total_budget_exhausted"
+		}
+		t.Run(name, func(t *testing.T) {
+			primary := visionTestAccount(1, "text-model", "text")
+			slow := visionTestAccount(2, "slow-vision", "text", "image")
+			fast := visionTestAccount(3, "fast-vision", "text", "image")
+			cfg := visionTestConfig()
+			cfg.Gateway.VisionFallback.CandidateTimeoutSeconds = 1
+			cfg.Gateway.VisionFallback.TimeoutSeconds = 10
+			if exhaustTotal {
+				cfg.Gateway.VisionFallback.CandidateTimeoutSeconds = 10
+				cfg.Gateway.VisionFallback.TimeoutSeconds = 1
+			}
+			var calls []int64
+			svc := &OpenAIGatewayService{
+				cfg: cfg, accountRepo: &countingCodexModelsAccountRepo{accounts: []Account{slow, fast}},
+				httpUpstream: &codexModelsHTTPUpstreamStub{do: func(req *http.Request, _ string, accountID int64, _ int) (*http.Response, error) {
+					calls = append(calls, accountID)
+					if accountID == slow.ID {
+						<-req.Context().Done()
+						return nil, req.Context().Err()
+					}
+					return visionTestResponse(fast.Name, "备用助手描述"), nil
+				}},
+			}
+			body := []byte(visionTestInput)
+			c, recorder := visionTestContext(body, 9, 7)
+			converted, err := svc.prepareVisionFallback(context.Background(), c, &primary, body)
+			if exhaustTotal {
+				var failure *UpstreamFailoverError
+				require.ErrorAs(t, err, &failure)
+				require.Equal(t, http.StatusGatewayTimeout, failure.StatusCode)
+				require.Equal(t, http.StatusGatewayTimeout, failure.ClientStatusCode)
+				require.Contains(t, failure.ClientMessage, "timed out")
+				require.True(t, failure.ShouldRetryNextAccount())
+				require.False(t, failure.ShouldReportAccountScheduleFailure())
+				require.Equal(t, []int64{slow.ID}, calls)
+			} else {
+				require.NoError(t, err)
+				require.Contains(t, string(converted), "备用助手描述")
+				require.Equal(t, []int64{slow.ID, fast.ID}, calls)
+			}
+			require.False(t, c.Writer.Written())
+			require.Empty(t, recorder.Body.String())
+			value, ok := c.Get(OpsUpstreamErrorsKey)
+			require.True(t, ok)
+			events := value.([]*OpsUpstreamErrorEvent)
+			require.Len(t, events, 1)
+			require.Equal(t, http.StatusGatewayTimeout, events[0].UpstreamStatusCode)
+			require.Contains(t, events[0].Message, "timed out")
+			require.NotContains(t, events[0].Message, "upstream.example")
+		})
+	}
+}
 
 type visionUnavailableCapacityCache struct {
 	ConcurrencyCache

@@ -1153,8 +1153,11 @@ type GatewayConfig struct {
 // GatewayVisionFallbackConfig 不另存供应商凭据，复用分组账号及其模型能力快照。
 type GatewayVisionFallbackConfig struct {
 	Enabled bool `mapstructure:"enabled"`
-	// Model 为空时自动选择；非空时仅使用这个已配置的公开模型名。
+	// Model 为空时自动选择；非空时优先使用这个已配置的公开模型名。
 	Model string `mapstructure:"model"`
+	// 每个助手与整次图片辅助分别限时，兼容未显式配置这些字段的旧部署。
+	CandidateTimeoutSeconds int `mapstructure:"candidate_timeout_seconds"`
+	TimeoutSeconds          int `mapstructure:"timeout_seconds"`
 }
 
 // GatewayGrokConfig holds Grok-specific gateway scheduling knobs.
@@ -2446,6 +2449,8 @@ func setDefaults() {
 	viper.SetDefault("gateway.codex_image_generation_bridge_enabled", false)
 	viper.SetDefault("gateway.vision_fallback.enabled", true)
 	viper.SetDefault("gateway.vision_fallback.model", "")
+	viper.SetDefault("gateway.vision_fallback.candidate_timeout_seconds", 60)
+	viper.SetDefault("gateway.vision_fallback.timeout_seconds", 120)
 	viper.SetDefault("gateway.openai_passthrough_allow_timeout_headers", false)
 	viper.SetDefault("gateway.openai_compact_model", "gpt-5.5")
 	viper.SetDefault("gateway.live.max_session_duration_seconds", 3600)

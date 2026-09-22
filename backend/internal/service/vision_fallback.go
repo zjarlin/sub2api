@@ -24,6 +24,8 @@ const (
 	visionFallbackUsageKey    = "vision_fallback_usage"
 	visionDescriptionMaxBytes = 32 << 10
 	visionDescriptionTTL      = 10 * time.Minute
+	visionHelperTimeout       = 60 * time.Second
+	visionFallbackTimeout     = 120 * time.Second
 )
 
 // 视觉模型只负责忠实观察；图片、工具输出和附带文字中的指令均作为待描述资料。
@@ -190,7 +192,11 @@ func (s *OpenAIGatewayService) prepareVisionFallback(ctx context.Context, c *gin
 		return nil, newVisionFallbackFailoverError(http.StatusServiceUnavailable, "No native vision helper is available in this API key group")
 	}
 	// 整次辅助阶段共享截止时间，防止多张图片将延迟上限成倍放大。
-	helperCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	helperTimeout := visionFallbackTimeout
+	if s.cfg.Gateway.VisionFallback.TimeoutSeconds > 0 {
+		helperTimeout = time.Duration(s.cfg.Gateway.VisionFallback.TimeoutSeconds) * time.Second
+	}
+	helperCtx, cancel := context.WithTimeout(ctx, helperTimeout)
 	defer cancel()
 	for imageIndex, image := range images {
 		description, describeErr := s.describeVisionInput(helperCtx, c, apiKey, account, candidates, image, imageIndex, len(images))
@@ -323,7 +329,11 @@ func (s *OpenAIGatewayService) describeVisionInput(ctx context.Context, parent *
 		text, callErr := func() (string, error) {
 			defer release()
 			// 单个助手不能耗尽整次请求的辅助预算，失败后继续尝试目录中的候选。
-			candidateCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			candidateTimeout := visionHelperTimeout
+			if s.cfg != nil && s.cfg.Gateway.VisionFallback.CandidateTimeoutSeconds > 0 {
+				candidateTimeout = time.Duration(s.cfg.Gateway.VisionFallback.CandidateTimeoutSeconds) * time.Second
+			}
+			candidateCtx, cancel := context.WithTimeout(ctx, candidateTimeout)
 			defer cancel()
 			return s.callVisionHelper(candidateCtx, parent, apiKey, candidate, body, imageIndex, imageCount, candidateIndex, len(candidates))
 		}()
@@ -395,6 +405,14 @@ func (s *OpenAIGatewayService) callVisionHelper(ctx context.Context, parent *gin
 		if failoverStatus < http.StatusBadRequest {
 			failoverStatus = http.StatusBadGateway
 		}
+		clientMessage := "The vision helper could not describe the image; please retry later"
+		clientStatus := http.StatusBadGateway
+		if errors.Is(forwardErr, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			// 超时由网关预算触发时，上游可能没有返回 HTTP 状态，不能一律记录为 502。
+			failoverStatus = http.StatusGatewayTimeout
+			clientStatus = http.StatusGatewayTimeout
+			clientMessage = "The vision helper timed out while describing the image; please retry later"
+		}
 		fields := []zap.Field{
 			zap.Int64("account_id", candidate.account.ID),
 			zap.String("account_name", candidate.account.Name),
@@ -415,8 +433,7 @@ func (s *OpenAIGatewayService) callVisionHelper(ctx context.Context, parent *gin
 		logger.FromContext(ctx).Warn("gateway.vision_helper_failed", fields...)
 		// 不向客户端泄漏辅助账号、图片 URL、供应商凭据或内部响应体。保留为可换号/换模型的
 		// failover 错误，让外层先尝试其他候选；只有候选耗尽后才回写这条脱敏错误。
-		clientMessage := "The vision helper could not describe the image; please retry later"
-		helperFailoverErr := newVisionFallbackFailoverError(http.StatusBadGateway, clientMessage)
+		helperFailoverErr := newVisionFallbackFailoverError(clientStatus, clientMessage)
 		helperFailoverErr.StatusCode = failoverStatus
 		helperFailoverErr.ResponseHeaders = responseHeaders
 		appendOpsUpstreamError(parent, OpsUpstreamErrorEvent{

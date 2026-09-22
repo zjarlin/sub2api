@@ -283,6 +283,9 @@ gateway:
     enabled: true
     # 留空时按账号优先级选择；可填写分组中已配置的视觉模型公开名，不自动猜测模型 ID。
     model: ""
+    # 非流式图片描述需等待生成完成；单个助手和整次辅助分别设置预算。
+    candidate_timeout_seconds: 60
+    timeout_seconds: 120
 
   # Optional: template file used to build the final top-level Codex `instructions`.
   # 可选：用于构建最终 Codex 顶层 `instructions` 的模板文件路径。
