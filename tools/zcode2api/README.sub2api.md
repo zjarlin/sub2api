@@ -12,6 +12,7 @@ Anthropic Messages 通道包装成 OpenAI 兼容接口（`/v1/chat/completions`�
 - 本仓库新增 `resolveCredential`：显式配置 `Z2A_UPSTREAM_API_KEY` + `Z2A_UPSTREAM_BASE_URL`
   优先，未配置时才回退桌面配置。因此可作为服务端 sidecar 运行。
 - 新增 `/livez` 只报告进程存活，供编排探活；`/healthz` 仍反映上游凭据是否就绪。
+- 按编译目标隔离 macOS 的 sysctl 调用；Linux 容器从 procfs 读取内核版本。
 
 ## 部署
 

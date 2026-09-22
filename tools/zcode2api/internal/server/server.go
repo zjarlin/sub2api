@@ -13,7 +13,6 @@ import (
 	"os"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 
 	"glm-zcode-2api/internal/anthropic"
@@ -400,16 +399,6 @@ func osCategory() string {
 	default:
 		return runtime.GOOS
 	}
-}
-
-func osVersion() string {
-	// The app reports the kernel release (e.g. "27.0.0" on macOS).
-	if runtime.GOOS == "darwin" {
-		if version, err := syscall.Sysctl("kern.osrelease"); err == nil && version != "" {
-			return version
-		}
-	}
-	return "0.0"
 }
 
 func newUUID() string {
