@@ -315,6 +315,9 @@ export default {
       // Error Detail Modal
       errorDetail: {
         attemptChain: {
+          visionHelper: '视觉助手',
+          visionImage: '图片 {index}',
+          visionRecovered: '已由 {model}（账号 #{account}）完成图片描述',
           modelFallback: '切换模型',
           title: '调用链',
           description: '按尝试顺序保留账号、模型切换及失败原因；同一账号重试会重复列出。',

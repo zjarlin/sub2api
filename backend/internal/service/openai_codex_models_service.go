@@ -150,7 +150,7 @@ func (s *OpenAIGatewayService) BuildHealthCheckedCodexModelsManifest(
 	if err != nil {
 		return nil, true, fmt.Errorf("filter health-checked Codex models: %w", err)
 	}
-	body, err = applyVisionFallbackManifest(body, s.cfg, group, group.Platform, catalog, nil, true)
+	body, err = applyConfiguredVisionFallbackManifest(ctx, s.settingService, body, s.cfg, group, group.Platform, catalog, nil, true)
 	if err != nil {
 		return nil, true, err
 	}
@@ -204,7 +204,7 @@ func (s *OpenAIGatewayService) BuildGroupConfiguredCodexModelsManifest(
 	if err != nil {
 		return nil, false, fmt.Errorf("build group configured Codex models: %w", err)
 	}
-	body, err = applyVisionFallbackManifest(body, s.cfg, group, group.Platform, catalog, nil, true)
+	body, err = applyConfiguredVisionFallbackManifest(ctx, s.settingService, body, s.cfg, group, group.Platform, catalog, nil, true)
 	if err != nil {
 		return nil, false, err
 	}
@@ -257,7 +257,7 @@ func (s *OpenAIGatewayService) MergeGroupConfiguredCodexModels(
 	if listErr != nil {
 		return listErr
 	}
-	body, err = applyVisionFallbackManifest(body, s.cfg, group, group.Platform, accounts, nil, true)
+	body, err = applyConfiguredVisionFallbackManifest(ctx, s.settingService, body, s.cfg, group, group.Platform, accounts, nil, true)
 	if err != nil {
 		return err
 	}
@@ -953,7 +953,7 @@ func (s *GatewayService) BuildCodexModelsManifestForGroup(
 	if err != nil {
 		return nil, err
 	}
-	return applyVisionFallbackManifest(body, s.cfg, group, effectivePlatform, catalog, compositeRoutes, compositeRoutesAvailable)
+	return applyConfiguredVisionFallbackManifest(ctx, s.settingService, body, s.cfg, group, effectivePlatform, catalog, compositeRoutes, compositeRoutesAvailable)
 }
 
 func buildCodexModelsManifestForAccounts(

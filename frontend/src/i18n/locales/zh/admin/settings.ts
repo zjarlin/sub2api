@@ -1,5 +1,20 @@
 export default {
     settings: {
+      visionFallback: {
+        title: '视觉助手与自动降级',
+        description: '主模型需要看图时，由视觉助手描述图片。首选失败后按顺序尝试后备助手，主模型继续处理原任务。',
+        enabled: '启用视觉辅助与降级',
+        models: '视觉模型顺序（首行为首选）',
+        modelsHint: '每行一个精确模型 ID，最多 64 个。先尝试同一模型的可用账号，再尝试下一模型。只能使用当前 API Key 分组允许且具有原生视觉能力的账号。',
+        allowUnlisted: '列表耗尽后，继续尝试分组内其他视觉模型',
+        candidateTimeout: '单个助手超时（秒）',
+        totalTimeout: '整个视觉辅助阶段超时（秒）',
+        scope: '多张图片及主账号重试共享总预算，实际调用受较短的超时限制。助手失败不会删除图片或清空工具结果。原生视觉模型直接处理图片。助手调用产生独立用量与费用。',
+        required: '启用时请填写至少一个视觉模型，或允许使用列表外模型。',
+        invalidModels: '模型 ID 不能重复、包含空白或通配符；最多 64 个，每个不超过 200 字符。',
+        invalidTimeout: '超时必须为 1 至 9223372036 之间的整数秒。',
+        saved: '视觉降级策略已保存，后续请求及 WebSocket 新回合使用新配置。'
+      },
       modelFallback: {
   "title": "模型档位与自动降级",
   "description": "同名模型的可用账号尝试完毕后，先尝试同档位其他模型，再按顺序逐档降低。中间错误保留在监控链路。",
@@ -18,6 +33,9 @@ export default {
   "required": "每档都需要名称和模型；启用时至少保留一档。",
   "duplicate": "档位名称和模型 ID 不能重复。",
   "invalidModels": "最多 64 个模型；每个 ID 不超过 200 字符，不支持通配符。"
+},
+      modelAliases: {
+  title: '全局模型同义词', description: '统一管理不同渠道使用的同一模型 ID。请求日志会同时记录原始 ID、规范 ID、实际上游 ID 和账号。', canonical: '规范模型 ID {index}', aliases: '同义模型 ID {index}', hint: '每组第一行是规范 ID，第二行填写同义 ID，每行一个。不会修改账号映射。', add: '添加同义词组', saved: '同义词已保存，后续请求生效。', required: '每组都需要规范 ID 和至少一个同义 ID。', duplicate: '所有模型 ID 必须全局唯一。',
 },
       title: '系统设置',
       description: '管理注册、邮箱验证、默认值和 SMTP 设置',

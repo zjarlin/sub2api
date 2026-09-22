@@ -7,12 +7,13 @@ import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { adminAPI } from '@/api'
-import { opsAPI, type OpsDashboardOverview, type OpsErrorListQueryParams, type OpsErrorLog, type OpsMetricThresholds, type OpsRealtimeTrafficSummary } from '@/api/admin/ops'
+import { opsAPI, type OpsDashboardOverview, type OpsErrorDetail, type OpsErrorListQueryParams, type OpsErrorLog, type OpsMetricThresholds, type OpsRealtimeTrafficSummary } from '@/api/admin/ops'
 import type { OpsRequestDetailsPreset } from './OpsRequestDetailsModal.vue'
 import { useAdminSettingsStore } from '@/stores'
 import { formatNumber } from '@/utils/format'
 import { formatMemorySizeMB } from '../utils/opsFormatters'
 import { useClipboard } from '@/composables/useClipboard'
+import { buildErrorFixPrompt, type FixPromptContext } from '../utils/buildFixPrompt'
 
 type RealtimeWindow = '1min' | '5min' | '30min' | '1h'
 
@@ -222,109 +223,7 @@ function openErrorDetails(kind: 'request' | 'upstream') {
 
 // --- Copy "fix code defects" prompt (Request Errors card) ---
 
-const MAX_PROMPT_ERROR_LOGS = 20
-
-function formatLogMessage(message: string): string {
-  const collapsed = message.replace(/\s+/g, ' ').trim()
-  return collapsed.length > 240 ? `${collapsed.slice(0, 240)}...` : collapsed
-}
-
-function buildErrorFixPrompt(ov: OpsDashboardOverview, logs: OpsErrorLog[]): string {
-  const isZh = locale.value === 'zh'
-  const fmtPct = (v: number | null | undefined, digits = 2) => (v == null || !Number.isFinite(v) ? '-' : `${(v * 100).toFixed(digits)}%`)
-  const fmtNum = (v: number | null | undefined) => (v == null ? '-' : formatNumber(v))
-  const fmtMs = (v: number | null | undefined) => (v == null ? '-' : `${Math.round(v)} ms`)
-
-  const platformLabel =
-    !props.platform
-      ? isZh ? '全部' : 'All'
-      : (CONCRETE_PLATFORM_OPTIONS.find((p) => p.value === props.platform)?.label ?? props.platform)
-  const groupLabel =
-    props.groupId == null
-      ? isZh ? '全部' : 'All'
-      : (groups.value.find((g) => g.id === props.groupId)?.name ?? String(props.groupId))
-  const rangeMinutes = TOOLBAR_RANGE_MINUTES[props.timeRange] ?? 60
-  const timeRangeLabel =
-    props.timeRange === 'custom' && props.customStartTime && props.customEndTime
-      ? `${props.customStartTime} ~ ${props.customEndTime}`
-      : isZh ? `近${rangeMinutes}分钟` : `Last ${rangeMinutes} minutes`
-
-  const lines: string[] = []
-  if (isZh) {
-    lines.push(
-      '你是资深后端工程师。请根据以下 API 网关的监控数据与报错日志，定位并修复系统中的代码缺陷。',
-      '',
-      '【监控概览】',
-      `- 统计窗口：${timeRangeLabel}`,
-      `- 筛选：平台=${platformLabel}，分组=${groupLabel}`,
-      `- 请求总数：${fmtNum(ov.request_count_total)}`,
-      `- SLA（排除业务限制）：${fmtPct(ov.sla, 3)}`,
-      `- 请求错误率：${fmtPct(ov.error_rate)}`,
-      `- 错误数（SLA范围）：${fmtNum(ov.error_count_sla)}`,
-      `- 业务限制数：${fmtNum(ov.business_limited_count)}`,
-      `- 上游错误率：${fmtPct(ov.upstream_error_rate)}`,
-      `- 上游错误数（排除429/529）：${fmtNum(ov.upstream_error_count_excl_429_529)}`,
-      `- 上游 429/529 次数：${fmtNum((ov.upstream_429_count ?? 0) + (ov.upstream_529_count ?? 0))}`,
-      `- 请求时长 P99：${fmtMs(ov.duration?.p99_ms)}`,
-      ''
-    )
-    if (logs.length > 0) {
-      lines.push(`【报错日志（最近 ${logs.length} 条）】`)
-      logs.forEach((log, i) => {
-        lines.push(
-          `${i + 1}. [${log.created_at}] HTTP ${log.status_code} | ${log.phase}/${log.type} | owner=${log.error_owner} | source=${log.error_source} | model=${log.model || '-'} | ${formatLogMessage(log.message)}`
-        )
-      })
-      lines.push('')
-    } else {
-      lines.push('【报错日志】当前窗口内暂无错误日志，请补充报错日志后再分析。', '')
-    }
-    lines.push(
-      '【要求】',
-      '1. 先按错误类型归类，归纳根因，指出最可能出问题的代码位置（文件/函数/逻辑分支）。',
-      '2. 区分平台自身缺陷、上游提供商问题与客户端问题；只针对平台代码缺陷给出修复方案。',
-      '3. 给出可落地的修复建议，关键改动附代码补丁（diff 形式）。',
-      '4. 遵循项目现有架构与代码风格，避免无关改动；修复后说明验证方式。'
-    )
-  } else {
-    lines.push(
-      'You are a senior backend engineer. Based on the API gateway monitoring data and error logs below, locate and fix the code defects in the system.',
-      '',
-      '## Monitoring overview',
-      `- Window: ${timeRangeLabel}`,
-      `- Filters: platform=${platformLabel}, group=${groupLabel}`,
-      `- Total requests: ${fmtNum(ov.request_count_total)}`,
-      `- SLA (excl business limits): ${fmtPct(ov.sla, 3)}`,
-      `- Request error rate: ${fmtPct(ov.error_rate)}`,
-      `- Error count (SLA scope): ${fmtNum(ov.error_count_sla)}`,
-      `- Business limited count: ${fmtNum(ov.business_limited_count)}`,
-      `- Upstream error rate: ${fmtPct(ov.upstream_error_rate)}`,
-      `- Upstream error count (excl 429/529): ${fmtNum(ov.upstream_error_count_excl_429_529)}`,
-      `- Upstream 429/529 count: ${fmtNum((ov.upstream_429_count ?? 0) + (ov.upstream_529_count ?? 0))}`,
-      `- Request duration P99: ${fmtMs(ov.duration?.p99_ms)}`,
-      ''
-    )
-    if (logs.length > 0) {
-      lines.push(`## Error logs (latest ${logs.length})`)
-      logs.forEach((log, i) => {
-        lines.push(
-          `${i + 1}. [${log.created_at}] HTTP ${log.status_code} | ${log.phase}/${log.type} | owner=${log.error_owner} | source=${log.error_source} | model=${log.model || '-'} | ${formatLogMessage(log.message)}`
-        )
-      })
-      lines.push('')
-    } else {
-      lines.push('## Error logs', 'No error logs in the current window. Append them before analysis.', '')
-    }
-    lines.push(
-      '## Requirements',
-      '1. Group the errors by type, summarize the root causes, and point out the most likely defective code locations (file/function/logic branch).',
-      '2. Distinguish platform defects, upstream provider issues, and client issues; only propose fixes for platform code defects.',
-      '3. Provide actionable fixes with code patches (diff) for key changes.',
-      '4. Follow the project architecture and code style; avoid unrelated changes; describe how to verify the fix.'
-    )
-  }
-  return lines.join('\n')
-}
+const MAX_PROMPT_ERROR_LOGS = 10
 
 async function copyErrorFixPrompt() {
   const ov = overview.value
@@ -359,8 +258,33 @@ async function copyErrorFixPrompt() {
       console.error('[OpsDashboardHeader] Failed to load error logs for fix prompt', err)
     }
 
-    const prompt = buildErrorFixPrompt(ov, logs)
-    const successMsg = logs.length > 0 ? t('admin.ops.copyFixPromptCopied') : t('admin.ops.copyFixPromptNoErrors')
+    const details: OpsErrorDetail[] = []
+    for (const log of logs.slice(0, MAX_PROMPT_ERROR_LOGS)) {
+      try {
+        details.push(await opsAPI.getErrorLogDetail(log.id))
+      } catch (err) {
+        console.error(`[OpsDashboardHeader] Failed to load error detail #${log.id}`, err)
+      }
+    }
+
+    const isZh = locale.value === 'zh'
+    const rangeMinutes = TOOLBAR_RANGE_MINUTES[props.timeRange] ?? 60
+    const ctx: FixPromptContext = {
+      locale: locale.value,
+      timeRangeLabel:
+        props.timeRange === 'custom' && props.customStartTime && props.customEndTime
+          ? `${props.customStartTime} ~ ${props.customEndTime}`
+          : isZh ? `近${rangeMinutes}分钟` : `Last ${rangeMinutes} minutes`,
+      platformLabel: !props.platform
+        ? isZh ? '全部' : 'All'
+        : CONCRETE_PLATFORM_OPTIONS.find((p) => p.value === props.platform)?.label ?? props.platform,
+      groupLabel: props.groupId == null
+        ? isZh ? '全部' : 'All'
+        : groups.value.find((g) => g.id === props.groupId)?.name ?? String(props.groupId)
+    }
+
+    const prompt = buildErrorFixPrompt(ov, details, ctx)
+    const successMsg = details.length > 0 ? t('admin.ops.copyFixPromptCopied') : t('admin.ops.copyFixPromptNoErrors')
     await copyToClipboard(prompt, successMsg)
   } finally {
     copyingFixPrompt.value = false

@@ -1621,6 +1621,21 @@ func TestOpenAIGatewayService_OpenAIPassthrough_RetryableStatusesTriggerFailover
 			},
 		},
 		{
+			// 上游容量降载：HTTP 503 但错误体是明确的过载文案。OAuth 透传账号
+			// 也必须进入 failover / 模型降级链，而不是把 503 直接透传给客户端
+			// （Codex 对 server_is_overloaded 判致命并终止会话）。降载是请求级
+			// 瞬时故障，不得据此临时摘号。
+			name:           "oauth_503_capacity_shed_overloaded",
+			accountType:    AccountTypeOAuth,
+			statusCode:     http.StatusServiceUnavailable,
+			body:           `{"error":{"type":"server_error","code":"server_error","message":"Our servers are currently overloaded. Please try again later."}}`,
+			expectFailover: true,
+			assertRepo: func(t *testing.T, repo *openAIPassthroughFailoverRepo, _ time.Time) {
+				require.Empty(t, repo.rateLimitCalls)
+				require.Empty(t, repo.overloadCalls)
+			},
+		},
+		{
 			name:           "oauth_504_gateway_timeout",
 			accountType:    AccountTypeOAuth,
 			statusCode:     http.StatusGatewayTimeout,

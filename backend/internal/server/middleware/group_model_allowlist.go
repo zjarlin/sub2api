@@ -72,7 +72,11 @@ func GroupModelAllowlist() gin.HandlerFunc {
 
 		blocked := ""
 		for _, candidate := range models {
-			if !allowlist.Allows(candidate) {
+			allowed := allowlist.Allows(candidate)
+			for _, id := range service.ModelAliasesFromContext(c.Request.Context()).IDs(candidate) {
+				allowed = allowed || allowlist.Allows(id)
+			}
+			if !allowed {
 				blocked = candidate
 				break
 			}

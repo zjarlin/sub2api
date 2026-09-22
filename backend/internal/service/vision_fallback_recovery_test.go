@@ -149,7 +149,6 @@ func TestVisionFallbackUnavailableHelperAllowsOuterFailover(t *testing.T) {
 				switch scenario {
 				case "no_native_helper":
 					repo.accounts = []Account{primary}
-					expectedMessage = ""
 				case "repository_unavailable":
 					repo.err = errors.New("private repository connection details")
 					expectedMessage = "Unable to load image assistance models"
@@ -175,10 +174,6 @@ func TestVisionFallbackUnavailableHelperAllowsOuterFailover(t *testing.T) {
 				} else {
 					_, err = svc.Forward(context.Background(), c, &primary, body)
 				}
-				if scenario == "no_native_helper" {
-					require.NoError(t, err)
-					return
-				}
 				var failure *UpstreamFailoverError
 				require.ErrorAs(t, err, &failure)
 				require.True(t, failure.ShouldRetryNextAccount())
@@ -196,17 +191,18 @@ func TestVisionFallbackUnavailableHelperAllowsOuterFailover(t *testing.T) {
 	}
 }
 
-func TestVisionFallbackWithoutHelperStripsImagesAndKeepsText(t *testing.T) {
+func TestVisionFallbackWithoutHelperLeavesImageRequestForRetry(t *testing.T) {
 	primary := visionTestAccount(1, "text-model", "text")
 	cfg := visionTestConfig()
 	svc := &OpenAIGatewayService{cfg: cfg, accountRepo: &countingCodexModelsAccountRepo{accounts: []Account{primary}}}
 	body := []byte(visionTestInput)
 	c, recorder := visionTestContext(body, 9, 7)
 	converted, err := svc.prepareVisionFallback(context.Background(), c, &primary, body)
-	require.NoError(t, err)
-	require.Contains(t, string(converted), "Explain the error")
-	require.NotContains(t, string(converted), "input_image")
-	require.NotContains(t, string(converted), "data:image")
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
+	require.Nil(t, converted)
+	require.Equal(t, visionTestInput, string(body))
 	require.False(t, c.Writer.Written())
 	require.Empty(t, recorder.Body.String())
 }

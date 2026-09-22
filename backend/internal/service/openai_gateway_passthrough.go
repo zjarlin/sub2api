@@ -152,6 +152,11 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 ) (*OpenAIForwardResult, error) {
 	requestedModel := reqModel
 	upstreamPassthroughModel := ""
+	// 透传仍保留其他字段，仅全局规范名需要还原为该账号的真实模型 ID。
+	if target, ok := account.globalModelMapping[reqModel]; ok && target != reqModel {
+		body = ReplaceModelInBody(body, target)
+		upstreamPassthroughModel = target
+	}
 	if isOpenAIResponsesCompactPath(c) {
 		compactMappedModel := s.resolveOpenAICompactFallbackModel(account, reqModel)
 		if compactMappedModel != "" && compactMappedModel != reqModel {
@@ -806,6 +811,14 @@ func shouldFailoverOpenAIPassthroughResponse(account *Account, statusCode int, r
 		return true
 	}
 	if isOpenAIOpaqueUpstreamFailure(statusCode, responseBody) {
+		return true
+	}
+	// 上游容量降载（HTTP 5xx 携带明确的过载码/文案）是请求级瞬时故障，与账号
+	// 凭据无关：OAuth/SetupToken 透传账号也必须进入 failover / 模型降级链，而不是
+	// 把 503 直接透传给客户端。Codex 对 server_is_overloaded / slow_down 判致命
+	// 并终止会话；进入网关重试后可在同账号有界重试用尽时降级到更低档模型。
+	// 非降载的普通 OAuth 5xx 仍保持原样透传，避免把账号无关的上游故障放大成换号。
+	if isOpenAIRequestScopedCapacityShed("", responseBody) {
 		return true
 	}
 	if account != nil && account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode) {

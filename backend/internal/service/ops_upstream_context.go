@@ -9,9 +9,11 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+	"go.uber.org/zap"
 )
 
 // Gin context keys used by Ops error logger for capturing upstream error details.
@@ -90,6 +92,18 @@ func SetOpsUpstreamModel(c *gin.Context, model string) {
 	}
 	if model = strings.TrimSpace(model); model != "" {
 		c.Set(OpsUpstreamModelKey, model)
+		if c.Request != nil {
+			if policy := ModelAliasesFromContext(c.Request.Context()); policy != nil && len(policy.Groups) > 0 {
+				requested, _ := RequestedPublicModelFromContext(c.Request.Context())
+				if requested == "" {
+					requested = c.GetString("ops_model")
+				}
+				canonical := policy.Canonicalize(requested)
+				logger.FromContext(c.Request.Context()).Info("gateway.model_alias_route",
+					zap.String("requested_model", requested), zap.String("canonical_model", canonical),
+					zap.String("upstream_model", model), zap.Int64("account_id", c.GetInt64("ops_account_id")))
+			}
+		}
 	}
 }
 
@@ -394,6 +408,11 @@ type OpsUpstreamErrorEvent struct {
 	Model     string `json:"model,omitempty"`
 	FromModel string `json:"from_model,omitempty"`
 	ModelTier string `json:"model_tier,omitempty"`
+	// 视觉辅助按图片记录失败与恢复，不影响主账号归因。
+	ImageIndex           int    `json:"image_index,omitempty"`
+	CandidateIndex       int    `json:"candidate_index,omitempty"`
+	RecoveredByModel     string `json:"recovered_by_model,omitempty"`
+	RecoveredByAccountID int64  `json:"recovered_by_account_id,omitempty"`
 
 	// Proxy attribution is an immutable, credential-free snapshot of the route
 	// used by this attempt. ProxyID is null for direct and unknown routes;

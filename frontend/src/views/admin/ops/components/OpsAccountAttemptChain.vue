@@ -37,6 +37,8 @@
             </p>
             <p v-if="attempt.model" class="break-all font-mono text-xs text-gray-700 dark:text-gray-300"><template v-if="attempt.fromModel">{{ attempt.fromModel }} → </template>{{ attempt.model }}<span v-if="attempt.tier" class="ml-2">· {{ attempt.tier }}</span></p>
             <p v-if="attempt.message && !attempt.modelFallback" class="mt-2 whitespace-pre-wrap break-words text-sm text-gray-800 dark:text-gray-200">{{ attempt.message }}</p>
+            <p v-if="attempt.imageIndex" class="mt-2 text-xs text-gray-600 dark:text-gray-300">{{ t('admin.ops.errorDetail.attemptChain.visionImage', { index: attempt.imageIndex }) }}</p>
+            <p v-if="attempt.recoveredByModel" class="mt-2 break-all text-xs text-emerald-700 dark:text-emerald-300">{{ t('admin.ops.errorDetail.attemptChain.visionRecovered', { model: attempt.recoveredByModel, account: attempt.recoveredByAccountId }) }}</p>
           </div>
         </details>
       </li>
@@ -83,6 +85,9 @@ const attempts = computed(() => {
   const attempts = parsed.filter((value): value is Record<string, unknown> => value != null && typeof value === 'object' && !Array.isArray(value)).map(value => ({
     id: positiveNumber(value.account_id),
     modelFallback: value.kind === 'model_fallback',
+    imageIndex: positiveNumber(value.image_index),
+    recoveredByModel: typeof value.recovered_by_model === 'string' ? value.recovered_by_model : '',
+    recoveredByAccountId: positiveNumber(value.recovered_by_account_id),
     model: typeof value.model === 'string' ? value.model : '',
     fromModel: typeof value.from_model === 'string' ? value.from_model : '',
     tier: typeof value.model_tier === 'string' ? value.model_tier : '',
@@ -91,11 +96,12 @@ const attempts = computed(() => {
     status: positiveNumber(value.upstream_status_code) || positiveNumber(value.status_code),
     message: typeof value.message === 'string' ? value.message : '',
     dropped: positiveNumber(value.dropped_earlier_attempts),
-    stage: value.stage === 'routing' ? 'routing' : value.stage === 'account_auth' ? 'accountAuth' : 'upstream',
+    stage: value.stage === 'vision_helper' ? 'visionHelper' : value.stage === 'routing' ? 'routing' : value.stage === 'account_auth' ? 'accountAuth' : 'upstream',
     isFinalFailure: false
   }))
   if (finalFailure && attempts.length > 0) {
-    attempts[attempts.length - 1].isFinalFailure = true
+    const last = attempts[attempts.length - 1]
+    last.isFinalFailure = !last.recoveredByModel
   }
   return attempts
 })

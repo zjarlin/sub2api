@@ -11,6 +11,15 @@ function render(raw: string) {
 }
 
 describe('OpsAccountAttemptChain', () => {
+  it('distinguishes failed vision helpers from the primary model and shows recovery', async () => {
+    const wrapper = render(JSON.stringify([{ account_id: 3, model: 'preferred-vision', stage: 'vision_helper', image_index: 2, upstream_status_code: 504, recovered_by_model: 'backup-vision', recovered_by_account_id: 4 }]))
+    await wrapper.setProps({ finalStatusCode: 502 })
+    expect(wrapper.text()).toContain('preferred-vision')
+    expect(wrapper.text()).toContain('attemptChain.visionHelper')
+    expect(wrapper.text()).toContain('attemptChain.visionImage')
+    expect(wrapper.text()).toContain('attemptChain.visionRecovered')
+    expect(wrapper.get('details').classes()).not.toContain('bg-red-50')
+  })
   it('keeps account order, repeated attempts, and local versus upstream failures', () => {
     const wrapper = render(JSON.stringify([
       { account_id: 837, account_name: 'aaawinn', upstream_status_code: 429, message: 'RPM 15' },

@@ -157,11 +157,16 @@ func TestVisionFallbackPreservesToolsAndOnlyTransformsMediaParts(t *testing.T) {
 	require.NotContains(t, string(got), "https://example.com")
 }
 
-func TestVisionFallbackWithoutHelperPreservesStringToolOutput(t *testing.T) {
+func TestVisionFallbackWithHelperPreservesStringToolOutput(t *testing.T) {
 	primary := visionTestAccount(1, "text-model", "text")
+	helper := visionTestAccount(2, "vision-model", "text", "image")
 	svc := &OpenAIGatewayService{
 		cfg:         visionTestConfig(),
-		accountRepo: codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{7: {primary}}},
+		accountRepo: codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{7: {primary, helper}}},
+		httpUpstream: &codexModelsHTTPUpstreamStub{do: func(_ *http.Request, _ string, accountID int64, _ int) (*http.Response, error) {
+			require.Equal(t, helper.ID, accountID)
+			return visionTestResponse(helper.Name, "image description"), nil
+		}},
 	}
 	body := []byte(`{"model":"text-model","input":[{"type":"function_call_output","call_id":"call_1","output":"tool result"},{"role":"user","content":[{"type":"input_text","text":"Explain this"},{"type":"input_image","image_url":"data:image/png;base64,AAAA"}]}]}`)
 	c, _ := visionTestContext(body, 9, 7)
@@ -169,6 +174,7 @@ func TestVisionFallbackWithoutHelperPreservesStringToolOutput(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "tool result", gjson.GetBytes(converted, "input.0.output").String())
 	require.Equal(t, "Explain this", gjson.GetBytes(converted, "input.1.content.0.text").String())
+	require.Contains(t, gjson.GetBytes(converted, "input.1.content.1.text").String(), "image description")
 	require.NotContains(t, string(converted), "input_image")
 	require.NotContains(t, string(converted), "data:image")
 }
@@ -278,7 +284,9 @@ func TestVisionFallbackGroupIsolationAndDisabledHelper(t *testing.T) {
 	svc := &OpenAIGatewayService{cfg: visionTestConfig(), accountRepo: codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{8: {helper}}}}
 	c, _ := visionTestContext([]byte(visionTestInput), 9, 7)
 	_, err := svc.prepareVisionFallback(context.Background(), c, &primary, []byte(visionTestInput))
-	require.NoError(t, err)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Contains(t, failoverErr.ClientMessage, "No native vision helper")
 	helper.Schedulable = false
 	require.Empty(t, visionFallbackCandidates([]Account{helper}, svc.cfg, nil))
 	helper.Schedulable = true
@@ -684,7 +692,9 @@ func TestVisionFallbackConcurrencyAndSlotRelease(t *testing.T) {
 			apiKey := c.MustGet("api_key").(*APIKey)
 			ctx := context.WithValue(context.Background(), visionFallbackPrimarySlotRequiredKey{}, tc.forceAcquire)
 			image := visionInputImage{image: map[string]any{"type": "input_image", "image_url": "data:image/png;base64,AAAA"}}
-			_, err := svc.describeVisionInput(ctx, c, apiKey, &primary, []visionFallbackCandidate{{account: &helper, model: "vision-model"}}, image, 0, 1)
+			state, err := svc.visionFallbackState(ctx, c)
+			require.NoError(t, err)
+			_, err = svc.describeVisionInput(ctx, c, apiKey, &primary, state, []visionFallbackCandidate{{account: &helper, model: "vision-model"}}, image, 0, 1)
 			if tc.wantCalls == 0 {
 				require.Error(t, err)
 			} else {

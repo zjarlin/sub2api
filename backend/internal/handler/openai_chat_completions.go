@@ -75,7 +75,14 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 		return
 	}
-	reqModel := modelResult.String()
+	reqModel, aliasErr := h.canonicalizeModel(c, modelResult.String())
+	if aliasErr != nil {
+		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Model alias settings unavailable")
+		return
+	}
+	if reqModel != modelResult.String() {
+		body = service.ReplaceModelInBody(body, reqModel)
+	}
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if !openAICompatibleTextTargetAllowed(c, apiKey, reqModel) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")

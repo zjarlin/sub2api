@@ -1,5 +1,20 @@
 export default {
     settings: {
+      visionFallback: {
+        title: 'Vision assistants and fallback',
+        description: 'A vision assistant describes images for the primary model. If it fails, backup assistants are tried in order while the primary model continues the original task.',
+        enabled: 'Enable vision assistance and fallback',
+        models: 'Vision models in order (preferred model first)',
+        modelsHint: 'One exact model ID per line, up to 64. Available accounts for each model are tried before the next model. Only permitted native vision accounts in the API key group are eligible.',
+        allowUnlisted: 'Try other vision models in the group after this list',
+        candidateTimeout: 'Timeout per assistant (seconds)',
+        totalTimeout: 'Total vision assistance timeout (seconds)',
+        scope: 'Images and primary account retries share the total budget; the shorter timeout applies. Failed assistance preserves images and tool results. Native vision models handle images directly. Assistant calls have separate usage and costs.',
+        required: 'Configure at least one vision model or allow unlisted models when enabled.',
+        invalidModels: 'Use up to 64 unique exact model IDs, each at most 200 characters, without whitespace or wildcards.',
+        invalidTimeout: 'Timeouts must be whole seconds between 1 and 9223372036.',
+        saved: 'Vision fallback saved. New requests and WebSocket turns use the updated policy.'
+      },
       modelFallback: {
   "title": "Model tiers and automatic fallback",
   "description": "After same-model accounts are exhausted, try other models in the same tier, then each lower tier. Intermediate failures stay in the monitoring chain.",
@@ -18,6 +33,9 @@ export default {
   "required": "Each tier needs a name and models. Keep at least one tier when enabled.",
   "duplicate": "Tier names and model IDs must be unique.",
   "invalidModels": "Use at most 64 exact model IDs, each at most 200 characters, without wildcards."
+},
+      modelAliases: {
+  title: 'Global model synonyms', description: 'Manage equivalent IDs across channels. Request logs keep the requested, canonical, upstream and account values.', canonical: 'Canonical model ID {index}', aliases: 'Synonym IDs {index}', hint: 'Use the first line for the canonical ID and one synonym per line below. Account mappings are not modified.', add: 'Add synonym group', saved: 'Synonyms saved and active for subsequent requests.', required: 'Each group needs a canonical ID and at least one synonym.', duplicate: 'Every model ID must be globally unique.',
 },
       title: 'System Settings',
       description: 'Manage registration, email verification, default values, and SMTP settings',

@@ -36,6 +36,9 @@ func unsupportedModelKeyForAccount(account *Account, requestedModel string) stri
 		return ""
 	}
 	if account.IsOpenAIPassthroughEnabled() {
+		if target, ok := account.globalModelMapping[requestedModel]; ok {
+			return normalizeUnsupportedModelKey(target)
+		}
 		return normalizeUnsupportedModelKey(requestedModel)
 	}
 	return normalizeUnsupportedModelKey(account.GetMappedModel(requestedModel))

@@ -581,6 +581,10 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		adminSettings.GET("/model-fallback", h.Admin.Setting.GetModelFallbackPolicy)
 		adminSettings.GET("/model-fallback/preset", h.Admin.Setting.GetModelFallbackPreset)
 		adminSettings.PUT("/model-fallback", h.Admin.Setting.UpdateModelFallbackPolicy)
+		adminSettings.GET("/vision-fallback", h.Admin.Setting.GetVisionFallbackPolicy)
+		adminSettings.PUT("/vision-fallback", h.Admin.Setting.UpdateVisionFallbackPolicy)
+		adminSettings.GET("/model-aliases", h.Admin.Setting.GetModelAliasPolicy)
+		adminSettings.PUT("/model-aliases", h.Admin.Setting.UpdateModelAliasPolicy)
 
 		adminSettings.GET("/rate-limit-429-cooldown", h.Admin.Setting.GetRateLimit429CooldownSettings)
 		adminSettings.PUT("/rate-limit-429-cooldown", h.Admin.Setting.UpdateRateLimit429CooldownSettings)

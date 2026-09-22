@@ -315,6 +315,9 @@ export default {
       // Error Detail Modal
       errorDetail: {
         attemptChain: {
+          visionHelper: 'Vision assistant',
+          visionImage: 'Image {index}',
+          visionRecovered: 'Image described by {model} (account #{account})',
           modelFallback: 'Model fallback',
           title: 'Call chain',
           description: 'Accounts, model transitions, and failure reasons in attempt order. Retries of the same account are kept separately.',

@@ -46,6 +46,18 @@ func writeOpenAIModelsError(c *gin.Context, status int, errorType, message strin
 }
 
 func writeOpenAIModelsResponse(c *gin.Context, manifest *service.OpenAIModelsResponse) {
+	if policy := service.ModelAliasesFromContext(c.Request.Context()); policy != nil && len(policy.Groups) > 0 && !manifest.NotModified {
+		body, err := policy.CanonicalizeCatalog(manifest.Body)
+		if err != nil {
+			writeOpenAIModelsError(c, http.StatusBadGateway, "upstream_error", "Invalid model catalogue")
+			return
+		}
+		clone := *manifest
+		clone.Body = body
+		clone.ETag = service.CodexModelsManifestETag(body)
+		clone.NotModified = c.Param("model") == "" && service.CodexModelsManifestETagMatches(c.GetString("model_alias_if_none_match"), clone.ETag)
+		manifest = &clone
+	}
 	if c.Param("model") != "" {
 		writeRetrievedModel(c, manifest.Body)
 		return
@@ -65,16 +77,12 @@ func writeOpenAIModelsResponse(c *gin.Context, manifest *service.OpenAIModelsRes
 // selection and allowlist filtering. Preserve every field on the selected entry.
 func writeModelsListResponse(c *gin.Context, models any) {
 	response := gin.H{"object": "list", "data": models}
-	if c.Param("model") == "" {
-		c.JSON(http.StatusOK, response)
-		return
-	}
 	body, err := json.Marshal(response)
 	if err != nil {
 		writeOpenAIModelsError(c, http.StatusInternalServerError, "api_error", "Failed to encode model catalogue")
 		return
 	}
-	writeRetrievedModel(c, body)
+	writeOpenAIModelsResponse(c, &service.OpenAIModelsResponse{Body: body})
 }
 
 func writeRetrievedModel(c *gin.Context, body []byte) {
@@ -85,7 +93,7 @@ func writeRetrievedModel(c *gin.Context, body []byte) {
 		writeOpenAIModelsError(c, http.StatusBadGateway, "upstream_error", "Invalid model catalogue")
 		return
 	}
-	modelID := c.Param("model")
+	modelID := service.ModelAliasesFromContext(c.Request.Context()).Canonicalize(c.Param("model"))
 	for _, raw := range catalog.Data {
 		var model map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &model); err != nil {

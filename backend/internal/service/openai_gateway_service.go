@@ -510,6 +510,19 @@ type OpenAIGatewayService struct {
 	openaiCodexTurnStateWrites  atomic.Uint64
 }
 
+// 入口绑定一次别名快照，重试和降级共享同一份配置。
+func (s *OpenAIGatewayService) BindModelAliases(ctx context.Context) (context.Context, *ModelAliasPolicy, error) {
+	var settings *SettingService
+	if s != nil {
+		settings = s.settingService
+	}
+	policy, err := settings.GetModelAliasPolicy(ctx)
+	if err != nil {
+		return ctx, nil, err
+	}
+	return WithModelAliases(ctx, policy), policy, nil
+}
+
 // NewOpenAIGatewayService creates a new OpenAIGatewayService
 func NewOpenAIGatewayService(
 	accountRepo AccountRepository,

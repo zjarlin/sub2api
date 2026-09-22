@@ -1620,3 +1620,30 @@ export async function updateModelFallbackPolicy(policy: ModelFallbackPolicy): Pr
   const { data } = await apiClient.put<ModelFallbackPolicy>("/admin/settings/model-fallback", policy);
   return data;
 }
+
+export interface VisionFallbackPolicy {
+  enabled: boolean;
+  models: string[];
+  allow_unlisted_models: boolean;
+  candidate_timeout_seconds: number;
+  timeout_seconds: number;
+}
+export async function getVisionFallbackPolicy(): Promise<VisionFallbackPolicy> {
+  const { data } = await apiClient.get<VisionFallbackPolicy>("/admin/settings/vision-fallback");
+  return data;
+}
+export async function updateVisionFallbackPolicy(policy: VisionFallbackPolicy): Promise<VisionFallbackPolicy> {
+  const { data } = await apiClient.put<VisionFallbackPolicy>("/admin/settings/vision-fallback", policy);
+  return data;
+}
+
+export interface ModelAliasGroup { canonical: string; aliases: string[] }
+export interface ModelAliasPolicy { groups: ModelAliasGroup[] }
+export async function getModelAliasPolicy(): Promise<ModelAliasPolicy> {
+  const { data } = await apiClient.get<ModelAliasPolicy>("/admin/settings/model-aliases");
+  return data;
+}
+export async function updateModelAliasPolicy(policy: ModelAliasPolicy): Promise<ModelAliasPolicy> {
+  const { data } = await apiClient.put<ModelAliasPolicy>("/admin/settings/model-aliases", policy);
+  return data;
+}

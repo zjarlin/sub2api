@@ -4,8 +4,11 @@ import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
 import OpsErrorLogTable from './OpsErrorLogTable.vue'
-import { opsAPI, type OpsErrorLog } from '@/api/admin/ops'
+import { useClipboard } from '@/composables/useClipboard'
+import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
+import { opsAPI, type OpsDashboardOverview, type OpsErrorDetail, type OpsErrorLog } from '@/api/admin/ops'
 import { buildOpsErrorTimeParams } from '../utils/opsErrorParams'
+import { buildErrorFixPrompt, type FixPromptContext } from '../utils/buildFixPrompt'
 
 interface Props {
   show: boolean
@@ -25,7 +28,9 @@ const emit = defineEmits<{
   (e: 'openErrorDetail', errorId: number): void
 }>()
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
+const { copyToClipboard } = useClipboard()
+const copyingFixPrompt = ref(false)
 
 
 const loading = ref(false)
@@ -101,46 +106,50 @@ function onSort(nextSortBy: string, nextSortOrder: 'asc' | 'desc') {
   void fetchErrorLogs()
 }
 
+function buildListParams() {
+  const params: Record<string, any> = {
+    page: page.value,
+    page_size: pageSize.value,
+    view: props.recovered ? 'recovered' : viewMode.value,
+    sort_by: sortBy.value,
+    sort_order: sortOrder.value
+  }
+  Object.assign(params, buildOpsErrorTimeParams(props.timeRange, props.customStartTime, props.customEndTime))
+
+  if (props.timeRange === 'custom') {
+    if (props.customStartTime && props.customEndTime) {
+      params.start_time = props.customStartTime
+      params.end_time = props.customEndTime
+      delete params.time_range
+    } else {
+      // Safety fallback: avoid sending time_range=custom (backend doesn't support it)
+      params.time_range = '1h'
+    }
+  }
+
+  const platform = String(props.platform || '').trim()
+  if (platform) params.platform = platform
+  if (typeof props.groupId === 'number' && props.groupId > 0) params.group_id = props.groupId
+
+  if (q.value.trim()) params.q = q.value.trim()
+  if (statusCode.value === 'other') params.status_codes_other = '1'
+  else if (typeof statusCode.value === 'number') params.status_codes = String(statusCode.value)
+
+  const phaseVal = String(phase.value || '').trim()
+  if (phaseVal) params.phase = phaseVal
+
+  const ownerVal = String(errorOwner.value || '').trim()
+  if (ownerVal) params.error_owner = ownerVal
+
+  return params
+}
+
 async function fetchErrorLogs() {
   if (!props.show) return
 
   loading.value = true
   try {
-    const params: Record<string, any> = {
-      page: page.value,
-      page_size: pageSize.value,
-      view: props.recovered ? 'recovered' : viewMode.value,
-      sort_by: sortBy.value,
-      sort_order: sortOrder.value
-    }
-    Object.assign(params, buildOpsErrorTimeParams(props.timeRange, props.customStartTime, props.customEndTime))
-
-    if (props.timeRange === 'custom') {
-      if (props.customStartTime && props.customEndTime) {
-        params.start_time = props.customStartTime
-        params.end_time = props.customEndTime
-        delete params.time_range
-      } else {
-        // Safety fallback: avoid sending time_range=custom (backend doesn't support it)
-        params.time_range = '1h'
-      }
-    }
-
-    const platform = String(props.platform || '').trim()
-    if (platform) params.platform = platform
-    if (typeof props.groupId === 'number' && props.groupId > 0) params.group_id = props.groupId
-
-    if (q.value.trim()) params.q = q.value.trim()
-    if (statusCode.value === 'other') params.status_codes_other = '1'
-    else if (typeof statusCode.value === 'number') params.status_codes = String(statusCode.value)
-
-    const phaseVal = String(phase.value || '').trim()
-    if (phaseVal) params.phase = phaseVal
-
-    const ownerVal = String(errorOwner.value || '').trim()
-    if (ownerVal) params.error_owner = ownerVal
-
-
+    const params = buildListParams()
     const res = props.errorType === 'upstream'
       ? await opsAPI.listUpstreamErrors(params)
       : await opsAPI.listRequestErrors(params)
@@ -152,6 +161,79 @@ async function fetchErrorLogs() {
     total.value = 0
   } finally {
     loading.value = false
+  }
+}
+
+// --- Copy "fix code defects" prompt (rich: full detail + call chain + upstream stack) ---
+
+const PROMPT_DETAIL_LIMIT = 10
+const RANGE_MINUTES: Record<string, number> = { '5m': 5, '30m': 30, '1h': 60, '6h': 360, '24h': 1440 }
+
+async function copyErrorFixPrompt() {
+  if (copyingFixPrompt.value) return
+  copyingFixPrompt.value = true
+  try {
+    const listParams = buildListParams()
+    listParams.page = 1
+    listParams.page_size = PROMPT_DETAIL_LIMIT
+    listParams.sort_by = 'created_at'
+    listParams.sort_order = 'desc'
+
+    const res = props.errorType === 'upstream'
+      ? await opsAPI.listUpstreamErrors(listParams)
+      : await opsAPI.listRequestErrors(listParams)
+    const logs = (res.items || []).slice(0, PROMPT_DETAIL_LIMIT)
+
+    const details: OpsErrorDetail[] = []
+    for (const log of logs) {
+      try {
+        const detail = props.errorType === 'upstream'
+          ? await opsAPI.getUpstreamErrorDetail(log.id)
+          : await opsAPI.getRequestErrorDetail(log.id)
+        details.push(detail)
+      } catch (err) {
+        console.error(`[OpsErrorDetailsModal] Failed to load error detail #${log.id}`, err)
+      }
+    }
+
+    let overview: OpsDashboardOverview | null = null
+    try {
+      const ovParams: Record<string, any> = { mode: 'auto' }
+      Object.assign(ovParams, buildOpsErrorTimeParams(props.timeRange, props.customStartTime, props.customEndTime))
+      if (props.timeRange === 'custom') {
+        if (props.customStartTime && props.customEndTime) {
+          ovParams.start_time = props.customStartTime
+          ovParams.end_time = props.customEndTime
+          delete ovParams.time_range
+        } else {
+          ovParams.time_range = '1h'
+        }
+      }
+      const platform = String(props.platform || '').trim()
+      if (platform) ovParams.platform = platform
+      if (typeof props.groupId === 'number' && props.groupId > 0) ovParams.group_id = props.groupId
+      overview = await opsAPI.getDashboardOverview(ovParams)
+    } catch (err) {
+      console.error('[OpsErrorDetailsModal] Failed to load overview for fix prompt', err)
+    }
+
+    const isZh = locale.value === 'zh'
+    const ctx: FixPromptContext = {
+      locale: locale.value,
+      timeRangeLabel: isZh ? `近${RANGE_MINUTES[props.timeRange] ?? 60}分钟` : `Last ${RANGE_MINUTES[props.timeRange] ?? 60} minutes`,
+      platformLabel: !props.platform
+        ? isZh ? '全部' : 'All'
+        : CONCRETE_PLATFORM_OPTIONS.find((p) => p.value === props.platform)?.label ?? props.platform,
+      groupLabel: props.groupId == null
+        ? isZh ? '全部' : 'All'
+        : isZh ? `分组 #${props.groupId}` : `group #${props.groupId}`
+    }
+
+    const prompt = buildErrorFixPrompt(overview, details, ctx)
+    const successMsg = details.length > 0 ? t('admin.ops.copyFixPromptCopied') : t('admin.ops.copyFixPromptNoErrors')
+    await copyToClipboard(prompt, successMsg)
+  } finally {
+    copyingFixPrompt.value = false
   }
 }
 
@@ -265,7 +347,15 @@ watch(
             <Select :model-value="viewMode" :options="viewModeSelectOptions" @update:model-value="viewMode = $event as any" />
           </div>
 
-          <div class="flex items-center justify-end">
+          <div class="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              class="rounded-lg bg-blue-500 px-3 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+              :disabled="loading || copyingFixPrompt"
+              @click="copyErrorFixPrompt()"
+            >
+              {{ t('admin.ops.copyFixPrompt') }}
+            </button>
             <button type="button" class="rounded-lg bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-300 dark:hover:bg-dark-600" @click="resetFilters">
               {{ t('common.reset') }}
             </button>

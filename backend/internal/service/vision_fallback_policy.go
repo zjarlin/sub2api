@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"sort"
 	"strings"
@@ -60,10 +61,23 @@ func visionFallbackPlatform(platform string) bool {
 
 // 候选仅来自调用方分组的可调度 API Key 账号，不扫描其他租户、不猜测模型名。
 func visionFallbackCandidates(accounts []Account, cfg *config.Config, group *Group) []visionFallbackCandidate {
-	if !visionFallbackEnabled(cfg) {
+	return visionFallbackCandidatesWithPolicy(accounts, DefaultVisionFallbackPolicy(cfg), group)
+}
+
+func visionFallbackCandidatesWithPolicy(accounts []Account, policy *VisionFallbackPolicy, group *Group) []visionFallbackCandidate {
+	if !policy.Enabled {
 		return nil
 	}
-	preferred := strings.TrimSpace(cfg.Gateway.VisionFallback.Model)
+	order := make(map[string]int, len(policy.Models))
+	for i, model := range policy.Models {
+		order[model] = i
+	}
+	rank := func(model string) int {
+		if index, ok := order[model]; ok {
+			return index
+		}
+		return len(order)
+	}
 	var candidates []visionFallbackCandidate
 	for i := range accounts {
 		account := &accounts[i]
@@ -73,6 +87,12 @@ func visionFallbackCandidates(accounts []Account, cfg *config.Config, group *Gro
 			continue
 		}
 		for model := range visionFallbackModelIDs(account) {
+			if _, listed := order[model]; !listed && !policy.AllowUnlistedModels {
+				continue
+			}
+			if group != nil && !group.ModelAllowlist.Allows(model) {
+				continue
+			}
 			if model == "" || strings.Contains(model, "*") {
 				continue
 			}
@@ -83,8 +103,8 @@ func visionFallbackCandidates(accounts []Account, cfg *config.Config, group *Gro
 		}
 	}
 	sort.Slice(candidates, func(i, j int) bool {
-		if (candidates[i].model == preferred) != (candidates[j].model == preferred) {
-			return candidates[i].model == preferred
+		if rank(candidates[i].model) != rank(candidates[j].model) {
+			return rank(candidates[i].model) < rank(candidates[j].model)
 		}
 		if candidates[i].account.Priority != candidates[j].account.Priority {
 			return candidates[i].account.Priority < candidates[j].account.Priority
@@ -189,10 +209,22 @@ func groupModelNeedsVisionFallback(accounts []Account, platform, model string) b
 
 // 使用当前可调度账号的能力更新目录，避免暂不可用的旧账号隐藏原生视觉。
 func applyVisionFallbackManifest(body []byte, cfg *config.Config, group *Group, platform string, accounts []Account, routes []CompositeModelRoute, routesAvailable bool) ([]byte, error) {
+	return applyVisionFallbackManifestWithPolicy(body, DefaultVisionFallbackPolicy(cfg), group, platform, accounts, routes, routesAvailable)
+}
+
+func applyConfiguredVisionFallbackManifest(ctx context.Context, settings *SettingService, body []byte, cfg *config.Config, group *Group, platform string, accounts []Account, routes []CompositeModelRoute, routesAvailable bool) ([]byte, error) {
+	policy, err := loadVisionFallbackPolicy(ctx, settings, cfg)
+	if err != nil {
+		return nil, err
+	}
+	return applyVisionFallbackManifestWithPolicy(body, policy, group, platform, accounts, routes, routesAvailable)
+}
+
+func applyVisionFallbackManifestWithPolicy(body []byte, policy *VisionFallbackPolicy, group *Group, platform string, accounts []Account, routes []CompositeModelRoute, routesAvailable bool) ([]byte, error) {
 	if len(accounts) == 0 {
 		return body, nil
 	}
-	helperAvailable := len(visionFallbackCandidates(accounts, cfg, group)) > 0
+	helperAvailable := len(visionFallbackCandidatesWithPolicy(accounts, policy, group)) > 0
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		return nil, err

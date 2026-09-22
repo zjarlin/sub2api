@@ -98,7 +98,10 @@ func (s *SettingService) GetModelFallbackPolicy(ctx context.Context) (*ModelFall
 	if err := json.Unmarshal([]byte(raw), &policy); err != nil {
 		return nil, fmt.Errorf("decode model fallback policy: %w", err)
 	}
-	return &policy, policy.Validate()
+	if err := policy.Validate(); err != nil {
+		return nil, err
+	}
+	return &policy, nil
 }
 
 func (s *SettingService) SetModelFallbackPolicy(ctx context.Context, policy *ModelFallbackPolicy) error {
@@ -118,7 +121,14 @@ func (s *OpenAIGatewayService) ModelFallbackCandidates(ctx context.Context, grou
 	if err != nil {
 		return nil, err
 	}
-	candidates := policy.Candidates(model)
+	aliases, err := s.settingService.GetModelAliasPolicy(ctx)
+	if err != nil {
+		return nil, err
+	}
+	canonical := aliases.Canonicalize(model)
+	policy = aliases.NormalizeFallback(policy)
+	ctx = WithModelAliases(ctx, aliases)
+	candidates := policy.Candidates(canonical)
 	if len(candidates) == 0 {
 		return nil, nil
 	}

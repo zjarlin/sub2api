@@ -1491,6 +1491,7 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 		if err != nil {
 			return accounts, err
 		}
+		accounts = accountsWithModelAliases(ctx, accounts)
 		accounts = s.filterOpenAIAccountsBySchedulingThreshold(ctx, accounts)
 		accounts = s.filterGrokFreeQuotaAccountsForOpenAI(ctx, accounts)
 		return accounts, nil
@@ -1525,6 +1526,7 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 		}
 	}
 	accounts = compatible
+	accounts = accountsWithModelAliases(ctx, accounts)
 	accounts = s.filterOpenAIAccountsBySchedulingThreshold(ctx, accounts)
 	accounts = s.filterGrokFreeQuotaAccountsForOpenAI(ctx, accounts)
 	return accounts, nil
@@ -1631,6 +1633,7 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfit(ct
 	}
 
 	latest, err := s.accountRepo.GetByID(ctx, account.ID)
+	latest = accountWithModelAliases(ctx, latest)
 	if err != nil || latest == nil {
 		return nil
 	}
@@ -1678,6 +1681,7 @@ func (s *OpenAIGatewayService) getSchedulableAccount(ctx context.Context, accoun
 	} else {
 		account, err = s.accountRepo.GetByID(ctx, accountID)
 	}
+	account = accountWithModelAliases(ctx, account)
 	if err != nil || account == nil {
 		return account, err
 	}
@@ -1729,7 +1733,7 @@ func (s *OpenAIGatewayService) isOpenAIAccountBlockedBySchedulingThreshold(ctx c
 
 func (s *OpenAIGatewayService) hydrateSelectedAccount(ctx context.Context, account *Account) (*Account, error) {
 	if account == nil || s.schedulerSnapshot == nil {
-		return account, nil
+		return accountWithModelAliases(ctx, account), nil
 	}
 	hydrated, err := s.schedulerSnapshot.GetAccount(ctx, account.ID)
 	if err != nil {
@@ -1738,7 +1742,7 @@ func (s *OpenAIGatewayService) hydrateSelectedAccount(ctx context.Context, accou
 	if hydrated == nil {
 		return nil, fmt.Errorf("selected openai account %d not found during hydration", account.ID)
 	}
-	return hydrated, nil
+	return accountWithModelAliases(ctx, hydrated), nil
 }
 
 func (s *OpenAIGatewayService) newSelectionResult(ctx context.Context, account *Account, acquired bool, release func(), waitPlan *AccountWaitPlan) (*AccountSelectionResult, error) {

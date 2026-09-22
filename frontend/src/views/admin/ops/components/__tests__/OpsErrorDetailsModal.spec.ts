@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
 }))
 
 vi.mock('@/api/admin/ops', () => ({ opsAPI: mocks }))
+vi.mock('@/composables/useClipboard', () => ({ useClipboard: () => ({ copyToClipboard: vi.fn() }) }))
 vi.mock('vue-i18n', async (importOriginal) => ({
   ...await importOriginal<typeof import('vue-i18n')>(),
   useI18n: () => ({ t: (key: string) => key }),

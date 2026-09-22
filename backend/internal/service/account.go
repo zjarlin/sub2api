@@ -21,6 +21,8 @@ import (
 )
 
 type Account struct {
+	// 请求级全局别名派生映射，不持久化。
+	globalModelMapping      map[string]string
 	OwnerUserID             *int64
 	ID                      int64
 	Name                    string
@@ -604,6 +606,21 @@ func stringMappingFromRaw(raw any) map[string]string {
 }
 
 func (a *Account) GetModelMapping() map[string]string {
+	native := a.getNativeModelMapping()
+	if len(a.globalModelMapping) == 0 {
+		return native
+	}
+	merged := make(map[string]string, len(native)+len(a.globalModelMapping))
+	for key, value := range native {
+		merged[key] = value
+	}
+	for key, value := range a.globalModelMapping {
+		merged[key] = value
+	}
+	return merged
+}
+
+func (a *Account) getNativeModelMapping() map[string]string {
 	runtimeVersion := xai.RuntimeModelMappingVersion()
 	credentialsPtr := mapPtr(a.Credentials)
 	rawMapping, _ := a.Credentials["model_mapping"].(map[string]any)
