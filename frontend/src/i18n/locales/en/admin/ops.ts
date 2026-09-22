@@ -307,6 +307,17 @@ export default {
       },
       // Error Detail Modal
       errorDetail: {
+        attemptChain: {
+          modelFallback: 'Model fallback',
+          title: 'Failed account attempts',
+          description: 'Accounts and failure reasons in attempt order. Retries of the same account are kept separately.',
+          logAccount: 'Log account',
+          routing: 'Local queue / concurrency',
+          upstream: 'Upstream request',
+          accountAuth: 'Account authentication',
+          finalFailure: 'Final failure',
+          dropped: '{count} earlier attempts exceeded log retention limits. See the raw payload.'
+        },
         title: 'Error Detail',
         titleWithId: 'Error #{id}',
         noErrorSelected: 'No error selected.',

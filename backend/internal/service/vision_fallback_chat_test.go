@@ -141,8 +141,11 @@ func TestVisionFallbackChatFailureDoesNotLoseHelperUsage(t *testing.T) {
 			if helperFails {
 				require.Equal(t, []int64{2}, calls)
 				require.Empty(t, usage)
-				require.Equal(t, http.StatusBadGateway, recorder.Code)
-				require.True(t, IsResponseCommitted(c))
+				var failoverErr *UpstreamFailoverError
+				require.ErrorAs(t, err, &failoverErr)
+				require.True(t, failoverErr.ShouldRetryNextAccount())
+				require.Equal(t, http.StatusOK, recorder.Code)
+				require.False(t, IsResponseCommitted(c))
 				require.NotContains(t, recorder.Body.String(), "private-provider-detail")
 			} else {
 				require.Equal(t, []int64{2, 1}, calls)

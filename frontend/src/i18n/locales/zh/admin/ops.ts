@@ -307,6 +307,17 @@ export default {
       },
       // Error Detail Modal
       errorDetail: {
+        attemptChain: {
+          modelFallback: '切换模型',
+          title: '失败调度链',
+          description: '按尝试顺序保留每个账号及失败原因；同一账号重试会重复列出。',
+          logAccount: '日志归属账号',
+          routing: '本地排队 / 并发',
+          upstream: '上游请求',
+          accountAuth: '账号认证',
+          finalFailure: '最终失败',
+          dropped: '更早的 {count} 次尝试已超出日志保留上限，详见原始载荷。'
+        },
         title: '错误详情',
         titleWithId: '错误 #{id}',
         noErrorSelected: '未选择错误。',

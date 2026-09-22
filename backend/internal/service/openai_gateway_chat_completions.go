@@ -98,8 +98,11 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	// 在原生 Chat、Responses 和 Anthropic 分流之前统一处理图片，保留原始消息及工具结构。
 	visionBody, visionErr := s.prepareVisionFallback(ctx, c, account, body)
 	if visionErr != nil {
-		MarkResponseCommitted(c)
-		writeVisionFallbackError(c, visionErr)
+		var failoverErr *UpstreamFailoverError
+		if !errors.As(visionErr, &failoverErr) {
+			MarkResponseCommitted(c)
+			writeVisionFallbackError(c, visionErr)
+		}
 		return nil, visionErr
 	}
 	body = visionBody

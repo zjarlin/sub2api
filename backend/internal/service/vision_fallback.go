@@ -381,8 +381,39 @@ func (s *OpenAIGatewayService) callVisionHelper(ctx context.Context, parent *gin
 			fields = append(fields, zap.Error(forwardErr))
 		}
 		logger.FromContext(ctx).Warn("gateway.vision_helper_failed", fields...)
-		// 不向客户端泄漏辅助账号、图片 URL、供应商凭据或内部响应体。
-		return "", &visionFallbackError{http.StatusBadGateway, "The vision helper could not describe the image; please retry later"}
+		// 不向客户端泄漏辅助账号、图片 URL、供应商凭据或内部响应体。保留为可换号/换模型的
+		// failover 错误，让外层先尝试其他候选；只有候选耗尽后才回写这条脱敏错误。
+		clientMessage := "The vision helper could not describe the image; please retry later"
+		failoverStatus := writer.Status()
+		if failoverStatus < http.StatusBadRequest {
+			failoverStatus = http.StatusBadGateway
+		}
+		responseBody, _ := json.Marshal(map[string]any{"error": map[string]any{"type": "api_error", "message": clientMessage}})
+		helperFailoverErr := &UpstreamFailoverError{
+			StatusCode:                 failoverStatus,
+			ResponseBody:               responseBody,
+			ResponseHeaders:            writer.Header().Clone(),
+			Scope:                      GatewayFailureScopeProvider,
+			NextAccountAction:          NextAccountRetry,
+			ClientStatusCode:           http.StatusBadGateway,
+			ClientMessage:              clientMessage,
+			SkipAccountScheduleFailure: true,
+		}
+		appendOpsUpstreamError(parent, OpsUpstreamErrorEvent{
+			ProxyID:            opsUpstreamProxyID(candidate.account),
+			ProxyName:          opsUpstreamProxyName(candidate.account),
+			Platform:           candidate.account.Platform,
+			AccountID:          candidate.account.ID,
+			AccountName:        candidate.account.Name,
+			UpstreamStatusCode: failoverStatus,
+			UpstreamRequestID:  upstreamRequestID,
+			UpstreamURL:        upstreamEndpoint,
+			Kind:               "failover",
+			Message:            clientMessage,
+		})
+		// 辅助账号本身仍是失败来源；只跳过主账号归因，不跳过辅助账号的调度/健康熔断。
+		_ = s.ReportOpenAIAccountScheduleResult(candidate.account, candidate.model, false, nil, helperFailoverErr)
+		return "", helperFailoverErr
 	}
 	var parts []string
 	for _, item := range response.Get("output").Array() {
@@ -404,6 +435,15 @@ func (s *OpenAIGatewayService) callVisionHelper(ctx context.Context, parent *gin
 
 func writeVisionFallbackError(c *gin.Context, err error) {
 	status := http.StatusBadGateway
+	var failoverErr *UpstreamFailoverError
+	if errors.As(err, &failoverErr) && failoverErr != nil && failoverErr.ClientMessage != "" {
+		status = failoverErr.ClientStatusCode
+		if status <= 0 {
+			status = http.StatusBadGateway
+		}
+		writeOpenAIResponsesFallbackError(c, status, "api_error", failoverErr.ClientMessage)
+		return
+	}
 	var failure *visionFallbackError
 	if errors.As(err, &failure) {
 		status = failure.status

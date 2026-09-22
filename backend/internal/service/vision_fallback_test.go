@@ -205,6 +205,36 @@ func TestVisionFallbackFailureDoesNotCallPrimaryOrCacheEmptyDescription(t *testi
 	}
 }
 
+func TestVisionFallbackFailureIsReplayableWithoutBlamingPrimaryAccount(t *testing.T) {
+	primary := visionTestAccount(1, "text-model", "text")
+	helper := visionTestAccount(2, "vision-model", "text", "image")
+	svc := &OpenAIGatewayService{cfg: visionTestConfig(), accountRepo: codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{7: {helper}}},
+		httpUpstream: &codexModelsHTTPUpstreamStub{do: func(req *http.Request, _ string, accountID int64, _ int) (*http.Response, error) {
+			require.Equal(t, helper.ID, accountID)
+			return &http.Response{StatusCode: http.StatusBadGateway, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"private-provider-detail"}}`))}, nil
+		}},
+	}
+	c, recorder := visionTestContext([]byte(visionTestInput), 9, 7)
+	_, err := svc.Forward(context.Background(), c, &primary, []byte(visionTestInput))
+	require.Error(t, err)
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.True(t, failoverErr.ShouldRetryNextAccount())
+	require.False(t, failoverErr.ShouldReportAccountScheduleFailure())
+	require.Equal(t, http.StatusBadGateway, failoverErr.ClientStatusCode)
+	require.Equal(t, "The vision helper could not describe the image; please retry later", failoverErr.ClientMessage)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Empty(t, recorder.Body.String())
+	require.NotContains(t, recorder.Body.String(), "private-provider-detail")
+	value, ok := c.Get(OpsUpstreamErrorsKey)
+	require.True(t, ok)
+	events, ok := value.([]*OpsUpstreamErrorEvent)
+	require.True(t, ok)
+	require.Len(t, events, 1)
+	require.Equal(t, helper.ID, events[0].AccountID)
+	require.Equal(t, "The vision helper could not describe the image; please retry later", events[0].Message)
+}
+
 func TestVisionFallbackInputValidationBeforeAnyHelperCall(t *testing.T) {
 	primary := visionTestAccount(1, "text-model", "text")
 	svc := &OpenAIGatewayService{cfg: visionTestConfig()}

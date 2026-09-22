@@ -64,7 +64,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 
 	visionBody, visionErr := s.prepareVisionFallback(ctx, c, account, body)
 	if visionErr != nil {
-		writeVisionFallbackError(c, visionErr)
+		var failoverErr *UpstreamFailoverError
+		if !errors.As(visionErr, &failoverErr) {
+			writeVisionFallbackError(c, visionErr)
+		}
 		return nil, visionErr
 	}
 	body = visionBody
