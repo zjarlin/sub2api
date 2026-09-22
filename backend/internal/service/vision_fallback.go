@@ -234,7 +234,13 @@ func stripVisionImages(payload map[string]any) []byte {
 				continue
 			}
 		}
-		parts, _ := item[field].([]any)
+		parts, ok := item[field].([]any)
+		if !ok {
+			// Responses allows tool output and message content to be plain
+			// strings. Only inspect array content blocks; otherwise preserve
+			// the value exactly as received.
+			continue
+		}
 		filtered := make([]any, 0, len(parts))
 		for _, rawPart := range parts {
 			part, ok := rawPart.(map[string]any)

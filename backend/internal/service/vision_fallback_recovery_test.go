@@ -149,6 +149,7 @@ func TestVisionFallbackUnavailableHelperAllowsOuterFailover(t *testing.T) {
 				switch scenario {
 				case "no_native_helper":
 					repo.accounts = []Account{primary}
+					expectedMessage = ""
 				case "repository_unavailable":
 					repo.err = errors.New("private repository connection details")
 					expectedMessage = "Unable to load image assistance models"
@@ -173,6 +174,10 @@ func TestVisionFallbackUnavailableHelperAllowsOuterFailover(t *testing.T) {
 					_, err = svc.ForwardAsChatCompletions(context.Background(), c, &primary, body, "", "")
 				} else {
 					_, err = svc.Forward(context.Background(), c, &primary, body)
+				}
+				if scenario == "no_native_helper" {
+					require.NoError(t, err)
+					return
 				}
 				var failure *UpstreamFailoverError
 				require.ErrorAs(t, err, &failure)

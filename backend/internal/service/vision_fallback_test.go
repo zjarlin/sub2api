@@ -157,6 +157,22 @@ func TestVisionFallbackPreservesToolsAndOnlyTransformsMediaParts(t *testing.T) {
 	require.NotContains(t, string(got), "https://example.com")
 }
 
+func TestVisionFallbackWithoutHelperPreservesStringToolOutput(t *testing.T) {
+	primary := visionTestAccount(1, "text-model", "text")
+	svc := &OpenAIGatewayService{
+		cfg:         visionTestConfig(),
+		accountRepo: codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{7: {primary}}},
+	}
+	body := []byte(`{"model":"text-model","input":[{"type":"function_call_output","call_id":"call_1","output":"tool result"},{"role":"user","content":[{"type":"input_text","text":"Explain this"},{"type":"input_image","image_url":"data:image/png;base64,AAAA"}]}]}`)
+	c, _ := visionTestContext(body, 9, 7)
+	converted, err := svc.prepareVisionFallback(context.Background(), c, &primary, body)
+	require.NoError(t, err)
+	require.Equal(t, "tool result", gjson.GetBytes(converted, "input.0.output").String())
+	require.Equal(t, "Explain this", gjson.GetBytes(converted, "input.1.content.0.text").String())
+	require.NotContains(t, string(converted), "input_image")
+	require.NotContains(t, string(converted), "data:image")
+}
+
 func TestVisionFallbackDoesNotCallHelperForNativeOrTextRequests(t *testing.T) {
 	svc := &OpenAIGatewayService{cfg: visionTestConfig()}
 	for _, tc := range []struct {
@@ -262,9 +278,7 @@ func TestVisionFallbackGroupIsolationAndDisabledHelper(t *testing.T) {
 	svc := &OpenAIGatewayService{cfg: visionTestConfig(), accountRepo: codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{8: {helper}}}}
 	c, _ := visionTestContext([]byte(visionTestInput), 9, 7)
 	_, err := svc.prepareVisionFallback(context.Background(), c, &primary, []byte(visionTestInput))
-	var failoverErr *UpstreamFailoverError
-	require.ErrorAs(t, err, &failoverErr)
-	require.Contains(t, failoverErr.ClientMessage, "No native vision helper")
+	require.NoError(t, err)
 	helper.Schedulable = false
 	require.Empty(t, visionFallbackCandidates([]Account{helper}, svc.cfg, nil))
 	helper.Schedulable = true

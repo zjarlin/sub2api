@@ -156,7 +156,7 @@ func TestOpenAIVisionAvailabilityFailureFinalizesOnce(t *testing.T) {
 		status        int
 		message       string
 	}{
-		{"no_native_helper", false, http.StatusServiceUnavailable, "No native vision helper is available in this API key group"},
+		{"no_native_helper", false, http.StatusOK, ""},
 		{"helper_failed", true, http.StatusBadGateway, "The vision helper could not describe the image; please retry later"},
 	} {
 		for _, streamStarted := range []bool{false, true} {
@@ -177,8 +177,14 @@ func TestOpenAIVisionAvailabilityFailureFinalizesOnce(t *testing.T) {
 
 				result, err := gateway.Forward(context.Background(), c, &primary, body)
 
-				require.Nil(t, result)
 				var failoverErr *service.UpstreamFailoverError
+					if !scenario.helperPresent {
+						require.NoError(t, err)
+					require.Nil(t, result)
+					require.NotContains(t, string(body), "input_image")
+					require.Equal(t, prefix, recorder.Body.String())
+					return
+				}
 				require.ErrorAs(t, err, &failoverErr)
 				require.True(t, failoverErr.ShouldRetryNextAccount())
 				require.False(t, failoverErr.ShouldReportAccountScheduleFailure())
