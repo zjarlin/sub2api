@@ -34,6 +34,9 @@ export default {
   "duplicate": "Tier names and model IDs must be unique.",
   "invalidModels": "Use at most 64 exact model IDs, each at most 200 characters, without wildcards."
 },
+      modelSystemPrompts: {
+  title: 'Model system prompts', description: 'Append a system prompt to specific models to enforce language, tone and similar constraints. Matches the canonical model ID after alias resolution and applies to OpenAI-compatible endpoints only.', model: 'Model ID {index}', prompt: 'Prompt {index}', promptPlaceholder: 'For example: Always answer in Simplified Chinese unless the user explicitly asks for another language.', hint: 'Use the canonical model ID (see Global model synonyms). When matched, the prompt is appended after existing system content and never replaces the client system prompt.', add: 'Add model prompt', saved: 'Model prompts saved and active for subsequent requests.', required: 'Each entry needs a model ID and a prompt.', duplicate: 'Model IDs must be unique.',
+},
       modelAliases: {
   title: 'Global model synonyms', description: 'Manage equivalent IDs across channels. Request logs keep the requested, canonical, upstream and account values.', canonical: 'Canonical model ID {index}', aliases: 'Synonym IDs {index}', hint: 'Use the first line for the canonical ID and one synonym per line below. Account mappings are not modified.', add: 'Add synonym group', saved: 'Synonyms saved and active for subsequent requests.', required: 'Each group needs a canonical ID and at least one synonym.', duplicate: 'Every model ID must be globally unique.',
 },

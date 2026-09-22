@@ -466,6 +466,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	if reqModel != modelResult.String() {
 		body = service.ReplaceModelInBody(body, reqModel)
 	}
+	body = applyModelSystemPrompt(c, reqModel, body)
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if !openAICompatibleTextTargetAllowed(c, apiKey, reqModel) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")
@@ -1265,6 +1266,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	if reqModel != modelResult.String() {
 		body = service.ReplaceModelInBody(body, reqModel)
 	}
+	body = applyModelSystemPrompt(c, reqModel, body)
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if !openAICompatibleTextTargetAllowed(c, apiKey, reqModel) {
 		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")

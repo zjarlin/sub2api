@@ -34,6 +34,9 @@ export default {
   "duplicate": "档位名称和模型 ID 不能重复。",
   "invalidModels": "最多 64 个模型；每个 ID 不超过 200 字符，不支持通配符。"
 },
+      modelSystemPrompts: {
+  title: '模型系统提示词', description: '为指定模型追加一段 system 提示词，用来统一约束语言、语气等。按别名归一后的模型 ID 精确匹配，只对 OpenAI 兼容入口生效。', model: '模型 ID {index}', prompt: '提示词 {index}', promptPlaceholder: '例如：始终使用简体中文回答，除非用户明确要求其他语言。', hint: '模型 ID 使用别名归一后的规范 ID（见“全局模型同义词”）。命中时提示词会追加在已有 system 之后，不覆盖客户端自带的 system。', add: '添加模型提示词', saved: '模型提示词已保存，后续请求生效。', required: '每条都需要模型 ID 和提示词。', duplicate: '模型 ID 不能重复。',
+},
       modelAliases: {
   title: '全局模型同义词', description: '统一管理不同渠道使用的同一模型 ID。请求日志会同时记录原始 ID、规范 ID、实际上游 ID 和账号。', canonical: '规范模型 ID {index}', aliases: '同义模型 ID {index}', hint: '每组第一行是规范 ID，第二行填写同义 ID，每行一个。不会修改账号映射。', add: '添加同义词组', saved: '同义词已保存，后续请求生效。', required: '每组都需要规范 ID 和至少一个同义 ID。', duplicate: '所有模型 ID 必须全局唯一。',
 },

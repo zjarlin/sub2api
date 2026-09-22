@@ -206,6 +206,7 @@
           <ModelFallbackSettings v-if="activeTab === 'gateway'" />
           <VisionFallbackSettings v-if="activeTab === 'gateway'" />
           <ModelAliasSettings v-if="activeTab === 'gateway'" />
+          <ModelSystemPromptSettings v-if="activeTab === 'gateway'" />
           <!-- Overload Cooldown (529) Settings -->
           <div class="card">
             <div
@@ -8880,6 +8881,7 @@ import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue"
 import ModelFallbackSettings from "@/views/admin/settings/ModelFallbackSettings.vue";
 import VisionFallbackSettings from "@/views/admin/settings/VisionFallbackSettings.vue";
 import ModelAliasSettings from "@/views/admin/settings/ModelAliasSettings.vue";
+import ModelSystemPromptSettings from "@/views/admin/settings/ModelSystemPromptSettings.vue";
 import OpenAIFastPolicyUserSelector from "@/views/admin/settings/OpenAIFastPolicyUserSelector.vue";
 import { useClipboard } from "@/composables/useClipboard";
 import {

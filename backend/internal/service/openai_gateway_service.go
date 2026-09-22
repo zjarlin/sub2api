@@ -523,6 +523,19 @@ func (s *OpenAIGatewayService) BindModelAliases(ctx context.Context) (context.Co
 	return WithModelAliases(ctx, policy), policy, nil
 }
 
+// BindModelSystemPrompts 入口绑定一次模型提示词快照，重试和降级共享同一份配置。
+func (s *OpenAIGatewayService) BindModelSystemPrompts(ctx context.Context) (context.Context, *ModelSystemPromptPolicy, error) {
+	var settings *SettingService
+	if s != nil {
+		settings = s.settingService
+	}
+	policy, err := settings.GetModelSystemPromptPolicy(ctx)
+	if err != nil {
+		return ctx, nil, err
+	}
+	return WithModelSystemPrompts(ctx, policy), policy, nil
+}
+
 // NewOpenAIGatewayService creates a new OpenAIGatewayService
 func NewOpenAIGatewayService(
 	accountRepo AccountRepository,

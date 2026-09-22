@@ -1647,3 +1647,14 @@ export async function updateModelAliasPolicy(policy: ModelAliasPolicy): Promise<
   const { data } = await apiClient.put<ModelAliasPolicy>("/admin/settings/model-aliases", policy);
   return data;
 }
+
+export interface ModelSystemPromptEntry { model: string; prompt: string }
+export interface ModelSystemPromptPolicy { entries: ModelSystemPromptEntry[] }
+export async function getModelSystemPromptPolicy(): Promise<ModelSystemPromptPolicy> {
+  const { data } = await apiClient.get<ModelSystemPromptPolicy>("/admin/settings/model-system-prompts");
+  return data;
+}
+export async function updateModelSystemPromptPolicy(policy: ModelSystemPromptPolicy): Promise<ModelSystemPromptPolicy> {
+  const { data } = await apiClient.put<ModelSystemPromptPolicy>("/admin/settings/model-system-prompts", policy);
+  return data;
+}

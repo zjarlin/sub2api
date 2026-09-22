@@ -26,5 +26,9 @@ func (h *OpenAIGatewayHandler) canonicalizeModel(c *gin.Context, model string) (
 		requestLogger(c, "gateway.model_alias").Info("gateway.model_alias_resolved", zap.String("requested_model", model), zap.String("canonical_model", canonical))
 	}
 	c.Request = c.Request.WithContext(ctx)
+	// 模型提示词与别名同一次入口绑定，重试/降级共享同一份配置快照。
+	if err := h.bindModelSystemPrompts(c); err != nil {
+		return canonical, err
+	}
 	return canonical, nil
 }
