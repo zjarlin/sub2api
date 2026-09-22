@@ -1974,6 +1974,11 @@ const (
 	// Codex alpha/search 网页搜索单次默认价：OpenAI 官方 web search 定价 $10/1000 次。
 	defaultWebSearchPricePerCall = 0.01
 
+	// 边缘计算视觉服务单次默认价（USD/次）。
+	// 参考火山引擎/阿里云图像识别按次计费量级，取一个保守的默认值；
+	// 运营可在分组上通过 vision_price_per_call 覆盖。
+	defaultVisionPricePerCall = 0.002
+
 	// xAI server-side web/X search and code execution are $5/1000 calls.
 	defaultSearchPricePer1k = 5.0
 
@@ -1999,6 +2004,29 @@ func (s *BillingService) CalculateWebSearchCost(callCount int, groupPrice *float
 	totalCost := unitPrice * float64(callCount)
 
 	// 应用倍率（保存时强制 > 0；负数按 0 处理避免按 1x 误扣）
+	if rateMultiplier < 0 {
+		rateMultiplier = 0
+	}
+	return &CostBreakdown{
+		TotalCost:   totalCost,
+		ActualCost:  totalCost * rateMultiplier,
+		BillingMode: string(BillingModePerRequest),
+	}
+}
+
+// CalculateVisionCost 计算离线边缘计算视觉服务（edge-vision）按次费用。
+// callCount: 成功调用的图像/请求数（每次成功请求为 1）
+// groupPrice: 分组配置的单次价格（nil 表示使用默认价；0 表示免费）
+// rateMultiplier: 分组费率倍数
+func (s *BillingService) CalculateVisionCost(callCount int, groupPrice *float64, rateMultiplier float64) *CostBreakdown {
+	if callCount <= 0 {
+		return &CostBreakdown{}
+	}
+	unitPrice := defaultVisionPricePerCall
+	if groupPrice != nil && *groupPrice >= 0 {
+		unitPrice = *groupPrice
+	}
+	totalCost := unitPrice * float64(callCount)
 	if rateMultiplier < 0 {
 		rateMultiplier = 0
 	}

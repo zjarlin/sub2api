@@ -40,6 +40,15 @@
           </div>
         </details>
       </li>
+      <li v-if="isSuccess" class="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-950/30 dark:text-emerald-200" data-testid="attempt-chain-success">
+        <div class="flex flex-wrap items-center gap-2">
+          <span class="font-semibold">{{ t('admin.ops.errorDetail.attemptChain.finalSuccess') }}</span>
+          <span v-if="Number(finalStatusCode) >= 200 && Number(finalStatusCode) < 400">{{ finalStatusCode }}</span>
+          <span v-if="finalAccountName" class="break-all">{{ finalAccountName }}</span>
+          <span v-if="finalAccountId" class="font-mono text-xs">#{{ finalAccountId }}</span>
+        </div>
+        <p v-if="finalModel" class="mt-1 break-all font-mono text-xs">{{ finalModel }}</p>
+      </li>
     </ol>
   </section>
 </template>
@@ -50,8 +59,16 @@ import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import { formatDateTime } from '@/utils/format'
 
-const props = defineProps<{ raw?: string; finalStatusCode?: number | null }>()
+const props = defineProps<{
+  raw?: string
+  finalStatusCode?: number | null
+  finalSucceeded?: boolean
+  finalAccountId?: number | null
+  finalAccountName?: string
+  finalModel?: string
+}>()
 const { t } = useI18n()
+const isSuccess = computed(() => props.finalSucceeded || (Number(props.finalStatusCode) >= 200 && Number(props.finalStatusCode) < 400))
 
 // 旧日志可能缺字段或包含空事件；顺序和重复账号均保留，原始载荷仍在详情中可查。
 const attempts = computed(() => {
@@ -62,7 +79,7 @@ const attempts = computed(() => {
     return []
   }
   if (!Array.isArray(parsed)) return []
-  const finalFailure = Number(props.finalStatusCode || 0) >= 400
+  const finalFailure = !isSuccess.value && Number(props.finalStatusCode || 0) >= 400
   const attempts = parsed.filter((value): value is Record<string, unknown> => value != null && typeof value === 'object' && !Array.isArray(value)).map(value => ({
     id: positiveNumber(value.account_id),
     modelFallback: value.kind === 'model_fallback',

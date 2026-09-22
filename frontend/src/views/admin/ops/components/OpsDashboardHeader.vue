@@ -40,6 +40,7 @@ interface Emits {
   (e: 'refresh'): void
   (e: 'openRequestDetails', preset?: OpsRequestDetailsPreset): void
   (e: 'openErrorDetails', kind: 'request' | 'upstream'): void
+  (e: 'openRecoveredDetails'): void
   (e: 'openSettings'): void
   (e: 'openAlertRules'): void
   (e: 'enterFullscreen'): void
@@ -1206,7 +1207,7 @@ function handleToolbarRefresh() {
         </div>
       </div>
 
-      <!-- Right: 6 cards (3 cols x 2 rows) -->
+      <!-- 请求指标与降级成功入口 -->
       <div class="grid h-full grid-cols-1 content-center gap-4 sm:grid-cols-2 lg:col-span-7 lg:grid-cols-3">
         <!-- Card 1: Requests -->
         <div class="rounded-2xl bg-gray-50 p-4 dark:bg-dark-900" style="order: 1;">
@@ -1401,6 +1402,17 @@ function handleToolbarRefresh() {
               <span class="font-bold text-gray-900 dark:text-white">{{ formatNumber(overview.business_limited_count ?? 0) }}</span>
             </div>
           </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-900/15 sm:col-span-2 lg:col-span-3" style="order: 7;" data-testid="recovered-success-card">
+          <div class="flex items-center gap-3">
+            <span class="text-xs font-bold text-emerald-800 dark:text-emerald-200">{{ t('admin.ops.recoveredSuccess') }}</span>
+            <span class="text-2xl font-black text-emerald-700 dark:text-emerald-300">{{ formatNumber(overview.recovered_success_count ?? 0) }}</span>
+          </div>
+          <span class="flex-1 text-xs text-emerald-700 dark:text-emerald-300">{{ t('admin.ops.recoveredSuccessHint') }}</span>
+          <button v-if="!props.fullscreen" class="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400" type="button" @click="emit('openRecoveredDetails')">
+            {{ t('admin.ops.requestDetails.details') }}
+          </button>
         </div>
 
         <!-- Card 6: Upstream Errors -->

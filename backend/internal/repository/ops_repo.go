@@ -16,6 +16,9 @@ type opsRepository struct {
 	db *sql.DB
 }
 
+// 降级成功展示最终状态；失败日志继续展示便于诊断的上游状态。
+const opsErrorStatusCodeExpression = "CASE WHEN e.error_type = 'recovered_upstream' THEN e.status_code ELSE COALESCE(NULLIF(e.upstream_status_code, 0), e.status_code, 0) END"
+
 const insertOpsErrorLogSQL = `
 INSERT INTO ops_error_logs (
   request_id,
@@ -189,7 +192,7 @@ func opsErrorLogsOrderBy(filter *service.OpsErrorLogFilter) string {
 		// 与展示列/过滤保持同义：上游状态为零时使用客户端状态码。
 		// status_code 过滤也用同一表达式,故排序必须一致——否则 recovered upstream 行
 		//（status_code<400 但展示上游 5xx）排序键与显示值/分页切分不符。
-		column = "COALESCE(NULLIF(e.upstream_status_code, 0), e.status_code, 0)"
+		column = opsErrorStatusCodeExpression
 	default:
 		column = "e.created_at"
 	}
@@ -240,7 +243,7 @@ SELECT
   COALESCE(e.error_owner, ''),
   COALESCE(e.error_source, ''),
   e.severity,
-  COALESCE(NULLIF(e.upstream_status_code, 0), e.status_code, 0),
+  ` + opsErrorStatusCodeExpression + `,
   COALESCE(e.platform, ''),
   COALESCE(e.model, ''),
   COALESCE(e.resolved, false),
@@ -426,7 +429,7 @@ SELECT
   COALESCE(e.error_owner, ''),
   COALESCE(e.error_source, ''),
   e.severity,
-  COALESCE(NULLIF(e.upstream_status_code, 0), e.status_code, 0),
+  ` + opsErrorStatusCodeExpression + `,
   COALESCE(e.platform, ''),
   COALESCE(e.model, ''),
   COALESCE(e.resolved, false),
@@ -985,6 +988,8 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 		clauses = append(clauses, "COALESCE(e.is_business_limited,false) = false")
 	case "excluded":
 		clauses = append(clauses, "COALESCE(e.is_business_limited,false) = true")
+	case "recovered":
+		clauses = append(clauses, opsRecoveredSuccessPredicate)
 	case "all":
 		// no-op
 	default:
@@ -993,12 +998,12 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 	}
 	if len(filter.StatusCodes) > 0 {
 		args = append(args, pq.Array(filter.StatusCodes))
-		clauses = append(clauses, "COALESCE(NULLIF(e.upstream_status_code, 0), e.status_code, 0) = ANY($"+itoa(len(args))+")")
+		clauses = append(clauses, opsErrorStatusCodeExpression+" = ANY($"+itoa(len(args))+")")
 	} else if filter.StatusCodesOther {
 		// "Other" means: status codes not in the common list.
 		known := []int{400, 401, 403, 404, 409, 422, 429, 500, 502, 503, 504, 529}
 		args = append(args, pq.Array(known))
-		clauses = append(clauses, "NOT (COALESCE(NULLIF(e.upstream_status_code, 0), e.status_code, 0) = ANY($"+itoa(len(args))+"))")
+		clauses = append(clauses, "NOT ("+opsErrorStatusCodeExpression+" = ANY($"+itoa(len(args))+"))")
 	}
 	// Exact correlation keys (preferred for request↔upstream linkage).
 	if rid := strings.TrimSpace(filter.RequestID); rid != "" {
@@ -1059,6 +1064,11 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 
 func opsFilterIncludesRecoveredAttemptRows(filter *service.OpsErrorLogFilter, phaseFilter string) bool {
 	if filter == nil || !filter.IncludeRecoveredUpstream {
+		return false
+	}
+	// 错误与业务限制视图只展示最终失败；恢复记录只能进入全部或降级成功视图。
+	view := strings.ToLower(strings.TrimSpace(filter.View))
+	if view != "all" && view != "recovered" {
 		return false
 	}
 	if phaseFilter != "" {

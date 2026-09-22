@@ -159,6 +159,13 @@ func (Group) Fields() []ent.Field {
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
 			Comment("Codex alpha/search 网页搜索单次价格（USD/次）；nil 表示使用默认价 0.01（官方 $10/1000 次）"),
+		// 离线边缘计算视觉服务（edge-vision）单次调用价格（USD/次）。
+		// 覆盖 YOLO 检测/分割/姿态/分类与 OCR；nil 表示使用默认价。
+		field.Float("vision_price_per_call").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}).
+			Comment("边缘计算视觉服务单次价格（USD/次）；nil 表示使用默认价"),
 
 		// 搜索/工具调用显式定价（per 1k calls），用于 Grok web_search 等。
 		field.Float("search_price_per_1k").

@@ -504,6 +504,20 @@ func (_c *GroupCreate) SetNillableWebSearchPricePerCall(v *float64) *GroupCreate
 	return _c
 }
 
+// SetVisionPricePerCall sets the "vision_price_per_call" field.
+func (_c *GroupCreate) SetVisionPricePerCall(v float64) *GroupCreate {
+	_c.mutation.SetVisionPricePerCall(v)
+	return _c
+}
+
+// SetNillableVisionPricePerCall sets the "vision_price_per_call" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableVisionPricePerCall(v *float64) *GroupCreate {
+	if v != nil {
+		_c.SetVisionPricePerCall(*v)
+	}
+	return _c
+}
+
 // SetSearchPricePer1k sets the "search_price_per_1k" field.
 func (_c *GroupCreate) SetSearchPricePer1k(v float64) *GroupCreate {
 	_c.mutation.SetSearchPricePer1k(v)
@@ -1585,6 +1599,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 		_spec.SetField(group.FieldWebSearchPricePerCall, field.TypeFloat64, value)
 		_node.WebSearchPricePerCall = &value
 	}
+	if value, ok := _c.mutation.VisionPricePerCall(); ok {
+		_spec.SetField(group.FieldVisionPricePerCall, field.TypeFloat64, value)
+		_node.VisionPricePerCall = &value
+	}
 	if value, ok := _c.mutation.SearchPricePer1k(); ok {
 		_spec.SetField(group.FieldSearchPricePer1k, field.TypeFloat64, value)
 		_node.SearchPricePer1k = &value
@@ -2438,6 +2456,30 @@ func (u *GroupUpsert) AddWebSearchPricePerCall(v float64) *GroupUpsert {
 // ClearWebSearchPricePerCall clears the value of the "web_search_price_per_call" field.
 func (u *GroupUpsert) ClearWebSearchPricePerCall() *GroupUpsert {
 	u.SetNull(group.FieldWebSearchPricePerCall)
+	return u
+}
+
+// SetVisionPricePerCall sets the "vision_price_per_call" field.
+func (u *GroupUpsert) SetVisionPricePerCall(v float64) *GroupUpsert {
+	u.Set(group.FieldVisionPricePerCall, v)
+	return u
+}
+
+// UpdateVisionPricePerCall sets the "vision_price_per_call" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateVisionPricePerCall() *GroupUpsert {
+	u.SetExcluded(group.FieldVisionPricePerCall)
+	return u
+}
+
+// AddVisionPricePerCall adds v to the "vision_price_per_call" field.
+func (u *GroupUpsert) AddVisionPricePerCall(v float64) *GroupUpsert {
+	u.Add(group.FieldVisionPricePerCall, v)
+	return u
+}
+
+// ClearVisionPricePerCall clears the value of the "vision_price_per_call" field.
+func (u *GroupUpsert) ClearVisionPricePerCall() *GroupUpsert {
+	u.SetNull(group.FieldVisionPricePerCall)
 	return u
 }
 
@@ -3638,6 +3680,34 @@ func (u *GroupUpsertOne) UpdateWebSearchPricePerCall() *GroupUpsertOne {
 func (u *GroupUpsertOne) ClearWebSearchPricePerCall() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.ClearWebSearchPricePerCall()
+	})
+}
+
+// SetVisionPricePerCall sets the "vision_price_per_call" field.
+func (u *GroupUpsertOne) SetVisionPricePerCall(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetVisionPricePerCall(v)
+	})
+}
+
+// AddVisionPricePerCall adds v to the "vision_price_per_call" field.
+func (u *GroupUpsertOne) AddVisionPricePerCall(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddVisionPricePerCall(v)
+	})
+}
+
+// UpdateVisionPricePerCall sets the "vision_price_per_call" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateVisionPricePerCall() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateVisionPricePerCall()
+	})
+}
+
+// ClearVisionPricePerCall clears the value of the "vision_price_per_call" field.
+func (u *GroupUpsertOne) ClearVisionPricePerCall() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearVisionPricePerCall()
 	})
 }
 
@@ -5084,6 +5154,34 @@ func (u *GroupUpsertBulk) UpdateWebSearchPricePerCall() *GroupUpsertBulk {
 func (u *GroupUpsertBulk) ClearWebSearchPricePerCall() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.ClearWebSearchPricePerCall()
+	})
+}
+
+// SetVisionPricePerCall sets the "vision_price_per_call" field.
+func (u *GroupUpsertBulk) SetVisionPricePerCall(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetVisionPricePerCall(v)
+	})
+}
+
+// AddVisionPricePerCall adds v to the "vision_price_per_call" field.
+func (u *GroupUpsertBulk) AddVisionPricePerCall(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddVisionPricePerCall(v)
+	})
+}
+
+// UpdateVisionPricePerCall sets the "vision_price_per_call" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateVisionPricePerCall() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateVisionPricePerCall()
+	})
+}
+
+// ClearVisionPricePerCall clears the value of the "vision_price_per_call" field.
+func (u *GroupUpsertBulk) ClearVisionPricePerCall() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearVisionPricePerCall()
 	})
 }
 

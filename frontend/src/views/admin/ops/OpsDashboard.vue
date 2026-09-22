@@ -33,6 +33,7 @@
         @refresh="fetchData"
         @open-request-details="handleOpenRequestDetails"
         @open-error-details="openErrorDetails"
+        @open-recovered-details="openRecoveredDetails"
         @open-settings="showSettingsDialog = true"
         @open-alert-rules="showAlertRulesCard = true"
         @enter-fullscreen="enterFullscreen"
@@ -119,12 +120,13 @@
           :platform="platform"
           :group-id="groupId"
           :error-type="errorDetailsType"
+          :recovered="recoveredDetails"
           :resume-state="resumeListState"
           @update:show="showErrorDetails = $event"
           @openErrorDetail="openError"
         />
 
-        <OpsErrorDetailModal v-model:show="showErrorModal" :error-id="selectedErrorId" :error-type="errorDetailsType" :back-to-list="detailReturnTarget !== null" @back="handleBackToList" />
+        <OpsErrorDetailModal v-model:show="showErrorModal" :error-id="selectedErrorId" :error-type="errorDetailsType" :recovered="recoveredDetails" :back-to-list="detailReturnTarget !== null" @back="handleBackToList" />
 
         <OpsRequestDetailsModal
           v-model="showRequestDetails"
@@ -371,6 +373,7 @@ const showErrorModal = ref(false)
 
 const showErrorDetails = ref(false)
 const errorDetailsType = ref<'request' | 'upstream'>('request')
+const recoveredDetails = ref(false)
 
 const showRequestDetails = ref(false)
 const requestDetailsPreset = ref<OpsRequestDetailsPreset>({
@@ -457,6 +460,8 @@ function handleOpenRequestDetails(preset?: OpsRequestDetailsPreset) {
     sort: 'created_at_desc'
   }
 
+  recoveredDetails.value = false
+  errorDetailsType.value = 'request'
   requestDetailsPreset.value = { ...basePreset, ...(preset ?? {}) }
   if (!requestDetailsPreset.value.title) requestDetailsPreset.value.title = basePreset.title
   // Ensure only one modal visible at a time.
@@ -466,11 +471,17 @@ function handleOpenRequestDetails(preset?: OpsRequestDetailsPreset) {
 }
 
 function openErrorDetails(kind: 'request' | 'upstream') {
+  recoveredDetails.value = false
   errorDetailsType.value = kind
   // Ensure only one modal visible at a time.
   showRequestDetails.value = false
   showErrorModal.value = false
   showErrorDetails.value = true
+}
+
+function openRecoveredDetails() {
+  openErrorDetails('upstream')
+  recoveredDetails.value = true
 }
 
 function onTimeRangeChange(v: string | number | boolean | null) {

@@ -37,6 +37,7 @@ export interface OpsDashboardOverview {
   job_heartbeats?: OpsJobHeartbeat[] | null
 
   success_count: number
+  recovered_success_count?: number
   error_count_total: number
   business_limited_count: number
   error_count_sla: number
@@ -1085,7 +1086,7 @@ export async function getOpenAITokenStats(
   return data
 }
 
-export type OpsErrorListView = 'errors' | 'excluded' | 'all'
+export type OpsErrorListView = 'errors' | 'excluded' | 'all' | 'recovered'
 
 export type OpsErrorListQueryParams = {
   page?: number

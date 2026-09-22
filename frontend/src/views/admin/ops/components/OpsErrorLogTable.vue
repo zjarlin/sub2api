@@ -92,15 +92,21 @@
         </template>
 
         <template #cell-account="{ row }">
-          <ol v-if="row.account_attempts?.length" class="space-y-1 text-xs text-gray-900 dark:text-white">
-            <li v-for="(attempt, index) in row.account_attempts" :key="index" class="max-w-[280px] break-all">
-              <span class="mr-1 text-gray-400">{{ index + 1 }}.</span>{{ attempt.account_name || t('common.unknown') }}
-              <span v-if="attempt.account_id" class="ml-1 text-gray-500 dark:text-gray-400">#{{ attempt.account_id }}</span>
-            </li>
-            <li v-if="hasUnlistedLogAccount(row)" class="max-w-[280px] break-all text-gray-500 dark:text-gray-400">
-              {{ t('admin.ops.errorDetail.attemptChain.logAccount') }}: {{ row.account_name || '#' + row.account_id }}
-            </li>
-          </ol>
+          <details v-if="row.account_attempts?.length" class="group max-w-[280px] text-xs" data-testid="account-attempts" @click.stop>
+            <summary class="flex cursor-pointer list-none items-center gap-1.5 rounded px-1 py-1 text-gray-900 hover:bg-gray-100 dark:text-white dark:hover:bg-dark-700 [&::-webkit-details-marker]:hidden">
+              <Icon name="chevronRight" size="xs" class="shrink-0 transition-transform group-open:rotate-90" />
+              <span>{{ t('admin.ops.errorLog.attemptCount', { count: row.account_attempts.length }) }}</span>
+            </summary>
+            <ol class="mt-1 space-y-1 border-l border-gray-200 pl-3 text-gray-900 dark:border-dark-600 dark:text-white">
+              <li v-for="(attempt, index) in row.account_attempts" :key="index" class="break-all">
+                <span class="mr-1 text-gray-400">{{ index + 1 }}.</span>{{ attempt.account_name || t('common.unknown') }}
+                <span v-if="attempt.account_id" class="ml-1 text-gray-500 dark:text-gray-400">#{{ attempt.account_id }}</span>
+              </li>
+              <li v-if="hasUnlistedLogAccount(row)" class="break-all text-gray-500 dark:text-gray-400">
+                {{ recovered && row.type === 'recovered_upstream' ? t('admin.ops.errorDetail.attemptChain.finalSuccess') : t('admin.ops.errorDetail.attemptChain.logAccount') }}: {{ row.account_name || '#' + row.account_id }}
+              </li>
+            </ol>
+          </details>
           <span
             v-else-if="row.account_id"
             class="text-sm text-gray-900 dark:text-white"
@@ -111,17 +117,17 @@
 
         <template #cell-category="{ row }">
           <span class="text-sm text-gray-900 dark:text-white">
-            {{ t('usage.errors.categories.' + mapErrorCategory(row.phase, row.type)) }}
+            {{ recovered ? t('admin.ops.recoveredSuccess') : t('usage.errors.categories.' + mapErrorCategory(row.phase, row.type)) }}
           </span>
         </template>
 
         <template #cell-status="{ row }">
           <div class="flex items-center gap-1.5">
-            <span class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium" :class="getStatusClass(row.status_code)">
-              {{ row.status_code }}
+            <span class="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium" :class="recovered ? getTypeBadge(row).className : getStatusClass(row.status_code)">
+              {{ recovered && row.type !== 'recovered_upstream' ? t('admin.ops.errorDetail.attemptChain.finalSuccess') : row.status_code }}
             </span>
             <span
-              v-if="row.severity"
+              v-if="row.severity && !recovered"
               :class="['rounded px-1.5 py-0.5 text-[10px] font-medium', getSeverityClass(row.severity)]"
             >{{ row.severity }}</span>
             <span
@@ -170,7 +176,7 @@
           </button>
         </template>
 
-        <template #empty><EmptyState :message="t('admin.ops.errorLog.noErrors')" /></template>
+        <template #empty><EmptyState :message="t(recovered ? 'admin.ops.errorLog.noRecovered' : 'admin.ops.errorLog.noErrors')" /></template>
       </DataTable>
     </div>
 
@@ -191,6 +197,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import DataTable from '@/components/common/DataTable.vue'
+import Icon from '@/components/icons/Icon.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import IpGeoCell from '@/components/common/IpGeoCell.vue'
@@ -272,6 +279,9 @@ function formatRequestType(type: number | null | undefined): string {
 
 // 徽章配色对齐用量明细(UsageTable)的 bg-X-100/text-X-800 体系
 function getTypeBadge(log: OpsErrorLog): { label: string; className: string } {
+  if (props.recovered) {
+    return { label: t('admin.ops.recoveredSuccess'), className: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200' }
+  }
   const phase = String(log.phase || '').toLowerCase()
   const owner = String(log.error_owner || '').toLowerCase()
 
@@ -312,6 +322,7 @@ interface Props {
   summaryFirst?: boolean
   /** 嵌入统一卡片内使用：去掉自身卡片外观 */
   flat?: boolean
+  recovered?: boolean
 }
 
 interface Emits {

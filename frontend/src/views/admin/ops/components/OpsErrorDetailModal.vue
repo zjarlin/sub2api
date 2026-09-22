@@ -88,7 +88,7 @@
           <div class="text-xs font-bold uppercase tracking-wider text-gray-400">{{ t('admin.ops.errorDetail.status') }}</div>
           <div class="mt-1">
             <span :class="['inline-flex items-center rounded-lg px-2 py-1 text-xs font-black ring-1 ring-inset shadow-sm', statusClass]">
-              {{ detail.status_code }}
+              {{ recovered && detail.type !== 'recovered_upstream' ? t('admin.ops.errorDetail.attemptChain.finalSuccess') : detail.status_code }}
             </span>
           </div>
         </div>
@@ -125,7 +125,14 @@
 
       </div>
 
-      <OpsAccountAttemptChain :raw="detail.upstream_errors" :final-status-code="detail.status_code" />
+      <OpsAccountAttemptChain
+        :raw="detail.upstream_errors"
+        :final-status-code="detail.status_code"
+        :final-succeeded="recovered"
+        :final-account-id="detail.type === 'recovered_upstream' ? detail.account_id : null"
+        :final-account-name="detail.type === 'recovered_upstream' ? detail.account_name : ''"
+        :final-model="detail.upstream_model || detail.model"
+      />
 
       <div v-if="rootCauseMessage" class="rounded-xl bg-amber-50 p-6 dark:bg-amber-900/10">
         <h3 class="text-sm font-black uppercase tracking-wider text-amber-900 dark:text-amber-200">{{ t('admin.ops.errorDetail.rootCause') }}</h3>
@@ -242,6 +249,7 @@ interface Props {
   errorId: number | null
   errorType?: 'request' | 'upstream'
   backToList?: boolean
+  recovered?: boolean
 }
 
 interface Emits {
@@ -299,6 +307,7 @@ function diagnosticPayloadLabel(key: DiagnosticPayloadKey): string {
 }
 
 const title = computed(() => {
+  if (props.recovered) return t('admin.ops.errorDetail.recoveredTitle', { id: String(props.errorId || '') })
   if (!props.errorId) return t('admin.ops.errorDetail.title')
   return t('admin.ops.errorDetail.titleWithId', { id: String(props.errorId) })
 })
@@ -432,7 +441,9 @@ function statusBadgeClass(code: number): string {
   return 'bg-gray-50 text-gray-700 ring-gray-600/20 dark:bg-gray-900/30 dark:text-gray-400 dark:ring-gray-500/30'
 }
 
-const statusClass = computed(() => statusBadgeClass(detail.value?.status_code ?? 0))
+const statusClass = computed(() => props.recovered
+  ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-900/30 dark:text-emerald-300 dark:ring-emerald-500/30'
+  : statusBadgeClass(detail.value?.status_code ?? 0))
 
 const upstreamStatusClass = computed(() => statusBadgeClass(detail.value?.upstream_status_code ?? 0))
 

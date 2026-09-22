@@ -225,6 +225,11 @@ func WebSearchPricePerCall(v float64) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldWebSearchPricePerCall, v))
 }
 
+// VisionPricePerCall applies equality check predicate on the "vision_price_per_call" field. It's identical to VisionPricePerCallEQ.
+func VisionPricePerCall(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldVisionPricePerCall, v))
+}
+
 // SearchPricePer1k applies equality check predicate on the "search_price_per_1k" field. It's identical to SearchPricePer1kEQ.
 func SearchPricePer1k(v float64) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldSearchPricePer1k, v))
@@ -1863,6 +1868,56 @@ func WebSearchPricePerCallIsNil() predicate.Group {
 // WebSearchPricePerCallNotNil applies the NotNil predicate on the "web_search_price_per_call" field.
 func WebSearchPricePerCallNotNil() predicate.Group {
 	return predicate.Group(sql.FieldNotNull(FieldWebSearchPricePerCall))
+}
+
+// VisionPricePerCallEQ applies the EQ predicate on the "vision_price_per_call" field.
+func VisionPricePerCallEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldVisionPricePerCall, v))
+}
+
+// VisionPricePerCallNEQ applies the NEQ predicate on the "vision_price_per_call" field.
+func VisionPricePerCallNEQ(v float64) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldVisionPricePerCall, v))
+}
+
+// VisionPricePerCallIn applies the In predicate on the "vision_price_per_call" field.
+func VisionPricePerCallIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldVisionPricePerCall, vs...))
+}
+
+// VisionPricePerCallNotIn applies the NotIn predicate on the "vision_price_per_call" field.
+func VisionPricePerCallNotIn(vs ...float64) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldVisionPricePerCall, vs...))
+}
+
+// VisionPricePerCallGT applies the GT predicate on the "vision_price_per_call" field.
+func VisionPricePerCallGT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldVisionPricePerCall, v))
+}
+
+// VisionPricePerCallGTE applies the GTE predicate on the "vision_price_per_call" field.
+func VisionPricePerCallGTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldVisionPricePerCall, v))
+}
+
+// VisionPricePerCallLT applies the LT predicate on the "vision_price_per_call" field.
+func VisionPricePerCallLT(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldVisionPricePerCall, v))
+}
+
+// VisionPricePerCallLTE applies the LTE predicate on the "vision_price_per_call" field.
+func VisionPricePerCallLTE(v float64) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldVisionPricePerCall, v))
+}
+
+// VisionPricePerCallIsNil applies the IsNil predicate on the "vision_price_per_call" field.
+func VisionPricePerCallIsNil() predicate.Group {
+	return predicate.Group(sql.FieldIsNull(FieldVisionPricePerCall))
+}
+
+// VisionPricePerCallNotNil applies the NotNil predicate on the "vision_price_per_call" field.
+func VisionPricePerCallNotNil() predicate.Group {
+	return predicate.Group(sql.FieldNotNull(FieldVisionPricePerCall))
 }
 
 // SearchPricePer1kEQ applies the EQ predicate on the "search_price_per_1k" field.

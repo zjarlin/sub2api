@@ -15,6 +15,7 @@ interface Props {
   platform?: string
   groupId?: number | null
   errorType: 'request' | 'upstream'
+  recovered?: boolean
   resumeState?: boolean
 }
 
@@ -41,11 +42,12 @@ const viewMode = ref<'errors' | 'excluded' | 'all'>('errors')
 
 
 const modalTitle = computed(() => {
+  if (props.recovered) return t('admin.ops.recoveredSuccess')
   return props.errorType === 'upstream' ? t('admin.ops.errorDetails.upstreamErrors') : t('admin.ops.errorDetails.requestErrors')
 })
 
 const statusCodeSelectOptions = computed(() => {
-  const codes = [400, 401, 403, 404, 409, 422, 429, 500, 502, 503, 504, 529]
+  const codes = props.recovered ? [200] : [400, 401, 403, 404, 409, 422, 429, 500, 502, 503, 504, 529]
   return [
     { value: null, label: t('common.all') },
     ...codes.map((c) => ({ value: c, label: String(c) })),
@@ -107,7 +109,7 @@ async function fetchErrorLogs() {
     const params: Record<string, any> = {
       page: page.value,
       page_size: pageSize.value,
-      view: viewMode.value,
+      view: props.recovered ? 'recovered' : viewMode.value,
       sort_by: sortBy.value,
       sort_order: sortOrder.value
     }
@@ -156,7 +158,7 @@ async function fetchErrorLogs() {
   function resetFilters() {
     q.value = ''
     statusCode.value = null
-    phase.value = props.errorType === 'upstream' ? 'upstream' : ''
+    phase.value = props.errorType === 'upstream' && !props.recovered ? 'upstream' : ''
     errorOwner.value = ''
     viewMode.value = 'errors'
     page.value = 1
@@ -218,6 +220,9 @@ watch(
 <template>
   <BaseDialog :show="show" :title="modalTitle" width="full" @close="close">
     <div class="flex h-full min-h-0 flex-col">
+      <p v-if="recovered" class="mb-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-200">
+        {{ t('admin.ops.recoveredSuccessHint') }}
+      </p>
       <!-- Filters -->
       <div class="mb-4 flex-shrink-0 border-b border-gray-200 pb-4 dark:border-dark-700">
         <div class="grid grid-cols-2 gap-2 md:grid-cols-8">
@@ -256,7 +261,7 @@ watch(
 
 
 
-          <div class="compact-select">
+          <div v-if="!recovered" class="compact-select">
             <Select :model-value="viewMode" :options="viewModeSelectOptions" @update:model-value="viewMode = $event as any" />
           </div>
 
@@ -277,6 +282,7 @@ watch(
           <OpsErrorLogTable
             class="min-h-0 flex-1"
             summary-first
+            :recovered="recovered"
             :rows="rows"
             :total="total"
             :loading="loading"

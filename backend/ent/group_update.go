@@ -680,6 +680,33 @@ func (_u *GroupUpdate) ClearWebSearchPricePerCall() *GroupUpdate {
 	return _u
 }
 
+// SetVisionPricePerCall sets the "vision_price_per_call" field.
+func (_u *GroupUpdate) SetVisionPricePerCall(v float64) *GroupUpdate {
+	_u.mutation.ResetVisionPricePerCall()
+	_u.mutation.SetVisionPricePerCall(v)
+	return _u
+}
+
+// SetNillableVisionPricePerCall sets the "vision_price_per_call" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableVisionPricePerCall(v *float64) *GroupUpdate {
+	if v != nil {
+		_u.SetVisionPricePerCall(*v)
+	}
+	return _u
+}
+
+// AddVisionPricePerCall adds value to the "vision_price_per_call" field.
+func (_u *GroupUpdate) AddVisionPricePerCall(v float64) *GroupUpdate {
+	_u.mutation.AddVisionPricePerCall(v)
+	return _u
+}
+
+// ClearVisionPricePerCall clears the value of the "vision_price_per_call" field.
+func (_u *GroupUpdate) ClearVisionPricePerCall() *GroupUpdate {
+	_u.mutation.ClearVisionPricePerCall()
+	return _u
+}
+
 // SetSearchPricePer1k sets the "search_price_per_1k" field.
 func (_u *GroupUpdate) SetSearchPricePer1k(v float64) *GroupUpdate {
 	_u.mutation.ResetSearchPricePer1k()
@@ -1754,6 +1781,15 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.WebSearchPricePerCallCleared() {
 		_spec.ClearField(group.FieldWebSearchPricePerCall, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.VisionPricePerCall(); ok {
+		_spec.SetField(group.FieldVisionPricePerCall, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedVisionPricePerCall(); ok {
+		_spec.AddField(group.FieldVisionPricePerCall, field.TypeFloat64, value)
+	}
+	if _u.mutation.VisionPricePerCallCleared() {
+		_spec.ClearField(group.FieldVisionPricePerCall, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.SearchPricePer1k(); ok {
 		_spec.SetField(group.FieldSearchPricePer1k, field.TypeFloat64, value)
@@ -2874,6 +2910,33 @@ func (_u *GroupUpdateOne) ClearWebSearchPricePerCall() *GroupUpdateOne {
 	return _u
 }
 
+// SetVisionPricePerCall sets the "vision_price_per_call" field.
+func (_u *GroupUpdateOne) SetVisionPricePerCall(v float64) *GroupUpdateOne {
+	_u.mutation.ResetVisionPricePerCall()
+	_u.mutation.SetVisionPricePerCall(v)
+	return _u
+}
+
+// SetNillableVisionPricePerCall sets the "vision_price_per_call" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableVisionPricePerCall(v *float64) *GroupUpdateOne {
+	if v != nil {
+		_u.SetVisionPricePerCall(*v)
+	}
+	return _u
+}
+
+// AddVisionPricePerCall adds value to the "vision_price_per_call" field.
+func (_u *GroupUpdateOne) AddVisionPricePerCall(v float64) *GroupUpdateOne {
+	_u.mutation.AddVisionPricePerCall(v)
+	return _u
+}
+
+// ClearVisionPricePerCall clears the value of the "vision_price_per_call" field.
+func (_u *GroupUpdateOne) ClearVisionPricePerCall() *GroupUpdateOne {
+	_u.mutation.ClearVisionPricePerCall()
+	return _u
+}
+
 // SetSearchPricePer1k sets the "search_price_per_1k" field.
 func (_u *GroupUpdateOne) SetSearchPricePer1k(v float64) *GroupUpdateOne {
 	_u.mutation.ResetSearchPricePer1k()
@@ -3978,6 +4041,15 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if _u.mutation.WebSearchPricePerCallCleared() {
 		_spec.ClearField(group.FieldWebSearchPricePerCall, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.VisionPricePerCall(); ok {
+		_spec.SetField(group.FieldVisionPricePerCall, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedVisionPricePerCall(); ok {
+		_spec.AddField(group.FieldVisionPricePerCall, field.TypeFloat64, value)
+	}
+	if _u.mutation.VisionPricePerCallCleared() {
+		_spec.ClearField(group.FieldVisionPricePerCall, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.SearchPricePer1k(); ok {
 		_spec.SetField(group.FieldSearchPricePer1k, field.TypeFloat64, value)

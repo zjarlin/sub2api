@@ -47,6 +47,20 @@ describe('Ops request latency details', () => {
     })
   })
 
+  it('shows recovered requests separately and opens their dedicated list', async () => {
+    const wrapper = shallowMount(OpsDashboardHeader, {
+      props: { overview: { recovered_success_count: 12 } as OpsDashboardOverview, platform: '', groupId: null, timeRange: '1h', queryMode: 'auto', loading: false, lastUpdated: null },
+    })
+    await flushPromises()
+    const card = wrapper.get('[data-testid="recovered-success-card"]')
+    expect(card.text()).toContain('12')
+    expect(card.text()).toContain('admin.ops.recoveredSuccess')
+    await card.get('button').trigger('click')
+    expect(wrapper.emitted('openRecoveredDetails')).toEqual([[]])
+    expect(wrapper.emitted('openErrorDetails')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('opens the TTFT card with first-token sorting and successful requests', async () => {
     const wrapper = shallowMount(OpsDashboardHeader, {
       props: { overview: {} as OpsDashboardOverview, platform: '', groupId: null, timeRange: '1h', queryMode: 'auto', loading: false, lastUpdated: null },

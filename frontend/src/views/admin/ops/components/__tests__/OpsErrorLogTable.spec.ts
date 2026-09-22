@@ -45,7 +45,7 @@ function mountTable(row: Partial<OpsErrorLog>) {
 }
 
 describe('OpsErrorLogTable user/api-key/account columns', () => {
-  it('shows every failed attempt and preserves a different log account', () => {
+  it('collapses account attempts and preserves a different log account without opening the detail', async () => {
     const wrapper = mountTable({
       account_id: 900, account_name: 'final-account',
       account_attempts: [
@@ -54,6 +54,10 @@ describe('OpsErrorLogTable user/api-key/account columns', () => {
         { account_id: 832, account_name: 'r4' }
       ]
     })
+    const accordion = wrapper.get('details[data-testid="account-attempts"]')
+    expect(accordion.attributes('open')).toBeUndefined()
+    await accordion.get('summary').trigger('click')
+    expect(wrapper.emitted('openErrorDetail')).toBeUndefined()
     const attempts = wrapper.findAll('ol li')
     expect(attempts).toHaveLength(4)
     expect(attempts[0].text()).toContain('aaawinn')

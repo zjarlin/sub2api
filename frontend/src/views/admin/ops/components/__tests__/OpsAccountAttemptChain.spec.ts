@@ -54,13 +54,35 @@ describe('OpsAccountAttemptChain', () => {
     expect(wrapper.text()).toContain('attemptChain.dropped')
   })
 
+  it('uses the recovered outcome for legacy logs without treating an upstream status as the final status', () => {
+    const wrapper = mount(OpsAccountAttemptChain, {
+      props: {
+        raw: JSON.stringify([{ account_id: 1, upstream_status_code: 503 }]),
+        finalStatusCode: 503,
+        finalSucceeded: true,
+      },
+      global: { plugins: [createI18n({ legacy: false, locale: 'en', missingWarn: false, fallbackWarn: false, messages: {} })] },
+    })
+
+    const success = wrapper.get('[data-testid="attempt-chain-success"]')
+    expect(success.text()).toContain('attemptChain.finalSuccess')
+    expect(success.text()).not.toContain('503')
+    expect(success.text()).not.toContain('#1')
+    expect(wrapper.get('[data-testid="attempt-chain-accordion-0"]').classes()).not.toContain('bg-red-50')
+  })
+
   it('uses amber accordions for recovered attempts and red only for the final failure', () => {
     const recovered = mount(OpsAccountAttemptChain, {
-      props: { raw: JSON.stringify([{ account_id: 1, account_name: 'a', upstream_status_code: 503 }]), finalStatusCode: 200 },
+      props: { raw: JSON.stringify([{ account_id: 1, account_name: 'a', upstream_status_code: 503 }]), finalStatusCode: 200, finalAccountId: 2, finalAccountName: 'recovered-account', finalModel: 'fallback-model' },
       global: { plugins: [createI18n({ legacy: false, locale: 'en', missingWarn: false, fallbackWarn: false, messages: {} })] }
     })
     expect(recovered.get('[data-testid="attempt-chain-accordion-0"]').classes()).toContain('bg-amber-50')
     expect(recovered.get('[data-testid="attempt-chain-accordion-0"]').classes()).not.toContain('bg-red-50')
+    const success = recovered.get('[data-testid="attempt-chain-success"]')
+    expect(success.text()).toContain('recovered-account')
+    expect(success.text()).toContain('fallback-model')
+    expect(success.text()).toContain('200')
+    expect(success.classes()).toContain('bg-emerald-50')
 
     const failed = mount(OpsAccountAttemptChain, {
       props: {

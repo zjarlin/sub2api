@@ -366,7 +366,7 @@ func TestOpsErrorLoggerMiddleware_RecordsRecoveredUpstreamTelemetryOutsideFailur
 	persisted := repo.entries[0]
 	require.Equal(t, http.StatusOK, persisted.StatusCode, "recovered telemetry must remain outside failed-request SLA")
 	require.Equal(t, "upstream", persisted.ErrorPhase)
-	require.Equal(t, "upstream_error", persisted.ErrorType)
+	require.Equal(t, "recovered_upstream", persisted.ErrorType)
 	require.Equal(t, "Recovered upstream error 429: earlier attempt was rate limited", persisted.ErrorMessage)
 	require.NotNil(t, persisted.UpstreamErrorsJSON)
 	persistedEvents, err := service.ParseOpsUpstreamErrors(*persisted.UpstreamErrorsJSON)
@@ -2120,6 +2120,7 @@ func TestOpsErrorLoggerMiddleware_RequestScopedInBandErrorKeepsRecoveredTelemetr
 
 	recovered := <-opsErrorLogQueue
 	require.Equal(t, "upstream", recovered.entry.ErrorPhase)
+	require.Equal(t, "upstream_error", recovered.entry.ErrorType, "带内终态失败不能标记为降级成功")
 	require.Equal(t, "provider", recovered.entry.ErrorOwner)
 	require.Equal(t, http.StatusOK, recovered.entry.StatusCode)
 	require.Equal(t, "Recovered upstream error 429: earlier attempt was rate limited", recovered.entry.ErrorMessage)

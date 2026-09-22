@@ -46,9 +46,10 @@ func (h *OpsHandler) GetErrorLogByID(c *gin.Context) {
 }
 
 const (
-	opsListViewErrors   = "errors"
-	opsListViewExcluded = "excluded"
-	opsListViewAll      = "all"
+	opsListViewErrors    = "errors"
+	opsListViewExcluded  = "excluded"
+	opsListViewAll       = "all"
+	opsListViewRecovered = "recovered"
 )
 
 func parseOpsViewParam(c *gin.Context) string {
@@ -63,6 +64,8 @@ func parseOpsViewParam(c *gin.Context) string {
 		return opsListViewExcluded
 	case opsListViewAll:
 		return opsListViewAll
+	case opsListViewRecovered:
+		return opsListViewRecovered
 	default:
 		return opsListViewErrors
 	}

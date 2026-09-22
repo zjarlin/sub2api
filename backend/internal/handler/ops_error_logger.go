@@ -1306,9 +1306,11 @@ func logOpsRecoveredUpstream(c *gin.Context, ops *service.OpsService, finalStatu
 		lastStatus = *entry.UpstreamStatusCode
 	}
 	lastStage := ""
+	lastKind := ""
 	for i := len(entry.UpstreamErrors) - 1; i >= 0; i-- {
 		if event := entry.UpstreamErrors[i]; event != nil {
 			lastStage = event.Stage
+			lastKind = event.Kind
 			if event.AccountID > 0 {
 				accountID := event.AccountID
 				entry.AccountID = &accountID
@@ -1326,13 +1328,25 @@ func logOpsRecoveredUpstream(c *gin.Context, ops *service.OpsService, finalStatu
 
 	entry.ErrorPhase = "upstream"
 	entry.ErrorType = "upstream_error"
+	// 带内失败会保留此前尝试的遥测，但只有整个请求成功才能计入降级成功。
+	if finalStatus >= 200 && finalStatus < 300 && len(service.GetOpsStreamErrors(c)) == 0 {
+		entry.ErrorType = "recovered_upstream"
+		if accountID := c.GetInt64(opsAccountIDKey); accountID > 0 {
+			entry.AccountID = &accountID
+		}
+	}
 	entry.ErrorSource = "upstream_http"
 	entry.ErrorOwner = "provider"
 	entry.Severity = classifyOpsSeverity(entry.ErrorType, lastStatus)
 	entry.IsCountTokens = isCountTokensRequest(c)
 	entry.CreatedAt = time.Now()
 	entry.ErrorMessage = "Recovered upstream error"
-	if lastStage == string(service.GatewayFailureStageRouting) {
+	if lastKind == "model_fallback" {
+		entry.ErrorMessage = "Recovered model fallback"
+		entry.ErrorPhase = "routing"
+		entry.ErrorOwner = "platform"
+		entry.ErrorSource = "gateway"
+	} else if lastStage == string(service.GatewayFailureStageRouting) {
 		entry.ErrorMessage = "Recovered account capacity failure"
 		entry.ErrorPhase = "routing"
 		entry.ErrorOwner = "platform"

@@ -33,18 +33,28 @@ func (r *opsRepository) GetDashboardOverview(ctx context.Context, filter *servic
 		mode = service.OpsQueryModeRaw
 	}
 
+	var overview *service.OpsDashboardOverview
+	var err error
 	switch mode {
 	case service.OpsQueryModePreagg:
-		return r.getDashboardOverviewPreaggregated(ctx, filter)
+		overview, err = r.getDashboardOverviewPreaggregated(ctx, filter)
 	case service.OpsQueryModeAuto:
-		out, err := r.getDashboardOverviewPreaggregated(ctx, filter)
+		overview, err = r.getDashboardOverviewPreaggregated(ctx, filter)
 		if err != nil && errors.Is(err, service.ErrOpsPreaggregatedNotPopulated) {
-			return r.getDashboardOverviewRaw(ctx, filter)
+			overview, err = r.getDashboardOverviewRaw(ctx, filter)
 		}
-		return out, err
 	default:
-		return r.getDashboardOverviewRaw(ctx, filter)
+		overview, err = r.getDashboardOverviewRaw(ctx, filter)
 	}
+	if err != nil {
+		return nil, err
+	}
+	// 恢复记录数量较少，独立查询可同时覆盖原始与预聚合概览，无需改写旧聚合表。
+	overview.RecoveredSuccessCount, err = r.queryRecoveredSuccessCount(ctx, filter)
+	if err != nil {
+		return nil, err
+	}
+	return overview, nil
 }
 
 func (r *opsRepository) getDashboardOverviewRaw(ctx context.Context, filter *service.OpsDashboardFilter) (*service.OpsDashboardOverview, error) {

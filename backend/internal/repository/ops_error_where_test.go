@@ -97,14 +97,14 @@ func TestBuildOpsErrorLogsWhere_CyberPolicyStatusExemption(t *testing.T) {
 
 	// phase=upstream WITH IncludeRecoveredUpstream (ops 上游列表) skips the guard,
 	// exposing recovered (<400) upstream rows.
-	whereRecovered, _ := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{Phase: "upstream", IncludeRecoveredUpstream: true})
+	whereRecovered, _ := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{Phase: "upstream", View: "all", IncludeRecoveredUpstream: true})
 	if strings.Contains(whereRecovered, "status_code") {
 		t.Fatalf("upstream phase with IncludeRecoveredUpstream must not add any status_code clause\nfull: %s", whereRecovered)
 	}
 
 	// account_auth uses the same explicit provider-health opt-in but remains a
 	// distinct phase from inference upstream errors.
-	whereAccountAuth, _ := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{Phase: "account_auth", IncludeRecoveredUpstream: true})
+	whereAccountAuth, _ := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{Phase: "account_auth", View: "all", IncludeRecoveredUpstream: true})
 	if strings.Contains(whereAccountAuth, "status_code") {
 		t.Fatalf("account_auth phase with IncludeRecoveredUpstream must expose recovered rows\nfull: %s", whereAccountAuth)
 	}
@@ -113,6 +113,7 @@ func TestBuildOpsErrorLogsWhere_CyberPolicyStatusExemption(t *testing.T) {
 	}
 
 	whereProviderHealth, _ := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{
+		View:                     "all",
 		ErrorPhasesAny:           []string{"upstream", "account_auth", "routing"},
 		IncludeRecoveredUpstream: true,
 	})
@@ -153,7 +154,7 @@ func TestBuildOpsErrorLogsWhere_UserOwnershipIsDirectOnly(t *testing.T) {
 }
 
 func TestBuildOpsErrorLogsWhereRecoveredRoutingIsAdminOnly(t *testing.T) {
-	admin, _ := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{Phase: "routing", IncludeRecoveredUpstream: true})
+	admin, _ := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{Phase: "routing", View: "all", IncludeRecoveredUpstream: true})
 	if strings.Contains(admin, "COALESCE(e.status_code, 0) >= 400") {
 		t.Fatal("管理端应能查看已经恢复的本地排队尝试")
 	}

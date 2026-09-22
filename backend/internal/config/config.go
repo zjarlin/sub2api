@@ -995,6 +995,8 @@ const (
 type GatewayConfig struct {
 	// VisionFallback 在当前分组内借助原生视觉模型描述图片，再交给原模型回答。
 	VisionFallback GatewayVisionFallbackConfig `mapstructure:"vision_fallback"`
+	// Vision 是离线边缘计算视觉服务（edge-vision）的上游接入配置。
+	Vision GatewayVisionConfig `mapstructure:"vision"`
 	// 等待上游响应头的超时时间（秒），0表示无超时
 	// 注意：这不影响流式数据传输，只控制等待响应头的时间
 	ResponseHeaderTimeout int `mapstructure:"response_header_timeout"`
@@ -1151,6 +1153,25 @@ type GatewayConfig struct {
 }
 
 // GatewayVisionFallbackConfig 不另存供应商凭据，复用分组账号及其模型能力快照。
+// GatewayVisionConfig 指向离线边缘计算视觉服务（edge-vision）的内部地址。
+// 服务以独立容器运行，只加入 sub2api 内部网络，不对外暴露宿主端口。
+type GatewayVisionConfig struct {
+	// URL 是 edge-vision 的内部基地址；为空时使用编排内的服务名。
+	URL string `mapstructure:"url"`
+	// TimeoutSeconds 是单次视觉推理请求的等待上限（秒），0 表示使用默认值。
+	TimeoutSeconds int `mapstructure:"timeout_seconds"`
+	// Enabled 控制 /v1/vision/* 端点是否开放。默认关闭，避免未部署服务时暴露空端点。
+	Enabled bool `mapstructure:"enabled"`
+}
+
+// BaseURL 返回视觉服务的内部基地址，未显式配置时使用编排内的服务名。
+func (c GatewayVisionConfig) BaseURL() string {
+	if strings.TrimSpace(c.URL) != "" {
+		return strings.TrimRight(strings.TrimSpace(c.URL), "/")
+	}
+	return "http://edge-vision:18081"
+}
+
 type GatewayVisionFallbackConfig struct {
 	Enabled bool `mapstructure:"enabled"`
 	// Model 为空时自动选择；非空时优先使用这个已配置的公开模型名。
