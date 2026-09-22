@@ -312,7 +312,7 @@
       <p v-if="form.platform === 'zcode'" class="input-hint" data-testid="zcode-connection-hint">
         {{ t('admin.accounts.zcode.connectionHint') }}
       </p>
-      <BuiltinAdapterLogin v-if="show && (form.platform === 'traework' || form.platform === 'workbuddy')" :key="form.platform" :platform="form.platform" />
+      <BuiltinAdapterLogin v-if="show && (form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'zcode')" :key="form.platform" :platform="form.platform" />
 
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">

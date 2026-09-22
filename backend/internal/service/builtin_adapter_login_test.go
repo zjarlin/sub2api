@@ -50,3 +50,26 @@ func TestWorkbuddyBuiltinCredentialsInjected(t *testing.T) {
 	require.Equal(t, "builtin-workbuddy-key", credentials["api_key"])
 	require.NoError(t, validateBuiltinChatCredentials(PlatformWorkbuddy, AccountTypeAPIKey, credentials))
 }
+
+// ZCode 通过内置适配器完成网页授权，登录会话接口必须可达且使用适配器密钥。
+func TestZcodeBuiltinAdapterLoginReachable(t *testing.T) {
+	id := strings.Repeat("b", 64)
+	var gotAuth, gotOwner string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotOwner = r.Header.Get("X-Login-Owner")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"session_id": id, "status": "pending", "mode": "callback",
+			"auth_url": "https://chat.z.ai/api/oauth/authorize?client_id=test", "expires_at": 1,
+		})
+	}))
+	defer server.Close()
+	SetBuiltinAdapterConfig(&config.BuiltinAdapterConfig{Enabled: true, ZcodeURL: server.URL + "/v1", ZcodeKey: "zcode-internal-key"})
+	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
+	result, err := BuiltinAdapterLogin(context.Background(), PlatformZcode, "admin:7", "", "start", "")
+	require.NoError(t, err)
+	require.Equal(t, "Bearer zcode-internal-key", gotAuth)
+	require.Equal(t, "admin:7", gotOwner)
+	require.Equal(t, "callback", result.Mode)
+	require.Contains(t, result.AuthURL, "chat.z.ai")
+}

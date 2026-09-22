@@ -259,6 +259,21 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(payload.credentials.api_key).toBeUndefined()
   })
 
+  it('creates ZCode through the built-in adapter and exposes web authorization', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="platform-zcode"]').trigger('click')
+    expect(wrapper.find('[data-testid="builtin-adapter-login"]').exists()).toBe(true)
+    expect(wrapper.find('form#create-account-form input[type="password"]').exists()).toBe(false)
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('ZCode')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const payload = createAccountMock.mock.calls[0]?.[0]
+    expect(payload).toMatchObject({ platform: 'zcode', type: 'apikey', concurrency: 1 })
+    expect(payload.credentials.api_protocol).toBe('chat_completions')
+    expect(payload.credentials.base_url).toBeUndefined()
+    expect(payload.credentials.api_key).toBeUndefined()
+  })
+
   it('creates Kimi without mixed_scheduling and synchronizes its model catalog', async () => {
     const wrapper = mountModal()
     await wrapper.get('[data-testid="platform-kimi"]').trigger('click')

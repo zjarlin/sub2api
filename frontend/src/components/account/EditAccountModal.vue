@@ -28,7 +28,7 @@
 
       <!-- API Key fields (only for apikey type) -->
       <BuiltinAdapterLogin
-        v-if="show && (account.platform === 'traework' || account.platform === 'workbuddy') && !hasBuiltinAdapterCredentials"
+        v-if="show && (account.platform === 'traework' || account.platform === 'workbuddy' || account.platform === 'zcode') && !hasBuiltinAdapterCredentials"
         :key="account.platform"
         :platform="account.platform"
       />

@@ -9,7 +9,7 @@
 # 凭证不落盘 git：
 #   - 豆包：宿主机目录通过 DESKTOP_SECRET_DIR 只读挂载，内含 session.json + api_key
 #   - TRAE / WorkBuddy：命名卷保存登录凭证，也可指定宿主机目录。
-#   - ZCode：上游 API key 由 ZCODE_UPSTREAM_KEY 注入（z.ai / 智谱 GLM Coding Plan）。
+#   - ZCode：网页授权凭据保存在命名卷；也可用 ZCODE_UPSTREAM_KEY 注入显式 API key。
 # =============================================================================
 services:
   # 把内置适配器开关与共享密钥注入 Sub2API 主服务；compose 合并时追加到 environment。
@@ -129,6 +129,10 @@ services:
       Z2A_UPSTREAM_BASE_URL: "${ZCODE_UPSTREAM_BASE_URL:-https://open.bigmodel.cn/api/anthropic}"
       Z2A_UPSTREAM_PROVIDER_ID: "${ZCODE_UPSTREAM_PROVIDER_ID:-builtin:bigmodel-coding-plan}"
       Z2A_THINKING_EFFORT: "${ZCODE_THINKING_EFFORT:-max}"
+      # 网页授权凭据落盘位置，指向命名卷，重建容器后仍保留。
+      Z2A_CREDENTIAL_STORE_PATH: /app/data/credential.json
+    volumes:
+      - "${ZCODE_STATE_DIR:-zcode-data}:/app/data"
     networks:
       - sub2api-network
     security_opt: [no-new-privileges:true]
@@ -145,3 +149,4 @@ volumes:
   traework-data:
   workbuddy-auths:
   workbuddy-data:
+  zcode-data:

@@ -69,6 +69,7 @@ func newGateway(t *testing.T, upstreamURL string) http.Handler {
 	cfg := config.Default()
 	cfg.APIKey = "local-key"
 	cfg.Upstream.CredentialConfigPath = zcodeConfig
+	cfg.Upstream.CredentialStorePath = filepath.Join(dir, "credential.json")
 	cfg.Upstream.MimicClient = true
 	cfg.Upstream.AppVersion = "3.14.0"
 	cfg.Upstream.DeviceID = "12345678-1234-4234-8234-123456789012"
@@ -402,6 +403,7 @@ func TestModelsHealthAndUnknownModel(t *testing.T) {
 func TestHealthReportsMissingCredential(t *testing.T) {
 	cfg := config.Default()
 	cfg.Upstream.CredentialConfigPath = filepath.Join(t.TempDir(), "absent.json")
+	cfg.Upstream.CredentialStorePath = filepath.Join(t.TempDir(), "credential.json")
 	handler := New(cfg, log.New(io.Discard, "", 0)).Handler()
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/healthz", nil))

@@ -32,6 +32,8 @@ type Upstream struct {
 	APIKey     string `json:"api_key"`
 	// CredentialConfigPath overrides the ZCode provider configuration path.
 	CredentialConfigPath string `json:"credential_config_path"`
+	// CredentialStorePath overrides the file used for web-authorized credentials.
+	CredentialStorePath string `json:"credential_store_path"`
 	// MimicClient sends the ZCode client's attribution headers so that plan
 	// promotions (off-peak discounts, free flash windows) apply to proxied
 	// requests the same way they do inside the app.
@@ -133,6 +135,9 @@ func (c *Config) applyEnv() {
 	}
 	if v := os.Getenv("Z2A_CREDENTIAL_CONFIG_PATH"); v != "" {
 		c.Upstream.CredentialConfigPath = v
+	}
+	if v := os.Getenv("Z2A_CREDENTIAL_STORE_PATH"); v != "" {
+		c.Upstream.CredentialStorePath = v
 	}
 	if v := os.Getenv("Z2A_CLIENT_TIMEZONE"); v != "" {
 		c.Upstream.ClientTimezone = v

@@ -29,7 +29,9 @@ type BuiltinLoginResult struct {
 
 // BuiltinAdapterLogin 只连接部署配置指定的内部服务，不接受浏览器提供的目标地址或密钥。
 func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action, callback string) (*BuiltinLoginResult, error) {
-	if platform != PlatformTraework && platform != PlatformWorkbuddy {
+	switch platform {
+	case PlatformTraework, PlatformWorkbuddy, PlatformZcode:
+	default:
 		return nil, infraerrors.BadRequest("INVALID_LOGIN_PLATFORM", "Unsupported login platform")
 	}
 	base, key := builtinAdapterBaseURL(platform), builtinAdapterAPIKey(platform)

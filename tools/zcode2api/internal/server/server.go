@@ -13,6 +13,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"glm-zcode-2api/internal/anthropic"
@@ -21,6 +22,7 @@ import (
 	"glm-zcode-2api/internal/credential"
 	"glm-zcode-2api/internal/openai"
 	"glm-zcode-2api/internal/upstream"
+	"sub2api/builtinlogin"
 )
 
 // Service identifies this gateway in health responses.
@@ -35,6 +37,12 @@ type Server struct {
 	client    *upstream.Client
 	logger    *log.Logger
 	started   time.Time
+
+	// 内置网页授权：凭证落在本地凭据文件，登录会话由 builtinlogin 管理。
+	loginCredStore *credential.CredentialStore
+	loginHTTP      *http.Client
+	loginPort      int
+	loginMu        sync.Mutex
 }
 
 func New(cfg *config.Config, logger *log.Logger) *Server {
@@ -45,7 +53,7 @@ func New(cfg *config.Config, logger *log.Logger) *Server {
 	if deviceID == "" {
 		deviceID = newUUID()
 	}
-	return &Server{
+	server := &Server{
 		cfg:       cfg,
 		deviceID:  deviceID,
 		sessionID: newUUID(),
@@ -66,6 +74,10 @@ func New(cfg *config.Config, logger *log.Logger) *Server {
 		logger:  logger,
 		started: time.Now(),
 	}
+	server.loginCredStore = &credential.CredentialStore{Path: cfg.Upstream.CredentialStorePath}
+	server.loginHTTP = upstream.NewHTTPClient(30*time.Second, 4)
+	server.loginPort = listenPort(cfg.Listen)
+	return server
 }
 
 func (s *Server) Handler() http.Handler {
@@ -78,12 +90,19 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/status", s.auth(s.handleStatus))
 	mux.HandleFunc("/v1/models", s.auth(s.handleModels))
 	mux.HandleFunc("/v1/chat/completions", s.auth(s.handleChat))
+	// 网页授权会话接口仅供 Sub2API 后台调用，使用适配器共享密钥鉴权。
+	builtinlogin.New(s.beginZcodeLogin).Register(mux, s.auth)
 	return mux
 }
 
-// resolveCredential 返回上游凭证。显式配置（api_key/base_url）优先，
-// 便于作为服务端 sidecar 运行；未显式配置时回退到本机 ZCode 桌面配置。
+// resolveCredential 返回上游凭证。网页授权落盘的凭据优先，其次显式配置
+// （api_key/base_url），最后回退到本机 ZCode 桌面配置。
 func (s *Server) resolveCredential() (credential.Credential, error) {
+	if stored, ok, err := s.loginCredStore.Load(); err != nil {
+		return credential.Credential{}, err
+	} else if ok {
+		return stored, nil
+	}
 	cfg := s.cfg.Upstream
 	if cfg.APIKey != "" && cfg.BaseURL != "" {
 		return credential.Credential{

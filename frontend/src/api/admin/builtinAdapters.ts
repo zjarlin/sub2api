@@ -1,6 +1,6 @@
 import { apiClient } from '../client'
 
-export type BuiltinLoginPlatform = 'traework' | 'workbuddy'
+export type BuiltinLoginPlatform = 'traework' | 'workbuddy' | 'zcode'
 export interface BuiltinLoginSession {
   session_id: string
   auth_url?: string

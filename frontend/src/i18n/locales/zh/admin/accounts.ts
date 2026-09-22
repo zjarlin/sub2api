@@ -2,7 +2,7 @@ export default {
     accounts: {
       zcode: {
         title: 'ZCode',
-        connectionHint: '使用随 Sub2API 部署自动启动的 glm-zcode-2api 适配器。地址与密钥由后端注入，无需手填。',
+        connectionHint: '使用随 Sub2API 部署自动启动的 glm-zcode-2api 适配器。先完成网页授权登录 z.ai / 智谱账号，地址与密钥由后端注入，无需手填。',
         baseUrlHint: '可选。默认使用内置 ZCode 适配器地址，留空即可。',
         apiKeyHint: '可选。留空时使用内置适配器共享密钥。',
       },
@@ -14,6 +14,7 @@ export default {
       builtinLogin: {
         traeworkHint: '打开 TRAE 授权页完成登录，再把浏览器地址栏的完整回调链接粘贴回来。页面无法打开 127.0.0.1 不影响导入。',
         workbuddyHint: '打开 WorkBuddy 国内版授权页并登录，本页会自动获取授权结果。',
+        zcodeHint: '打开 ZCode 授权页登录 z.ai / 智谱账号，再把浏览器地址栏的完整回调链接粘贴回来。页面无法打开 127.0.0.1 不影响导入。',
         poolHint: '登录凭证保存到此部署的共享账号池，刷新由服务器维护。已有可用凭证时可直接保存账号；地址与连接密钥无需填写。',
         start: '登录并接入', restart: '重新登录 / 添加登录账号', open: '打开授权页',
         callback: '完整回调链接', callbackPlaceholder: 'http://127.0.0.1:18080/authorize?...',

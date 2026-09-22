@@ -4,6 +4,7 @@ WORKDIR /src/zcode2api
 ARG GOPROXY=https://goproxy.cn,direct
 ARG GOSUMDB=sum.golang.google.cn
 ENV GOPROXY=${GOPROXY} GOSUMDB=${GOSUMDB}
+COPY builtinlogin /src/builtinlogin
 COPY zcode2api/go.mod ./
 RUN go mod download
 COPY zcode2api/cmd ./cmd
@@ -12,7 +13,8 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/adapter ./cmd/serv
 
 FROM alpine:3.20
 RUN apk add --no-cache ca-certificates tzdata wget \
- && adduser -D -u 10001 app
+ && adduser -D -u 10001 app \
+ && mkdir -p /app/data && chown -R app:app /app
 WORKDIR /app
 COPY --from=build /out/adapter /app/adapter
 USER app

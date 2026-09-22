@@ -20,6 +20,7 @@ func TestSidecarExplicitCredential(t *testing.T) {
 	cfg.Upstream.APIKey = "sidecar-upstream-key"
 	cfg.Upstream.BaseURL = upstream.URL
 	cfg.Upstream.CredentialConfigPath = filepath.Join(t.TempDir(), "missing.json")
+	cfg.Upstream.CredentialStorePath = filepath.Join(t.TempDir(), "credential.json")
 	handler := New(cfg, log.New(io.Discard, "", 0)).Handler()
 	response := post(t, handler, chatBody(false))
 	if response.Code != http.StatusOK {
@@ -50,6 +51,7 @@ func TestSidecarWithoutCredential(t *testing.T) {
 	cfg := config.Default()
 	cfg.APIKey = "local-key"
 	cfg.Upstream.CredentialConfigPath = filepath.Join(t.TempDir(), "missing.json")
+	cfg.Upstream.CredentialStorePath = filepath.Join(t.TempDir(), "credential.json")
 	handler := New(cfg, log.New(io.Discard, "", 0)).Handler()
 	for path, status := range map[string]int{"/livez": http.StatusOK, "/healthz": http.StatusServiceUnavailable} {
 		response := httptest.NewRecorder()
