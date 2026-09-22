@@ -176,3 +176,72 @@ func TestZZProbeNormalizeChatMessagesCallIDMismatch(t *testing.T) {
 		t.Logf("msg[%d] role=%s tool_call_id=%q content=%q tool_calls=%d", i, m.Role, m.ToolCallID, content, len(m.ToolCalls))
 	}
 }
+
+func TestZZProbeNormalizeChatMessagesMismatchedNonEmptyID(t *testing.T) {
+	// 决定性场景：assistant 声明 call_A，tool 回复携带 call_B → orphan 丢弃
+	req := &apicompat.ResponsesRequest{
+		Model: "deepseek-chat",
+		Input: json.RawMessage(`[
+			{"type":"function_call","call_id":"call_A","name":"exec","arguments":"{\"command\":\"echo hello\"}"},
+			{"type":"function_call_output","call_id":"call_B","output":"hello\n"}
+		]`),
+	}
+	chatReq, err := apicompat.ResponsesToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	t.Logf("== mismatched call_id 结果：共 %d 条消息 ==", len(chatReq.Messages))
+	for i, m := range chatReq.Messages {
+		content := ""
+		_ = json.Unmarshal(m.Content, &content)
+		t.Logf("msg[%d] role=%s tool_call_id=%q content=%q tool_calls=%d", i, m.Role, m.ToolCallID, content, len(m.ToolCalls))
+	}
+	// 工具输出 "hello" 必须仍能到达上游；若被丢弃则断言失败
+	var sawHello bool
+	for _, m := range chatReq.Messages {
+		if m.Role != "tool" {
+			continue
+		}
+		var content string
+		_ = json.Unmarshal(m.Content, &content)
+		if content == "hello\n" {
+			sawHello = true
+		}
+	}
+	require.True(t, sawHello, "call_id 不匹配时 tool 输出不得被丢弃（orphan 丢弃机制）")
+}
+
+func TestZZProbeNormalizeChatMessagesParallelWithNotice(t *testing.T) {
+	// 并行工具调用 + 中间 developer 通知（acc05620c 场景）→ 输出不得丢失
+	req := &apicompat.ResponsesRequest{
+		Model: "deepseek-chat",
+		Input: json.RawMessage(`[
+			{"type":"function_call","call_id":"call_A","name":"exec","arguments":"{\"command\":\"echo A\"}"},
+			{"type":"function_call","call_id":"call_B","name":"exec","arguments":"{\"command\":\"echo B\"}"},
+			{"role":"developer","content":"Approved command prefix saved"},
+			{"type":"function_call_output","call_id":"call_A","output":"A\n"},
+			{"type":"function_call_output","call_id":"call_B","output":"B\n"}
+		]`),
+	}
+	chatReq, err := apicompat.ResponsesToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	t.Logf("== 并行+通知：共 %d 条消息 ==", len(chatReq.Messages))
+	for i, m := range chatReq.Messages {
+		content := ""
+		_ = json.Unmarshal(m.Content, &content)
+		t.Logf("msg[%d] role=%s tool_call_id=%q content=%q tool_calls=%d", i, m.Role, m.ToolCallID, content, len(m.ToolCalls))
+	}
+	var sawA, sawB bool
+	for _, m := range chatReq.Messages {
+		if m.Role != "tool" {
+			continue
+		}
+		var content string
+		_ = json.Unmarshal(m.Content, &content)
+		if m.ToolCallID == "call_A" && content == "A\n" {
+			sawA = true
+		}
+		if m.ToolCallID == "call_B" && content == "B\n" {
+			sawB = true
+		}
+	}
+	require.True(t, sawA && sawB, "并行工具输出不得丢失")
+}
