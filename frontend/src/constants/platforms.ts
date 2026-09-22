@@ -34,19 +34,36 @@ export const GROUP_PLATFORM_OPTIONS = [
 ] as const satisfies readonly PlatformOption<GroupPlatform>[]
 
 /**
- * 混合调度兼容目标：来源平台启用 extra.mixed_scheduling 后，可加入这些目标平台分组。
- * 与后端 MixedSchedulingCompatibleTargets 保持一致；新增平台只需扩展此表。
+ * 跨平台调度兼容目标。
+ * OpenAI 兼容来源可直接选择 OpenAI/Codex 分组；其他来源需显式启用混合调度。
  */
 export const MIXED_SCHEDULING_TARGETS: Partial<Record<AccountPlatform, GroupPlatform[]>> = {
   antigravity: ['anthropic', 'gemini'],
+  grok: ['openai'],
+  kimi: ['openai'],
+  zhipu: ['openai'],
+  deepseek: ['openai'],
+  minimax: ['openai'],
+  opencode_go: ['openai'],
+  doubao: ['openai'],
   traework: ['openai'],
   workbuddy: ['openai'],
   zcode: ['openai'],
 }
 
-/** 平台是否支持开启混合调度（可加入其他分组）。 */
+/** 平台是否支持跨平台兼容分组。 */
 export function supportsMixedScheduling(platform: string | undefined): boolean {
   return !!platform && platform in MIXED_SCHEDULING_TARGETS
+}
+
+/** 平台是否按 OpenAI 兼容协议直接提供 OpenAI/Codex 分组选择。 */
+export function usesAutomaticMixedScheduling(platform: string | undefined): boolean {
+  return mixedSchedulingTargets(platform).includes('openai')
+}
+
+/** 平台是否需要用户显式开启混合调度。 */
+export function requiresMixedSchedulingOptIn(platform: string | undefined): boolean {
+  return supportsMixedScheduling(platform) && !usesAutomaticMixedScheduling(platform)
 }
 
 /** 某平台可加入的目标分组平台列表。 */
@@ -55,7 +72,7 @@ export function mixedSchedulingTargets(platform: string | undefined): GroupPlatf
   return MIXED_SCHEDULING_TARGETS[platform as AccountPlatform] ?? []
 }
 
-/** 来源平台启用混合调度后是否可加入目标平台分组。 */
+/** 来源平台是否兼容目标平台分组。 */
 export function mixedSchedulingTargetsPlatform(source: string | undefined, target: string | undefined): boolean {
   if (!source || !target) return false
   return mixedSchedulingTargets(source).includes(target as GroupPlatform)

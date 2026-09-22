@@ -1152,10 +1152,12 @@ export default {
       expiresAtHint: '留空表示不过期',
       expiresAtTimezoneHint: '输入按浏览器本地时区（{timezone}）解释。',
       higherPriorityFirst: '数值越小优先级越高',
-      mixedScheduling: '在 /v1/messages 中使用',
-      mixedSchedulingHint: '启用后可参与 Anthropic/Gemini 分组的调度',
+      mixedScheduling: '启用跨平台分组调度',
+      mixedSchedulingHint: '仅 Antigravity：允许该账号加入兼容的 Anthropic 与 Gemini 分组。',
       mixedSchedulingTooltip:
         '！！注意！！ Antigravity Claude 和 Anthropic Claude 无法在同个上下文中使用，如果你同时有 Anthropic 账号和 Antigravity 账号，开启此选项会导致经常 400 报错。开启后，请用分组功能做好 Antigravity 账号和 Anthropic 账号的隔离。一定要弄明白再开启！！',
+      automaticMixedSchedulingHint:
+        '该平台可直接选择并绑定 OpenAI/Codex 分组。API Key 账号创建后会自动同步上游模型目录；也可选择原模型 ID 白名单。模型 ID 会原样转发，不会自动映射。',
       aiCreditsBalance: 'AI Credits',
       allowOverages: '允许超量请求 (AI Credits)',
       allowOveragesTooltip:

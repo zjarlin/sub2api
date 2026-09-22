@@ -38,11 +38,11 @@ func TestOpenAIGatewayDiagnoseModelAvailabilityMixedScheduling(t *testing.T) {
 	require.True(t, diag.HasAccountsInPool, "mixed source platform must count toward the pool")
 	require.True(t, diag.HasModelSupport, "cn:glm-5.2 served by workbuddy must be reported as supported")
 
-	// 未启用开关的账号不参与混合调度，模型支持不应被它满足。
+	// 兼容来源只需绑定协议分组，旧混合调度开关不再阻止其模型参与。
 	onlyDisabled := &schedulerTestOpenAIAccountRepo{accounts: []Account{disabled}}
 	svc2 := &OpenAIGatewayService{accountRepo: onlyDisabled, cfg: &config.Config{RunMode: config.RunModeStandard}}
 	diag2 := svc2.DiagnoseModelAvailabilityForPlatform(context.Background(), &groupID, "cn:glm-5.2", PlatformOpenAI)
-	require.False(t, diag2.HasModelSupport, "account without mixed_scheduling must not satisfy the diagnosis")
+	require.True(t, diag2.HasModelSupport, "compatible account must participate without mixed_scheduling")
 
 	// 普通 openai 平台账号仍按原路径工作。
 	plain := Account{

@@ -1408,9 +1408,9 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	// Filter by platform if specified
 	if platform != "" {
 		filtered := make([]Account, 0)
-		for _, acc := range accounts {
-			if acc.Platform == platform {
-				filtered = append(filtered, acc)
+		for i := range accounts {
+			if openAIAccountMatchesPlatform(&accounts[i], platform) {
+				filtered = append(filtered, accounts[i])
 			}
 		}
 		accounts = filtered
@@ -1426,7 +1426,7 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 
 	// Collect unique models from all accounts
 	modelSet := make(map[string]struct{})
-	hasAnyMapping := false
+	hasAnyCatalog := false
 
 	for _, acc := range accounts {
 		// Passthrough routing accepts models independently of model_mapping. A stale
@@ -1442,15 +1442,25 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 
 		mapping := acc.GetModelMapping()
 		if len(mapping) > 0 {
-			hasAnyMapping = true
+			hasAnyCatalog = true
 			for model := range mapping {
 				modelSet[model] = struct{}{}
+			}
+			continue
+		}
+		if snapshot := acc.GetUpstreamSupportedModelsSnapshot(); snapshot != nil {
+			hasAnyCatalog = true
+			for _, model := range snapshot.Models {
+				model = strings.TrimSpace(model)
+				if model != "" {
+					modelSet[model] = struct{}{}
+				}
 			}
 		}
 	}
 
-	// If no account has model_mapping, return nil (use default)
-	if !hasAnyMapping {
+	// 没有账号映射或已同步目录时返回 nil，由调用方使用平台默认模型。
+	if !hasAnyCatalog {
 		if s.modelsListCache != nil {
 			s.modelsListCache.Set(cacheKey, []string(nil), s.modelsListCacheTTL)
 			modelsListCacheStoreTotal.Add(1)

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 
 const { updateAccountMock, checkMixedChannelRiskMock, authIsSimpleMode } = vi.hoisted(() => ({
   updateAccountMock: vi.fn(),
@@ -376,6 +376,29 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.lastCall?.[1]).toMatchObject({ concurrency: 1, credentials: {
       base_url: 'http://adapter.example/v1', api_key: 'adapter-key', api_protocol: 'chat_completions', openai_capabilities: ['chat_completions'],
     } })
+  })
+
+  it('hides the mixed scheduling toggle for Kimi and preserves legacy extra fields', async () => {
+    const account = buildAccount()
+    account.platform = 'kimi'
+    account.credentials = { api_key: 'sk-kimi', base_url: 'https://api.kimi.com/v1' }
+    account.extra = { mixed_scheduling: true, retained: 'keep' }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+
+    expect(wrapper.find('[data-testid="mixed-scheduling-toggle"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="automatic-mixed-scheduling-hint"]').exists()).toBe(true)
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.lastCall?.[1].extra).toMatchObject({
+      mixed_scheduling: true,
+      retained: 'keep'
+    })
   })
 
   it('loads and saves the model probe opt-out without changing account scheduling', async () => {

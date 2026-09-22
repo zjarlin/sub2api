@@ -300,8 +300,7 @@ func NormalizeOpenAICompatiblePlatform(platform string) string {
 }
 
 // openAIAccountMatchesPlatform 判定账号是否可服务目标平台请求。
-// 原生平台直接匹配；启用 mixed_scheduling 的来源平台可加入其兼容的 OpenAI 网关目标分组
-// （例如 traework/workbuddy 账号加入 openai/Codex 分组）。
+// 原生平台直接匹配；兼容来源按协议能力加入目标分组，账号是否已绑定由分组查询另行检查。
 func openAIAccountMatchesPlatform(account *Account, platform string) bool {
 	if account == nil {
 		return false
@@ -1493,14 +1492,23 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 			return accounts, err
 		}
 		accounts = s.filterOpenAIAccountsBySchedulingThreshold(ctx, accounts)
-		if platform == PlatformGrok {
-			accounts = s.filterGrokFreeQuotaAccountsForOpenAI(ctx, accounts)
-		}
+		accounts = s.filterGrokFreeQuotaAccountsForOpenAI(ctx, accounts)
 		return accounts, nil
 	}
 	var accounts []Account
 	var err error
-	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+	sources := MixedSchedulingSourcePlatforms(platform)
+	if len(sources) > 0 {
+		platforms := append([]string{platform}, sources...)
+		switch {
+		case groupID != nil:
+			accounts, err = s.accountRepo.ListSchedulableByGroupIDAndPlatforms(ctx, *groupID, platforms)
+		case s.cfg != nil && s.cfg.RunMode == config.RunModeSimple:
+			accounts, err = s.accountRepo.ListSchedulableByPlatforms(ctx, platforms)
+		default:
+			accounts, err = s.accountRepo.ListSchedulableUngroupedByPlatforms(ctx, platforms)
+		}
+	} else if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
 		accounts, err = s.accountRepo.ListSchedulableByPlatform(ctx, platform)
 	} else if groupID != nil {
 		accounts, err = s.accountRepo.ListSchedulableByGroupIDAndPlatform(ctx, *groupID, platform)
@@ -1510,10 +1518,15 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 	if err != nil {
 		return nil, fmt.Errorf("query accounts failed: %w", err)
 	}
-	accounts = s.filterOpenAIAccountsBySchedulingThreshold(ctx, accounts)
-	if platform == PlatformGrok {
-		accounts = s.filterGrokFreeQuotaAccountsForOpenAI(ctx, accounts)
+	compatible := make([]Account, 0, len(accounts))
+	for _, account := range accounts {
+		if openAIAccountMatchesPlatform(&account, platform) {
+			compatible = append(compatible, account)
+		}
 	}
+	accounts = compatible
+	accounts = s.filterOpenAIAccountsBySchedulingThreshold(ctx, accounts)
+	accounts = s.filterGrokFreeQuotaAccountsForOpenAI(ctx, accounts)
 	return accounts, nil
 }
 

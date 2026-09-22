@@ -609,10 +609,10 @@ func (s *SchedulerSnapshotService) handleBulkAccountEvent(ctx context.Context, p
 		}
 		accountGroupIDs := s.normalizeGroupIDs(account.GroupIDs)
 		switch account.Platform {
-		case PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformDoubao:
-			addPlatformGroups(account.Platform, accountGroupIDs)
-		case PlatformAntigravity, PlatformTraework, PlatformWorkbuddy, PlatformZcode:
-			// 批量更新可能刚关闭 mixed_scheduling，仍需清理其兼容目标平台的旧快照。
+		case PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok,
+			PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo,
+			PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformZcode:
+			// 按兼容关系刷新目标分组；即使刚关闭可选混合调度，也要清理旧快照。
 			addPlatformGroups(account.Platform, accountGroupIDs)
 			for _, target := range MixedSchedulingTargetPlatforms(account.Platform) {
 				addPlatformGroups(target, accountGroupIDs)

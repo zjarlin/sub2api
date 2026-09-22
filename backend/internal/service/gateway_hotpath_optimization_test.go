@@ -713,6 +713,44 @@ func TestGetAvailableModels_OpenAIPassthroughUsesDefaultFallback(t *testing.T) {
 	}
 }
 
+func TestGetAvailableModels_OpenAIIncludesBoundCompatibleModelIDsWithoutAliases(t *testing.T) {
+	groupID := int64(12)
+	zcode := Account{ID: 5, Platform: PlatformZcode, Type: AccountTypeAPIKey}
+	zcode.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
+		Source:   "upstream",
+		SyncedAt: time.Now().UTC().Format(time.RFC3339),
+		Models:   []string{"glm-5.3"},
+	})
+	openCodeGo := Account{ID: 6, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey}
+	openCodeGo.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
+		Source:   "upstream",
+		SyncedAt: time.Now().UTC().Format(time.RFC3339),
+		Models:   []string{"muse-spark-1.3"},
+	})
+	repo := &modelsListAccountRepoStub{byGroup: map[int64][]Account{
+		groupID: {
+			{ID: 4, Platform: PlatformOpenAI, Credentials: map[string]any{
+				"model_mapping": map[string]any{"gpt-company": "gpt-5.6"},
+			}},
+			zcode,
+			openCodeGo,
+			{ID: 7, Platform: PlatformAnthropic, Credentials: map[string]any{
+				"model_mapping": map[string]any{"claude-unrelated": "claude-opus-4-8"},
+			}},
+		},
+		13: {{ID: 8, Platform: PlatformZcode, Credentials: map[string]any{
+			"model_mapping": map[string]any{"other-group-model": "glm-5.3-flash"},
+		}}},
+	}}
+	svc := &GatewayService{accountRepo: repo}
+
+	require.Equal(
+		t,
+		[]string{"glm-5.3", "gpt-company", "muse-spark-1.3"},
+		svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI),
+	)
+}
+
 func TestGetAvailableModels_GlobalListPreservesMappedModelsWithOpenAIPassthrough(t *testing.T) {
 	groupID := int64(11)
 	repo := &modelsListAccountRepoStub{

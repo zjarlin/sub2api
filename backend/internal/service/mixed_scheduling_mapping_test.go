@@ -17,7 +17,7 @@ func TestMixedSchedulingMapping(t *testing.T) {
 	require.False(t, SupportsMixedScheduling(PlatformAnthropic))
 
 	// 反向查询：哪些来源平台可加入 openai 分组。
-	require.Equal(t, []string{PlatformTraework, PlatformWorkbuddy, PlatformZcode}, MixedSchedulingSourcePlatforms(PlatformOpenAI))
+	require.Equal(t, []string{PlatformDeepseek, PlatformDoubao, PlatformGrok, PlatformKimi, PlatformMiniMax, PlatformOpenCodeGo, PlatformTraework, PlatformWorkbuddy, PlatformZcode, PlatformZhipu}, MixedSchedulingSourcePlatforms(PlatformOpenAI))
 	require.Equal(t, []string{PlatformAntigravity}, MixedSchedulingSourcePlatforms(PlatformAnthropic))
 	require.Equal(t, []string{PlatformAntigravity}, MixedSchedulingSourcePlatforms(PlatformGemini))
 	require.Empty(t, MixedSchedulingSourcePlatforms(PlatformGrok))
@@ -38,19 +38,20 @@ func TestIsMixedSchedulingEnabledByPlatform(t *testing.T) {
 	require.True(t, mixedSchedulingAccount(PlatformTraework, true).IsMixedSchedulingEnabled())
 	require.True(t, mixedSchedulingAccount(PlatformWorkbuddy, true).IsMixedSchedulingEnabled())
 	require.True(t, mixedSchedulingAccount(PlatformAntigravity, true).IsMixedSchedulingEnabled())
-	require.False(t, mixedSchedulingAccount(PlatformTraework, false).IsMixedSchedulingEnabled())
+	require.True(t, mixedSchedulingAccount(PlatformTraework, false).IsMixedSchedulingEnabled())
+	require.False(t, mixedSchedulingAccount(PlatformAntigravity, false).IsMixedSchedulingEnabled())
 	// 不支持的平台即便写入开关也不生效。
 	require.False(t, mixedSchedulingAccount(PlatformOpenAI, true).IsMixedSchedulingEnabled())
-	require.False(t, mixedSchedulingAccount(PlatformKimi, true).IsMixedSchedulingEnabled())
+	require.True(t, mixedSchedulingAccount(PlatformKimi, true).IsMixedSchedulingEnabled())
 }
 
-// OpenAI/Codex 分组：启用混合调度的 traework/workbuddy 账号可被选中，未启用则被过滤。
+// OpenAI/Codex 协议分组不再要求兼容来源额外开启混合调度。
 func TestOpenAIAccountMatchesPlatformWithMixedScheduling(t *testing.T) {
 	require.True(t, openAIAccountMatchesPlatform(&Account{Platform: PlatformOpenAI}, PlatformOpenAI))
 	require.True(t, openAIAccountMatchesPlatform(mixedSchedulingAccount(PlatformTraework, true), PlatformOpenAI))
 	require.True(t, openAIAccountMatchesPlatform(mixedSchedulingAccount(PlatformWorkbuddy, true), PlatformOpenAI))
-	require.False(t, openAIAccountMatchesPlatform(mixedSchedulingAccount(PlatformTraework, false), PlatformOpenAI))
-	require.False(t, openAIAccountMatchesPlatform(mixedSchedulingAccount(PlatformWorkbuddy, false), PlatformOpenAI))
+	require.True(t, openAIAccountMatchesPlatform(mixedSchedulingAccount(PlatformTraework, false), PlatformOpenAI))
+	require.True(t, openAIAccountMatchesPlatform(mixedSchedulingAccount(PlatformWorkbuddy, false), PlatformOpenAI))
 	// traework 账号不能服务 anthropic 分组。
 	require.False(t, openAIAccountMatchesPlatform(mixedSchedulingAccount(PlatformTraework, true), PlatformAnthropic))
 }
@@ -60,9 +61,10 @@ func TestOpenAIAccountMatchesPlatformWithMixedScheduling(t *testing.T) {
 func TestSchedulerPlatformMatchUsesMixedMapping(t *testing.T) {
 	require.True(t, openAIAccountMatchesPlatform(mixedSchedulingAccount(PlatformTraework, true), PlatformOpenAI))
 	require.True(t, openAIAccountMatchesPlatform(mixedSchedulingAccount(PlatformWorkbuddy, true), PlatformOpenAI))
-	require.False(t, openAIAccountMatchesPlatform(mixedSchedulingAccount(PlatformTraework, false), PlatformOpenAI))
+	require.True(t, openAIAccountMatchesPlatform(mixedSchedulingAccount(PlatformTraework, false), PlatformOpenAI))
 	// 原生 openai 账号不受影响。
 	require.True(t, openAIAccountMatchesPlatform(&Account{Platform: PlatformOpenAI}, PlatformOpenAI))
-	// 非兼容平台仍被拒绝。
-	require.False(t, openAIAccountMatchesPlatform(&Account{Platform: PlatformKimi}, PlatformOpenAI))
+	require.True(t, openAIAccountMatchesPlatform(&Account{Platform: PlatformKimi}, PlatformOpenAI))
+	// 缺少该入口转换链路的平台仍不能混入。
+	require.False(t, openAIAccountMatchesPlatform(&Account{Platform: PlatformGemini}, PlatformOpenAI))
 }

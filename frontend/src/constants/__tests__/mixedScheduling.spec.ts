@@ -3,25 +3,52 @@ import {
   MIXED_SCHEDULING_TARGETS,
   mixedSchedulingTargets,
   mixedSchedulingTargetsPlatform,
+  requiresMixedSchedulingOptIn,
   supportsMixedScheduling,
+  usesAutomaticMixedScheduling,
 } from '../platforms'
 
-// 前端映射表需与后端 MixedSchedulingCompatibleTargets 保持一致。
 describe('mixed scheduling mapping', () => {
-  it('marks only capable platforms as supported', () => {
+  const automaticOpenAIPlatforms = [
+    'grok',
+    'kimi',
+    'zhipu',
+    'deepseek',
+    'minimax',
+    'opencode_go',
+    'doubao',
+    'traework',
+    'workbuddy',
+    'zcode',
+  ] as const
+
+  it('marks compatible platforms as supported', () => {
     expect(supportsMixedScheduling('antigravity')).toBe(true)
-    expect(supportsMixedScheduling('traework')).toBe(true)
-    expect(supportsMixedScheduling('workbuddy')).toBe(true)
+    for (const platform of automaticOpenAIPlatforms) {
+      expect(supportsMixedScheduling(platform)).toBe(true)
+    }
     expect(supportsMixedScheduling('openai')).toBe(false)
     expect(supportsMixedScheduling('anthropic')).toBe(false)
     expect(supportsMixedScheduling(undefined)).toBe(false)
   })
 
   it('returns the compatible target groups', () => {
-    expect(mixedSchedulingTargets('traework')).toEqual(['openai'])
-    expect(mixedSchedulingTargets('workbuddy')).toEqual(['openai'])
+    for (const platform of automaticOpenAIPlatforms) {
+      expect(mixedSchedulingTargets(platform)).toEqual(['openai'])
+    }
     expect(mixedSchedulingTargets('antigravity')).toEqual(['anthropic', 'gemini'])
     expect(mixedSchedulingTargets('openai')).toEqual([])
+  })
+
+  it('distinguishes automatic compatibility from explicit opt-in', () => {
+    for (const platform of automaticOpenAIPlatforms) {
+      expect(usesAutomaticMixedScheduling(platform)).toBe(true)
+      expect(requiresMixedSchedulingOptIn(platform)).toBe(false)
+    }
+    expect(usesAutomaticMixedScheduling('antigravity')).toBe(false)
+    expect(requiresMixedSchedulingOptIn('antigravity')).toBe(true)
+    expect(usesAutomaticMixedScheduling('openai')).toBe(false)
+    expect(requiresMixedSchedulingOptIn('openai')).toBe(false)
   })
 
   it('reports whether a source platform can join a target group', () => {
@@ -33,7 +60,8 @@ describe('mixed scheduling mapping', () => {
   })
 
   it('exposes the same target list as the constant', () => {
-    expect(MIXED_SCHEDULING_TARGETS.traework).toEqual(['openai'])
-    expect(MIXED_SCHEDULING_TARGETS.workbuddy).toEqual(['openai'])
+    for (const platform of automaticOpenAIPlatforms) {
+      expect(MIXED_SCHEDULING_TARGETS[platform]).toEqual(['openai'])
+    }
   })
 })

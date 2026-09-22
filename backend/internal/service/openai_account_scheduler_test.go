@@ -72,6 +72,14 @@ func (r schedulerTestOpenAIAccountRepo) ListSchedulableUngroupedByPlatform(ctx c
 	return r.ListSchedulableByPlatform(ctx, platform)
 }
 
+func (r schedulerTestOpenAIAccountRepo) ListSchedulableByPlatforms(ctx context.Context, platforms []string) ([]Account, error) {
+	return r.ListSchedulableByGroupIDAndPlatforms(ctx, 0, platforms)
+}
+
+func (r schedulerTestOpenAIAccountRepo) ListSchedulableUngroupedByPlatforms(ctx context.Context, platforms []string) ([]Account, error) {
+	return r.ListSchedulableByPlatforms(ctx, platforms)
+}
+
 func (r schedulerTestOpenAIAccountRepo) ListModelAvailabilityCandidates(_ context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error) {
 	allowedPlatforms := make(map[string]struct{}, len(platforms))
 	for _, platform := range platforms {

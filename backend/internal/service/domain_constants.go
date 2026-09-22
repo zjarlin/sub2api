@@ -762,17 +762,24 @@ const AdminAPIKeyPrefix = "admin-"
 const SettingKeyAllowUserViewErrorRequests = "allow_user_view_error_requests"
 
 // MixedSchedulingCompatibleTargets 定义每个平台可加入的目标分组平台。
-// 启用账号的 extra.mixed_scheduling 后，账号即可参与这些目标平台分组的调度。
-// 后续新平台（如 zcode）只需扩展此表，调度核心无需改动。
+// OpenAI 兼容来源绑定目标分组即可参与调度；Antigravity 仍需 extra.mixed_scheduling。
+// OpenAI 兼容平台可复用 Codex 分组和入口，实际转发仍使用账号自身的协议配置。
 var MixedSchedulingCompatibleTargets = map[string][]string{
 	PlatformAntigravity: {PlatformAnthropic, PlatformGemini},
-	PlatformTraework:   {PlatformOpenAI},
-	PlatformWorkbuddy:  {PlatformOpenAI},
-	PlatformZcode:      {PlatformOpenAI},
+	PlatformGrok:        {PlatformOpenAI},
+	PlatformKimi:        {PlatformOpenAI},
+	PlatformZhipu:       {PlatformOpenAI},
+	PlatformDeepseek:    {PlatformOpenAI},
+	PlatformMiniMax:     {PlatformOpenAI},
+	PlatformOpenCodeGo:  {PlatformOpenAI},
+	PlatformDoubao:      {PlatformOpenAI},
+	PlatformTraework:    {PlatformOpenAI},
+	PlatformWorkbuddy:   {PlatformOpenAI},
+	PlatformZcode:       {PlatformOpenAI},
 }
 
 // MixedSchedulingSourcePlatforms 返回可加入某目标平台分组的来源平台列表。
-// 例如目标 openai 分组可由 traework/workbuddy 账号参与。结果按 map 值确定性排序。
+// 例如目标 openai 分组可由 Kimi 等兼容平台账号参与。结果按平台名确定性排序。
 func MixedSchedulingSourcePlatforms(targetPlatform string) []string {
 	out := make([]string, 0)
 	for source, targets := range MixedSchedulingCompatibleTargets {
@@ -787,7 +794,7 @@ func MixedSchedulingSourcePlatforms(targetPlatform string) []string {
 	return out
 }
 
-// SupportsMixedScheduling 报告平台是否支持混合调度（可开启并加入其他分组）。
+// SupportsMixedScheduling 报告平台是否支持加入其他平台的兼容协议分组。
 func SupportsMixedScheduling(platform string) bool {
 	_, ok := MixedSchedulingCompatibleTargets[platform]
 	return ok

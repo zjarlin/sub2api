@@ -61,7 +61,8 @@ describe('GroupSelector mixed-scheduling platform filter', () => {
   const mixedGroups = [
     { id: 10, name: 'Codex', platform: 'openai', status: 'active' },
     { id: 11, name: 'Claude', platform: 'anthropic', status: 'active' },
-    { id: 12, name: 'Combined', platform: 'composite', status: 'active' }
+    { id: 12, name: 'Combined', platform: 'composite', status: 'active' },
+    { id: 13, name: 'Gemini', platform: 'gemini', status: 'active' }
   ] as any
 
   const mountMixed = (props: Record<string, unknown>) => mount(GroupSelector, {
@@ -69,25 +70,33 @@ describe('GroupSelector mixed-scheduling platform filter', () => {
     global: { stubs: { GroupBadge: { props: ['name'], template: '<span>{{ name }}</span>' }, Icon: true } }
   })
 
-  it('hides openai groups from traework accounts without mixed scheduling', () => {
-    const wrapper = mountMixed({ platform: 'traework', mixedScheduling: false })
-    expect(wrapper.text()).not.toContain('Codex')
+  it('shows openai groups to kimi accounts without mixed scheduling', () => {
+    const wrapper = mountMixed({ platform: 'kimi', mixedScheduling: false })
+    expect(wrapper.text()).toContain('Codex')
     expect(wrapper.text()).toContain('Combined')
+    expect(wrapper.text()).not.toContain('Claude')
+    expect(wrapper.text()).not.toContain('Gemini')
   })
 
-  it('shows openai groups to traework accounts once mixed scheduling is enabled', () => {
-    const wrapper = mountMixed({ platform: 'traework', mixedScheduling: true })
+  it('shows openai groups to automatic compatible accounts when the flag is omitted', () => {
+    const wrapper = mountMixed({ platform: 'workbuddy' })
     expect(wrapper.text()).toContain('Codex')
     expect(wrapper.text()).toContain('Combined')
     expect(wrapper.text()).not.toContain('Claude')
   })
 
-  it('shows openai groups to workbuddy accounts once mixed scheduling is enabled', () => {
-    const wrapper = mountMixed({ platform: 'workbuddy', mixedScheduling: true })
-    expect(wrapper.text()).toContain('Codex')
+  it('keeps antigravity compatible groups hidden until mixed scheduling is enabled', async () => {
+    const wrapper = mountMixed({ platform: 'antigravity', mixedScheduling: false })
+    expect(wrapper.text()).not.toContain('Claude')
+    expect(wrapper.text()).not.toContain('Gemini')
+
+    await wrapper.setProps({ mixedScheduling: true })
+    expect(wrapper.text()).toContain('Claude')
+    expect(wrapper.text()).toContain('Gemini')
+    expect(wrapper.text()).not.toContain('Codex')
   })
 
-  it('never shows anthropic groups to traework accounts', () => {
+  it('never shows anthropic groups to automatic openai-compatible accounts', () => {
     const wrapper = mountMixed({ platform: 'traework', mixedScheduling: true })
     expect(wrapper.text()).not.toContain('Claude')
   })

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"time"
 )
@@ -67,13 +68,18 @@ func healthCheckedModelIDs(
 	if !ok {
 		return nil, false
 	}
-	observations, err := reader.ListModelHealthObservations(
-		ctx,
-		groupID,
-		platform,
-	)
-	if err != nil {
-		return []string{}, true
+	observationPlatforms := modelHealthObservationPlatforms(platform, accounts)
+	observations := make([]ModelHealthObservation, 0)
+	for _, observationPlatform := range observationPlatforms {
+		platformObservations, err := reader.ListModelHealthObservations(
+			ctx,
+			groupID,
+			observationPlatform,
+		)
+		if err != nil {
+			return []string{}, true
+		}
+		observations = append(observations, platformObservations...)
 	}
 
 	accountsByID := make(map[int64]*Account, len(accounts))
@@ -89,6 +95,30 @@ func healthCheckedModelIDs(
 		out = append(out, model)
 	}
 	return out, true
+}
+
+// 目标分组可能包含多个 OpenAI 兼容来源，健康记录必须按账号真实平台读取。
+// 未指定目标平台的全局列表保留一次无平台过滤查询。
+func modelHealthObservationPlatforms(platform string, accounts []Account) []string {
+	if strings.TrimSpace(platform) == "" {
+		return []string{""}
+	}
+
+	seen := make(map[string]struct{}, len(accounts))
+	platforms := make([]string, 0, len(accounts))
+	for i := range accounts {
+		accountPlatform := strings.TrimSpace(accounts[i].Platform)
+		if accountPlatform == "" {
+			continue
+		}
+		if _, exists := seen[accountPlatform]; exists {
+			continue
+		}
+		seen[accountPlatform] = struct{}{}
+		platforms = append(platforms, accountPlatform)
+	}
+	sort.Strings(platforms)
+	return platforms
 }
 
 func addHealthCheckedModel(models map[string]struct{}, account *Account, model string) {

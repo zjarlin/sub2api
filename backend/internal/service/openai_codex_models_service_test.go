@@ -1333,6 +1333,72 @@ func TestBuildGroupConfiguredCodexModelsManifestUsesAdministratorConfiguration(t
 	require.Equal(t, manifest.ETag, notModified.ETag)
 }
 
+func TestBuildGroupConfiguredCodexModelsManifestIncludesBoundCompatibleDirectModels(t *testing.T) {
+	t.Parallel()
+
+	const groupID int64 = 178
+	zcode := Account{ID: 830, Platform: PlatformZcode, Type: AccountTypeAPIKey}
+	zcode.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
+		Source:   "upstream",
+		SyncedAt: time.Now().UTC().Format(time.RFC3339),
+		Models:   []string{"glm-5.3"},
+	})
+	openCodeGo := Account{ID: 831, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey}
+	openCodeGo.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
+		Source:   "upstream",
+		SyncedAt: time.Now().UTC().Format(time.RFC3339),
+		Models:   []string{"muse-spark-1.3"},
+	})
+	svc := &OpenAIGatewayService{accountRepo: codexModelsVisibilityAccountRepo{
+		byGroup: map[int64][]Account{
+			groupID: {
+				zcode,
+				openCodeGo,
+				{ID: 832, Platform: PlatformAnthropic, Credentials: map[string]any{
+					"model_mapping": map[string]any{"claude-unrelated": "claude-opus-4-8"},
+				}},
+			},
+			179: {{ID: 833, Platform: PlatformZcode, Credentials: map[string]any{
+				"model_mapping": map[string]any{"other-group-model": "glm-5.3-flash"},
+			}}},
+		},
+	}}
+
+	manifest, configured, err := svc.BuildGroupConfiguredCodexModelsManifest(
+		context.Background(),
+		&Group{ID: groupID, Platform: PlatformOpenAI},
+		"",
+	)
+	require.NoError(t, err)
+	require.True(t, configured)
+	require.Equal(t, []string{"glm-5.3", "muse-spark-1.3"}, codexManifestModelSlugs(t, manifest.Body))
+}
+
+func TestLoadCodexGroupCatalogAccountsQueriesAndFiltersOpenAICompatiblePlatforms(t *testing.T) {
+	t.Parallel()
+
+	const groupID int64 = 179
+	repo := &countingCodexModelsAccountRepo{accounts: []Account{
+		{ID: 840, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey},
+		{ID: 841, Platform: PlatformAnthropic, Type: AccountTypeAPIKey},
+	}}
+
+	visible, catalog, err := loadCodexGroupCatalogAccounts(
+		context.Background(),
+		repo,
+		groupID,
+		PlatformOpenAI,
+	)
+	require.NoError(t, err)
+	require.Len(t, visible, 1)
+	require.Equal(t, int64(840), visible[0].ID)
+	require.Len(t, catalog, 1)
+	require.Equal(t, int64(840), catalog[0].ID)
+	require.Contains(t, repo.platforms, PlatformOpenAI)
+	require.Contains(t, repo.platforms, PlatformOpenCodeGo)
+	require.NotContains(t, repo.platforms, PlatformAnthropic)
+}
+
 func TestBuildHealthCheckedCodexModelsManifestExcludesUnverifiedModels(t *testing.T) {
 	t.Parallel()
 
@@ -1371,6 +1437,47 @@ func TestBuildHealthCheckedCodexModelsManifestExcludesUnverifiedModels(t *testin
 	require.NoError(t, err)
 	require.True(t, healthChecked)
 	require.ElementsMatch(t, []string{"gpt-healthy", "gpt-unused"}, codexManifestModelSlugs(t, manifest.Body))
+}
+
+func TestBuildHealthCheckedCodexModelsManifestIncludesCompatibleSourceHealth(t *testing.T) {
+	t.Parallel()
+
+	const groupID int64 = 180
+	zcode := Account{ID: 850, Platform: PlatformZcode, Type: AccountTypeAPIKey}
+	zcode.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
+		Source:   "upstream",
+		SyncedAt: time.Now().UTC().Format(time.RFC3339),
+		Models:   []string{"glm-5.3"},
+	})
+	unrelated := Account{
+		ID:          851,
+		Platform:    PlatformAnthropic,
+		Credentials: map[string]any{"model_mapping": map[string]any{"claude-unrelated": "claude-opus-4-8"}},
+	}
+	usageRepo := &modelHealthUsageRepoStub{observationsByPlatform: map[string][]ModelHealthObservation{
+		PlatformZcode: {{AccountID: zcode.ID, Model: "glm-5.3", CheckedAt: time.Now()}},
+		PlatformAnthropic: {{
+			AccountID: unrelated.ID,
+			Model:     "claude-unrelated",
+			CheckedAt: time.Now(),
+		}},
+	}}
+	svc := &OpenAIGatewayService{
+		accountRepo: codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{
+			groupID: {zcode, unrelated},
+		}},
+		usageLogRepo: usageRepo,
+	}
+
+	manifest, healthChecked, err := svc.BuildHealthCheckedCodexModelsManifest(
+		context.Background(),
+		&Group{ID: groupID, Platform: PlatformOpenAI},
+		"",
+	)
+	require.NoError(t, err)
+	require.True(t, healthChecked)
+	require.Equal(t, []string{"glm-5.3"}, codexManifestModelSlugs(t, manifest.Body))
+	require.Equal(t, []string{PlatformZcode}, usageRepo.platforms)
 }
 
 // Scenario: OpenAI 通配映射展开组内精确选择，但不发布通配符 slug。

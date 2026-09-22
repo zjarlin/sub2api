@@ -858,7 +858,7 @@ func resolveRequestedModelInMapping(mapping map[string]string, requestedModel st
 }
 
 // IsModelSupported 优先使用上游模型目录，目录未知时回退到显式模型配置。
-// OpenAI API Key 账号和透传账号必须有模型支持依据，不能把未知能力当成全部支持。
+// OpenAI API Key、兼容协议来源和透传账号必须有模型支持依据，不能把未知能力当成全部支持。
 //
 // 例外：OpenAI OAuth 账号（Codex 上游）的空映射会排除明确属于其他厂商
 // 家族的模型（deepseek-*/glm-* 等）——转发阶段 normalizeOpenAIModelForUpstream
@@ -890,6 +890,10 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 		}
 		if a.Platform == PlatformDeepseek {
 			return isDeepseekServableModel(requestedModel)
+		}
+		// 混合调度来源必须有模型支持依据，避免空目录的兼容账号抢占其他厂商请求。
+		if a.IsMixedSchedulingEnabled() && mixedSchedulingTargetsPlatform(a.Platform, PlatformOpenAI) {
+			return false
 		}
 		return !(a.IsOpenAI() && a.Type == AccountTypeAPIKey)
 	}
@@ -2082,13 +2086,15 @@ func (a *Account) IsOpenAITokenExpired() bool {
 	return time.Now().Add(60 * time.Second).After(*expiresAt)
 }
 
-// IsMixedSchedulingEnabled 检查账号是否启用混合调度。
-// 启用后可加入其兼容的目标平台分组（见 MixedSchedulingTargetPlatforms）。
-// 目前支持 antigravity（anthropic/gemini 分组）与内置适配器平台
-// traework/workbuddy（openai/Codex 分组）；后续平台只需扩展目标映射表。
+// IsMixedSchedulingEnabled 检查账号是否可参与兼容协议分组的调度。
+// OpenAI 兼容来源以分组绑定作为调度授权，无需额外开启混合调度。
+// Antigravity 的 Anthropic/Gemini 混合调度仍保留显式开关。
 func (a *Account) IsMixedSchedulingEnabled() bool {
 	if a == nil || !SupportsMixedScheduling(a.Platform) {
 		return false
+	}
+	if mixedSchedulingTargetsPlatform(a.Platform, PlatformOpenAI) {
+		return true
 	}
 	if a.Extra == nil {
 		return false

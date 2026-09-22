@@ -198,6 +198,7 @@
         <div class="mt-2 flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700">
           <button
             type="button"
+            data-testid="platform-kimi"
             @click="selectCNPlatform('kimi')"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all',
@@ -3548,8 +3549,12 @@
       </div>
 
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
-        <!-- Mixed Scheduling: 支持混合调度的平台（antigravity / traework / workbuddy 等） -->
-        <div v-if="supportsMixedScheduling(form.platform)" class="flex items-center gap-2">
+        <!-- Antigravity 需要显式开启跨平台分组调度。 -->
+        <div
+          v-if="requiresMixedSchedulingOptIn(form.platform)"
+          class="flex items-center gap-2"
+          data-testid="mixed-scheduling-toggle"
+        >
           <label class="flex cursor-pointer items-center gap-2">
             <input
               type="checkbox"
@@ -3577,6 +3582,13 @@
             </div>
           </div>
         </div>
+        <p
+          v-if="usesAutomaticMixedScheduling(form.platform)"
+          class="mt-2 text-xs text-gray-500 dark:text-gray-400"
+          data-testid="automatic-mixed-scheduling-hint"
+        >
+          {{ t('admin.accounts.automaticMixedSchedulingHint') }}
+        </p>
         <div v-if="form.platform === 'antigravity'" class="mt-3 flex items-center gap-2">
           <label class="flex cursor-pointer items-center gap-2">
             <input
@@ -4057,7 +4069,10 @@ import {
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import { getAccountExpiryTimestamp } from '@/components/account/accountExpiry'
 import { VERTEX_LOCATION_OPTIONS } from '@/constants/account'
-import { supportsMixedScheduling } from '@/constants/platforms'
+import {
+  requiresMixedSchedulingOptIn,
+  usesAutomaticMixedScheduling
+} from '@/constants/platforms'
 import {
   OPENAI_WS_MODE_CTX_POOL,
   OPENAI_WS_MODE_OFF,
@@ -4606,9 +4621,12 @@ adminAPI.settings.getWebSearchEmulationConfig().then(cfg => {
 }).catch(() => { webSearchGlobalEnabled.value = false })
 
 loadQuotaNotifyGlobal()
-const mixedScheduling = ref(false) // For antigravity accounts: enable mixed scheduling
-const allowOverages = ref(false) // For antigravity accounts: enable AI Credits overages
-const antigravityAccountType = ref<'oauth' | 'upstream'>('oauth') // For antigravity: oauth or upstream
+// Antigravity 账号需要显式开启跨平台分组调度。
+const mixedScheduling = ref(false)
+// Antigravity 账号可选择允许消耗 AI Credits 超额额度。
+const allowOverages = ref(false)
+// Antigravity 可使用 OAuth 或自定义上游账号。
+const antigravityAccountType = ref<'oauth' | 'upstream'>('oauth')
 const antigravityProjectId = ref('')
 const upstreamBaseUrl = ref('') // For upstream type: base URL
 const upstreamApiKey = ref('') // For upstream type: API key
@@ -4711,9 +4729,9 @@ function buildAntigravityExtra(): Record<string, unknown> | undefined {
   return Object.keys(extra).length > 0 ? extra : undefined
 }
 
-// buildMixedSchedulingExtra 为支持混合调度的平台（含 traework/workbuddy）生成 extra。
+// 只有需要显式开启的平台才写入 mixed_scheduling。
 function buildMixedSchedulingExtra(): Record<string, unknown> | undefined {
-  if (!supportsMixedScheduling(form.platform) || !mixedScheduling.value) return undefined
+  if (!requiresMixedSchedulingOptIn(form.platform) || !mixedScheduling.value) return undefined
   return { mixed_scheduling: true }
 }
 
@@ -5472,7 +5490,7 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
       Object.values(modelMapping).some((target) =>
         typeof target === 'string' && target.trim() !== '' && !target.includes('*')
       )
-    const needsModelCatalog = (payload.platform === 'openai' || payload.platform === 'doubao' || payload.platform === 'traework' || payload.platform === 'workbuddy' || payload.platform === 'zcode') &&
+    const needsModelCatalog = (payload.platform === 'openai' || usesAutomaticMixedScheduling(payload.platform)) &&
       (payload.type === 'apikey' || payload.extra?.openai_passthrough === true)
     if (upstreamModelsPreviewed.value || hasConcreteMappedTarget || needsModelCatalog) {
       try {

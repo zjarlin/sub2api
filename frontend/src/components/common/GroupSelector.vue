@@ -35,6 +35,9 @@
             type="checkbox"
             :value="group.id"
             :checked="modelValue.includes(group.id)"
+            data-testid="group-option-checkbox"
+            :data-group-id="group.id"
+            :data-group-platform="group.platform"
             @change="handleChange(group.id, ($event.target as HTMLInputElement).checked)"
             class="h-3.5 w-3.5 shrink-0 rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
           />
@@ -81,7 +84,7 @@ import { useI18n } from 'vue-i18n'
 import GroupBadge from './GroupBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import type { Group, GroupPlatform } from '@/types'
-import { mixedSchedulingTargets } from '@/constants/platforms'
+import { mixedSchedulingTargets, usesAutomaticMixedScheduling } from '@/constants/platforms'
 import { useAuthStore } from '@/stores'
 
 const { t } = useI18n()
@@ -90,8 +93,8 @@ const authStore = useAuthStore()
 interface Props {
   modelValue: number[]
   groups: (Group & { account_count?: number })[]
-  platform?: GroupPlatform // Optional platform filter
-  mixedScheduling?: boolean // For antigravity accounts: allow anthropic/gemini groups
+  platform?: GroupPlatform // 可选的平台筛选条件
+  mixedScheduling?: boolean // Antigravity 账号启用后可选择 Anthropic/Gemini 分组
   searchable?: boolean | 'auto'
   showDefaultSelector?: boolean
   defaultGroupId?: number | null
@@ -114,14 +117,15 @@ const isSearchable = computed(() => {
   return props.searchable
 })
 
-// Filter groups by platform if specified
+// 指定平台时，仅展示该平台、组合分组及兼容的目标分组。
 const filteredGroups = computed(() => {
   let result = authStore.isSimpleMode
     ? props.groups.filter((g) => g.platform !== 'composite')
     : props.groups
   if (props.platform) {
-    // 启用混合调度后，可额外选择该平台兼容的目标分组（如 traework/workbuddy -> openai）。
-    const extraTargets = props.mixedScheduling ? mixedSchedulingTargets(props.platform) : []
+    const enablesCompatibleTargets =
+      usesAutomaticMixedScheduling(props.platform) || props.mixedScheduling
+    const extraTargets = enablesCompatibleTargets ? mixedSchedulingTargets(props.platform) : []
     result = result.filter(
       (g) =>
         g.platform === props.platform ||

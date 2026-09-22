@@ -123,8 +123,9 @@ func TestSchedulerBulkAccountEventScopesOpenAIRebuildToFreshPlatform(t *testing.
 	require.Empty(t, deleted)
 }
 
-func TestSchedulerBulkAccountEventScopesCNRebuildToFreshPlatform(t *testing.T) {
-	for _, platform := range []string{PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo} {
+func TestSchedulerBulkAccountEventRebuildsOpenAICompatibleSourceAndTargetPlatforms(t *testing.T) {
+	for _, platform := range []string{PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax,
+		PlatformOpenCodeGo, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformZcode} {
 		t.Run(platform, func(t *testing.T) {
 			cache := newBulkEventSnapshotCache()
 			repo := newBulkEventAccountRepo(&Account{ID: 1, Platform: platform, GroupIDs: []int64{12}})
@@ -133,7 +134,7 @@ func TestSchedulerBulkAccountEventScopesCNRebuildToFreshPlatform(t *testing.T) {
 			err := svc.handleBulkAccountEvent(context.Background(), bulkEventPayload([]int64{1}, []int64{11}), make(map[batchSeenKey]struct{}))
 
 			require.NoError(t, err)
-			require.ElementsMatch(t, schedulerBucketsForTest([]int64{11, 12}, platform), cache.capturedBuckets())
+			require.ElementsMatch(t, schedulerBucketsForTest([]int64{11, 12}, platform, PlatformOpenAI), cache.capturedBuckets())
 		})
 	}
 }
@@ -175,7 +176,7 @@ func TestSchedulerBulkAccountEventDoesNotCrossCurrentGroupsBetweenPlatforms(t *t
 
 	require.NoError(t, err)
 	want := append(
-		schedulerBucketsForTest([]int64{61, 63}, PlatformOpenAI),
+		schedulerBucketsForTest([]int64{61, 62, 63}, PlatformOpenAI),
 		schedulerBucketsForTest([]int64{62, 63}, PlatformGrok)...,
 	)
 	require.ElementsMatch(t, want, cache.capturedBuckets())
@@ -190,6 +191,17 @@ func TestSchedulerBulkAccountEventUsesGroupZeroInSimpleMode(t *testing.T) {
 
 	require.NoError(t, err)
 	require.ElementsMatch(t, schedulerBucketsForTest([]int64{0}, PlatformOpenAI), cache.capturedBuckets())
+}
+
+func TestSchedulerBulkAccountEventUsesGroupZeroForCompatibleTargetsInSimpleMode(t *testing.T) {
+	cache := newBulkEventSnapshotCache()
+	repo := newBulkEventAccountRepo(&Account{ID: 11, Platform: PlatformKimi, GroupIDs: []int64{71}})
+	svc := NewSchedulerSnapshotService(cache, nil, repo, nil, &config.Config{RunMode: config.RunModeSimple})
+
+	err := svc.handleBulkAccountEvent(context.Background(), bulkEventPayload([]int64{11}, []int64{72}), make(map[batchSeenKey]struct{}))
+
+	require.NoError(t, err)
+	require.ElementsMatch(t, schedulerBucketsForTest([]int64{0}, PlatformKimi, PlatformOpenAI), cache.capturedBuckets())
 }
 
 func TestSchedulerBulkAccountEventConservativelyExpandsAntigravityPlatforms(t *testing.T) {
@@ -241,6 +253,13 @@ func TestSchedulerAccountEventRebuildsMixedTargetBuckets(t *testing.T) {
 		platform       string
 		expectedTarget string
 	}{
+		{PlatformGrok, PlatformOpenAI},
+		{PlatformKimi, PlatformOpenAI},
+		{PlatformZhipu, PlatformOpenAI},
+		{PlatformDeepseek, PlatformOpenAI},
+		{PlatformMiniMax, PlatformOpenAI},
+		{PlatformOpenCodeGo, PlatformOpenAI},
+		{PlatformDoubao, PlatformOpenAI},
 		{PlatformTraework, PlatformOpenAI},
 		{PlatformWorkbuddy, PlatformOpenAI},
 		{PlatformZcode, PlatformOpenAI},
@@ -271,15 +290,15 @@ func TestSchedulerAccountEventRebuildsMixedTargetBuckets(t *testing.T) {
 	}
 }
 
-// 未启用开关时不重建目标平台 bucket，避免无谓刷新。
+// Antigravity 仍需要显式开启跨协议混合调度。
 func TestSchedulerAccountEventSkipsMixedTargetBucketsWhenDisabled(t *testing.T) {
 	cache := newBulkEventSnapshotCache()
-	account := &Account{ID: 43, Platform: PlatformTraework, GroupIDs: []int64{78}}
+	account := &Account{ID: 43, Platform: PlatformAntigravity, GroupIDs: []int64{78}}
 	repo := newBulkEventAccountRepo(account)
 	svc := newBulkEventTestService(cache, repo)
 
 	accountID := int64(43)
 	require.NoError(t, svc.handleAccountEvent(context.Background(), &accountID, nil, make(map[batchSeenKey]struct{})))
 
-	require.ElementsMatch(t, schedulerBucketsForTest([]int64{78}, PlatformTraework), cache.capturedBuckets())
+	require.ElementsMatch(t, schedulerBucketsForTest([]int64{78}, PlatformAntigravity), cache.capturedBuckets())
 }

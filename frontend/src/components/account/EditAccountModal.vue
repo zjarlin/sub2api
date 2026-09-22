@@ -2916,8 +2916,12 @@
           <Select v-model="form.status" :options="statusOptions" />
         </div>
 
-        <!-- Mixed Scheduling: 支持混合调度的平台（antigravity / traework / workbuddy 等） -->
-        <div v-if="supportsMixedScheduling(account?.platform)" class="flex items-center gap-2">
+        <!-- Antigravity 需要显式开启跨平台分组调度。 -->
+        <div
+          v-if="requiresMixedSchedulingOptIn(account?.platform)"
+          class="flex items-center gap-2"
+          data-testid="mixed-scheduling-toggle"
+        >
           <label class="flex cursor-pointer items-center gap-2">
             <input
               type="checkbox"
@@ -2945,6 +2949,13 @@
             </div>
           </div>
         </div>
+        <p
+          v-if="usesAutomaticMixedScheduling(account?.platform)"
+          class="mt-2 text-xs text-gray-500 dark:text-gray-400"
+          data-testid="automatic-mixed-scheduling-hint"
+        >
+          {{ t('admin.accounts.automaticMixedSchedulingHint') }}
+        </p>
         <div v-if="account?.platform === 'antigravity'" class="mt-3 flex items-center gap-2">
           <label class="flex cursor-pointer items-center gap-2">
             <input
@@ -3037,7 +3048,10 @@
 </template>
 
 <script setup lang="ts">
-import { supportsMixedScheduling } from '@/constants/platforms'
+import {
+  requiresMixedSchedulingOptIn,
+  usesAutomaticMixedScheduling
+} from '@/constants/platforms'
 import BuiltinAdapterLogin from './BuiltinAdapterLogin.vue'
 import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -3481,14 +3495,16 @@ const autoResetCredit7dThreshold = ref(100)
 const upstreamBillingAutoProbeEnabled = ref(false)
 const modelProbePolicy = ref(readModelProbePolicy())
 const upstreamBillingRateSyncEnabled = ref(false)
-const mixedScheduling = ref(false) // For antigravity accounts: enable mixed scheduling
+// Antigravity 账号需要显式开启跨平台分组调度。
+const mixedScheduling = ref(false)
 // 上游ID：直接上游声明请求标识的响应头名，留空不记录。
 const upstreamRequestIdHeader = ref('')
 const readUpstreamRequestIdHeader = (extra: unknown): string => {
   const value = (extra as Record<string, unknown> | undefined)?.upstream_request_id_header
   return typeof value === 'string' ? value : ''
 }
-const allowOverages = ref(false) // For antigravity accounts: enable AI Credits overages
+// Antigravity 账号可选择允许消耗 AI Credits 超额额度。
+const allowOverages = ref(false)
 const antigravityProjectId = ref('')
 const antigravityModelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const antigravityWhitelistModels = ref<string[]>([])
@@ -5400,8 +5416,8 @@ const handleSubmit = async () => {
       updatePayload.credentials = newCredentials
     }
 
-    // 支持混合调度的平台：处理 mixed_scheduling（antigravity 还含 allow_overages）
-    if (supportsMixedScheduling(props.account.platform)) {
+    // 只有需要显式开启的平台才更新 mixed_scheduling。
+    if (requiresMixedSchedulingOptIn(props.account.platform)) {
       const currentExtra = (props.account.extra as Record<string, unknown>) || {}
       const newExtra: Record<string, unknown> = { ...currentExtra }
       if (mixedScheduling.value) {

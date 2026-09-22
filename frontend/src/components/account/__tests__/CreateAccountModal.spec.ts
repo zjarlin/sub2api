@@ -259,6 +259,25 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(payload.credentials.api_key).toBeUndefined()
   })
 
+  it('creates Kimi without mixed_scheduling and synchronizes its model catalog', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="platform-kimi"]').trigger('click')
+
+    expect(wrapper.find('[data-testid="mixed-scheduling-toggle"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="automatic-mixed-scheduling-hint"]').exists()).toBe(true)
+
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Kimi account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('sk-kimi')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    const payload = createAccountMock.mock.calls[0]?.[0]
+    expect(payload).toMatchObject({ platform: 'kimi', type: 'apikey' })
+    expect(payload?.extra?.mixed_scheduling).toBeUndefined()
+    expect(syncUpstreamModelsMock).toHaveBeenCalledWith(42)
+  })
+
   beforeEach(() => {
     authIsSimpleMode.value = true
     createAccountMock.mockReset().mockResolvedValue({ id: 42, platform: 'openai', type: 'apikey' })

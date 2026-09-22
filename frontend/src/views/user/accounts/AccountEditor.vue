@@ -109,7 +109,11 @@
           <span>{{ t('myAccounts.sharePublicly') }}</span>
         </label>
 
-        <div v-if="supportsMixedScheduling(form.platform)" class="mt-3 space-y-2">
+        <div
+          v-if="requiresMixedSchedulingOptIn(form.platform)"
+          class="mt-3 space-y-2"
+          data-testid="mixed-scheduling-toggle"
+        >
           <label class="flex cursor-pointer items-center gap-2 text-sm">
             <input v-model="form.mixedScheduling" type="checkbox" class="accent-primary-600" />
             <span>{{ t('admin.accounts.mixedScheduling') }}</span>
@@ -119,6 +123,13 @@
             <span>{{ t('admin.accounts.allowOverages') }}</span>
           </label>
         </div>
+        <p
+          v-if="usesAutomaticMixedScheduling(form.platform)"
+          class="mt-3 text-xs text-gray-500 dark:text-gray-400"
+          data-testid="automatic-mixed-scheduling-hint"
+        >
+          {{ t('admin.accounts.automaticMixedSchedulingHint') }}
+        </p>
 
         <GroupSelector
           v-model="form.groupIds"
@@ -201,7 +212,11 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import Select from '@/components/common/Select.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
-import { CONCRETE_PLATFORM_OPTIONS, supportsMixedScheduling } from '@/constants/platforms'
+import {
+  CONCRETE_PLATFORM_OPTIONS,
+  requiresMixedSchedulingOptIn,
+  usesAutomaticMixedScheduling
+} from '@/constants/platforms'
 import { buildModelMappingObject, splitModelMappingObject, type ModelRestrictionMode } from '@/composables/useModelWhitelist'
 import { getAccountExpiryTimestamp } from '@/components/account/accountExpiry'
 import { formatDateTimeLocalInput, getBrowserTimeZone, parseDateTimeLocalInput } from '@/utils/format'

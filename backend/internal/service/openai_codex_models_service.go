@@ -131,7 +131,7 @@ func (s *OpenAIGatewayService) BuildHealthCheckedCodexModelsManifest(
 		return nil, false, nil
 	}
 
-	visible, catalog, err := loadCodexGroupCatalogAccounts(ctx, s.accountRepo, group.ID)
+	visible, catalog, err := loadCodexGroupCatalogAccounts(ctx, s.accountRepo, group.ID, group.Platform)
 	if err != nil {
 		return nil, true, fmt.Errorf("load health-checked Codex models: %w", err)
 	}
@@ -175,7 +175,7 @@ func (s *OpenAIGatewayService) BuildGroupConfiguredCodexModelsManifest(
 		return nil, false, nil
 	}
 
-	visible, catalog, err := loadCodexGroupCatalogAccounts(ctx, s.accountRepo, group.ID)
+	visible, catalog, err := loadCodexGroupCatalogAccounts(ctx, s.accountRepo, group.ID, group.Platform)
 	if err != nil {
 		return nil, false, fmt.Errorf("load group configured Codex models: %w", err)
 	}
@@ -253,7 +253,7 @@ func (s *OpenAIGatewayService) MergeGroupConfiguredCodexModels(
 	if err != nil {
 		return fmt.Errorf("merge group configured Codex models: %w", err)
 	}
-	_, accounts, listErr := loadCodexGroupCatalogAccounts(ctx, s.accountRepo, group.ID)
+	_, accounts, listErr := loadCodexGroupCatalogAccounts(ctx, s.accountRepo, group.ID, group.Platform)
 	if listErr != nil {
 		return listErr
 	}
@@ -299,7 +299,12 @@ func (s *OpenAIGatewayService) groupConfiguredCodexModelIDs(ctx context.Context,
 // capabilities. Persistently disabled accounts are excluded because routing
 // cannot select them. If the availability query fails, the catalog falls back
 // to the schedulable set so a listing error does not fail the client request.
-func loadCodexGroupCatalogAccounts(ctx context.Context, repo AccountRepository, groupID int64) (visible []Account, catalog []Account, err error) {
+func loadCodexGroupCatalogAccounts(
+	ctx context.Context,
+	repo AccountRepository,
+	groupID int64,
+	targetPlatform string,
+) (visible []Account, catalog []Account, err error) {
 	if repo == nil {
 		return nil, nil, nil
 	}
@@ -307,11 +312,23 @@ func loadCodexGroupCatalogAccounts(ctx context.Context, repo AccountRepository, 
 	if err != nil {
 		return nil, nil, err
 	}
+	visible = filterCodexCatalogAccountsForPlatform(visible, targetPlatform)
 	catalog = visible
 	groupAccounts, listErr := repo.ListModelAvailabilityCandidates(
 		ctx,
 		&groupID,
-		[]string{
+		codexCatalogCandidatePlatforms(targetPlatform),
+		false,
+	)
+	if listErr != nil {
+		return visible, catalog, nil
+	}
+	return visible, filterCodexCatalogAccountsForPlatform(groupAccounts, targetPlatform), nil
+}
+
+func codexCatalogCandidatePlatforms(targetPlatform string) []string {
+	if targetPlatform == PlatformComposite {
+		return []string{
 			PlatformAnthropic,
 			PlatformOpenAI,
 			PlatformGemini,
@@ -321,17 +338,34 @@ func loadCodexGroupCatalogAccounts(ctx context.Context, repo AccountRepository, 
 			PlatformZhipu,
 			PlatformDeepseek,
 			PlatformMiniMax,
+			PlatformOpenCodeGo,
 			PlatformDoubao,
 			PlatformTraework,
 			PlatformWorkbuddy,
 			PlatformZcode,
-		},
-		false,
-	)
-	if listErr != nil {
-		return visible, catalog, nil
+		}
 	}
-	return visible, groupAccounts, nil
+	targetPlatform = strings.TrimSpace(targetPlatform)
+	if targetPlatform == "" {
+		return nil
+	}
+	return append([]string{targetPlatform}, MixedSchedulingSourcePlatforms(targetPlatform)...)
+}
+
+func filterCodexCatalogAccountsForPlatform(accounts []Account, targetPlatform string) []Account {
+	filtered := make([]Account, 0, len(accounts))
+	for i := range accounts {
+		if targetPlatform == PlatformComposite {
+			if isConcreteRequestPlatform(accounts[i].Platform) {
+				filtered = append(filtered, accounts[i])
+			}
+			continue
+		}
+		if openAIAccountMatchesPlatform(&accounts[i], targetPlatform) {
+			filtered = append(filtered, accounts[i])
+		}
+	}
+	return filtered
 }
 
 func openAIConfiguredCodexModelIDs(accounts []Account) []string {
@@ -339,10 +373,29 @@ func openAIConfiguredCodexModelIDs(accounts []Account) []string {
 	models := make([]string, 0)
 	for i := range accounts {
 		account := &accounts[i]
-		if account.Platform != PlatformOpenAI {
+		if !openAIAccountMatchesPlatform(account, PlatformOpenAI) {
 			continue
 		}
-		for modelID := range account.GetModelMapping() {
+		mapping := account.GetModelMapping()
+		for modelID := range mapping {
+			modelID = strings.TrimSpace(modelID)
+			if modelID == "" || strings.Contains(modelID, "*") {
+				continue
+			}
+			if _, exists := seen[modelID]; exists {
+				continue
+			}
+			seen[modelID] = struct{}{}
+			models = append(models, modelID)
+		}
+		if len(mapping) > 0 {
+			continue
+		}
+		snapshot := account.GetUpstreamSupportedModelsSnapshot()
+		if snapshot == nil {
+			continue
+		}
+		for _, modelID := range snapshot.Models {
 			modelID = strings.TrimSpace(modelID)
 			if modelID == "" || strings.Contains(modelID, "*") {
 				continue
@@ -375,11 +428,10 @@ func openAIConfiguredCodexModelIDsForGroup(accounts []Account, group *Group) []s
 		}
 		for i := range accounts {
 			account := &accounts[i]
-			if account.Platform != PlatformOpenAI {
+			if !openAIAccountMatchesPlatform(account, PlatformOpenAI) {
 				continue
 			}
-			mappedModel, matched := account.ResolveMappedModel(selectedModel)
-			if !matched || strings.TrimSpace(mappedModel) == "" {
+			if !account.IsModelSupported(selectedModel) {
 				continue
 			}
 			if _, exists := seen[selectedModel]; !exists {
@@ -878,7 +930,7 @@ func (s *GatewayService) BuildCodexModelsManifestForGroup(
 		return BuildCodexModelsManifest(modelIDs)
 	}
 
-	_, catalog, err := loadCodexGroupCatalogAccounts(ctx, s.accountRepo, group.ID)
+	_, catalog, err := loadCodexGroupCatalogAccounts(ctx, s.accountRepo, group.ID, effectivePlatform)
 	if err != nil {
 		return BuildCodexModelsManifest(modelIDs)
 	}

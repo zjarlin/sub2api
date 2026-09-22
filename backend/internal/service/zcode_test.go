@@ -132,5 +132,5 @@ func TestZcodeMixedSchedulingIntoOpenAI(t *testing.T) {
 	acc := mixedSchedulingAccount(PlatformZcode, true)
 	require.True(t, acc.IsMixedSchedulingEnabled())
 	require.True(t, openAIAccountMatchesPlatform(acc, PlatformOpenAI))
-	require.False(t, openAIAccountMatchesPlatform(mixedSchedulingAccount(PlatformZcode, false), PlatformOpenAI))
+	require.True(t, openAIAccountMatchesPlatform(mixedSchedulingAccount(PlatformZcode, false), PlatformOpenAI))
 }

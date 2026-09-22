@@ -1082,10 +1082,12 @@ export default {
       expiresAtHint: 'Leave empty for no expiration',
       expiresAtTimezoneHint: 'Input is interpreted in your browser time zone ({timezone}).',
       higherPriorityFirst: 'Lower value means higher priority',
-      mixedScheduling: 'Use in /v1/messages',
-      mixedSchedulingHint: 'Enable to participate in Anthropic/Gemini group scheduling',
+      mixedScheduling: 'Enable cross-platform group scheduling',
+      mixedSchedulingHint: 'Antigravity only: allow this account to join compatible Anthropic and Gemini groups.',
       mixedSchedulingTooltip:
         '!! WARNING !! Antigravity Claude and Anthropic Claude cannot be used in the same context. If you have both Anthropic and Antigravity accounts, enabling this option will cause frequent 400 errors. When enabled, please use the group feature to isolate Antigravity accounts from Anthropic accounts. Make sure you understand this before enabling!!',
+      automaticMixedSchedulingHint:
+        'This platform can select and bind OpenAI/Codex groups directly. API key accounts sync the upstream model catalog after creation; you can also select an original model ID whitelist. Model IDs are forwarded unchanged and are not mapped automatically.',
       aiCreditsBalance: 'AI Credits',
       allowOverages: 'Allow Overages (AI Credits)',
       allowOveragesTooltip:
