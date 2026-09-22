@@ -191,6 +191,21 @@ func TestVisionFallbackUnavailableHelperAllowsOuterFailover(t *testing.T) {
 	}
 }
 
+func TestVisionFallbackWithoutHelperStripsImagesAndKeepsText(t *testing.T) {
+	primary := visionTestAccount(1, "text-model", "text")
+	cfg := visionTestConfig()
+	svc := &OpenAIGatewayService{cfg: cfg, accountRepo: &countingCodexModelsAccountRepo{accounts: []Account{primary}}}
+	body := []byte(visionTestInput)
+	c, recorder := visionTestContext(body, 9, 7)
+	converted, err := svc.prepareVisionFallback(context.Background(), c, &primary, body)
+	require.NoError(t, err)
+	require.Contains(t, string(converted), "Explain the error")
+	require.NotContains(t, string(converted), "input_image")
+	require.NotContains(t, string(converted), "data:image")
+	require.False(t, c.Writer.Written())
+	require.Empty(t, recorder.Body.String())
+}
+
 func TestVisionFallbackInvalidDescriptionAllowsOuterFailover(t *testing.T) {
 	for _, description := range []string{"", strings.Repeat("a", visionDescriptionMaxBytes+1)} {
 		primary := visionTestAccount(1, "text-model", "text")
