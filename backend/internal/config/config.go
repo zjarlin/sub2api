@@ -117,6 +117,8 @@ type BuiltinAdapterConfig struct {
 	TraeworkKey  string `mapstructure:"traework_key"`
 	WorkbuddyURL string `mapstructure:"workbuddy_url"`
 	WorkbuddyKey string `mapstructure:"workbuddy_key"`
+	ZcodeURL     string `mapstructure:"zcode_url"`
+	ZcodeKey     string `mapstructure:"zcode_key"`
 }
 
 // DesktopBaseURL 返回豆包桌面适配器地址，未显式配置时使用编排内的服务名。
@@ -141,6 +143,14 @@ func (c BuiltinAdapterConfig) WorkbuddyBaseURL() string {
 		return "http://sub2api-workbuddy:7863"
 	}
 	return strings.TrimSpace(c.WorkbuddyURL)
+}
+
+// ZcodeBaseURL 返回内置 ZCode 服务地址。
+func (c BuiltinAdapterConfig) ZcodeBaseURL() string {
+	if strings.TrimSpace(c.ZcodeURL) == "" {
+		return "http://sub2api-zcode:7865"
+	}
+	return strings.TrimSpace(c.ZcodeURL)
 }
 
 // PluginConfig 控制管理员手动上传的本地进程插件。
@@ -2045,6 +2055,8 @@ func setDefaults() {
 	viper.SetDefault("builtin_adapter.traework_key", "")
 	viper.SetDefault("builtin_adapter.workbuddy_url", "")
 	viper.SetDefault("builtin_adapter.workbuddy_key", "")
+	viper.SetDefault("builtin_adapter.zcode_url", "")
+	viper.SetDefault("builtin_adapter.zcode_key", "")
 
 	// Server
 	viper.SetDefault("server.host", "0.0.0.0")

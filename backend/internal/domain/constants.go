@@ -28,6 +28,8 @@ const (
 	// TRAE Work (SOLO CN) 反向代理适配器。
 	PlatformTraework  = "traework"
 	PlatformWorkbuddy = "workbuddy"
+	// ZCode (z.ai / 智谱 GLM Coding Plan) Anthropic 协议反向代理适配器。
+	PlatformZcode = "zcode"
 	// 国产 OpenAI 兼容供应商（经 OpenAI 网关转发，按 Chat Completions 协议）。
 	PlatformKimi     = "kimi"     // Kimi (月之暗面 / Moonshot)
 	PlatformZhipu    = "zhipu"    // 智谱 GLM (bigmodel)

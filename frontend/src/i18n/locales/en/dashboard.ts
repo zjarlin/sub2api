@@ -524,6 +524,7 @@ export default {
       doubao: 'Doubao',
       traework: 'TRAE Work',
       workbuddy: 'WorkBuddy',
+      zcode: 'ZCode',
       opencode_go: 'OpenCode'
     },
     // Check modes (how a monitor performs its checks)

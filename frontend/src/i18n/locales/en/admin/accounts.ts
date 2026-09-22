@@ -1,5 +1,11 @@
 export default {
     accounts: {
+      zcode: {
+        title: 'ZCode',
+        connectionHint: 'Uses the glm-zcode-2api adapter started with this Sub2API deployment. The server injects the URL and key.',
+        baseUrlHint: 'Optional. Leave blank to use the built-in ZCode adapter URL.',
+        apiKeyHint: 'Optional. Leave blank to use the built-in adapter key.',
+      },
       workbuddy: {
         title: 'WorkBuddy',
         baseUrlHint: 'Uses the built-in WorkBuddy service. No URL is required.',
@@ -159,6 +165,7 @@ export default {
         doubao: 'Doubao',
         traework: 'TRAE Work',
         workbuddy: 'WorkBuddy',
+        zcode: 'ZCode',
       opencode_go: 'OpenCode',
       },
       cnProviders: {

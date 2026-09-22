@@ -105,6 +105,7 @@ const PROVIDER_TINT: Record<string, string> = {
   doubao: 'text-cyan-600 dark:text-cyan-300',
   traework: 'text-lime-600 dark:text-lime-300',
   workbuddy: 'text-blue-600 dark:text-blue-300',
+  zcode: 'text-indigo-600 dark:text-indigo-300',
 }
 
 const props = defineProps<{

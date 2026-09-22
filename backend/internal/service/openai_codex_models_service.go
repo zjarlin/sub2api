@@ -324,6 +324,7 @@ func loadCodexGroupCatalogAccounts(ctx context.Context, repo AccountRepository, 
 			PlatformDoubao,
 			PlatformTraework,
 			PlatformWorkbuddy,
+			PlatformZcode,
 		},
 		false,
 	)

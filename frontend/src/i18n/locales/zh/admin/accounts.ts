@@ -1,5 +1,11 @@
 export default {
     accounts: {
+      zcode: {
+        title: 'ZCode',
+        connectionHint: '使用随 Sub2API 部署自动启动的 glm-zcode-2api 适配器。地址与密钥由后端注入，无需手填。',
+        baseUrlHint: '可选。默认使用内置 ZCode 适配器地址，留空即可。',
+        apiKeyHint: '可选。留空时使用内置适配器共享密钥。',
+      },
       workbuddy: {
         title: 'WorkBuddy',
         baseUrlHint: '使用内置 WorkBuddy 服务，无需填写地址。',
@@ -362,6 +368,7 @@ export default {
         doubao: '豆包',
         traework: 'TRAE Work',
         workbuddy: 'WorkBuddy',
+        zcode: 'ZCode',
       opencode_go: 'OpenCode',
       },
       cnProviders: {

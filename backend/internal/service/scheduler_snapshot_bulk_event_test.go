@@ -243,6 +243,7 @@ func TestSchedulerAccountEventRebuildsMixedTargetBuckets(t *testing.T) {
 	}{
 		{PlatformTraework, PlatformOpenAI},
 		{PlatformWorkbuddy, PlatformOpenAI},
+		{PlatformZcode, PlatformOpenAI},
 		{PlatformAntigravity, PlatformAnthropic},
 		{PlatformAntigravity, PlatformGemini},
 	}

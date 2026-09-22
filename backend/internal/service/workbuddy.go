@@ -17,6 +17,9 @@ func validateBuiltinChatCredentials(platform, accountType string, credentials ma
 	if platform == PlatformTraework {
 		return validateTraeworkCredentials(platform, accountType, credentials)
 	}
+	if platform == PlatformZcode {
+		return validateZcodeCredentials(platform, accountType, credentials)
+	}
 	if platform != PlatformWorkbuddy {
 		return nil
 	}

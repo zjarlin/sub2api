@@ -40,6 +40,8 @@
                 ? 'http://sub2api-desktop:8080/v1'
                 : account.platform === 'traework'
                 ? 'http://sub2api-traework:7864/v1'
+                : account.platform === 'zcode'
+                ? 'http://sub2api-zcode:7865/v1'
                 : account.platform === 'openai'
                 ? 'https://api.openai.com'
                 : account.platform === 'gemini'
@@ -221,6 +223,8 @@
             data-bwignore="true"
             :placeholder="
               account.platform === 'doubao'
+                ? 'adapter-api-key'
+                : account.platform === 'zcode'
                 ? 'adapter-api-key'
                 : account.platform === 'traework'
                 ? 'adapter-api-key'
@@ -3135,7 +3139,7 @@ interface Props {
 }
 
 const props = defineProps<Props>()
-const isBuiltinAdapterAccount = computed(() => ['doubao', 'traework', 'workbuddy'].includes(props.account?.platform ?? ''))
+const isBuiltinAdapterAccount = computed(() => ['doubao', 'traework', 'workbuddy', 'zcode'].includes(props.account?.platform ?? ''))
 const emit = defineEmits<{
   close: []
   updated: [account: Account]
@@ -3172,6 +3176,7 @@ const handleOllamaCloudUsageUpdated = (state: OllamaCloudUsageState) => {
 const baseUrlHint = computed(() => {
   if (props.account?.platform === 'doubao') return t('admin.accounts.doubao.baseUrlHint')
   if (props.account?.platform === 'traework') return t('admin.accounts.traework.baseUrlHint')
+  if (props.account?.platform === 'zcode') return t('admin.accounts.zcode.baseUrlHint')
   if (!props.account) return t('admin.accounts.baseUrlHint')
   if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (props.account.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
@@ -3841,7 +3846,7 @@ const tempUnschedPresets = computed(() => [
 
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
-  if (props.account?.platform === 'doubao' || props.account?.platform === 'traework' || props.account?.platform === 'workbuddy') return ''
+  if (['doubao', 'traework', 'workbuddy', 'zcode'].includes(props.account?.platform ?? '')) return ''
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
@@ -4283,7 +4288,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       }
     }
     const platformDefaultUrl =
-      (newAccount.platform === 'doubao' || newAccount.platform === 'traework' || newAccount.platform === 'workbuddy')
+      (['doubao', 'traework', 'workbuddy', 'zcode'].includes(newAccount.platform))
         ? ''
         : newAccount.platform === 'openai'
         ? 'https://api.openai.com'
@@ -4363,7 +4368,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
   } else {
     const platformDefaultUrl =
-      (newAccount.platform === 'doubao' || newAccount.platform === 'traework' || newAccount.platform === 'workbuddy')
+      (['doubao', 'traework', 'workbuddy', 'zcode'].includes(newAccount.platform))
         ? ''
         : newAccount.platform === 'openai'
         ? 'https://api.openai.com'
@@ -5032,7 +5037,7 @@ const handleSubmit = async () => {
         delete newCredentials.base_url
       }
 
-      if (props.account.platform === 'doubao' || props.account.platform === 'traework' || props.account.platform === 'workbuddy') {
+      if (['doubao', 'traework', 'workbuddy', 'zcode'].includes(props.account.platform)) {
         newCredentials.api_protocol = 'chat_completions'
         newCredentials.openai_capabilities = ['chat_completions']
         updatePayload.concurrency = 1

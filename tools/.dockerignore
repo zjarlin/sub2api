@@ -23,6 +23,13 @@
 !workbuddy2api/Dockerfile*
 !workbuddy2api/config.example.json
 !workbuddy2api/config.sub2api.json
+!zcode2api/
+!zcode2api/go.mod
+!zcode2api/cmd/
+!zcode2api/cmd/**
+!zcode2api/internal/
+!zcode2api/internal/**
+!zcode2api/Dockerfile*
 **/*.exe
 **/*.tmp
 **/*_test.go

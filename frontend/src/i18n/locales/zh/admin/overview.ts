@@ -919,6 +919,7 @@ export default {
         doubao: '豆包',
         traework: 'TRAE Work',
         workbuddy: 'WorkBuddy',
+        zcode: 'ZCode',
       opencode_go: 'OpenCode',
         composite: 'Composite',
       },

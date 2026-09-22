@@ -1238,6 +1238,7 @@ function generateRoutedCodexFiles(
     doubao: 'doubao-chat-turbo',
     traework: 'glm-5.2',
     workbuddy: 'glm-5.2',
+    zcode: 'glm-5.3',
     minimax: 'MiniMax-M3',
     opencode_go: 'glm-5.3',
     composite: 'gpt-5.5'
@@ -1256,6 +1257,7 @@ function generateRoutedCodexFiles(
     doubao: 'Doubao',
     traework: 'TRAE Work',
     workbuddy: 'WorkBuddy',
+    zcode: 'ZCode',
     minimax: 'MiniMax',
     opencode_go: 'OpenCode',
     composite: 'Composite'

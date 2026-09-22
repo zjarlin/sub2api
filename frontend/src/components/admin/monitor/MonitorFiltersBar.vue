@@ -80,6 +80,7 @@ import {
   PROVIDER_DOUBAO,
   PROVIDER_TRAEWORK,
   PROVIDER_WORKBUDDY,
+  PROVIDER_ZCODE,
 } from '@/constants/channelMonitor'
 
 defineProps<{
@@ -114,6 +115,7 @@ const providerFilterOptions = computed(() => [
   { value: PROVIDER_DOUBAO, label: t('monitorCommon.providers.doubao') },
   { value: PROVIDER_TRAEWORK, label: t('monitorCommon.providers.traework') },
   { value: PROVIDER_WORKBUDDY, label: t('monitorCommon.providers.workbuddy') },
+  { value: PROVIDER_ZCODE, label: t('monitorCommon.providers.zcode') },
 ])
 
 const enabledFilterOptions = computed(() => [

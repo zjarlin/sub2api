@@ -213,7 +213,8 @@ const upstreamSyncPlatforms = new Set([
   'opencode_go',
   'doubao',
   'traework',
-  'workbuddy'
+  'workbuddy',
+  'zcode'
 ])
 const canSyncUpstream = computed(() => {
   if (props.accountId) {

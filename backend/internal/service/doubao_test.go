@@ -27,6 +27,7 @@ func enableBuiltinAdapterForTest(t *testing.T) {
 		TraeworkURL:  "http://sub2api-traework:7864",
 		TraeworkKey:  "builtin-traework-key",
 		WorkbuddyKey: "builtin-workbuddy-key",
+		ZcodeKey:     "builtin-zcode-key",
 	}
 	SetBuiltinAdapterConfig(cfg)
 	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })

@@ -23,7 +23,8 @@ export const CONCRETE_PLATFORM_OPTIONS = [
   { value: 'opencode_go', label: 'OpenCode' },
   { value: 'doubao', label: 'Doubao' },
   { value: 'traework', label: 'TRAE Work' },
-  { value: 'workbuddy', label: 'WorkBuddy' }
+  { value: 'workbuddy', label: 'WorkBuddy' },
+  { value: 'zcode', label: 'ZCode' }
 ] as const satisfies readonly PlatformOption<AccountPlatform>[]
 
 /** Platforms that can own a group. */
@@ -40,6 +41,7 @@ export const MIXED_SCHEDULING_TARGETS: Partial<Record<AccountPlatform, GroupPlat
   antigravity: ['anthropic', 'gemini'],
   traework: ['openai'],
   workbuddy: ['openai'],
+  zcode: ['openai'],
 }
 
 /** 平台是否支持开启混合调度（可加入其他分组）。 */

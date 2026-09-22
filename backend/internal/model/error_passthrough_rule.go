@@ -49,6 +49,7 @@ const (
 	PlatformDoubao      = domain.PlatformDoubao
 	PlatformTraework    = domain.PlatformTraework
 	PlatformWorkbuddy   = domain.PlatformWorkbuddy
+	PlatformZcode       = domain.PlatformZcode
 )
 
 // AllPlatforms 返回所有支持的平台列表
@@ -66,6 +67,8 @@ func AllPlatforms() []string {
 		PlatformOpenCodeGo,
 		PlatformDoubao,
 		PlatformTraework,
+		PlatformWorkbuddy,
+		PlatformZcode,
 	}
 }
 

@@ -294,6 +294,11 @@
             <PlatformIcon platform="workbuddy" size="sm" />
             {{ t('admin.accounts.workbuddy.title') }}
           </button>
+          <button type="button" data-testid="platform-zcode" @click="selectZcodePlatform"
+            :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'zcode' ? 'bg-white text-indigo-600 shadow-sm dark:bg-dark-600 dark:text-indigo-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
+            <PlatformIcon platform="zcode" size="sm" />
+            {{ t('admin.accounts.zcode.title') }}
+          </button>
         </div>
       </div>
 
@@ -302,6 +307,9 @@
       </p>
       <p v-if="form.platform === 'traework'" class="input-hint" data-testid="traework-connection-hint">
         {{ t('admin.accounts.traework.connectionHint') }}
+      </p>
+      <p v-if="form.platform === 'zcode'" class="input-hint" data-testid="zcode-connection-hint">
+        {{ t('admin.accounts.zcode.connectionHint') }}
       </p>
       <BuiltinAdapterLogin v-if="show && (form.platform === 'traework' || form.platform === 'workbuddy')" :key="form.platform" :platform="form.platform" />
 
@@ -4101,6 +4109,7 @@ const baseUrlHint = computed(() => {
   if (form.platform === 'doubao') return t('admin.accounts.doubao.baseUrlHint')
   if (form.platform === 'traework') return t('admin.accounts.traework.baseUrlHint')
   if (form.platform === 'workbuddy') return t('admin.accounts.workbuddy.baseUrlHint')
+  if (form.platform === 'zcode') return t('admin.accounts.zcode.baseUrlHint')
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
   if (form.platform === 'grok') return ''
@@ -4111,6 +4120,7 @@ const apiKeyHint = computed(() => {
   if (form.platform === 'doubao') return t('admin.accounts.doubao.apiKeyHint')
   if (form.platform === 'traework') return t('admin.accounts.traework.apiKeyHint')
   if (form.platform === 'workbuddy') return t('admin.accounts.workbuddy.apiKeyHint')
+  if (form.platform === 'zcode') return t('admin.accounts.zcode.apiKeyHint')
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
   if (form.platform === 'grok') return ''
@@ -4392,7 +4402,12 @@ function selectWorkbuddyPlatform() {
   form.platform = 'workbuddy'
 }
 
-const isBuiltinAdapterPlatform = computed(() => ['doubao', 'traework', 'workbuddy'].includes(form.platform))
+function selectZcodePlatform() {
+  selectTraeworkPlatform()
+  form.platform = 'zcode'
+}
+
+const isBuiltinAdapterPlatform = computed(() => ['doubao', 'traework', 'workbuddy', 'zcode'].includes(form.platform))
 // 账号类型 / 协议变更时同步默认 base url。
 watch(openCodeAccountMode, (mode, previousMode) => {
   if (!isOpenCodeGoPlatform.value) return
@@ -5038,7 +5053,7 @@ watch(
   () => form.platform,
   (newPlatform) => {
     // Reset base URL based on platform
-    if (newPlatform === 'doubao' || newPlatform === 'traework' || newPlatform === 'workbuddy') {
+    if (newPlatform === 'doubao' || newPlatform === 'traework' || newPlatform === 'workbuddy' || newPlatform === 'zcode') {
       apiKeyBaseUrl.value = ''
       accountCategory.value = 'apikey'
       form.concurrency = 1
@@ -5457,7 +5472,7 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
       Object.values(modelMapping).some((target) =>
         typeof target === 'string' && target.trim() !== '' && !target.includes('*')
       )
-    const needsModelCatalog = (payload.platform === 'openai' || payload.platform === 'doubao' || payload.platform === 'traework' || payload.platform === 'workbuddy') &&
+    const needsModelCatalog = (payload.platform === 'openai' || payload.platform === 'doubao' || payload.platform === 'traework' || payload.platform === 'workbuddy' || payload.platform === 'zcode') &&
       (payload.type === 'apikey' || payload.extra?.openai_passthrough === true)
     if (upstreamModelsPreviewed.value || hasConcreteMappedTarget || needsModelCatalog) {
       try {
@@ -6017,7 +6032,7 @@ const handleSubmit = async () => {
 
   // For apikey type, create directly
   // 豆包 / TRAE Work 使用内置适配器，地址由后端注入，无需手填。
-  if (!apiKeyValue.value.trim() && form.platform !== 'doubao' && form.platform !== 'traework' && form.platform !== 'workbuddy') {
+  if (!apiKeyValue.value.trim() && form.platform !== 'doubao' && form.platform !== 'traework' && form.platform !== 'workbuddy' && form.platform !== 'zcode') {
     appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
     return
   }
@@ -6040,14 +6055,14 @@ const handleSubmit = async () => {
     api_key: apiKeyValue.value.trim()
   }
   // 内置适配器平台：地址与密钥由后端注入，前端允许留空。
-  if (form.platform === 'doubao' || form.platform === 'traework' || form.platform === 'workbuddy') {
+  if (form.platform === 'doubao' || form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'zcode') {
     if (!apiKeyBaseUrl.value.trim()) delete credentials.base_url
     if (!apiKeyValue.value.trim()) delete credentials.api_key
   }
   if (form.platform === 'gemini') {
     credentials.tier_id = geminiTierAIStudio.value
   }
-  if (form.platform === 'doubao' || form.platform === 'traework' || form.platform === 'workbuddy') {
+  if (form.platform === 'doubao' || form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'zcode') {
     credentials.api_protocol = 'chat_completions'
     credentials.openai_capabilities = ['chat_completions']
   }

@@ -20,5 +20,7 @@ func TestAllPlatformsIncludesEveryConcretePlatform(t *testing.T) {
 		"opencode_go",
 		"doubao",
 		"traework",
+		"workbuddy",
+		"zcode",
 	}, AllPlatforms())
 }

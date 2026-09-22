@@ -41,6 +41,8 @@ func builtinAdapterBaseURL(platform string) string {
 		return strings.TrimRight(cfg.TraeworkBaseURL(), "/")
 	case PlatformWorkbuddy:
 		return strings.TrimRight(cfg.WorkbuddyBaseURL(), "/")
+	case PlatformZcode:
+		return strings.TrimRight(cfg.ZcodeBaseURL(), "/")
 	default:
 		return ""
 	}
@@ -59,6 +61,8 @@ func builtinAdapterAPIKey(platform string) string {
 		return strings.TrimSpace(cfg.TraeworkKey)
 	case PlatformWorkbuddy:
 		return strings.TrimSpace(cfg.WorkbuddyKey)
+	case PlatformZcode:
+		return strings.TrimSpace(cfg.ZcodeKey)
 	default:
 		return ""
 	}

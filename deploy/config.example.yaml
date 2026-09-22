@@ -1068,6 +1068,8 @@ builtin_adapter:
   traework_key: ""
   workbuddy_url: "http://sub2api-workbuddy:7863"
   workbuddy_key: ""
+  zcode_url: "http://sub2api-zcode:7865"
+  zcode_key: ""
 
 plugins:
   # Empty means {{DATA_DIR}}/plugins, or ./data/plugins when DATA_DIR is unset.

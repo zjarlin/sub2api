@@ -52,6 +52,7 @@ const (
 	PlatformDoubao     = domain.PlatformDoubao
 	PlatformTraework   = domain.PlatformTraework
 	PlatformWorkbuddy  = domain.PlatformWorkbuddy
+	PlatformZcode      = domain.PlatformZcode
 	PlatformOpenCodeGo = domain.PlatformOpenCodeGo
 	PlatformComposite  = domain.PlatformComposite
 	// PlatformKiro is retained for unsupported-platform threshold tests and legacy
@@ -107,7 +108,7 @@ const (
 // IsCNProvider 报告 platform 是否为国产 OpenAI 兼容供应商（含豆包桌面会话适配器）。
 func IsCNProvider(platform string) bool {
 	switch platform {
-	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformDoubao, PlatformTraework, PlatformWorkbuddy:
+	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformZcode:
 		return true
 	default:
 		return false
@@ -140,6 +141,7 @@ var AllowedQuotaPlatforms = []string{
 	PlatformDoubao,
 	PlatformTraework,
 	PlatformWorkbuddy,
+	PlatformZcode,
 }
 
 // AllowedSchedulingThresholdPlatforms 是允许设置账号自动停调阈值的平台列表。
@@ -766,6 +768,7 @@ var MixedSchedulingCompatibleTargets = map[string][]string{
 	PlatformAntigravity: {PlatformAnthropic, PlatformGemini},
 	PlatformTraework:   {PlatformOpenAI},
 	PlatformWorkbuddy:  {PlatformOpenAI},
+	PlatformZcode:      {PlatformOpenAI},
 }
 
 // MixedSchedulingSourcePlatforms 返回可加入某目标平台分组的来源平台列表。

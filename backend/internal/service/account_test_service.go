@@ -491,6 +491,9 @@ func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Cont
 		if account.IsWorkbuddy() {
 			testModelID = DefaultWorkbuddyModel
 		}
+		if account.IsZcode() {
+			testModelID = DefaultZcodeModel
+		}
 	}
 	testModelID = account.GetMappedModel(testModelID)
 

@@ -274,6 +274,7 @@ import {
   PROVIDER_DOUBAO,
   PROVIDER_TRAEWORK,
   PROVIDER_WORKBUDDY,
+  PROVIDER_ZCODE,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_RESPONSES,
   CHECK_MODE_PROBE,
@@ -485,6 +486,7 @@ const providerOptions = computed<ProviderOption[]>(() => [
   { value: PROVIDER_DOUBAO, label: t('monitorCommon.providers.doubao') },
   { value: PROVIDER_TRAEWORK, label: t('monitorCommon.providers.traework') },
   { value: PROVIDER_WORKBUDDY, label: t('monitorCommon.providers.workbuddy') },
+  { value: PROVIDER_ZCODE, label: t('monitorCommon.providers.zcode') },
 ])
 
 // 国产 provider 预填的官方 endpoint（仅探活侧；配额模式 endpoint 可留空）。

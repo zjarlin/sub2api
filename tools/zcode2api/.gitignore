@@ -1,0 +1,5 @@
+# 本地覆盖配置与产物（含密钥），不入库。
+config.local*.json
+*.local.json
+device.key
+bin/

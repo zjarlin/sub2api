@@ -1,5 +1,5 @@
 # =============================================================================
-# 内置适配器：豆包桌面会话 + TRAE Work (SOLO CN) + WorkBuddy
+# 内置适配器：豆包桌面会话 + TRAE Work (SOLO CN) + WorkBuddy + ZCode
 # =============================================================================
 # 由 deploy/cluster/deploy-252.sh 通过 -f 叠加到基础 compose。
 # 启用条件（两者都满足才会实际启动账号侧注入）：
@@ -9,6 +9,7 @@
 # 凭证不落盘 git：
 #   - 豆包：宿主机目录通过 DESKTOP_SECRET_DIR 只读挂载，内含 session.json + api_key
 #   - TRAE / WorkBuddy：命名卷保存登录凭证，也可指定宿主机目录。
+#   - ZCode：上游 API key 由 ZCODE_UPSTREAM_KEY 注入（z.ai / 智谱 GLM Coding Plan）。
 # =============================================================================
 services:
   # 把内置适配器开关与共享密钥注入 Sub2API 主服务；compose 合并时追加到 environment。
@@ -21,12 +22,16 @@ services:
       - BUILTIN_ADAPTER_TRAEWORK_KEY=${TRAEWORK_ADAPTER_KEY:-}
       - BUILTIN_ADAPTER_WORKBUDDY_URL=http://sub2api-workbuddy:7863
       - BUILTIN_ADAPTER_WORKBUDDY_KEY=${WORKBUDDY_ADAPTER_KEY:-}
+      - BUILTIN_ADAPTER_ZCODE_URL=http://sub2api-zcode:7865
+      - BUILTIN_ADAPTER_ZCODE_KEY=${ZCODE_ADAPTER_KEY:-}
     depends_on:
       sub2api-desktop:
         condition: service_healthy
       sub2api-traework:
         condition: service_healthy
       sub2api-workbuddy:
+        condition: service_healthy
+      sub2api-zcode:
         condition: service_healthy
 
   sub2api-desktop:
@@ -104,6 +109,33 @@ services:
     mem_limit: 512m
     healthcheck:
       test: [CMD, wget, -qO-, http://127.0.0.1:7863/livez]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  sub2api-zcode:
+    build:
+      context: ./tools
+      dockerfile: zcode2api/Dockerfile.sub2api
+    image: ${ZCODE_IMAGE:-sub2api-zcode:local}
+    container_name: sub2api-zcode
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      Z2A_LISTEN: 0.0.0.0:7865
+      Z2A_API_KEY: "${ZCODE_ADAPTER_KEY:?Set ZCODE_ADAPTER_KEY to a shared adapter key}"
+      # 上游 z.ai / 智谱 GLM Coding Plan 的 API key 与 Anthropic 端点。
+      Z2A_UPSTREAM_API_KEY: "${ZCODE_UPSTREAM_KEY:-}"
+      Z2A_UPSTREAM_BASE_URL: "${ZCODE_UPSTREAM_BASE_URL:-https://open.bigmodel.cn/api/anthropic}"
+      Z2A_UPSTREAM_PROVIDER_ID: "${ZCODE_UPSTREAM_PROVIDER_ID:-builtin:bigmodel-coding-plan}"
+      Z2A_THINKING_EFFORT: "${ZCODE_THINKING_EFFORT:-max}"
+    networks:
+      - sub2api-network
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 256m
+    healthcheck:
+      test: [CMD, wget, -qO-, http://127.0.0.1:7865/livez]
       interval: 30s
       timeout: 5s
       retries: 3

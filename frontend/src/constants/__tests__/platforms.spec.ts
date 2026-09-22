@@ -14,7 +14,8 @@ const concretePlatforms = [
   'opencode_go',
   'doubao',
   'traework',
-  'workbuddy'
+  'workbuddy',
+  'zcode'
 ]
 
 describe('platform option catalogs', () => {

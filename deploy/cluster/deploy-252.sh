@@ -23,7 +23,7 @@ if [ -z "$BUILTIN_ADAPTERS_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
   ' "$DEPLOY_DIR/.env")"
 fi
 
-# 显式开启后叠加豆包、TRAE Work 与 WorkBuddy 内置服务；编排文件缺失立即报错。
+# 显式开启后叠加豆包、TRAE Work、WorkBuddy 与 ZCode 内置服务；编排文件缺失立即报错。
 if [ "$BUILTIN_ADAPTERS_ENABLED" = "1" ]; then
   test -f "$DEPLOY_DIR/deploy/docker-compose.builtin-adapters.yml"
   COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.builtin-adapters.yml")
@@ -38,6 +38,25 @@ mkdir -p "$RELEASE_DIR"
 
 if [ -f docker-compose.override.yml ]; then
   cp docker-compose.override.yml "$RELEASE_DIR/docker-compose.override.yml"
+fi
+
+# 首次部署自动生成 ZCode 内部共享密钥，并持久化供后续重建复用。
+# 上游套餐凭据独立配置，不能用共享密钥替代。
+if [ "$BUILTIN_ADAPTERS_ENABLED" = "1" ] && [ -z "${ZCODE_ADAPTER_KEY:-}" ]; then
+  ZCODE_KEY_PRESENT="$(awk -F= '
+    $1 ~ /^[[:space:]]*ZCODE_ADAPTER_KEY[[:space:]]*$/ {
+      value=substr($0, index($0, "=")+1)
+      gsub(/[[:space:]"\047]/, "", value)
+      present=(value != "")
+    }
+    END { print present ? "1" : "0" }
+  ' "$DEPLOY_DIR/.env")"
+  if [ "$ZCODE_KEY_PRESENT" != "1" ]; then
+    (umask 077; cp "$DEPLOY_DIR/.env" "$RELEASE_DIR/env.before-zcode")
+    ZCODE_NEW_ADAPTER_KEY="$(openssl rand -hex 32)"
+    printf '\nZCODE_ADAPTER_KEY=%s\n' "$ZCODE_NEW_ADAPTER_KEY" >> "$DEPLOY_DIR/.env"
+    unset ZCODE_NEW_ADAPTER_KEY
+  fi
 fi
 docker image inspect "$IMAGE" > "$RELEASE_DIR/image.json"
 
@@ -64,8 +83,8 @@ export SUB2API_IMAGE="$IMAGE"
 "${COMPOSE[@]}" config >/dev/null
 "${COMPOSE[@]}" up -d --no-recreate postgres redis
 if [ "$BUILTIN_ADAPTERS_ENABLED" = "1" ]; then
-  echo "Building and starting built-in adapters (doubao / traework / workbuddy)"
-  "${COMPOSE[@]}" up -d --build sub2api-desktop sub2api-traework sub2api-workbuddy
+  echo "Building and starting built-in adapters (doubao / traework / workbuddy / zcode)"
+  "${COMPOSE[@]}" up -d --build sub2api-desktop sub2api-traework sub2api-workbuddy sub2api-zcode
 fi
 echo "Starting canary with replicas=$CANARY_REPLICAS"
 "${COMPOSE[@]}" up -d --wait --wait-timeout 180 --no-deps --scale "sub2api=$CANARY_REPLICAS" sub2api gateway

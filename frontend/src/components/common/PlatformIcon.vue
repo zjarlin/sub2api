@@ -61,7 +61,7 @@
     <path d="M17.305 4.961a199.47 199.47 0 01-1.08-1.094c-.202-.213-.398-.419-.586-.622l-1.333-1.378c.151.615.648 2.786.869 5.617 3.288.395 6.185 1.898 7.396 2.8-1.306-1.275-3.475-3.487-5.266-5.323z" />
   </svg>
   <!-- TRAE Work：内置 traework2api 适配器，使用通用终端图标。 -->
-  <svg v-else-if="platform === 'traework' || platform === 'workbuddy'" :class="sizeClass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+  <svg v-else-if="platform === 'traework' || platform === 'workbuddy' || platform === 'zcode'" :class="sizeClass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
     <rect x="3" y="4" width="18" height="16" rx="2" />
     <path stroke-linecap="round" stroke-linejoin="round" d="M7 9l3 3-3 3M13 15h4" />
   </svg>

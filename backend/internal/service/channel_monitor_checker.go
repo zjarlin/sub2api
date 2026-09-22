@@ -179,6 +179,7 @@ var providerAdapters = map[string]providerAdapter{
 	MonitorProviderDoubao:    providerDoubaoChatAdapter,
 	MonitorProviderTraework:  providerTraeworkChatAdapter,
 	MonitorProviderWorkbuddy: providerTraeworkChatAdapter,
+	MonitorProviderZcode:     providerTraeworkChatAdapter,
 	MonitorProviderAnthropic: {
 		buildPath: func(string) string { return providerAnthropicPath },
 		buildBody: func(model, prompt string) ([]byte, error) {
@@ -489,6 +490,7 @@ var bodyMergeKeyDenyList = map[string]map[string]bool{
 	MonitorProviderDoubao:    {"model": true, "messages": true, "stream": true},
 	MonitorProviderTraework:  {"model": true, "messages": true, "stream": true},
 	MonitorProviderWorkbuddy: {"model": true, "messages": true, "stream": true},
+	MonitorProviderZcode:     {"model": true, "messages": true, "stream": true},
 }
 
 func checkAPIMode(opts *CheckOptions) string {
@@ -510,7 +512,7 @@ func bodyMergeDenyKey(provider, apiMode string) string {
 func isOpenAICompatibleChatProvider(provider string) bool {
 	switch provider {
 	case MonitorProviderOpenAI, MonitorProviderGrok,
-		MonitorProviderKimi, MonitorProviderZhipu, MonitorProviderDeepseek, MonitorProviderMiniMax, MonitorProviderDoubao, MonitorProviderTraework, MonitorProviderWorkbuddy:
+		MonitorProviderKimi, MonitorProviderZhipu, MonitorProviderDeepseek, MonitorProviderMiniMax, MonitorProviderDoubao, MonitorProviderTraework, MonitorProviderWorkbuddy, MonitorProviderZcode:
 		return true
 	default:
 		return false

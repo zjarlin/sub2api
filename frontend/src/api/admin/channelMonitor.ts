@@ -19,6 +19,7 @@ export type Provider =
   | 'doubao'
   | 'traework'
   | 'workbuddy'
+  | 'zcode'
 export type MonitorStatus = 'operational' | 'degraded' | 'failed' | 'error'
 export type BodyOverrideMode = 'off' | 'merge' | 'replace'
 export type APIMode = 'chat_completions' | 'responses'

@@ -21,6 +21,7 @@ export const PROVIDER_MINIMAX: Provider = 'minimax'
 export const PROVIDER_DOUBAO: Provider = 'doubao'
 export const PROVIDER_TRAEWORK: Provider = 'traework'
 export const PROVIDER_WORKBUDDY: Provider = 'workbuddy'
+export const PROVIDER_ZCODE: Provider = 'zcode'
 export const PROVIDER_OPENCODE_GO: Provider = 'opencode_go'
 
 export const DEFAULT_GROK_ENDPOINT = 'https://api.x.ai'
@@ -54,6 +55,7 @@ export const PROVIDERS: readonly Provider[] = [
   PROVIDER_DOUBAO,
   PROVIDER_TRAEWORK,
   PROVIDER_WORKBUDDY,
+  PROVIDER_ZCODE,
 ]
 
 /** 仅支持配额模式（无探活 adapter）的 provider。 */

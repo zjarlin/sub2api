@@ -14,6 +14,7 @@ const PROVIDER_BY_PLATFORM: Record<GroupPlatform, KeyGroupProvider> = {
   doubao: 'domestic',
   traework: 'domestic',
   workbuddy: 'domestic',
+  zcode: 'domestic',
   minimax: 'domestic',
   gemini: 'other',
   grok: 'other',

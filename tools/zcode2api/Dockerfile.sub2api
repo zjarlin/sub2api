@@ -1,0 +1,20 @@
+# 构建上下文为仓库 tools 目录；纯 Go 标准库，无第三方依赖。
+FROM golang:1.26-alpine AS build
+WORKDIR /src/zcode2api
+ARG GOPROXY=https://goproxy.cn,direct
+ARG GOSUMDB=sum.golang.google.cn
+ENV GOPROXY=${GOPROXY} GOSUMDB=${GOSUMDB}
+COPY zcode2api/go.mod ./
+RUN go mod download
+COPY zcode2api/cmd ./cmd
+COPY zcode2api/internal ./internal
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/adapter ./cmd/server
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates tzdata wget \
+ && adduser -D -u 10001 app
+WORKDIR /app
+COPY --from=build /out/adapter /app/adapter
+USER app
+EXPOSE 7865
+ENTRYPOINT ["/app/adapter"]

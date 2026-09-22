@@ -258,6 +258,7 @@ import {
   PROVIDER_DOUBAO,
   PROVIDER_TRAEWORK,
   PROVIDER_WORKBUDDY,
+  PROVIDER_ZCODE,
   PROVIDERS,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_RESPONSES,
@@ -288,6 +289,7 @@ const providerTabs = computed<{ value: Provider; label: string }[]>(() => [
   { value: PROVIDER_DOUBAO, label: t('monitorCommon.providers.doubao') },
   { value: PROVIDER_TRAEWORK, label: t('monitorCommon.providers.traework') },
   { value: PROVIDER_WORKBUDDY, label: t('monitorCommon.providers.workbuddy') },
+  { value: PROVIDER_ZCODE, label: t('monitorCommon.providers.zcode') },
 ])
 
 const activeProvider = ref<Provider>(PROVIDER_ANTHROPIC)
