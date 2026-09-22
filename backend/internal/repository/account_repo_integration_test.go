@@ -5,6 +5,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -563,6 +564,18 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 			},
 		},
 		{
+			name: "filter_by_search_does_not_treat_non_positive_number_as_id",
+			setup: func(client *dbent.Client) {
+				mustCreateAccount(s.T(), client, &service.Account{Name: "account-0"})
+				mustCreateAccount(s.T(), client, &service.Account{Name: "account--1"})
+			},
+			search:    "-1",
+			wantCount: 1,
+			validate: func(accounts []service.Account) {
+				s.Require().Equal("account--1", accounts[0].Name)
+			},
+		},
+		{
 			name: "filter_by_ungrouped",
 			setup: func(client *dbent.Client) {
 				group := mustCreateGroup(s.T(), client, &service.Group{Name: "g-ungrouped"})
@@ -628,6 +641,21 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 			}
 		})
 	}
+}
+
+func (s *AccountRepoSuite) TestListWithFilters_SearchByID() {
+	tx := testEntTx(s.T())
+	client := tx.Client()
+	repo := newAccountRepositoryWithSQL(client, tx, nil)
+
+	target := mustCreateAccount(s.T(), client, &service.Account{Name: "name-without-the-id"})
+	mustCreateAccount(s.T(), client, &service.Account{Name: "other-account"})
+
+	accounts, page, err := repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, "", "", "", strconv.FormatInt(target.ID, 10), 0, "")
+	s.Require().NoError(err)
+	s.Require().Equal(int64(1), page.Total)
+	s.Require().Len(accounts, 1)
+	s.Require().Equal(target.ID, accounts[0].ID)
 }
 
 // --- ListByGroup / ListActive / ListByPlatform ---

@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -21,6 +22,7 @@ const (
 	OpsUpstreamErrorDetailKey  = "ops_upstream_error_detail"
 	OpsUpstreamErrorsKey       = "ops_upstream_errors"
 	OpsUpstreamModelKey        = "ops_upstream_model"
+	OpsAttemptModelKey         = "ops_attempt_model"
 
 	// Optional stage latencies (milliseconds) for troubleshooting and alerting.
 	OpsAuthLatencyMsKey      = "ops_auth_latency_ms"
@@ -388,6 +390,10 @@ type OpsUpstreamErrorEvent struct {
 	Platform    string `json:"platform,omitempty"`
 	AccountID   int64  `json:"account_id,omitempty"`
 	AccountName string `json:"account_name,omitempty"`
+	// 每次尝试保存模型快照，换模型不会覆盖之前的账号及模型。
+	Model     string `json:"model,omitempty"`
+	FromModel string `json:"from_model,omitempty"`
+	ModelTier string `json:"model_tier,omitempty"`
 
 	// Proxy attribution is an immutable, credential-free snapshot of the route
 	// used by this attempt. ProxyID is null for direct and unknown routes;
@@ -401,8 +407,10 @@ type OpsUpstreamErrorEvent struct {
 	DroppedEarlierAttempts int `json:"dropped_earlier_attempts,omitempty"`
 
 	// Outcome
-	UpstreamStatusCode int    `json:"upstream_status_code,omitempty"`
-	UpstreamRequestID  string `json:"upstream_request_id,omitempty"`
+	UpstreamStatusCode int `json:"upstream_status_code,omitempty"`
+	// 本地调度失败没有上游 HTTP 响应，单独保留本地状态码。
+	StatusCode        int    `json:"status_code,omitempty"`
+	UpstreamRequestID string `json:"upstream_request_id,omitempty"`
 
 	// UpstreamURL is the actual upstream URL that was called (host + path, query/fragment stripped).
 	// Helps debug 404/routing errors by showing which endpoint was targeted.
@@ -437,12 +445,50 @@ const (
 	opsProxyNameUnnamed = "proxy"
 )
 
+// 账号排队失败也写入尝试链，避免仅保留上一家上游的错误而丢失当前账号。
+func RecordOpsAccountCapacityFailure(c *gin.Context, account *Account, reason string) {
+	if c == nil || account == nil {
+		return
+	}
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
+		ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
+		Kind: "failover", Stage: string(GatewayFailureStageRouting),
+		Scope: string(GatewayFailureScopeAccount), Reason: reason,
+		StatusCode: http.StatusTooManyRequests,
+		Message:    "Concurrency limit exceeded for account, please retry later",
+	})
+	c.Set(OpsUpstreamStatusCodeKey, 0)
+	c.Set(OpsUpstreamErrorMessageKey, "")
+	c.Set(OpsUpstreamErrorDetailKey, "")
+}
+
+// 记录调度入口模型，覆盖无上游响应的排队失败。
+func SetOpsAttemptModel(c *gin.Context, model string) {
+	c.Set(OpsAttemptModelKey, model)
+}
+
+// 模型切换也是请求链的一部分，不伪造账号或上游状态码。
+func RecordOpsModelFallback(c *gin.Context, from, to, tier string) {
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		Kind: "model_fallback", Stage: string(GatewayFailureStageRouting),
+		Platform: PlatformOpenAI, Model: to, FromModel: from, ModelTier: tier,
+		Reason: "model_candidates_exhausted", Message: "Trying another model after eligible accounts were exhausted",
+	})
+}
+
 func appendOpsUpstreamError(c *gin.Context, ev OpsUpstreamErrorEvent) {
 	if c == nil {
 		return
 	}
 	if ev.AtUnixMs <= 0 {
 		ev.AtUnixMs = time.Now().UnixMilli()
+	}
+	if ev.Model == "" {
+		ev.Model = c.GetString(OpsUpstreamModelKey)
+		if ev.Model == "" || ev.Stage == string(GatewayFailureStageRouting) {
+			ev.Model = c.GetString(OpsAttemptModelKey)
+		}
 	}
 	ev.Platform = strings.TrimSpace(ev.Platform)
 	normalizeOpsUpstreamProxyAttribution(&ev)

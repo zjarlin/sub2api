@@ -578,6 +578,10 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		adminSettings.GET("/overload-cooldown", h.Admin.Setting.GetOverloadCooldownSettings)
 		adminSettings.PUT("/overload-cooldown", h.Admin.Setting.UpdateOverloadCooldownSettings)
 		// 429默认回避配置
+		adminSettings.GET("/model-fallback", h.Admin.Setting.GetModelFallbackPolicy)
+		adminSettings.GET("/model-fallback/preset", h.Admin.Setting.GetModelFallbackPreset)
+		adminSettings.PUT("/model-fallback", h.Admin.Setting.UpdateModelFallbackPolicy)
+
 		adminSettings.GET("/rate-limit-429-cooldown", h.Admin.Setting.GetRateLimit429CooldownSettings)
 		adminSettings.PUT("/rate-limit-429-cooldown", h.Admin.Setting.UpdateRateLimit429CooldownSettings)
 		// OpenAI OAuth image-tool unavailable cooldown configuration

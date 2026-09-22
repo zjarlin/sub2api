@@ -93,12 +93,34 @@ func TestUserAccountOwnershipAndRedaction(t *testing.T) {
 func TestUserAccountCreateIgnoresForgedOwner(t *testing.T) {
 	admin := &ownedAccountAdminStub{}
 	h := &UserAccountHandler{adminService: admin}
-	result := ownedAccountRequest(h, "create", 11, `{"name":"owned","platform":"openai","type":"apikey","owner_user_id":999,"credentials":{"api_key":"secret-key"}}`)
+	result := ownedAccountRequest(h, "create", 11, `{"name":"owned","platform":"openai","type":"apikey","owner_user_id":999,"credentials":{"api_key":"secret-key"},"load_factor":5,"rate_multiplier":0.25}`)
 	require.Equal(t, http.StatusOK, result.Code)
 	require.Equal(t, int64(11), *admin.created.OwnerUserID)
 	require.True(t, admin.created.SkipDefaultGroupBind)
+	require.NotNil(t, admin.created.LoadFactor)
+	require.Equal(t, 5, *admin.created.LoadFactor)
+	require.NotNil(t, admin.created.RateMultiplier)
+	require.Equal(t, 0.25, *admin.created.RateMultiplier)
 	require.NotContains(t, result.Body.String(), "secret-key")
 	require.Equal(t, false, admin.created.Extra[service.AccountPublicSharingExtraKey])
+}
+
+func TestUserAccountUpdateForwardsSchedulingFields(t *testing.T) {
+	owner := int64(11)
+	repo := &ownedAccountRepoStub{account: &service.Account{ID: 3, OwnerUserID: &owner}}
+	admin := &ownedAccountAdminStub{}
+	h := &UserAccountHandler{accountRepo: repo, adminService: admin}
+
+	result := ownedAccountRequest(h, "update", owner, `{"load_factor":7,"rate_multiplier":0.5,"priority":0,"auto_pause_on_expired":false}`)
+	require.Equal(t, http.StatusOK, result.Code)
+	require.NotNil(t, admin.updated.LoadFactor)
+	require.Equal(t, 7, *admin.updated.LoadFactor)
+	require.NotNil(t, admin.updated.RateMultiplier)
+	require.Equal(t, 0.5, *admin.updated.RateMultiplier)
+	require.NotNil(t, admin.updated.Priority)
+	require.Equal(t, 0, *admin.updated.Priority)
+	require.NotNil(t, admin.updated.AutoPauseOnExpired)
+	require.False(t, *admin.updated.AutoPauseOnExpired)
 }
 
 func TestUserAccountSharingRequiresExplicitOwnerChoice(t *testing.T) {

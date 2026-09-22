@@ -8,7 +8,7 @@ vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showSuccess: vi.fn() }) }
 vi.mock('vue-i18n', async original => ({ ...await original<typeof import('vue-i18n')>(), useI18n: () => ({ t: (key: string) => key }) }))
 const account = {
   id: 12, name: 'Owned', platform: 'openai', type: 'apikey', status: 'active',
-  priority: 0, concurrency: 3, group_ids: [4],
+  priority: 0, concurrency: 3, group_ids: [4], load_factor: null, rate_multiplier: 0.25,
   credentials: { base_url: 'https://owned.example.test', vendor: 'custom', model_mapping: { alias: 'actual', exact: 'exact' } },
   credentials_status: { has_api_key: true }, extra: { custom: true }
 } as unknown as Account
@@ -25,14 +25,15 @@ describe('我的账号编辑', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(update).toHaveBeenCalledWith(12, expect.objectContaining({
-      priority: 0, credentials: account.credentials, extra: { custom: true }, group_ids: [4], shared: false
+      priority: 0, load_factor: 0, rate_multiplier: 0.25, expires_at: 0, auto_pause_on_expired: true,
+      credentials: account.credentials, extra: { custom: true }, group_ids: [4], shared: false
     }))
     expect(update.mock.calls[0][1].credentials).not.toHaveProperty('api_key')
     expect(wrapper.emitted('saved')).toHaveLength(1)
   })
   it('仅在勾选共享后提交公共调度状态', async () => {
     const wrapper = editor(account)
-    await wrapper.get('input[type="checkbox"]').setValue(true)
+    await wrapper.get('[data-testid="owned-account-shared"]').setValue(true)
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(update).toHaveBeenCalledWith(12, expect.objectContaining({ shared: true }))

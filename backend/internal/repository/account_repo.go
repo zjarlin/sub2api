@@ -913,10 +913,10 @@ func (r *accountRepository) Delete(ctx context.Context, id int64) error {
 }
 
 func (r *accountRepository) List(ctx context.Context, params pagination.PaginationParams) ([]service.Account, *pagination.PaginationResult, error) {
-	return r.ListWithFilters(ctx, params, "", "", "", "", 0, "")
+	return r.ListWithFilters(ctx, params, "", "", "", "", 0, "", nil, nil)
 }
 
-func (r *accountRepository) accountListFilteredQuery(platform, accountType, status, search string, groupID int64, privacyMode string) *dbent.AccountQuery {
+func (r *accountRepository) accountListFilteredQuery(platform, accountType, status, search string, groupID int64, privacyMode string, rateMultiplierMin, rateMultiplierMax *float64) *dbent.AccountQuery {
 	q := r.client.Account.Query()
 
 	if platform != "" {
@@ -987,7 +987,12 @@ func (r *accountRepository) accountListFilteredQuery(platform, accountType, stat
 		}
 	}
 	if search != "" {
-		q = q.Where(dbaccount.NameContainsFold(search))
+		namePredicate := dbaccount.NameContainsFold(search)
+		if id, err := strconv.ParseInt(search, 10, 64); err == nil && id > 0 {
+			q = q.Where(dbaccount.Or(namePredicate, dbaccount.IDEQ(id)))
+		} else {
+			q = q.Where(namePredicate)
+		}
 	}
 	if groupID == service.AccountListGroupUngrouped {
 		q = q.Where(dbaccount.Not(dbaccount.HasAccountGroups()))
@@ -1008,12 +1013,19 @@ func (r *accountRepository) accountListFilteredQuery(platform, accountType, stat
 			}
 		}))
 	}
+	// 账号计费倍率闭区间过滤：仅在显式传入边界时收窄，便于前端按倍率筛选。
+	if rateMultiplierMin != nil {
+		q = q.Where(dbaccount.RateMultiplierGTE(*rateMultiplierMin))
+	}
+	if rateMultiplierMax != nil {
+		q = q.Where(dbaccount.RateMultiplierLTE(*rateMultiplierMax))
+	}
 
 	return q
 }
 
-func (r *accountRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, *pagination.PaginationResult, error) {
-	q := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode)
+func (r *accountRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, rateMultiplierMin, rateMultiplierMax *float64) ([]service.Account, *pagination.PaginationResult, error) {
+	q := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode, rateMultiplierMin, rateMultiplierMax)
 	// Clone before Count so interceptor-appended predicates (SoftDeleteMixin's
 	// deleted_at IS NULL) don't accumulate on the shared builder and pollute the
 	// subsequent list query. Same pattern used in group_repo/promo_code_repo/user_repo
@@ -1042,8 +1054,8 @@ func (r *accountRepository) ListWithFilters(ctx context.Context, params paginati
 	return outAccounts, paginationResultFromTotal(int64(total), params), nil
 }
 
-func (r *accountRepository) ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, error) {
-	accounts, err := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode).All(ctx)
+func (r *accountRepository) ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string, rateMultiplierMin, rateMultiplierMax *float64) ([]service.Account, error) {
+	accounts, err := r.accountListFilteredQuery(platform, accountType, status, search, groupID, privacyMode, rateMultiplierMin, rateMultiplierMax).All(ctx)
 	if err != nil {
 		return nil, err
 	}

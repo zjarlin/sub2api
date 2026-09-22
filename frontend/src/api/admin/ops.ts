@@ -923,6 +923,7 @@ export interface OpsErrorLog {
   // 关联 api_key 名称（后端 LEFT JOIN api_keys；软删保留 name，故已删 key 仍有原名）。
   api_key_name?: string
   api_key_deleted?: boolean
+  account_attempts?: Array<{ account_id: number; account_name: string }>
   account_id?: number | null
   account_name: string
   group_id?: number | null

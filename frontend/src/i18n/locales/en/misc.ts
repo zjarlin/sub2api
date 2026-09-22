@@ -89,18 +89,18 @@ export default {
           body: 'macOS/Linux writes to ~/.codex. Windows writes to .codex under the user profile. The dialog shows the full config.toml and auth.json content.'
         },
         script: {
-          title: 'One-click setup script',
-          body: 'Choose macOS/Linux or Windows in the Use API Key dialog, then copy the One-click setup script. It creates the directory and writes both files. Windows uses PowerShell; macOS/Linux uses Bash.'
+          title: 'One-click setup command',
+          body: 'Use the npm-published command. It detects the Codex desktop client for the current OS, skips installation when already present, then creates the config directory and writes the files. Windows and macOS use the same command.'
         },
         download: {
-          title: 'One-click Codex official client download',
-          body: 'If Codex is not installed locally yet, download the official client from the OpenAI Codex app page first. macOS uses DMG installers; Windows can download the installer or install with winget.',
-          links: {
-            official: 'Open official page',
-            mac: 'Download macOS default',
-            macIntel: 'Download macOS Intel',
-            windows: 'Download Windows installer'
-          }
+          title: 'Install and configure Codex automatically',
+          body: 'Copy the command into a terminal: macOS installs the official DMG when missing; Windows installs with winget when missing. If Codex is already installed, it only writes configuration.',
+        },
+        setupCommand: {
+          loading: 'Loading your first API key...',
+          error: 'Failed to load an API key. Open API Keys and copy the command manually.',
+          loginRequired: 'Sign in to auto-select your first created API key and generate the command.',
+          usingKey: 'Using first key: {name}'
         },
         windows: {
           title: 'Windows paths',

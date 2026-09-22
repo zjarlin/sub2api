@@ -27,7 +27,11 @@
       </div>
 
       <!-- API Key fields (only for apikey type) -->
-      <BuiltinAdapterLogin v-if="show && (account.platform === 'traework' || account.platform === 'workbuddy')" :key="account.platform" :platform="account.platform" />
+      <BuiltinAdapterLogin
+        v-if="show && (account.platform === 'traework' || account.platform === 'workbuddy') && !hasBuiltinAdapterCredentials"
+        :key="account.platform"
+        :platform="account.platform"
+      />
       <div v-if="account.type === 'apikey'" class="space-y-4">
         <div v-if="!isBuiltinAdapterAccount && (!isCNApiKeyAccount || editApiProtocol !== 'adaptive')">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
@@ -3140,6 +3144,10 @@ interface Props {
 
 const props = defineProps<Props>()
 const isBuiltinAdapterAccount = computed(() => ['doubao', 'traework', 'workbuddy', 'zcode'].includes(props.account?.platform ?? ''))
+const hasBuiltinAdapterCredentials = computed(() => {
+  const credentials = props.account?.credentials as Record<string, unknown> | undefined
+  return props.account?.credentials_status?.has_api_key ?? Boolean(credentials?.api_key)
+})
 const emit = defineEmits<{
   close: []
   updated: [account: Account]

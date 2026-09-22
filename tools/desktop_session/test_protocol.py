@@ -52,6 +52,22 @@ class ProtocolTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             inspect_stream(Response(b'data: ' + b'x' * 65536))
 
+    def test_chat_mode_is_consistent_on_first_turn_and_continuation(self):
+        selection = {'model': {'model_item_key': '3'}, 'mode_id': '1', 'reasoning_effort': 4}
+        for cursor in (None, ConversationCursor('123', '456', 7)):
+            payload = chat_request('next', selection, cursor)
+            self.assertEqual(payload['option']['agent_mode'], 2)
+            self.assertEqual(payload['option']['conversation_mode'], 1)
+            self.assertEqual(payload['option']['aggregate_params']['agent_mode'], '2')
+            self.assertEqual(payload['option']['aggregate_params']['mode_id'], '1')
+            self.assertEqual(payload['ext']['agent_mode'], '2')
+            self.assertNotIn('general_task_param', payload['ext'])
+            self.assertNotIn('client_tool_key', payload['ext'])
+
+    def test_unknown_modes_are_rejected_before_sending(self):
+        with self.assertRaises(ValueError):
+            chat_request('test', {'model': {'model_item_key': '5'}, 'mode_id': '2', 'reasoning_effort': 5})
+
     def test_continuation_uses_cursor_and_omits_creation_fields(self):
         payload = chat_request('next message',
                                {'model': {'model_item_key': '5'}, 'mode_id': '3', 'reasoning_effort': 5},

@@ -1,5 +1,24 @@
 export default {
     settings: {
+      modelFallback: {
+  "title": "模型档位与自动降级",
+  "description": "同名模型的可用账号尝试完毕后，先尝试同档位其他模型，再按顺序逐档降低。中间错误保留在监控链路。",
+  "enabled": "启用按档位自动降级",
+  "scope": "适用于 OpenAI 兼容账号池的 Responses、Chat Completions 和 Messages（含流式）。仅使用当前分组允许且满足请求能力的模型；会话引用、托管工具或已输出内容的请求不跨模型重放。",
+  "tierName": "第 {index} 档名称",
+  "models": "第 {index} 档模型 ID",
+  "moveUp": "提高档位",
+  "moveDown": "降低档位",
+  "modelsHint": "档位由上至下从高到低；每行一个精确模型 ID，同档内按填写顺序尝试。别名需要显式列入同一档。未分档模型只重试同名账号。最多 12 档、64 个模型。",
+  "addTier": "添加下一档",
+  "preset": "载入公开数据推荐（待保存）",
+  "saved": "档位已保存，后续请求使用新配置。",
+  "reload": "重新加载",
+  "reference": "推荐分档参考最高已测推理强度的综合能力分数，每 10 分一档；不代表所有任务或推理强度等价，也不会自动改写你的配置。来源：",
+  "required": "每档都需要名称和模型；启用时至少保留一档。",
+  "duplicate": "档位名称和模型 ID 不能重复。",
+  "invalidModels": "最多 64 个模型；每个 ID 不超过 200 字符，不支持通配符。"
+},
       title: '系统设置',
       description: '管理注册、邮箱验证、默认值和 SMTP 设置',
       tabs: {

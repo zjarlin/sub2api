@@ -571,6 +571,25 @@ func sanitizeOpsUpstreamErrors(entry *OpsInsertErrorLogInput) error {
 		return nil
 	}
 
+	// 入队前修正本地排队归因，防止序列化清空事件切片后仍继承上一家上游错误。
+	for i := len(entry.UpstreamErrors) - 1; i >= 0; i-- {
+		last := entry.UpstreamErrors[i]
+		if last == nil {
+			continue
+		}
+		if last.Stage == string(GatewayFailureStageRouting) {
+			entry.ErrorPhase = "routing"
+			entry.ErrorOwner = "platform"
+			entry.ErrorSource = "gateway"
+			entry.IsBusinessLimited = true
+			code := 0
+			entry.UpstreamStatusCode = &code
+			entry.UpstreamErrorMessage = nil
+			entry.UpstreamErrorDetail = nil
+		}
+		break
+	}
+
 	events := make([]*OpsUpstreamErrorEvent, 0, len(entry.UpstreamErrors))
 	for _, ev := range entry.UpstreamErrors {
 		if ev != nil {
@@ -596,6 +615,9 @@ func sanitizeOpsUpstreamErrors(entry *OpsInsertErrorLogInput) error {
 
 		out.Platform = truncateString(strings.TrimSpace(out.Platform), 32)
 		out.AccountName = truncateString(strings.TrimSpace(out.AccountName), 128)
+		out.Model = truncateString(strings.TrimSpace(out.Model), 200)
+		out.FromModel = truncateString(strings.TrimSpace(out.FromModel), 200)
+		out.ModelTier = truncateString(strings.TrimSpace(out.ModelTier), 80)
 		out.ProxyName = truncateString(strings.TrimSpace(out.ProxyName), 128)
 		out.UpstreamRequestID = truncateString(strings.TrimSpace(out.UpstreamRequestID), 128)
 		out.UpstreamURL = truncateString(strings.TrimSpace(out.UpstreamURL), urlMaxLen)

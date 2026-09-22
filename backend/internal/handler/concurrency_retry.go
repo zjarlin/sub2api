@@ -12,11 +12,36 @@ import (
 func openAILocalCapacityFailover() *service.UpstreamFailoverError {
 	return &service.UpstreamFailoverError{
 		StatusCode:        http.StatusTooManyRequests,
+		Stage:             service.GatewayFailureStageRouting,
 		ClientStatusCode:  http.StatusTooManyRequests,
 		ClientMessage:     "Concurrency limit exceeded for account, please retry later",
 		Scope:             service.GatewayFailureScopeAccount,
 		NextAccountAction: service.NextAccountRetry,
 	}
+}
+
+// 限流时遍历同模型候选，不消耗普通故障的切换预算；已失败账号仍由排除集合约束。
+type openAIAccountSwitchBudget struct {
+	limit    int
+	failures int
+}
+
+func tryRemainingOpenAIAccounts(account *service.Account, err *service.UpstreamFailoverError) bool {
+	return account != nil && account.Platform == service.PlatformOpenAI &&
+		err.ShouldRetryNextAccount() && !err.IsCredentialFailure() &&
+		!err.RequestScopedTransient && err.Scope != service.GatewayFailureScopeRequest &&
+		(err.StatusCode == http.StatusTooManyRequests || err.IsUpstreamConcurrencyLimited())
+}
+
+func (b *openAIAccountSwitchBudget) exhausted(account *service.Account, err *service.UpstreamFailoverError) bool {
+	if tryRemainingOpenAIAccounts(account, err) {
+		return false
+	}
+	if b.failures >= b.limit {
+		return true
+	}
+	b.failures++
+	return false
 }
 
 // Other candidates are tried first. Only explicit busy-account exclusions are
@@ -27,7 +52,7 @@ type concurrencyRetry struct {
 }
 
 func (r *concurrencyRetry) record(id int64, err *service.UpstreamFailoverError) {
-	if !err.IsUpstreamConcurrencyLimited() {
+	if !err.IsUpstreamConcurrencyLimited() && (err == nil || err.Stage != service.GatewayFailureStageRouting) {
 		delete(r.accounts, id)
 		return
 	}

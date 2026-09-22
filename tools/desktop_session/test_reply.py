@@ -53,6 +53,24 @@ class ReplyTests(unittest.TestCase):
         with self.assertRaisesRegex(UpstreamError, '710022004'):
             decode_events(events, self.payload)
 
+    def test_chat_ack_cannot_silently_return_a_work_conversation(self):
+        self.payload = chat_request('test', {'model': {'model_item_key': '3'},
+                                            'mode_id': '1', 'reasoning_effort': 4})
+        ack = self.ack['ack_client_meta']
+        ack['local_conversation_id'] = self.payload['client_meta']['local_conversation_id']
+        extra = ack['conversation_info']['extra']
+        extra.update(model_item_key='3', mode_id='1', reasoning_effort='4')
+        self.assertEqual(decode_events(self.events(self.chunk('answer')), self.payload).text, 'answer')
+        extra['mode_id'] = '3'
+        with self.assertRaisesRegex(UpstreamError, 'isolation_failed'):
+            decode_events(self.events(self.chunk('answer')), self.payload)
+
+    def test_continuation_rejects_an_explicit_mode_switch(self):
+        self.continuation()
+        self.ack['ack_client_meta']['conversation_info'] = {'extra': {'mode_id': '1'}}
+        with self.assertRaisesRegex(UpstreamError, 'isolation_failed'):
+            decode_events(self.events(self.chunk('answer')), self.payload)
+
     def continuation(self):
         self.payload = chat_request('next', {'model': {'model_item_key': '9'},
                                             'mode_id': '3', 'reasoning_effort': 5},

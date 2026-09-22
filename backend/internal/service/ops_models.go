@@ -22,6 +22,12 @@ type OpsSystemLog struct {
 	Extra           map[string]any `json:"extra,omitempty"`
 }
 
+// 列表只传账号快照，完整错误与响应体留在详情接口，避免放大分页响应。
+type OpsAccountAttempt struct {
+	AccountID   int64  `json:"account_id"`
+	AccountName string `json:"account_name"`
+}
+
 type OpsErrorLog struct {
 	ID        int64     `json:"id"`
 	CreatedAt time.Time `json:"created_at"`
@@ -52,13 +58,14 @@ type OpsErrorLog struct {
 	RequestID       string `json:"request_id"`
 	Message         string `json:"message"`
 
-	UserID      *int64 `json:"user_id"`
-	UserEmail   string `json:"user_email"`
-	APIKeyID    *int64 `json:"api_key_id"`
-	AccountID   *int64 `json:"account_id"`
-	AccountName string `json:"account_name"`
-	GroupID     *int64 `json:"group_id"`
-	GroupName   string `json:"group_name"`
+	UserID          *int64              `json:"user_id"`
+	UserEmail       string              `json:"user_email"`
+	APIKeyID        *int64              `json:"api_key_id"`
+	AccountID       *int64              `json:"account_id"`
+	AccountName     string              `json:"account_name"`
+	AccountAttempts []OpsAccountAttempt `json:"account_attempts,omitempty"`
+	GroupID         *int64              `json:"group_id"`
+	GroupName       string              `json:"group_name"`
 
 	ClientIP    *string `json:"client_ip"`
 	RequestPath string  `json:"request_path"`

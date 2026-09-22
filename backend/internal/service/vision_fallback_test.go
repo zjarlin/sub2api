@@ -199,7 +199,9 @@ func TestVisionFallbackFailureDoesNotCallPrimaryOrCacheEmptyDescription(t *testi
 		_, err := svc.Forward(context.Background(), c, &primary, []byte(visionTestInput))
 		require.Error(t, err)
 		require.Equal(t, 1, calls)
-		require.Equal(t, http.StatusBadGateway, recorder.Code)
+		require.Equal(t, http.StatusOK, recorder.Code)
+		require.Empty(t, recorder.Body.String())
+		require.False(t, IsResponseCommitted(c))
 		require.Empty(t, svc.visionFallbackCache.entries)
 		require.Len(t, TakeVisionFallbackUsage(c), 1)
 	}
@@ -232,6 +234,7 @@ func TestVisionFallbackFailureIsReplayableWithoutBlamingPrimaryAccount(t *testin
 	require.True(t, ok)
 	require.Len(t, events, 1)
 	require.Equal(t, helper.ID, events[0].AccountID)
+	require.Equal(t, "vision-model", events[0].Model)
 	require.Equal(t, "The vision helper could not describe the image; please retry later", events[0].Message)
 }
 
@@ -259,7 +262,9 @@ func TestVisionFallbackGroupIsolationAndDisabledHelper(t *testing.T) {
 	svc := &OpenAIGatewayService{cfg: visionTestConfig(), accountRepo: codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{8: {helper}}}}
 	c, _ := visionTestContext([]byte(visionTestInput), 9, 7)
 	_, err := svc.prepareVisionFallback(context.Background(), c, &primary, []byte(visionTestInput))
-	require.ErrorContains(t, err, "No native vision helper")
+	var failoverErr *UpstreamFailoverError
+	require.ErrorAs(t, err, &failoverErr)
+	require.Contains(t, failoverErr.ClientMessage, "No native vision helper")
 	helper.Schedulable = false
 	require.Empty(t, visionFallbackCandidates([]Account{helper}, svc.cfg, nil))
 	helper.Schedulable = true

@@ -118,10 +118,12 @@ def valid_ack(ack, extra, queries, payload):
                 all(extra.get(key) == value for key, value in selection.items()))
     # 续聊 ACK 不携带初始化配置，严格核对已有会话和递增的消息位置。
     expected_model = payload['option']['model_config']['model_item_key']
+    expected_mode = payload['option']['aggregate_params']['mode_id']
     return (ack['conversation_id'] == meta['conversation_id'] and
             ack.get('section_id') == meta['last_section_id'] and len(indices) == 1 and
             isinstance(indices[0], int) and indices[0] > meta['last_message_index'] and
             extra.get('model_item_key', expected_model) == expected_model and
+            extra.get('mode_id', expected_mode) == expected_mode and
             extra.get('inner_app_id', '582478') == '582478')
 
 

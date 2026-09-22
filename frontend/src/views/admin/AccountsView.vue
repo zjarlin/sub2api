@@ -1085,6 +1085,8 @@ const {
     privacy_mode: '',
     group: '',
     search: '',
+    rate_multiplier_min: '',
+    rate_multiplier_max: '',
     lite: '1',
     include_scheduler_score: shouldIncludeSchedulerScore() ? '1' : '0',
     sort_by: sortState.sort_by,
@@ -1182,6 +1184,8 @@ const buildUpstreamBillingRateFilters = () => {
     group: typeof rawParams.group === 'string' ? rawParams.group : '',
     search: typeof rawParams.search === 'string' ? rawParams.search : '',
     privacy_mode: typeof rawParams.privacy_mode === 'string' ? rawParams.privacy_mode : '',
+    rate_multiplier_min: accountRateMultiplierFilterValue(rawParams.rate_multiplier_min),
+    rate_multiplier_max: accountRateMultiplierFilterValue(rawParams.rate_multiplier_max),
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order
   }
@@ -1451,6 +1455,8 @@ const refreshAccountsIncrementally = async () => {
         privacy_mode?: string
         group?: string
         search?: string
+        rate_multiplier_min?: string
+        rate_multiplier_max?: string
         sort_by?: string
         sort_order?: AccountSortOrder
 
@@ -2054,6 +2060,8 @@ const buildBulkEditFilterSnapshot = () => {
     group: typeof rawParams.group === 'string' ? rawParams.group : '',
     search: typeof rawParams.search === 'string' ? rawParams.search : '',
     privacy_mode: typeof rawParams.privacy_mode === 'string' ? rawParams.privacy_mode : '',
+    rate_multiplier_min: accountRateMultiplierFilterValue(rawParams.rate_multiplier_min),
+    rate_multiplier_max: accountRateMultiplierFilterValue(rawParams.rate_multiplier_max),
     sort_by: typeof rawParams.sort_by === 'string' ? rawParams.sort_by : '',
     sort_order: sortOrder
   }
@@ -2124,6 +2132,12 @@ const handleBulkUpdated = () => {
 const handleDataImported = () => { showImportData.value = false; reload() }
 const ACCOUNT_UNGROUPED_GROUP_QUERY_VALUE = 'ungrouped'
 const ACCOUNT_PRIVACY_MODE_UNSET_QUERY_VALUE = '__unset__'
+// 账号倍率筛选输入以字符串保存，提交给后端时去掉空值，保留 0 这类合法边界。
+const accountRateMultiplierFilterValue = (value: unknown): string => {
+  if (typeof value === 'number') return Number.isFinite(value) ? String(value) : ''
+  if (typeof value === 'string') return value.trim()
+  return ''
+}
 const buildAccountQueryFilters = () => ({
   platform: params.platform || '',
   type: params.type || '',
@@ -2131,6 +2145,8 @@ const buildAccountQueryFilters = () => ({
   group: params.group || '',
   privacy_mode: params.privacy_mode || '',
   search: params.search || '',
+  rate_multiplier_min: accountRateMultiplierFilterValue(params.rate_multiplier_min),
+  rate_multiplier_max: accountRateMultiplierFilterValue(params.rate_multiplier_max),
   sort_by: sortState.sort_by,
   sort_order: sortState.sort_order
 })
@@ -2175,6 +2191,11 @@ const accountMatchesCurrentFilters = (account: Account) => {
   }
   const search = String(filters.search || '').trim().toLowerCase()
   if (search && !account.name.toLowerCase().includes(search)) return false
+  const multiplier = account.rate_multiplier ?? 1
+  const multiplierMin = Number.parseFloat(String(filters.rate_multiplier_min || ''))
+  const multiplierMax = Number.parseFloat(String(filters.rate_multiplier_max || ''))
+  if (Number.isFinite(multiplierMin) && multiplier < multiplierMin) return false
+  if (Number.isFinite(multiplierMax) && multiplier > multiplierMax) return false
   return true
 }
 const mergeRuntimeFields = (oldAccount: Account, updatedAccount: Account): Account => ({

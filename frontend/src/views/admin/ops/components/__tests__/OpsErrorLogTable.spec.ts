@@ -45,6 +45,23 @@ function mountTable(row: Partial<OpsErrorLog>) {
 }
 
 describe('OpsErrorLogTable user/api-key/account columns', () => {
+  it('shows every failed attempt and preserves a different log account', () => {
+    const wrapper = mountTable({
+      account_id: 900, account_name: 'final-account',
+      account_attempts: [
+        { account_id: 837, account_name: 'aaawinn' },
+        { account_id: 832, account_name: 'r4' },
+        { account_id: 832, account_name: 'r4' }
+      ]
+    })
+    const attempts = wrapper.findAll('ol li')
+    expect(attempts).toHaveLength(4)
+    expect(attempts[0].text()).toContain('aaawinn')
+    expect(attempts[1].text()).toContain('r4')
+    expect(attempts[2].text()).toContain('r4')
+    expect(attempts[3].text()).toContain('final-account')
+  })
+
   // 回归:上游错误行(phase=upstream, owner=provider)以前在单一「用户」列里只显示账号、
   // 丢失用户;现在用户/API Key/账号各占独立列,三者同时可见。
   it('renders user, api key and account in separate columns for an upstream row', () => {

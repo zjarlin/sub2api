@@ -151,6 +151,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
+	switchBudget := openAIAccountSwitchBudget{limit: h.maxAccountSwitches}
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
@@ -158,14 +159,16 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	var busyRetry concurrencyRetry
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	advanceModel := func() bool {
-		attempt, ok := h.nextGPTFallback(c, apiKey, reqModel, body, false)
+		attempt, ok := h.nextModelFallback(c, apiKey, reqModel, body, false)
 		if !ok {
 			return false
 		}
 		reqModel, body, channelMapping = attempt.Model, attempt.Body, attempt.Mapping
+		forwardModel = gjson.GetBytes(body, "model").String()
 		failedAccountIDs = make(map[int64]struct{})
 		sameAccountRetryCount = make(map[int64]int)
 		switchCount = 0
+		switchBudget.failures = 0
 		lastFailoverErr = nil
 		busyRetry = concurrencyRetry{}
 		oauth429FailoverState = service.OpenAIOAuth429FailoverState{}
@@ -180,6 +183,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		if failoverClientGone(c) {
 			return
 		}
+		service.SetOpsAttemptModel(c, forwardModel)
 		reqLog.Debug("openai_chat_completions.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
 			c.Request.Context(),
@@ -245,6 +249,10 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 			return
 		}
 		account := selection.Account
+		if rejectIncompatibleModelFallbackAccount(c, selection, forwardModel, body) {
+			failedAccountIDs[account.ID] = struct{}{}
+			continue
+		}
 		sessionHash = ensureOpenAIPoolModeSessionHash(sessionHash, account)
 		busyRetry.record(account.ID, nil)
 		reqLog.Debug("openai_chat_completions.account_selected", zap.Int64("account_id", account.ID), zap.String("account_name", account.Name))
@@ -255,7 +263,8 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		if slotResult == openAISlotAcquireCapacityLimited {
 			failedAccountIDs[account.ID] = struct{}{}
 			lastFailoverErr = openAILocalCapacityFailover()
-			if switchCount >= maxAccountSwitches {
+			busyRetry.record(account.ID, lastFailoverErr)
+			if switchBudget.exhausted(account, lastFailoverErr) {
 				h.handleFailoverExhausted(c, lastFailoverErr, streamStarted)
 				return
 			}
@@ -380,7 +389,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 						return
 					}
 					// Pool mode: retry on the same account
-					if failoverErr.RetryableOnSameAccount {
+					if failoverErr.RetryableOnSameAccount && !tryRemainingOpenAIAccounts(account, failoverErr) {
 						retryLimit := effectiveSameAccountRetryLimit(failoverErr, account)
 						if sameAccountRetryAllowed(failoverErr, sameAccountRetryCount[account.ID], retryLimit) {
 							sameAccountRetryCount[account.ID]++
@@ -404,7 +413,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
 					busyRetry.record(account.ID, failoverErr)
-					if switchCount >= maxAccountSwitches {
+					if switchBudget.exhausted(account, failoverErr) {
 						if advanceModel() {
 							continue
 						}
@@ -412,7 +421,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 						return
 					}
 					switchCount++
-					if h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, switchCount, &oauth429FailoverState) {
+					if !tryRemainingOpenAIAccounts(account, failoverErr) && h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, switchCount, &oauth429FailoverState) {
 						if advanceModel() {
 							continue
 						}

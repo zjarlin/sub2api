@@ -141,6 +141,9 @@ export default {
       allStatus: '全部状态',
       allGroups: '全部分组',
       ungroupedGroup: '未分配分组',
+      rateMultiplierMin: '最低倍率',
+      rateMultiplierMax: '最高倍率',
+      rateMultiplierFilterHint: '按账号倍率区间筛选，留空表示不限',
       oauthType: 'OAuth',
       // Schedulable toggle
       schedulable: '参与调度',

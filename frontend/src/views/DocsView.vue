@@ -88,6 +88,31 @@
                 v-if="item.code"
                 class="mt-3 overflow-x-auto rounded-lg bg-slate-950 p-4 text-sm text-slate-100"
               ><code>{{ item.code }}</code></pre>
+              <div v-if="item.setupCommand" class="mt-3 space-y-2">
+                <p v-if="firstKeyLoading" class="text-xs text-slate-500 dark:text-dark-400">
+                  {{ t('docs.codex.items.setupCommand.loading') }}
+                </p>
+                <p v-else-if="firstKeyError" class="text-xs text-red-600 dark:text-red-400">
+                  {{ t('docs.codex.items.setupCommand.error') }}
+                </p>
+                <template v-else-if="firstKey">
+                  <pre class="overflow-x-auto rounded-lg bg-slate-950 p-4 text-sm text-slate-100"><code>{{ firstKeySetupCommand }}</code></pre>
+                  <button
+                    type="button"
+                    class="inline-flex items-center gap-1.5 rounded-lg border border-primary-200 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700 transition-colors hover:border-primary-300 hover:bg-primary-100 dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-primary-200 dark:hover:bg-primary-500/20"
+                    @click="copyFirstKeySetupCommand"
+                  >
+                    <Icon :name="setupCommandCopied ? 'check' : 'document'" size="xs" />
+                    <span>{{ setupCommandCopied ? t('common.copied') : t('common.copy') }}</span>
+                  </button>
+                  <p class="text-xs text-slate-500 dark:text-dark-400">
+                    {{ t('docs.codex.items.setupCommand.usingKey', { name: firstKey.name }) }}
+                  </p>
+                </template>
+                <p v-else class="text-xs text-slate-500 dark:text-dark-400">
+                  {{ t('docs.codex.items.setupCommand.loginRequired') }}
+                </p>
+              </div>
             </div>
           </div>
         </section>
@@ -97,11 +122,13 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore, useAuthStore } from '@/stores'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { keysAPI } from '@/api/keys'
+import type { ApiKey } from '@/types'
 
 type DocIcon = 'book' | 'key' | 'document' | 'chart' | 'shield' | 'cog'
 
@@ -109,6 +136,7 @@ interface DocItem {
   title: string
   body: string
   code?: string
+  setupCommand?: boolean
   links?: Array<{
     label: string
     href: string
@@ -132,6 +160,45 @@ const siteLogo = computed(() => appStore.cachedPublicSettings?.site_logo || appS
 const siteNameInitial = computed(() => siteName.value.trim().charAt(0).toUpperCase() || 'S')
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 const dashboardPath = computed(() => (authStore.isAdmin ? '/admin/dashboard' : '/dashboard'))
+const firstKey = ref<ApiKey | null>(null)
+const firstKeyLoading = ref(false)
+const firstKeyError = ref(false)
+const setupCommandCopied = ref(false)
+
+const firstKeySetupCommand = computed(() => {
+  const baseUrl = window.location.origin.replace(/\/+$/, '')
+  return `npx -y sub2api-codex-setup --base-url ${baseUrl} --api-key ${firstKey.value?.key || 'sk-xxxx'}`
+})
+
+async function loadFirstKey() {
+  if (!isAuthenticated.value) return
+  firstKeyLoading.value = true
+  firstKeyError.value = false
+  try {
+    const response = await keysAPI.list(1, 1, { sort_by: 'created_at', sort_order: 'asc' })
+    firstKey.value = response.items[0] || null
+  } catch {
+    firstKeyError.value = true
+  } finally {
+    firstKeyLoading.value = false
+  }
+}
+
+async function copyFirstKeySetupCommand() {
+  try {
+    await navigator.clipboard.writeText(firstKeySetupCommand.value)
+    setupCommandCopied.value = true
+    setTimeout(() => {
+      setupCommandCopied.value = false
+    }, 2000)
+  } catch {
+    setupCommandCopied.value = false
+  }
+}
+
+onMounted(() => {
+  void loadFirstKey()
+})
 
 const sections = computed<DocSection[]>(() => [
   {
@@ -172,33 +239,7 @@ const sections = computed<DocSection[]>(() => [
       {
         title: t('docs.codex.items.download.title'),
         body: t('docs.codex.items.download.body'),
-        links: [
-          {
-            label: t('docs.codex.items.download.links.official'),
-            href: 'https://developers.openai.com/codex/app',
-          },
-          {
-            label: t('docs.codex.items.download.links.mac'),
-            href: 'https://persistent.oaistatic.com/codex-app-prod/Codex.dmg',
-          },
-          {
-            label: t('docs.codex.items.download.links.macIntel'),
-            href: 'https://persistent.oaistatic.com/codex-app-prod/Codex-latest-x64.dmg',
-          },
-          {
-            label: t('docs.codex.items.download.links.windows'),
-            href: 'https://get.microsoft.com/installer/download/9PLM9XGG6VKS?cid=website_cta_psi',
-          },
-        ],
-        code: [
-          '# Bash',
-          'curl -L "https://persistent.oaistatic.com/codex-app-prod/Codex.dmg" -o "Codex.dmg"',
-          'curl -L "https://persistent.oaistatic.com/codex-app-prod/Codex-latest-x64.dmg" -o "Codex-latest-x64.dmg"',
-          '',
-          '# PowerShell',
-          'Invoke-WebRequest -Uri "https://get.microsoft.com/installer/download/9PLM9XGG6VKS?cid=website_cta_psi" -OutFile "$env:USERPROFILE\\Downloads\\Codex Installer.exe"',
-          'winget install Codex -s msstore',
-        ].join('\n'),
+        setupCommand: true,
       },
       {
         title: t('docs.codex.items.windows.title'),

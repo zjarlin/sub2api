@@ -148,3 +148,30 @@ func TestOpsServiceRecordErrorPersistsExplicitAccountAuthStatusZero(t *testing.T
 func strPtr(v string) *string {
 	return &v
 }
+
+func TestOpsLocalCapacityKeepsChainAndClearsStaleUpstreamAttributionBeforeQueue(t *testing.T) {
+	entry := &OpsInsertErrorLogInput{
+		ErrorPhase: "upstream", ErrorOwner: "provider", ErrorSource: "upstream_http",
+		UpstreamStatusCode: intPtr(429), UpstreamErrorMessage: strPtr("RPM 15"),
+		UpstreamErrors: []*OpsUpstreamErrorEvent{
+			{AccountID: 837, AccountName: "aaawinn", UpstreamStatusCode: 429, Message: "RPM 15"},
+			{AccountID: 832, AccountName: "r4", Stage: "routing", StatusCode: 429, Message: "queue full"},
+		},
+	}
+	require.NoError(t, SanitizeOpsUpstreamErrorsForQueue(entry))
+	require.Equal(t, "routing", entry.ErrorPhase)
+	require.Equal(t, "platform", entry.ErrorOwner)
+	require.Equal(t, "gateway", entry.ErrorSource)
+	require.True(t, entry.IsBusinessLimited)
+	require.NotNil(t, entry.UpstreamStatusCode)
+	require.Zero(t, *entry.UpstreamStatusCode)
+	require.Nil(t, entry.UpstreamErrorMessage)
+	events, err := ParseOpsUpstreamErrors(*entry.UpstreamErrorsJSON)
+	require.NoError(t, err)
+	require.Len(t, events, 2)
+	require.Equal(t, int64(837), events[0].AccountID)
+	require.Equal(t, 429, events[0].UpstreamStatusCode)
+	require.Equal(t, int64(832), events[1].AccountID)
+	require.Zero(t, events[1].UpstreamStatusCode)
+	require.Equal(t, 429, events[1].StatusCode)
+}

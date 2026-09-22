@@ -88,18 +88,18 @@ export default {
           body: 'macOS/Linux 写入 ~/.codex；Windows 写入用户目录下的 .codex。弹窗会同时展示 config.toml 和 auth.json 的完整内容。'
         },
         script: {
-          title: '一键配置脚本',
-          body: '在“使用 API 密钥”弹窗中选择 macOS/Linux 或 Windows 后，复制“一键配置脚本”运行即可自动创建目录并写入两个文件。Windows 使用 PowerShell，macOS/Linux 使用 Bash。'
+          title: '一键配置命令',
+          body: '推荐使用 npm 发布的一键命令。它会按当前系统检测 Codex 客户端，已安装则跳过安装，然后自动创建目录并写入配置；Windows 和 macOS 都使用同一条命令。'
         },
         download: {
-          title: 'Codex 官方客户端一键下载',
-          body: '如本机尚未安装 Codex，可先从 OpenAI 官方 Codex app 页面下载客户端。macOS 使用 DMG，Windows 可下载安装器或使用 winget 安装。',
-          links: {
-            official: '打开官方页面',
-            mac: '下载 macOS 默认版',
-            macIntel: '下载 macOS Intel 版',
-            windows: '下载 Windows 安装器'
-          }
+          title: '自动安装并配置 Codex',
+          body: '复制命令到终端运行：macOS 未安装时下载并安装官方 DMG，Windows 未安装时通过 winget 安装；已安装客户端时只写配置，不重复安装。',
+        },
+        setupCommand: {
+          loading: '正在读取你的第一个 API Key…',
+          error: '读取 API Key 失败，请打开 API 密钥页面手动复制。',
+          loginRequired: '登录后会自动选择你创建的第一个 API Key 并生成命令。',
+          usingKey: '当前使用第一个 Key：{name}'
         },
         windows: {
           title: 'Windows 路径',

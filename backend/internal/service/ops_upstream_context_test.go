@@ -10,6 +10,25 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestRecordOpsAccountCapacityFailurePreservesHistoryAndClearsPreviousUpstream(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{AccountID: 837, UpstreamStatusCode: 429, Message: "RPM 15"})
+	SetOpsUpstreamError(c, 429, "RPM 15", "previous body")
+	RecordOpsAccountCapacityFailure(c, &Account{ID: 832, Name: "r4", Platform: PlatformOpenAI}, "account_wait_timeout")
+	require.Zero(t, c.GetInt(OpsUpstreamStatusCodeKey))
+	require.Empty(t, c.GetString(OpsUpstreamErrorMessageKey))
+	require.Empty(t, c.GetString(OpsUpstreamErrorDetailKey))
+	value, _ := c.Get(OpsUpstreamErrorsKey)
+	events := value.([]*OpsUpstreamErrorEvent)
+	require.Len(t, events, 2)
+	require.Equal(t, int64(837), events[0].AccountID)
+	require.Equal(t, "RPM 15", events[0].Message)
+	require.Equal(t, int64(832), events[1].AccountID)
+	require.Equal(t, "r4", events[1].AccountName)
+	require.Equal(t, "routing", events[1].Stage)
+	require.Equal(t, "account_wait_timeout", events[1].Reason)
+}
+
 func TestSafeUpstreamURL(t *testing.T) {
 	tests := []struct {
 		name  string

@@ -67,9 +67,19 @@ func TestAcquireResponsesAccountSlotCapacityRequestsReschedule(t *testing.T) {
 			require.Nil(t, release)
 			require.False(t, ctx.Writer.Written())
 			require.Empty(t, recorder.Body.String())
+			value, exists := ctx.Get(service.OpsUpstreamErrorsKey)
+			require.True(t, exists)
+			events := value.([]*service.OpsUpstreamErrorEvent)
+			require.Len(t, events, 1)
+			require.Equal(t, int64(832), events[0].AccountID)
+			require.Equal(t, "routing", events[0].Stage)
+			require.Equal(t, 429, events[0].StatusCode)
+			require.Zero(t, events[0].UpstreamStatusCode)
 			if canWait {
+				require.Equal(t, "account_wait_timeout", events[0].Reason)
 				require.Equal(t, int64(1), cache.waitReleases.Load())
 			} else {
+				require.Equal(t, "account_wait_queue_full", events[0].Reason)
 				require.Zero(t, cache.waitReleases.Load())
 			}
 		})

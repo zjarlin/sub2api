@@ -192,6 +192,16 @@ export default {
         authModeApiKey: 'API Key Mode',
         authModeApiKeyRestartNotice: 'After saving this configuration, completely quit and restart Codex Desktop or CLI, then create a new task so the client can rebuild its tool registry.',
         configTomlHint: 'Make sure the following content is at the beginning of the config.toml file',
+        setupScriptHintUnix:
+          'macOS / Linux one-click setup script. Copy and run it in a terminal to create ~/.codex and write config.toml; compatibility mode also writes auth.json.',
+        setupScriptHintWindows:
+          'Windows PowerShell one-click setup script. Copy and run it in PowerShell to create %USERPROFILE%\\.codex and write config.toml; compatibility mode also writes auth.json.',
+        setupScriptHintUnixConfigOnly:
+          'macOS / Linux one-click setup script. Copy and run it in a terminal to create ~/.codex and write config.toml.',
+        setupScriptHintWindowsConfigOnly:
+          'Windows PowerShell one-click setup script. Copy and run it in PowerShell to create %USERPROFILE%\\.codex and write config.toml.',
+        setupCommandHint:
+          'Recommended command: detects the current OS, skips client installation when Codex is already installed, then writes configuration. By default the key is stored in config.toml, so no extra environment variable is required.',
         note: 'Make sure the config directory exists. macOS/Linux users can run mkdir -p ~/.codex to create it.',
         noteWindows: 'Press Win+R and enter %userprofile%\\.codex to open the config directory. Create it manually if it does not exist.',
       },

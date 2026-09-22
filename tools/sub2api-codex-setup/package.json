@@ -1,0 +1,34 @@
+{
+  "name": "sub2api-codex-setup",
+  "version": "0.1.0",
+  "description": "Sub2API Codex Setup",
+  "type": "module",
+  "license": "LGPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zjarlin/sub2api.git"
+  },
+  "bin": {
+    "sub2api-codex-setup": "dist/cli.mjs"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "skills"
+  ],
+  "engines": {
+    "node": ">=22.14.0"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "npm run build && node --test",
+    "prepack": "npm run build"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  }
+}

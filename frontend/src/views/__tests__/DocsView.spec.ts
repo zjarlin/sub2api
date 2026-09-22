@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { flushPromises, mount } from '@vue/test-utils'
 
 import DocsView from '../DocsView.vue'
 
@@ -8,6 +8,10 @@ const { authState } = vi.hoisted(() => ({
     isAuthenticated: false,
     isAdmin: false,
   },
+}))
+
+const { listKeysMock } = vi.hoisted(() => ({
+  listKeysMock: vi.fn(),
 }))
 
 const messages: Record<string, string> = {
@@ -27,12 +31,12 @@ const messages: Record<string, string> = {
   'docs.codex.items.files.body': 'Write config files.',
   'docs.codex.items.script.title': 'One-click setup script',
   'docs.codex.items.script.body': 'Use the generated script.',
-  'docs.codex.items.download.title': 'One-click Codex official client download',
-  'docs.codex.items.download.body': 'Download official installers.',
-  'docs.codex.items.download.links.official': 'Open official page',
-  'docs.codex.items.download.links.mac': 'Download macOS default',
-  'docs.codex.items.download.links.macIntel': 'Download macOS Intel',
-  'docs.codex.items.download.links.windows': 'Download Windows installer',
+  'docs.codex.items.download.title': 'Install and configure Codex automatically',
+  'docs.codex.items.download.body': 'Use the npm one-command setup.',
+  'docs.codex.items.setupCommand.loading': 'Loading key.',
+  'docs.codex.items.setupCommand.error': 'Key load failed.',
+  'docs.codex.items.setupCommand.loginRequired': 'Login required.',
+  'docs.codex.items.setupCommand.usingKey': 'Using {name}',
   'docs.codex.items.windows.title': 'Windows paths',
   'docs.codex.items.windows.body': 'Use PowerShell.',
   'docs.clients.title': 'Other Clients',
@@ -59,11 +63,16 @@ const messages: Record<string, string> = {
   'docs.troubleshooting.items.secret.body': 'Do not commit keys.',
   'home.dashboard': 'Dashboard',
   'home.login': 'Login',
+  'common.copy': 'Copy',
+  'common.copied': 'Copied',
 }
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
-    t: (key: string) => messages[key] ?? key,
+    t: (key: string, params?: Record<string, string>) => {
+      const value = messages[key] ?? key
+      return value.replace(/\{(\w+)\}/g, (_, name: string) => params?.[name] ?? `{${name}}`)
+    },
   }),
 }))
 
@@ -86,7 +95,18 @@ vi.mock('@/stores', () => ({
   useAuthStore: () => authState,
 }))
 
+vi.mock('@/api/keys', () => ({
+  keysAPI: {
+    list: listKeysMock,
+  },
+}))
+
 describe('DocsView', () => {
+  beforeEach(() => {
+    listKeysMock.mockReset()
+    listKeysMock.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 1, pages: 0 })
+  })
+
   it('renders built-in API key and client setup documentation', () => {
     const wrapper = mount(DocsView, {
       global: {
@@ -110,12 +130,44 @@ describe('DocsView', () => {
     expect(wrapper.text()).toContain('Codex CLI Configuration')
     expect(wrapper.text()).toContain('~/.codex/config.toml')
     expect(wrapper.text()).toContain('setup script')
-    expect(wrapper.text()).toContain('One-click Codex official client download')
-    expect(wrapper.text()).toContain('winget install Codex -s msstore')
-    expect(wrapper.html()).toContain('https://developers.openai.com/codex/app')
-    expect(wrapper.html()).toContain('https://persistent.oaistatic.com/codex-app-prod/Codex.dmg')
-    expect(wrapper.html()).toContain('https://get.microsoft.com/installer/download/9PLM9XGG6VKS?cid=website_cta_psi')
+    expect(wrapper.text()).toContain('Install and configure Codex automatically')
+    expect(wrapper.text()).toContain('Login required.')
     expect(wrapper.text()).toContain('OpenCode')
     expect(wrapper.text()).toContain('Usage Query')
+  })
+
+  it('renders the first key setup command for an authenticated user', async () => {
+    authState.isAuthenticated = true
+    listKeysMock.mockResolvedValue({
+      items: [{ id: 1, name: 'First key', key: 'sk-first' }],
+      total: 1,
+      page: 1,
+      page_size: 1,
+      pages: 1,
+    })
+
+    const wrapper = mount(DocsView, {
+      global: {
+        stubs: {
+          RouterLink: {
+            props: ['to'],
+            template: '<a><slot /></a>',
+          },
+          LocaleSwitcher: {
+            template: '<div />',
+          },
+          Icon: {
+            template: '<span />',
+          },
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(listKeysMock).toHaveBeenCalledWith(1, 1, { sort_by: 'created_at', sort_order: 'asc' })
+    expect(wrapper.text()).toContain('npx -y sub2api-codex-setup')
+    expect(wrapper.text()).toContain('--api-key sk-first')
+    expect(wrapper.text()).toContain('Using First key')
+    authState.isAuthenticated = false
   })
 })

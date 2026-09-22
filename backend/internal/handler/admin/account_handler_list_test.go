@@ -405,3 +405,33 @@ func TestAccountHandlerListSchedulerScoreIgnoresPagination(t *testing.T) {
 	require.Less(t, payload.Data.Items[0].SchedulerScore.BaseScore, 3.75)
 	require.Empty(t, payload.Data.Items[0].SchedulerScores)
 }
+
+func TestAccountHandlerListPassesRateMultiplierRangeFilter(t *testing.T) {
+	router, adminSvc := setupAccountListRouter()
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts?page=1&page_size=20&rate_multiplier_min=0.5&rate_multiplier_max=2", nil)
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	require.NotNil(t, adminSvc.lastListAccounts.rateMultiplierMin)
+	require.Equal(t, 0.5, *adminSvc.lastListAccounts.rateMultiplierMin)
+	require.NotNil(t, adminSvc.lastListAccounts.rateMultiplierMax)
+	require.Equal(t, 2.0, *adminSvc.lastListAccounts.rateMultiplierMax)
+}
+
+func TestAccountHandlerListRejectsInvalidRateMultiplierRange(t *testing.T) {
+	router, adminSvc := setupAccountListRouter()
+
+	for _, target := range []string{
+		"/api/v1/admin/accounts?rate_multiplier_min=-1",
+		"/api/v1/admin/accounts?rate_multiplier_max=abc",
+		"/api/v1/admin/accounts?rate_multiplier_min=2&rate_multiplier_max=1",
+	} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, target, nil)
+		router.ServeHTTP(rec, req)
+		require.Equal(t, http.StatusBadRequest, rec.Code, target)
+	}
+	require.Zero(t, adminSvc.lastListAccounts.calls)
+}

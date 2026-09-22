@@ -4,6 +4,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -77,8 +78,16 @@ func TestGPTModelFallbackHTTP(t *testing.T) {
 				billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 				defer billing.Stop()
 				upstream := &fallbackTestUpstream{status: status}
+				policy := &service.ModelFallbackPolicy{Enabled: true, Tiers: []service.ModelCapabilityTier{
+					{Name: "top", Models: []string{"gpt-6-astra"}},
+					{Name: "middle", Models: []string{"gpt-5.6-sol"}},
+					{Name: "base", Models: []string{"gpt-5.5"}},
+				}}
+				data, err := json.Marshal(policy)
+				require.NoError(t, err)
+				settings := service.NewSettingService(&contentModerationHandlerSettingRepo{values: map[string]string{service.SettingKeyModelFallbackPolicy: string(data)}}, cfg)
 				gateway := service.NewOpenAIGatewayService(repo, nil, nil, nil, nil, nil, nil, cfg, nil, nil,
-					service.NewBillingService(cfg, nil), nil, billing, upstream, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil)
+					service.NewBillingService(cfg, nil), nil, billing, upstream, &service.DeferredService{}, nil, nil, nil, nil, nil, settings, nil)
 				cache := &concurrencyCacheMock{
 					acquireUserSlotFn:    func(context.Context, int64, int, string) (bool, error) { return true, nil },
 					acquireAccountSlotFn: func(context.Context, int64, int, string) (bool, error) { return true, nil },
@@ -123,17 +132,17 @@ func TestGPTModelFallbackHTTP(t *testing.T) {
 
 func TestGPTFallbackGuards(t *testing.T) {
 	for _, model := range []string{"gpt-image-2", "gpt-5.5", "agnes-2.0-flash", "gpt-6-unknown"} {
-		require.Empty(t, nextGPTFallbackModel(model))
+		require.Empty(t, service.DefaultModelFallbackPolicy().Candidates(model))
 	}
-	h := &OpenAIGatewayHandler{}
+	h := &OpenAIGatewayHandler{gatewayService: &service.OpenAIGatewayService{}}
 	key := &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}}
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/responses", nil)
-	_, ok := h.nextGPTFallback(c, key, "gpt-6-astra", []byte(`{"previous_response_id":"resp_previous"}`), false)
+	_, ok := h.nextModelFallback(c, key, "gpt-6-astra", []byte(`{"previous_response_id":"resp_previous"}`), false)
 	require.False(t, ok)
 	ctx, cancel := context.WithCancel(c.Request.Context())
 	cancel()
 	c.Request = c.Request.WithContext(ctx)
-	_, ok = h.nextGPTFallback(c, key, "gpt-6-astra", []byte(`{}`), false)
+	_, ok = h.nextModelFallback(c, key, "gpt-6-astra", []byte(`{}`), false)
 	require.False(t, ok)
 }

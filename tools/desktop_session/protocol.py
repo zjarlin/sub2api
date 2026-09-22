@@ -14,8 +14,11 @@ def chat_request(text, selection, cursor=None):
     model = selection['model']['model_item_key']
     mode = selection['mode_id']
     reasoning = selection['reasoning_effort']
-    if mode != '3':
-        raise ValueError('This probe only tests the inspected desktop work mode')
+    # 客户端枚举：对话为 Chat=2、conversation_mode=1，工作任务为 MOA=1、conversation_mode=2。
+    modes = {'1': (1, 2), '3': (2, 1)}
+    if mode not in modes:
+        raise ValueError('Unsupported desktop conversation mode')
+    conversation_mode, agent_mode = modes[mode]
     payload = {
         'client_meta': {'local_conversation_id': 'local_' + str(uuid.uuid4().int)[:16],
                         'conversation_id': '', 'bot_id': BOT_ID,
@@ -28,19 +31,19 @@ def chat_request(text, selection, cursor=None):
                                              'icon_url': '', 'icon_url_dark': '', 'summary': ''},
                                              'pc_event_block': ''}}]}],
         'option': {'create_time_ms': int(time.time() * 1000), 'unique_key': identifier(),
-                   'need_create_conversation': True, 'conversation_mode': 2,
+                   'need_create_conversation': True, 'conversation_mode': conversation_mode,
                    'conversation_init_option': {'need_ack_conversation': True},
                    'conversation_init_ext': {'model_item_key': model, 'mode_id': mode,
                                              'reasoning_effort': str(reasoning)},
-                   'agent_mode': 1, 'is_regen': False, 'start_seq': 0,
+                   'agent_mode': agent_mode, 'is_regen': False, 'start_seq': 0,
                    'model_config': {'model_item_key': model, 'model_extra_params': {},
                                     'reasoning_effort': reasoning},
-                   'aggregate_params': {'conversation_mode': '2', 'mode_id': mode,
-                                        'model_item_key': model, 'agent_mode': '1',
+                   'aggregate_params': {'conversation_mode': str(conversation_mode), 'mode_id': mode,
+                                        'model_item_key': model, 'agent_mode': str(agent_mode),
                                         'reasoning_effort': str(reasoning), 'provider_id': ''},
                    'sse_recv_event_options': {'support_chunk_delta': False},
                    'support_lazy_fetch_stream': False},
-        'user_context': [], 'ext': {'agent_mode': '1', 'sub_conv_firstmet_type': '1',
+        'user_context': [], 'ext': {'agent_mode': str(agent_mode), 'sub_conv_firstmet_type': '1',
                                   'conversation_init_option': '{"need_ack_conversation":true}'},
     }
     if cursor is not None:

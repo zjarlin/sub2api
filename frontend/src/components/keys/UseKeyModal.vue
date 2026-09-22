@@ -786,6 +786,12 @@ const currentFiles = computed((): FileConfig[] => {
   }
 })
 
+function codexCliSetupCommand(): string {
+  const baseUrl = props.baseUrl || window.location.origin
+  const authMode = codexAuthMode.value === 'legacy' ? ' --auth-mode legacy' : ''
+  return `npx -y sub2api-codex-setup --base-url ${baseUrl} --api-key ${props.apiKey}${authMode}`
+}
+
 function generateAnthropicFiles(baseUrl: string, apiKey: string): FileConfig[] {
   let path: string
   let content: string
@@ -989,14 +995,95 @@ function buildOpenAICodexFileConfigs(
     }
   ]
 
-  if (codexAuthMode.value === 'legacy') {
+  const authContent = codexAuthMode.value === 'legacy'
+    ? JSON.stringify({ OPENAI_API_KEY: apiKey }, null, 2)
+    : undefined
+
+  if (authContent) {
     files.push({
       path: `${configDir}/auth.json`,
-      content: JSON.stringify({ OPENAI_API_KEY: apiKey }, null, 2)
+      content: authContent
     })
   }
 
-  return files
+  return [...files, generateCodexCliFiles(), generateCodexSetupScript(configContent, authContent, configDir.includes('\\'))]
+}
+
+function generateCodexCliFiles(): FileConfig {
+  return {
+    path: 'One-command setup',
+    content: codexCliSetupCommand(),
+    hint: t('keys.useKeyModal.openai.setupCommandHint')
+  }
+}
+
+function generateCodexSetupScript(
+  configContent: string,
+  authContent: string | undefined,
+  isWindows: boolean
+): FileConfig {
+  if (isWindows) {
+    const authBlock = authContent
+      ? `
+$authJson = @'
+${authContent}
+'@
+`
+      : ''
+    const authWrite = authContent
+      ? `[System.IO.File]::WriteAllText((Join-Path $configDir "auth.json"), $authJson, $utf8NoBom)\n`
+      : ''
+    const hintKey = authContent
+      ? 'keys.useKeyModal.openai.setupScriptHintWindows'
+      : 'keys.useKeyModal.openai.setupScriptHintWindowsConfigOnly'
+    const content = `$ErrorActionPreference = "Stop"
+$configDir = Join-Path $env:USERPROFILE ".codex"
+New-Item -ItemType Directory -Force -Path $configDir | Out-Null
+
+$configToml = @'
+${configContent}
+'@
+${authBlock}
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText((Join-Path $configDir "config.toml"), $configToml, $utf8NoBom)
+${authWrite}Write-Host "Codex CLI configuration written to $configDir"`
+
+    return {
+      path: 'setup-codex.ps1',
+      content,
+      hint: t(hintKey)
+    }
+  }
+
+  const authBlock = authContent
+    ? `
+cat > "$config_dir/auth.json" <<'EOF'
+${authContent}
+EOF
+`
+    : ''
+  const authChmod = authContent ? 'chmod 600 "$config_dir/auth.json"\n' : ''
+  const hintKey = authContent
+    ? 'keys.useKeyModal.openai.setupScriptHintUnix'
+    : 'keys.useKeyModal.openai.setupScriptHintUnixConfigOnly'
+  const content = `#!/usr/bin/env bash
+set -euo pipefail
+
+config_dir="\${HOME}/.codex"
+mkdir -p "$config_dir"
+
+cat > "$config_dir/config.toml" <<'EOF'
+${configContent}
+EOF
+${authBlock}
+chmod 600 "$config_dir/config.toml"
+${authChmod}echo "Codex CLI configuration written to $config_dir"`
+
+  return {
+    path: 'setup-codex.sh',
+    content,
+    hint: t(hintKey)
+  }
 }
 
 function joinConfigPath(dir: string, file: string, windows: boolean): string {
@@ -1215,7 +1302,9 @@ supports_websockets = false
       path: joinConfigPath(configDir, 'config.toml', isWindowsPath),
       content: configContent,
       hint: t('keys.useKeyModal.grok.codexConfigTomlHint')
-    }
+    },
+    generateCodexCliFiles(),
+    generateCodexSetupScript(configContent, undefined, isWindowsPath)
   ]
 }
 
@@ -1292,7 +1381,9 @@ supports_websockets = false`
           ? `keys.useKeyModal.${platform}.codexConfigTomlHint`
           : 'keys.useKeyModal.routedCodex.configTomlHint'
       )
-    }
+    },
+    generateCodexCliFiles(),
+    generateCodexSetupScript(configContent, undefined, isWindows)
   ]
 }
 

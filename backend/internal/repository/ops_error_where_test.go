@@ -113,7 +113,7 @@ func TestBuildOpsErrorLogsWhere_CyberPolicyStatusExemption(t *testing.T) {
 	}
 
 	whereProviderHealth, _ := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{
-		ErrorPhasesAny:           []string{"upstream", "account_auth"},
+		ErrorPhasesAny:           []string{"upstream", "account_auth", "routing"},
 		IncludeRecoveredUpstream: true,
 	})
 	if strings.Contains(whereProviderHealth, "status_code") {
@@ -149,5 +149,16 @@ func TestBuildOpsErrorLogsWhere_UserOwnershipIsDirectOnly(t *testing.T) {
 	}
 	if strings.Contains(where, "deleted_key_owner_user_id") {
 		t.Fatalf("user ownership must not depend on deleted-key attribution: %s", where)
+	}
+}
+
+func TestBuildOpsErrorLogsWhereRecoveredRoutingIsAdminOnly(t *testing.T) {
+	admin, _ := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{Phase: "routing", IncludeRecoveredUpstream: true})
+	if strings.Contains(admin, "COALESCE(e.status_code, 0) >= 400") {
+		t.Fatal("管理端应能查看已经恢复的本地排队尝试")
+	}
+	user, _ := buildOpsErrorLogsWhere(&service.OpsErrorLogFilter{Phase: "routing"})
+	if !strings.Contains(user, "COALESCE(e.status_code, 0) >= 400") {
+		t.Fatal("使用方的错误列表不得包含已经恢复的本地排队尝试")
 	}
 }

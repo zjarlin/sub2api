@@ -2,7 +2,7 @@
   <div class="flex flex-wrap items-center gap-3">
     <SearchInput
       :model-value="searchQuery"
-      :placeholder="t('admin.accounts.searchAccounts')"
+      :placeholder="t('admin.accounts.searchAccountsOrId')"
       class="w-full sm:w-64"
       @update:model-value="$emit('update:searchQuery', $event)"
       @search="$emit('change')"
@@ -12,11 +12,34 @@
     <Select :model-value="filters.status" class="w-40" :options="sOpts" @update:model-value="updateStatus" @change="$emit('change')" />
     <Select :model-value="filters.privacy_mode" class="w-40" :options="privacyOpts" @update:model-value="updatePrivacyMode" @change="$emit('change')" />
     <Select :model-value="filters.group" class="w-40" :options="gOpts" @update:model-value="updateGroup" @change="$emit('change')" />
+    <div class="flex items-center gap-1.5" :title="t('admin.accounts.rateMultiplierFilterHint')">
+      <div class="w-24">
+        <Input
+          :model-value="filters.rate_multiplier_min ?? ''"
+          type="number"
+          :placeholder="t('admin.accounts.rateMultiplierMin')"
+          @update:model-value="updateRateMultiplierMin"
+          @enter="$emit('change')"
+          @change="$emit('change')"
+        />
+      </div>
+      <span class="text-gray-400 dark:text-dark-500">-</span>
+      <div class="w-24">
+        <Input
+          :model-value="filters.rate_multiplier_max ?? ''"
+          type="number"
+          :placeholder="t('admin.accounts.rateMultiplierMax')"
+          @update:model-value="updateRateMultiplierMax"
+          @enter="$emit('change')"
+          @change="$emit('change')"
+        />
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'; import { useI18n } from 'vue-i18n'; import Select from '@/components/common/Select.vue'; import SearchInput from '@/components/common/SearchInput.vue'
+import { computed } from 'vue'; import { useI18n } from 'vue-i18n'; import Select from '@/components/common/Select.vue'; import SearchInput from '@/components/common/SearchInput.vue'; import Input from '@/components/common/Input.vue'
 import type { AdminGroup } from '@/types'
 import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
 const props = defineProps<{ searchQuery: string; filters: Record<string, any>; groups?: AdminGroup[] }>()
@@ -26,6 +49,8 @@ const updateType = (value: string | number | boolean | null) => { emit('update:f
 const updateStatus = (value: string | number | boolean | null) => { emit('update:filters', { ...props.filters, status: value }) }
 const updatePrivacyMode = (value: string | number | boolean | null) => { emit('update:filters', { ...props.filters, privacy_mode: value }) }
 const updateGroup = (value: string | number | boolean | null) => { emit('update:filters', { ...props.filters, group: value }) }
+const updateRateMultiplierMin = (value: string | number | null | undefined) => { emit('update:filters', { ...props.filters, rate_multiplier_min: value }) }
+const updateRateMultiplierMax = (value: string | number | null | undefined) => { emit('update:filters', { ...props.filters, rate_multiplier_max: value }) }
 const pOpts = computed(() => [{ value: '', label: t('admin.accounts.allPlatforms') }, ...CONCRETE_PLATFORM_OPTIONS])
 const tOpts = computed(() => [{ value: '', label: t('admin.accounts.allTypes') }, { value: 'oauth', label: t('admin.accounts.oauthType') }, { value: 'setup-token', label: t('admin.accounts.setupToken') }, { value: 'apikey', label: t('admin.accounts.apiKey') }, { value: 'bedrock', label: 'AWS Bedrock' }])
 const sOpts = computed(() => [{ value: '', label: t('admin.accounts.allStatus') }, { value: 'active', label: t('admin.accounts.status.active') }, { value: 'inactive', label: t('admin.accounts.status.inactive') }, { value: 'error', label: t('admin.accounts.status.error') }, { value: 'rate_limited', label: t('admin.accounts.status.rateLimited') }, { value: 'temp_unschedulable', label: t('admin.accounts.status.tempUnschedulable') }, { value: 'unschedulable', label: t('admin.accounts.status.unschedulable') }])

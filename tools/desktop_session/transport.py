@@ -69,7 +69,8 @@ def read_catalog(cookies, *, params=None):
         menu = entry.get('active_switch_conf', {}).get('menu_conf_v2', {})
         items = menu.get('model_list', {}).get('item_list', [])
         if items:
-            models = [{key: item.get(key) for key in ('model_item_key', 'name', 'default_mode')}
+            models = [{key: item.get(key) for key in ('model_item_key', 'name', 'default_mode',
+                                                     'reasoning_effort_config')}
                       for item in items]
             return models, menu.get('default_select_mode_map', {})
     raise RuntimeError('No desktop models returned')

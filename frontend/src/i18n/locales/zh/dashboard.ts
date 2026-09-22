@@ -192,6 +192,16 @@ export default {
         authModeApiKey: 'API Key Mode',
         authModeApiKeyRestartNotice: '保存此配置后，必须完全退出并重启 Codex Desktop 或 CLI，然后新建 task，让客户端重新构建工具注册表。',
         configTomlHint: '请确保以下内容位于 config.toml 文件的开头部分',
+        setupScriptHintUnix:
+          'macOS / Linux 一键配置脚本。复制后在终端中运行，会自动创建 ~/.codex，写入 config.toml；兼容模式还会写入 auth.json。',
+        setupScriptHintWindows:
+          'Windows PowerShell 一键配置脚本。复制后在 PowerShell 中运行，会自动创建 %USERPROFILE%\\.codex，写入 config.toml；兼容模式还会写入 auth.json。',
+        setupScriptHintUnixConfigOnly:
+          'macOS / Linux 一键配置脚本。复制后在终端中运行，会自动创建 ~/.codex 并写入 config.toml。',
+        setupScriptHintWindowsConfigOnly:
+          'Windows PowerShell 一键配置脚本。复制后在 PowerShell 中运行，会自动创建 %USERPROFILE%\\.codex 并写入 config.toml。',
+        setupCommandHint:
+          '推荐命令：自动识别当前系统，检测到 Codex 已安装时跳过安装，然后写入配置。默认把 Key 写入 config.toml，无需额外设置环境变量。',
         note: '请确保配置目录存在。macOS/Linux 用户可运行 mkdir -p ~/.codex 创建目录。',
         noteWindows:
           '按 Win+R，输入 %userprofile%\\.codex 打开配置目录。如目录不存在，请先手动创建。'

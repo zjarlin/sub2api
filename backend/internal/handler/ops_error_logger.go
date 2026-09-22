@@ -1332,7 +1332,13 @@ func logOpsRecoveredUpstream(c *gin.Context, ops *service.OpsService, finalStatu
 	entry.IsCountTokens = isCountTokensRequest(c)
 	entry.CreatedAt = time.Now()
 	entry.ErrorMessage = "Recovered upstream error"
-	if lastStage == string(service.GatewayFailureStageAccountAuth) {
+	if lastStage == string(service.GatewayFailureStageRouting) {
+		entry.ErrorMessage = "Recovered account capacity failure"
+		entry.ErrorPhase = "routing"
+		entry.ErrorOwner = "platform"
+		entry.ErrorSource = "gateway"
+		entry.IsBusinessLimited = true
+	} else if lastStage == string(service.GatewayFailureStageAccountAuth) {
 		entry.ErrorPhase = string(service.GatewayFailureStageAccountAuth)
 		entry.ErrorMessage = "Recovered account authentication failure"
 	} else if lastStatus > 0 {
@@ -1611,7 +1617,12 @@ func applyOpsStreamErrorSnapshot(entry *service.OpsInsertErrorLogInput, streamEr
 			break
 		}
 	}
-	if lastStage == string(service.GatewayFailureStageAccountAuth) {
+	if lastStage == string(service.GatewayFailureStageRouting) {
+		entry.ErrorPhase = "routing"
+		entry.ErrorOwner = "platform"
+		entry.ErrorSource = "gateway"
+		entry.IsBusinessLimited = true
+	} else if lastStage == string(service.GatewayFailureStageAccountAuth) {
 		entry.ErrorPhase = string(service.GatewayFailureStageAccountAuth)
 		entry.ErrorOwner = "provider"
 		entry.ErrorSource = "gateway"
@@ -1726,7 +1737,7 @@ func applyOpsUpstreamErrorEvents(entry *service.OpsInsertErrorLogInput, events [
 	entry.UpstreamStatusCode = nil
 	entry.UpstreamErrorMessage = nil
 	entry.UpstreamErrorDetail = nil
-	if last.Stage == string(service.GatewayFailureStageAccountAuth) {
+	if last.Stage == string(service.GatewayFailureStageAccountAuth) || last.Stage == string(service.GatewayFailureStageRouting) {
 		code := 0
 		entry.UpstreamStatusCode = &code
 	} else if last.UpstreamStatusCode > 0 {

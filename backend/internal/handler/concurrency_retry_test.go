@@ -92,3 +92,23 @@ func TestUpstreamConcurrencyRetryBoundaries(t *testing.T) {
 	r.record(1, &service.UpstreamFailoverError{StatusCode: 401})
 	require.False(t, r.retry(context.Background(), excluded), "later credential failures must not be reopened")
 }
+
+func TestLocalCapacityRetryAndAccountSwitchBudget(t *testing.T) {
+	retry := concurrencyRetry{}
+	retry.record(832, openAILocalCapacityFailover())
+	excluded := map[int64]struct{}{832: {}, 837: {}}
+	require.True(t, retry.retry(context.Background(), excluded))
+	require.NotContains(t, excluded, int64(832))
+	require.Contains(t, excluded, int64(837), "RPM 限流账号不能因本地并发恢复而重新放行")
+
+	account := &service.Account{Platform: service.PlatformOpenAI}
+	budget := openAIAccountSwitchBudget{limit: 1}
+	for range 10 {
+		require.False(t, budget.exhausted(account, &service.UpstreamFailoverError{StatusCode: 429}))
+	}
+	require.False(t, budget.exhausted(account, &service.UpstreamFailoverError{StatusCode: 502}))
+	require.True(t, budget.exhausted(account, &service.UpstreamFailoverError{StatusCode: 502}))
+	require.False(t, tryRemainingOpenAIAccounts(account, &service.UpstreamFailoverError{StatusCode: 429, NextAccountAction: service.NextAccountStop}))
+	require.False(t, tryRemainingOpenAIAccounts(account, &service.UpstreamFailoverError{StatusCode: 429, RequestScopedTransient: true}))
+	require.False(t, tryRemainingOpenAIAccounts(&service.Account{Platform: service.PlatformGrok}, &service.UpstreamFailoverError{StatusCode: 429}))
+}

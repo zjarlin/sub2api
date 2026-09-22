@@ -81,13 +81,19 @@ Chat 入口在原生 Chat、Responses 和 Anthropic 分流前完成辅助，避�
   主模型失败时已发生的辅助用量仍然记录。缓存命中不再次计辅助费用。
 - 辅助失败、空描述、未完成响应或超时会尝试下一候选；全部失败才返回错误。
   原生能力未知且没有辅助模型时保留原转发行为。
+- 对已知纯文本模型，没有助手、加载候选失败、容量不足及无效摘要均保留为可换号错误，
+  由外层完成账号/模型回退后统一输出，不提前写入 JSON，也不把助手故障归因到主账号。
+  终止性的图片格式错误仍返回 400，并标记响应已提交，避免外层追加 `response.failed`。
+  若排队或 compact 心跳已提交 SSE，则按 Responses/Chat 协议写入单个流内错误。
+  助手返回的实际 HTTP 状态和限流响应头保留给监控与调度，不将未写出的 401/429 一律记成 502。
 - 额外延迟与费用来自辅助视觉调用；关闭此配置可恢复原行为。
 
 文字描述无法无损保留图片中的全部信息，精确像素操作仍应选用原生视觉模型。
 
 ## 验证
 
-重点测试在 `backend/internal/service/vision_fallback_test.go` 与 `vision_fallback_chat_test.go`，覆盖能力目录与 ETag、
+重点测试在 `backend/internal/service/vision_fallback_test.go`、`vision_fallback_chat_test.go`、
+`vision_fallback_recovery_test.go` 与 `backend/internal/handler/openai_vision_error_response_test.go`，覆盖能力目录与 ETag、
 分组隔离、原生视觉直通、多图与工具输出、JSON/SSE 主模型响应、独立辅助用量、
 缓存、取消、输入边界和失败处理。WebSocket 接入点位于 `openai_ws_forwarder_ingress.go`，
 在发送上游之前进行转换；透传路径的后续回合辅助调用独立取得并发容量。
@@ -196,3 +202,18 @@ service、handler、config、routes 的视觉及目录定向 `-race` 测试通�
 `~/.codex/model-sync/runtime.mjs` 已包含远端能力覆盖逻辑。使用该运行时同步后，
 本地 35 项全部包含 `image`（包含本机额外目录项）。正在运行的客户端仍可能需要
 重新加载目录；本次未重启桌面应用。
+
+## 2026-09-22 助手不可用与错误响应修复
+
+排查时分组 6 的原视觉账号 831 已停用，账号 180、283 曾处于冷却；新账号 846
+只有模型 ID 快照，缺少原生视觉能力记录。用三色图片直连验证 846 的 `gpt-5.6-luna`
+成功后，仅为该型号补入 `[text, image]`，并通过调度 outbox 刷新快照。
+修改前备份为 252 上的 `backups/vision-capability-846-20260922-before.json`。
+
+实际网关 `q3-4b` 图片请求在 6.8 秒返回 `response.completed`、`status: completed`，
+回答“蓝色、黄色、品红色”，辅助用量已按账号 846 独立记录。
+同一时点 `deepseek-v4.1-flash` 原主账号均不可调度，验收请求在选择主账号时返回 503，
+尚未进入视觉辅助；这不作为该型号恢复成功的证据，也不自动启用已停调账号。
+
+代码补齐了助手不可用时的换号错误，并修复终止错误先写 JSON、外层再追加 SSE 的问题。
+这些代码变更已在本地通过 service/handler 定向回归，尚未发布；线上当前恢复来自已验证的能力配置。

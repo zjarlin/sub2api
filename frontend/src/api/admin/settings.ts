@@ -1598,3 +1598,25 @@ export const settingsAPI = {
 };
 
 export default settingsAPI;
+
+// 模型能力档位从高到低排列，ID 使用精确匹配。
+export interface ModelCapabilityTier {
+  name: string;
+  models: string[];
+}
+export interface ModelFallbackPolicy {
+  enabled: boolean;
+  tiers: ModelCapabilityTier[];
+}
+export async function getModelFallbackPolicy(): Promise<ModelFallbackPolicy> {
+  const { data } = await apiClient.get<ModelFallbackPolicy>("/admin/settings/model-fallback");
+  return data;
+}
+export async function getModelFallbackPreset(): Promise<ModelFallbackPolicy> {
+  const { data } = await apiClient.get<ModelFallbackPolicy>("/admin/settings/model-fallback/preset");
+  return data;
+}
+export async function updateModelFallbackPolicy(policy: ModelFallbackPolicy): Promise<ModelFallbackPolicy> {
+  const { data } = await apiClient.put<ModelFallbackPolicy>("/admin/settings/model-fallback", policy);
+  return data;
+}

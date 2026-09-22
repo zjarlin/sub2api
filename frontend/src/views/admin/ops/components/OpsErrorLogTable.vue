@@ -92,8 +92,17 @@
         </template>
 
         <template #cell-account="{ row }">
+          <ol v-if="row.account_attempts?.length" class="space-y-1 text-xs text-gray-900 dark:text-white">
+            <li v-for="(attempt, index) in row.account_attempts" :key="index" class="max-w-[280px] break-all">
+              <span class="mr-1 text-gray-400">{{ index + 1 }}.</span>{{ attempt.account_name || t('common.unknown') }}
+              <span v-if="attempt.account_id" class="ml-1 text-gray-500 dark:text-gray-400">#{{ attempt.account_id }}</span>
+            </li>
+            <li v-if="hasUnlistedLogAccount(row)" class="max-w-[280px] break-all text-gray-500 dark:text-gray-400">
+              {{ t('admin.ops.errorDetail.attemptChain.logAccount') }}: {{ row.account_name || '#' + row.account_id }}
+            </li>
+          </ol>
           <span
-            v-if="row.account_id"
+            v-else-if="row.account_id"
             class="text-sm text-gray-900 dark:text-white"
             :title="t('admin.ops.errorLog.accountId') + ' ' + row.account_id"
           >{{ row.account_name || '#' + row.account_id }}</span>
@@ -193,6 +202,10 @@ import { mapErrorCategory } from '@/utils/errorCategory'
 import { mapErrorSortKey, statusCodeBadgeClass } from '@/utils/errorBadges'
 
 const { t } = useI18n()
+
+function hasUnlistedLogAccount(row: OpsErrorLog): boolean {
+  return !!row.account_id && !row.account_attempts?.some(attempt => attempt.account_id === row.account_id)
+}
 
 // 列序对齐管理端用量明细:身份(用户→Key→账号)→ 请求形态(平台→模型→端点→分组→类型)
 // → 结果(状态→消息)→ 时间→UA→IP→操作

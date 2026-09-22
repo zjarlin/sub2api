@@ -174,12 +174,14 @@ type BulkUpdateAccountsRequest struct {
 }
 
 type BulkUpdateAccountFilters struct {
-	Platform    string `json:"platform"`
-	Type        string `json:"type"`
-	Status      string `json:"status"`
-	Group       string `json:"group"`
-	Search      string `json:"search"`
-	PrivacyMode string `json:"privacy_mode"`
+	Platform          string   `json:"platform"`
+	Type              string   `json:"type"`
+	Status            string   `json:"status"`
+	Group             string   `json:"group"`
+	Search            string   `json:"search"`
+	PrivacyMode       string   `json:"privacy_mode"`
+	RateMultiplierMin *float64 `json:"rate_multiplier_min"`
+	RateMultiplierMax *float64 `json:"rate_multiplier_max"`
 }
 
 // CheckMixedChannelRequest represents check mixed channel risk request
@@ -617,18 +619,46 @@ func (h *AccountHandler) listAccountSchedulerScoreFilterPool(
 	platform, accountType, status, search string,
 	groupID int64,
 	privacyMode string,
+	filters service.AccountListFilters,
 ) []service.Account {
 	if h.adminService == nil || (platform != "" && platform != service.PlatformOpenAI) {
 		return nil
 	}
 	// 池只用于 OpenAI 分数计算（非 OpenAI 账号会在打分时被丢弃），
 	// 无论列表页平台过滤为何，查询一律限定 openai，避免无过滤时全表扫描。
-	accounts, err := h.adminService.ListAccountsForSchedulerScoreFilter(ctx, service.PlatformOpenAI, accountType, status, search, groupID, privacyMode)
+	accounts, err := h.adminService.ListAccountsForSchedulerScoreFilter(ctx, service.PlatformOpenAI, accountType, status, search, groupID, privacyMode, filters)
 	if err != nil {
 		slog.Warn("openai_scheduler_filter_score_pool_failed", "error", err)
 		return nil
 	}
 	return accounts
+}
+
+// parseAccountListFilters 解析账号列表的可选过滤条件（当前为计费倍率闭区间）。
+// 任一边界非法或区间倒置时返回 BadRequest 错误。
+func parseAccountListFilters(c *gin.Context) (service.AccountListFilters, error) {
+	var filters service.AccountListFilters
+	for _, spec := range []struct {
+		query string
+		dest  **float64
+	}{
+		{"rate_multiplier_min", &filters.RateMultiplierMin},
+		{"rate_multiplier_max", &filters.RateMultiplierMax},
+	} {
+		raw := strings.TrimSpace(c.Query(spec.query))
+		if raw == "" {
+			continue
+		}
+		value, err := strconv.ParseFloat(raw, 64)
+		if err != nil || value < 0 {
+			return service.AccountListFilters{}, infraerrors.BadRequest("INVALID_RATE_MULTIPLIER_FILTER", spec.query+" must be a number >= 0")
+		}
+		*spec.dest = &value
+	}
+	if filters.RateMultiplierMin != nil && filters.RateMultiplierMax != nil && *filters.RateMultiplierMin > *filters.RateMultiplierMax {
+		return service.AccountListFilters{}, infraerrors.BadRequest("INVALID_RATE_MULTIPLIER_FILTER", "rate_multiplier_min must be <= rate_multiplier_max")
+	}
+	return filters, nil
 }
 
 // List handles listing all accounts with pagination
@@ -640,6 +670,11 @@ func (h *AccountHandler) List(c *gin.Context) {
 	status := c.Query("status")
 	search := c.Query("search")
 	privacyMode := strings.TrimSpace(c.Query("privacy_mode"))
+	accountFilters, err := parseAccountListFilters(c)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 	sortBy := c.DefaultQuery("sort_by", "name")
 	sortOrder := c.DefaultQuery("sort_order", "asc")
 	// 标准化和验证 search 参数
@@ -669,7 +704,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 
-	accounts, total, err := h.adminService.ListAccounts(c.Request.Context(), page, pageSize, platform, accountType, status, search, groupID, privacyMode, sortBy, sortOrder)
+	accounts, total, err := h.adminService.ListAccounts(c.Request.Context(), page, pageSize, platform, accountType, status, search, groupID, privacyMode, accountFilters, sortBy, sortOrder)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -706,7 +741,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		}
 	}
 	if includeSchedulerScore && pageHasOpenAIAccounts {
-		schedulerFilterPool := h.listAccountSchedulerScoreFilterPool(c.Request.Context(), platform, accountType, status, search, groupID, privacyMode)
+		schedulerFilterPool := h.listAccountSchedulerScoreFilterPool(c.Request.Context(), platform, accountType, status, search, groupID, privacyMode, accountFilters)
 		schedulerScores, schedulerGroupScores = h.buildOpenAIAccountSchedulerScores(c.Request.Context(), accounts, schedulerFilterPool)
 	}
 
@@ -841,7 +876,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 				CurrentRPM:         item.CurrentRPM,
 			}
 		}
-		etag := buildAccountsListETag(compact, total, page, pageSize, platform, accountType, status, search, true)
+		etag := buildAccountsListETag(compact, total, page, pageSize, platform, accountType, status, search, accountFilters, true)
 		if etag != "" {
 			c.Header("ETag", etag)
 			c.Header("Vary", "If-None-Match")
@@ -854,7 +889,7 @@ func (h *AccountHandler) List(c *gin.Context) {
 		return
 	}
 
-	etag := buildAccountsListETag(result, total, page, pageSize, platform, accountType, status, search, false)
+	etag := buildAccountsListETag(result, total, page, pageSize, platform, accountType, status, search, accountFilters, false)
 	if etag != "" {
 		c.Header("ETag", etag)
 		c.Header("Vary", "If-None-Match")
@@ -872,28 +907,33 @@ func buildAccountsListETag[T any](
 	total int64,
 	page, pageSize int,
 	platform, accountType, status, search string,
+	filters service.AccountListFilters,
 	lite bool,
 ) string {
 	payload := struct {
-		Total       int64  `json:"total"`
-		Page        int    `json:"page"`
-		PageSize    int    `json:"page_size"`
-		Platform    string `json:"platform"`
-		AccountType string `json:"type"`
-		Status      string `json:"status"`
-		Search      string `json:"search"`
-		Lite        bool   `json:"lite"`
-		Items       []T    `json:"items"`
+		Total             int64    `json:"total"`
+		Page              int      `json:"page"`
+		PageSize          int      `json:"page_size"`
+		Platform          string   `json:"platform"`
+		AccountType       string   `json:"type"`
+		Status            string   `json:"status"`
+		Search            string   `json:"search"`
+		RateMultiplierMin *float64 `json:"rate_multiplier_min,omitempty"`
+		RateMultiplierMax *float64 `json:"rate_multiplier_max,omitempty"`
+		Lite              bool     `json:"lite"`
+		Items             []T      `json:"items"`
 	}{
-		Total:       total,
-		Page:        page,
-		PageSize:    pageSize,
-		Platform:    platform,
-		AccountType: accountType,
-		Status:      status,
-		Search:      search,
-		Lite:        lite,
-		Items:       items,
+		Total:             total,
+		Page:              page,
+		PageSize:          pageSize,
+		Platform:          platform,
+		AccountType:       accountType,
+		Status:            status,
+		Search:            search,
+		RateMultiplierMin: filters.RateMultiplierMin,
+		RateMultiplierMax: filters.RateMultiplierMax,
+		Lite:              lite,
+		Items:             items,
 	}
 	raw, err := json.Marshal(payload)
 	if err != nil {
@@ -2362,12 +2402,14 @@ func toServiceBulkUpdateAccountFilters(filters *BulkUpdateAccountFilters) *servi
 		return nil
 	}
 	return &service.BulkUpdateAccountFilters{
-		Platform:    filters.Platform,
-		Type:        filters.Type,
-		Status:      filters.Status,
-		Group:       filters.Group,
-		Search:      filters.Search,
-		PrivacyMode: filters.PrivacyMode,
+		Platform:          filters.Platform,
+		Type:              filters.Type,
+		Status:            filters.Status,
+		Group:             filters.Group,
+		Search:            filters.Search,
+		PrivacyMode:       filters.PrivacyMode,
+		RateMultiplierMin: filters.RateMultiplierMin,
+		RateMultiplierMax: filters.RateMultiplierMax,
 	}
 }
 
@@ -3182,7 +3224,7 @@ func (h *AccountHandler) BatchRefreshTier(c *gin.Context) {
 	accounts := make([]*service.Account, 0)
 
 	if len(req.AccountIDs) == 0 {
-		allAccounts, _, err := h.adminService.ListAccounts(ctx, 1, 10000, "gemini", "oauth", "", "", 0, "", "name", "asc")
+		allAccounts, _, err := h.adminService.ListAccounts(ctx, 1, 10000, "gemini", "oauth", "", "", 0, "", service.AccountListFilters{}, "name", "asc")
 		if err != nil {
 			response.ErrorFrom(c, err)
 			return

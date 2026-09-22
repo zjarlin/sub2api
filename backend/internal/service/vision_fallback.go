@@ -125,6 +125,20 @@ type visionFallbackError struct {
 
 func (e *visionFallbackError) Error() string { return e.message }
 
+// 辅助链路故障必须留给外层换号或换模型，不能提前提交响应或归因到主账号。
+func newVisionFallbackFailoverError(status int, message string) *UpstreamFailoverError {
+	responseBody, _ := json.Marshal(map[string]any{"error": map[string]any{"type": "api_error", "message": message}})
+	return &UpstreamFailoverError{
+		StatusCode:                 status,
+		ResponseBody:               responseBody,
+		Scope:                      GatewayFailureScopeProvider,
+		NextAccountAction:          NextAccountRetry,
+		ClientStatusCode:           status,
+		ClientMessage:              message,
+		SkipAccountScheduleFailure: true,
+	}
+}
+
 func (s *OpenAIGatewayService) prepareVisionFallback(ctx context.Context, c *gin.Context, account *Account, body []byte) ([]byte, error) {
 	if !visionFallbackEnabled(s.cfg) || c.GetBool(visionFallbackInternalKey) || account == nil ||
 		!visionFallbackPlatform(account.Platform) {
@@ -158,19 +172,22 @@ func (s *OpenAIGatewayService) prepareVisionFallback(ctx context.Context, c *gin
 	}
 	value, _ := c.Get("api_key")
 	apiKey, _ := value.(*APIKey)
-	if apiKey == nil || apiKey.GroupID == nil || s.accountRepo == nil {
+	if apiKey == nil || apiKey.GroupID == nil {
 		return nil, &visionFallbackError{http.StatusServiceUnavailable, "Image assistance requires an authenticated API key group"}
+	}
+	if s.accountRepo == nil {
+		return nil, newVisionFallbackFailoverError(http.StatusServiceUnavailable, "Unable to load image assistance models")
 	}
 	accounts, err := s.accountRepo.ListSchedulableByGroupID(ctx, *apiKey.GroupID)
 	if err != nil {
-		return nil, &visionFallbackError{http.StatusServiceUnavailable, "Unable to load image assistance models"}
+		return nil, newVisionFallbackFailoverError(http.StatusServiceUnavailable, "Unable to load image assistance models")
 	}
 	candidates := visionFallbackCandidates(accounts, s.cfg, apiKey.Group)
 	if len(candidates) == 0 {
 		if !accountHasKnownTextOnlyInput(account, model) {
 			return body, nil
 		}
-		return nil, &visionFallbackError{http.StatusServiceUnavailable, "No native vision helper is available in this API key group"}
+		return nil, newVisionFallbackFailoverError(http.StatusServiceUnavailable, "No native vision helper is available in this API key group")
 	}
 	// 整次辅助阶段共享截止时间，防止多张图片将延迟上限成倍放大。
 	helperCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
@@ -296,7 +313,7 @@ func (s *OpenAIGatewayService) describeVisionInput(ctx context.Context, parent *
 		if s.concurrencyService != nil && (candidate.account.ID != primary.ID || ctx.Value(visionFallbackPrimarySlotRequiredKey{}) == true) {
 			slot, slotErr := s.concurrencyService.AcquireAccountSlot(ctx, candidate.account.ID, candidate.account.Concurrency)
 			if slotErr != nil {
-				return "", &visionFallbackError{http.StatusServiceUnavailable, "Unable to acquire image assistance capacity"}
+				return "", newVisionFallbackFailoverError(http.StatusServiceUnavailable, "Unable to acquire image assistance capacity")
 			}
 			if !slot.Acquired {
 				continue
@@ -318,9 +335,10 @@ func (s *OpenAIGatewayService) describeVisionInput(ctx context.Context, parent *
 		return text, nil
 	}
 	if lastErr != nil {
+		// 候选已耗尽时仍保留最后一个 failover 错误，外层才能继续换模型；只在最终返回时脱敏。
 		return "", lastErr
 	}
-	return "", &visionFallbackError{http.StatusServiceUnavailable, "No image assistance capacity is currently available"}
+	return "", newVisionFallbackFailoverError(http.StatusServiceUnavailable, "No image assistance capacity is currently available")
 }
 
 func (s *OpenAIGatewayService) callVisionHelper(ctx context.Context, parent *gin.Context, apiKey *APIKey, candidate visionFallbackCandidate, body []byte, imageIndex, imageCount, candidateIndex, candidateCount int) (string, error) {
@@ -360,8 +378,22 @@ func (s *OpenAIGatewayService) callVisionHelper(ctx context.Context, parent *gin
 			}
 		}
 		var failoverErr *UpstreamFailoverError
-		if errors.As(forwardErr, &failoverErr) && failoverErr != nil && upstreamRequestID == "" {
-			upstreamRequestID = strings.TrimSpace(failoverErr.ResponseHeaders.Get("x-request-id"))
+		failoverStatus := writer.Status()
+		responseHeaders := writer.Header().Clone()
+		if errors.As(forwardErr, &failoverErr) && failoverErr != nil {
+			// 换号错误通常尚未写入 child.Writer，必须保留上游真实状态与限流响应头。
+			if failoverErr.StatusCode >= http.StatusBadRequest {
+				failoverStatus = failoverErr.StatusCode
+			}
+			for name, values := range failoverErr.ResponseHeaders {
+				responseHeaders[name] = append([]string(nil), values...)
+			}
+			if upstreamRequestID == "" {
+				upstreamRequestID = strings.TrimSpace(failoverErr.ResponseHeaders.Get("x-request-id"))
+			}
+		}
+		if failoverStatus < http.StatusBadRequest {
+			failoverStatus = http.StatusBadGateway
 		}
 		fields := []zap.Field{
 			zap.Int64("account_id", candidate.account.ID),
@@ -371,7 +403,7 @@ func (s *OpenAIGatewayService) callVisionHelper(ctx context.Context, parent *gin
 			zap.Int("image_count", imageCount),
 			zap.Int("candidate_index", candidateIndex+1),
 			zap.Int("candidate_count", candidateCount),
-			zap.Int("status", writer.Status()),
+			zap.Int("status", failoverStatus),
 			zap.String("response_status", responseStatus),
 			zap.String("upstream_request_id", upstreamRequestID),
 			zap.String("upstream_endpoint", upstreamEndpoint),
@@ -384,27 +416,16 @@ func (s *OpenAIGatewayService) callVisionHelper(ctx context.Context, parent *gin
 		// 不向客户端泄漏辅助账号、图片 URL、供应商凭据或内部响应体。保留为可换号/换模型的
 		// failover 错误，让外层先尝试其他候选；只有候选耗尽后才回写这条脱敏错误。
 		clientMessage := "The vision helper could not describe the image; please retry later"
-		failoverStatus := writer.Status()
-		if failoverStatus < http.StatusBadRequest {
-			failoverStatus = http.StatusBadGateway
-		}
-		responseBody, _ := json.Marshal(map[string]any{"error": map[string]any{"type": "api_error", "message": clientMessage}})
-		helperFailoverErr := &UpstreamFailoverError{
-			StatusCode:                 failoverStatus,
-			ResponseBody:               responseBody,
-			ResponseHeaders:            writer.Header().Clone(),
-			Scope:                      GatewayFailureScopeProvider,
-			NextAccountAction:          NextAccountRetry,
-			ClientStatusCode:           http.StatusBadGateway,
-			ClientMessage:              clientMessage,
-			SkipAccountScheduleFailure: true,
-		}
+		helperFailoverErr := newVisionFallbackFailoverError(http.StatusBadGateway, clientMessage)
+		helperFailoverErr.StatusCode = failoverStatus
+		helperFailoverErr.ResponseHeaders = responseHeaders
 		appendOpsUpstreamError(parent, OpsUpstreamErrorEvent{
 			ProxyID:            opsUpstreamProxyID(candidate.account),
 			ProxyName:          opsUpstreamProxyName(candidate.account),
 			Platform:           candidate.account.Platform,
 			AccountID:          candidate.account.ID,
 			AccountName:        candidate.account.Name,
+			Model:              candidate.model,
 			UpstreamStatusCode: failoverStatus,
 			UpstreamRequestID:  upstreamRequestID,
 			UpstreamURL:        upstreamEndpoint,
@@ -412,7 +433,12 @@ func (s *OpenAIGatewayService) callVisionHelper(ctx context.Context, parent *gin
 			Message:            clientMessage,
 		})
 		// 辅助账号本身仍是失败来源；只跳过主账号归因，不跳过辅助账号的调度/健康熔断。
-		_ = s.ReportOpenAIAccountScheduleResult(candidate.account, candidate.model, false, nil, helperFailoverErr)
+		// 5xx 走健康熔断，429 走专用限流窗口，其余语义错误只记录调度失败。
+		helperObservedErr := helperFailoverErr
+		if failoverErr != nil {
+			helperObservedErr = failoverErr
+		}
+		s.observeVisionHelperFailure(candidate.account, candidate.model, helperObservedErr)
 		return "", helperFailoverErr
 	}
 	var parts []string
@@ -428,21 +454,21 @@ func (s *OpenAIGatewayService) callVisionHelper(ctx context.Context, parent *gin
 	}
 	text := strings.TrimSpace(strings.Join(parts, "\n"))
 	if text == "" || len(text) > visionDescriptionMaxBytes {
-		return "", &visionFallbackError{http.StatusBadGateway, "The vision helper returned an empty or oversized image description"}
+		return "", newVisionFallbackFailoverError(http.StatusBadGateway, "The vision helper returned an empty or oversized image description")
 	}
 	return text, nil
 }
 
 func writeVisionFallbackError(c *gin.Context, err error) {
 	status := http.StatusBadGateway
+	message := err.Error()
 	var failoverErr *UpstreamFailoverError
 	if errors.As(err, &failoverErr) && failoverErr != nil && failoverErr.ClientMessage != "" {
 		status = failoverErr.ClientStatusCode
 		if status <= 0 {
 			status = http.StatusBadGateway
 		}
-		writeOpenAIResponsesFallbackError(c, status, "api_error", failoverErr.ClientMessage)
-		return
+		message = failoverErr.ClientMessage
 	}
 	var failure *visionFallbackError
 	if errors.As(err, &failure) {
@@ -452,5 +478,28 @@ func writeVisionFallbackError(c *gin.Context, err error) {
 	if status == http.StatusBadRequest {
 		errType = "invalid_request_error"
 	}
-	writeOpenAIResponsesFallbackError(c, status, errType, err.Error())
+	// 先停 compact 心跳；排队心跳也可能已提交 SSE，此后只能写对应协议的流内错误。
+	streamStarted := StopOpenAICompactSSEKeepaliveCommitted(c)
+	if c.Writer.Written() && strings.HasPrefix(c.Writer.Header().Get("Content-Type"), "text/event-stream") {
+		streamStarted = true
+	}
+	MarkResponseCommitted(c)
+	if !streamStarted {
+		writeOpenAIResponsesFallbackError(c, status, errType, message)
+		return
+	}
+	if c.Request != nil && c.Request.URL != nil && strings.HasSuffix(strings.TrimRight(c.Request.URL.Path, "/"), "/chat/completions") {
+		MarkOpsStreamError(c, errType, message, status)
+		c.SSEvent("", gin.H{"error": gin.H{"type": errType, "message": message}})
+		c.Writer.Flush()
+		return
+	}
+	writeOpenAICompactSSEFailureMessage(c, status, errType, message)
+}
+
+func (s *OpenAIGatewayService) observeVisionHelperFailure(account *Account, model string, err error) {
+	if s == nil || account == nil {
+		return
+	}
+	_ = s.ReportOpenAIAccountScheduleResult(account, model, false, nil, err)
 }

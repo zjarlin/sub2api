@@ -16,46 +16,88 @@ type modelFallbackAttempt struct {
 	Mapping service.ChannelMappingResult
 }
 
-func nextGPTFallbackModel(model string) string {
-	switch model {
-	case "gpt-6", "gpt-6-astra":
-		return "gpt-5.6-sol"
-	case "gpt-5.6", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna":
-		return "gpt-5.5"
-	default:
-		return ""
-	}
+type modelFallbackState struct {
+	candidates []service.ModelFallbackCandidate
+	index      int
 }
 
-// Called only after account selection or replayable upstream retries exhaust.
-// Stateful response IDs cannot safely move to another model.
-func (h *OpenAIGatewayHandler) nextGPTFallback(c *gin.Context, apiKey *service.APIKey, model string, body []byte, compact bool) (modelFallbackAttempt, bool) {
-	next := nextGPTFallbackModel(model)
-	if next == "" || !openAIRequestAllowsFailoverReplay(c) ||
+const modelFallbackStateKey = "model_fallback_state"
+
+// 候选列表固定在本次请求，防止修改档位或别名映射导致循环；有服务端会话状态时不换模型。
+func (h *OpenAIGatewayHandler) nextModelFallback(c *gin.Context, apiKey *service.APIKey, model string, body []byte, compact bool) (modelFallbackAttempt, bool) {
+	if !openAIRequestAllowsFailoverReplay(c) || h.gatewayService == nil ||
 		openAICompatibleRequestPlatform(c.Request.Context(), apiKey) != service.PlatformOpenAI ||
 		gjson.GetBytes(body, "previous_response_id").String() != "" ||
-		service.IsExplicitImageGenerationIntent(c.Request.URL.Path, model, body) {
+		gjson.GetBytes(body, "conversation").Exists() ||
+		service.IsExplicitImageGenerationIntent(c.Request.URL.Path, model, body) || !fallbackToolsReplayable(gjson.GetBytes(body, "tools")) {
 		return modelFallbackAttempt{}, false
 	}
-	mapping, restricted := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, next)
-	if restricted {
+	value, found := c.Get(modelFallbackStateKey)
+	state, _ := value.(*modelFallbackState)
+	if !found {
+		candidates, err := h.gatewayService.ModelFallbackCandidates(c.Request.Context(), apiKey.GroupID, model, body)
+		state = &modelFallbackState{candidates: candidates}
+		c.Set(modelFallbackStateKey, state)
+		if err != nil {
+			slog.Warn("model fallback policy unavailable", "error", err)
+			return modelFallbackAttempt{}, false
+		}
+	}
+	if state == nil {
 		return modelFallbackAttempt{}, false
 	}
-	forwardModel := next
-	if mapping.Mapped {
-		forwardModel = mapping.MappedModel
+	for state.index < len(state.candidates) {
+		candidate := state.candidates[state.index]
+		state.index++
+		mapping, restricted := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, candidate.Model)
+		if restricted {
+			continue
+		}
+		forwardModel := candidate.Model
+		if mapping.Mapped {
+			forwardModel = mapping.MappedModel
+		}
+		original := clientRequestedModel(c, model)
+		ctx := context.WithValue(c.Request.Context(), ctxkey.RequestedPublicModel, original)
+		ctx = context.WithValue(ctx, ctxkey.ResolvedUpstreamModel, forwardModel)
+		ctx = service.WithOpenAIForwardModel(ctx, forwardModel, compact)
+		c.Request = c.Request.WithContext(ctx)
+		mapping.BillingModelSource = service.BillingModelSourceUpstream
+		if !c.Writer.Written() {
+			c.Header("X-Sub2api-Requested-Model", original)
+			c.Header("X-Sub2api-Fallback-Model", candidate.Model)
+		}
+		service.RecordOpsModelFallback(c, model, candidate.Model, candidate.Tier)
+		slog.Warn("openai model fallback", "requested_model", original, "from_model", model, "to_model", candidate.Model, "tier", candidate.Tier)
+		return modelFallbackAttempt{Model: candidate.Model, Body: h.gatewayService.ReplaceModelInBody(body, forwardModel), Mapping: mapping}, true
 	}
-	// Preserve the public request for logs while charging the actual fallback.
-	original := clientRequestedModel(c, model)
-	ctx := context.WithValue(c.Request.Context(), ctxkey.RequestedPublicModel, original)
-	ctx = context.WithValue(ctx, ctxkey.ResolvedUpstreamModel, forwardModel)
-	ctx = service.WithOpenAIForwardModel(ctx, forwardModel, compact)
-	c.Request = c.Request.WithContext(ctx)
-	mapping.BillingModelSource = service.BillingModelSourceUpstream
-	if !c.Writer.Written() {
-		c.Header("X-Sub2api-Requested-Model", original)
-		c.Header("X-Sub2api-Fallback-Model", next)
+	return modelFallbackAttempt{}, false
+}
+
+// 服务端托管工具的执行状态不能在模型间移植；普通函数工具保留完整输入并允许重放。
+func fallbackToolsReplayable(tools gjson.Result) bool {
+	allowed := true
+	tools.ForEach(func(_, tool gjson.Result) bool {
+		switch tool.Get("type").String() {
+		case "", "function":
+			allowed = true
+		case "namespace":
+			allowed = fallbackToolsReplayable(tool.Get("tools"))
+		default:
+			allowed = false
+		}
+		return allowed
+	})
+	return allowed
+}
+
+// 选号时可能取得与预筛选不同的账号，因此释放不兼容候选已获得的槽位后继续调度。
+func rejectIncompatibleModelFallbackAccount(c *gin.Context, selection *service.AccountSelectionResult, model string, body []byte) bool {
+	if _, active := c.Get(modelFallbackStateKey); !active || service.ModelFallbackAccountCompatible(selection.Account, model, body) {
+		return false
 	}
-	slog.Warn("openai model fallback", "requested_model", original, "from_model", model, "to_model", next)
-	return modelFallbackAttempt{Model: next, Body: h.gatewayService.ReplaceModelInBody(body, forwardModel), Mapping: mapping}, true
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
+	return true
 }

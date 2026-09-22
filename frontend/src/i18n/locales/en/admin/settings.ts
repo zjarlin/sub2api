@@ -1,5 +1,24 @@
 export default {
     settings: {
+      modelFallback: {
+  "title": "Model tiers and automatic fallback",
+  "description": "After same-model accounts are exhausted, try other models in the same tier, then each lower tier. Intermediate failures stay in the monitoring chain.",
+  "enabled": "Enable tiered model fallback",
+  "scope": "For Responses, Chat Completions and Messages, including streaming, on OpenAI-compatible account pools. Candidates must satisfy group access and request capabilities. Stateful references, hosted tools and committed output cannot be replayed across models.",
+  "tierName": "Tier {index} name",
+  "models": "Tier {index} model IDs",
+  "moveUp": "Move tier up",
+  "moveDown": "Move tier down",
+  "modelsHint": "Order tiers from highest to lowest and enter one exact model ID per line. Models within a tier follow the listed order. Add aliases explicitly to the same tier. Unranked models only retry same-model accounts. Limit: 12 tiers and 64 models.",
+  "addTier": "Add lower tier",
+  "preset": "Load public-data preset (unsaved)",
+  "saved": "Tiers saved. Subsequent requests will use the new configuration.",
+  "reload": "Reload",
+  "reference": "Preset tiers use the highest evaluated reasoning effort and 10-point score bands. They do not imply equivalence for every task or effort, and never automatically overwrite your configuration. Source:",
+  "required": "Each tier needs a name and models. Keep at least one tier when enabled.",
+  "duplicate": "Tier names and model IDs must be unique.",
+  "invalidModels": "Use at most 64 exact model IDs, each at most 200 characters, without wildcards."
+},
       title: 'System Settings',
       description: 'Manage registration, email verification, default values, and SMTP settings',
       tabs: {

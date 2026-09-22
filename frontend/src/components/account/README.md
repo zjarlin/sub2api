@@ -10,6 +10,6 @@ OpenAI API Key 账号没有目录且未配置模型时，不参与模型调度�
 
 豆包、TRAE Work、WorkBuddy 使用随部署启动的内置 HTTP 适配器。表单隐藏地址和共享密钥，由后端配置注入；保存时固定 Chat Completions 上游与单并发，创建后自动同步模型。
 
-`BuiltinAdapterLogin.vue` 在新建和编辑 TRAE / WorkBuddy 账号时提供登录入口。TRAE 手工提交浏览器回调链接，WorkBuddy 国内版自动轮询授权；登录凭证持久化到适配器共享账号池并立即加载，刷新由适配器维护。表单关闭会中止轮询，重新授权会取消旧会话。已有登录账号池可直接创建 Sub2API 路由账号；多个同平台路由账号共用该池。
+`BuiltinAdapterLogin.vue` 在新建 TRAE / WorkBuddy 账号，或编辑缺少内置适配器连接凭据的账号时提供登录入口。TRAE 手工提交浏览器回调链接，WorkBuddy 国内版自动轮询授权；登录凭证持久化到适配器共享账号池并立即加载，刷新由适配器维护。表单关闭会中止轮询，重新授权会取消旧会话。已有登录账号池可直接创建 Sub2API 路由账号；多个同平台路由账号共用该池。
 
 部署、首次登录和验收边界见 `tools/traework2api/README.sub2api.md`、`tools/workbuddy2api/README.sub2api.md`。

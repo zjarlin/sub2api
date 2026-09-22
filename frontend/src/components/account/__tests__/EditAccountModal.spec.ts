@@ -333,11 +333,34 @@ describe('EditAccountModal', () => {
     updateAccountMock.mockReset().mockResolvedValue(account)
     const wrapper = mountModal(account)
     expect(wrapper.find('input[placeholder="http://sub2api-traework:7864/v1"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="builtin-adapter-login"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="builtin-adapter-login"]').exists()).toBe(false)
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     expect(updateAccountMock.mock.lastCall?.[1]).toMatchObject({ concurrency: 1, credentials: {
       api_protocol: 'chat_completions', openai_capabilities: ['chat_completions'],
     } })
+  })
+
+  it('shows built-in adapter login only when TRAE Work credentials are missing', () => {
+    const account = buildAccount()
+    account.platform = 'traework'
+    account.type = 'apikey'
+    account.credentials = { api_protocol: 'chat_completions' }
+
+    const wrapper = mountModal(account)
+
+    expect(wrapper.find('[data-testid="builtin-adapter-login"]').exists()).toBe(true)
+  })
+
+  it('hides built-in adapter login when WorkBuddy credentials already exist', () => {
+    const account = buildAccount()
+    account.platform = 'workbuddy'
+    account.type = 'apikey'
+    account.credentials = { api_protocol: 'chat_completions' }
+    account.credentials_status = { has_api_key: true }
+
+    const wrapper = mountModal(account)
+
+    expect(wrapper.find('[data-testid="builtin-adapter-login"]').exists()).toBe(false)
   })
 
   it('preserves the Doubao adapter credentials and pins its protocol when editing', async () => {
