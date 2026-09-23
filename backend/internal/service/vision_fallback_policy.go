@@ -35,6 +35,10 @@ func accountHasKnownTextOnlyInput(account *Account, model string) bool {
 	if metadata, ok := account.GetUpstreamModelMetadata(upstream); ok && len(metadata.InputModalities) > 0 {
 		return !stringSliceContains(normalizeCodexInputModalities(metadata.InputModalities), "image")
 	}
+	// WorkBuddy 的地域前缀只参与路由，不能掩盖纯文本模型的能力限制。
+	if realm, bareModel, ok := strings.Cut(upstream, ":"); account.IsWorkbuddy() && ok && (realm == "cn" || realm == "global") {
+		upstream = bareModel
+	}
 	return isDeepSeekCodexModel(upstream)
 }
 
@@ -51,12 +55,8 @@ func accountNeedsVisionFallback(account *Account, model string) bool {
 }
 
 func visionFallbackPlatform(platform string) bool {
-	switch platform {
-	case PlatformOpenAI, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek:
-		return true
-	default:
-		return false
-	}
+	// 与 OpenAI 网关共用平台分类，内置适配器也必须先完成图片转描述。
+	return (&Account{Platform: platform}).IsOpenAICompatible()
 }
 
 // 候选仅来自调用方分组的可调度 API Key 账号，不扫描其他租户、不猜测模型名。
