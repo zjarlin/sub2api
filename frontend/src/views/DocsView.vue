@@ -89,25 +89,37 @@
                 class="mt-3 overflow-x-auto rounded-lg bg-slate-950 p-4 text-sm text-slate-100"
               ><code>{{ item.code }}</code></pre>
               <div v-if="item.setupCommand" class="mt-3 space-y-2">
-                <p v-if="firstKeyLoading" class="text-xs text-slate-500 dark:text-dark-400">
+                <p v-if="currentUserKeyLoading" class="text-xs text-slate-500 dark:text-dark-400">
                   {{ t('docs.codex.items.setupCommand.loading') }}
                 </p>
-                <p v-else-if="firstKeyError" class="text-xs text-red-600 dark:text-red-400">
+                <p v-else-if="currentUserKeyError" class="text-xs text-red-600 dark:text-red-400">
                   {{ t('docs.codex.items.setupCommand.error') }}
                 </p>
-                <template v-else-if="firstKey">
-                  <pre class="overflow-x-auto rounded-lg bg-slate-950 p-4 text-sm text-slate-100"><code>{{ firstKeySetupCommand }}</code></pre>
+                <template v-else-if="currentUserKey">
+                  <pre class="overflow-x-auto rounded-lg bg-slate-950 p-4 text-sm text-slate-100"><code>{{ currentUserKeySetupCommand }}</code></pre>
                   <button
                     type="button"
                     class="inline-flex items-center gap-1.5 rounded-lg border border-primary-200 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700 transition-colors hover:border-primary-300 hover:bg-primary-100 dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-primary-200 dark:hover:bg-primary-500/20"
-                    @click="copyFirstKeySetupCommand"
+                    @click="copyCurrentUserKeySetupCommand"
                   >
                     <Icon :name="setupCommandCopied ? 'check' : 'document'" size="xs" />
                     <span>{{ setupCommandCopied ? t('common.copied') : t('common.copy') }}</span>
                   </button>
                   <p class="text-xs text-slate-500 dark:text-dark-400">
-                    {{ t('docs.codex.items.setupCommand.usingKey', { name: firstKey.name }) }}
+                    {{ t('docs.codex.items.setupCommand.usingKey', { name: currentUserKey.name }) }}
                   </p>
+                </template>
+                <template v-else-if="isAuthenticated">
+                  <p class="text-xs text-amber-600 dark:text-amber-400">
+                    {{ t('docs.codex.items.setupCommand.noKey') }}
+                  </p>
+                  <router-link
+                    to="/keys"
+                    class="inline-flex items-center gap-1.5 rounded-lg border border-primary-200 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700 transition-colors hover:border-primary-300 hover:bg-primary-100 dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-primary-200 dark:hover:bg-primary-500/20"
+                  >
+                    <Icon name="plus" size="xs" />
+                    <span>{{ t('docs.codex.items.setupCommand.createKey') }}</span>
+                  </router-link>
                 </template>
                 <p v-else class="text-xs text-slate-500 dark:text-dark-400">
                   {{ t('docs.codex.items.setupCommand.loginRequired') }}
@@ -160,33 +172,37 @@ const siteLogo = computed(() => appStore.cachedPublicSettings?.site_logo || appS
 const siteNameInitial = computed(() => siteName.value.trim().charAt(0).toUpperCase() || 'S')
 const isAuthenticated = computed(() => authStore.isAuthenticated)
 const dashboardPath = computed(() => (authStore.isAdmin ? '/admin/dashboard' : '/dashboard'))
-const firstKey = ref<ApiKey | null>(null)
-const firstKeyLoading = ref(false)
-const firstKeyError = ref(false)
+const currentUserKey = ref<ApiKey | null>(null)
+const currentUserKeyLoading = ref(false)
+const currentUserKeyError = ref(false)
 const setupCommandCopied = ref(false)
 
-const firstKeySetupCommand = computed(() => {
+const currentUserKeySetupCommand = computed(() => {
   const baseUrl = window.location.origin.replace(/\/+$/, '')
-  return `npx -y sub2api-codex-setup --base-url ${baseUrl} --api-key ${firstKey.value?.key || 'sk-xxxx'}`
+  return `npx -y sub2api-codex-setup --base-url ${baseUrl} --api-key ${currentUserKey.value?.key || 'sk-xxxx'}`
 })
 
-async function loadFirstKey() {
+async function loadCurrentUserKey() {
   if (!isAuthenticated.value) return
-  firstKeyLoading.value = true
-  firstKeyError.value = false
+  currentUserKeyLoading.value = true
+  currentUserKeyError.value = false
   try {
-    const response = await keysAPI.list(1, 1, { sort_by: 'created_at', sort_order: 'asc' })
-    firstKey.value = response.items[0] || null
+    const response = await keysAPI.list(1, 1, {
+      status: 'active',
+      sort_by: 'created_at',
+      sort_order: 'desc'
+    })
+    currentUserKey.value = response.items[0] || null
   } catch {
-    firstKeyError.value = true
+    currentUserKeyError.value = true
   } finally {
-    firstKeyLoading.value = false
+    currentUserKeyLoading.value = false
   }
 }
 
-async function copyFirstKeySetupCommand() {
+async function copyCurrentUserKeySetupCommand() {
   try {
-    await navigator.clipboard.writeText(firstKeySetupCommand.value)
+    await navigator.clipboard.writeText(currentUserKeySetupCommand.value)
     setupCommandCopied.value = true
     setTimeout(() => {
       setupCommandCopied.value = false
@@ -197,7 +213,7 @@ async function copyFirstKeySetupCommand() {
 }
 
 onMounted(() => {
-  void loadFirstKey()
+  void loadCurrentUserKey()
 })
 
 const sections = computed<DocSection[]>(() => [

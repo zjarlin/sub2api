@@ -36,6 +36,8 @@ const messages: Record<string, string> = {
   'docs.codex.items.setupCommand.loading': 'Loading key.',
   'docs.codex.items.setupCommand.error': 'Key load failed.',
   'docs.codex.items.setupCommand.loginRequired': 'Login required.',
+  'docs.codex.items.setupCommand.noKey': 'No available API key.',
+  'docs.codex.items.setupCommand.createKey': 'Create API key',
   'docs.codex.items.setupCommand.usingKey': 'Using {name}',
   'docs.codex.items.windows.title': 'Windows paths',
   'docs.codex.items.windows.body': 'Use PowerShell.',
@@ -136,10 +138,10 @@ describe('DocsView', () => {
     expect(wrapper.text()).toContain('Usage Query')
   })
 
-  it('renders the first key setup command for an authenticated user', async () => {
+  it('renders the current user key setup command for an authenticated user', async () => {
     authState.isAuthenticated = true
     listKeysMock.mockResolvedValue({
-      items: [{ id: 1, name: 'First key', key: 'sk-first' }],
+      items: [{ id: 1, name: 'Current key', key: 'sk-current' }],
       total: 1,
       page: 1,
       page_size: 1,
@@ -164,10 +166,42 @@ describe('DocsView', () => {
     })
     await flushPromises()
 
-    expect(listKeysMock).toHaveBeenCalledWith(1, 1, { sort_by: 'created_at', sort_order: 'asc' })
+    expect(listKeysMock).toHaveBeenCalledWith(1, 1, {
+      status: 'active',
+      sort_by: 'created_at',
+      sort_order: 'desc'
+    })
     expect(wrapper.text()).toContain('npx -y sub2api-codex-setup')
-    expect(wrapper.text()).toContain('--api-key sk-first')
-    expect(wrapper.text()).toContain('Using First key')
+    expect(wrapper.text()).toContain('--api-key sk-current')
+    expect(wrapper.text()).toContain('Using Current key')
+    authState.isAuthenticated = false
+  })
+
+  it('prompts authenticated users without available keys to create one', async () => {
+    authState.isAuthenticated = true
+    listKeysMock.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 1, pages: 0 })
+
+    const wrapper = mount(DocsView, {
+      global: {
+        stubs: {
+          RouterLink: {
+            props: ['to'],
+            template: '<a><slot /></a>',
+          },
+          LocaleSwitcher: {
+            template: '<div />',
+          },
+          Icon: {
+            template: '<span />',
+          },
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('No available API key.')
+    expect(wrapper.text()).toContain('Create API key')
+    expect(wrapper.text()).not.toContain('Login required.')
     authState.isAuthenticated = false
   })
 })

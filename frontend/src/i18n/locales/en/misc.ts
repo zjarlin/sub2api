@@ -97,10 +97,12 @@ export default {
           body: 'Copy the command into a terminal: macOS installs the official DMG when missing; Windows installs with winget when missing. If Codex is already installed, it only writes configuration.',
         },
         setupCommand: {
-          loading: 'Loading your first API key...',
+          loading: 'Loading your API key...',
           error: 'Failed to load an API key. Open API Keys and copy the command manually.',
-          loginRequired: 'Sign in to auto-select your first created API key and generate the command.',
-          usingKey: 'Using first key: {name}'
+          loginRequired: 'Sign in to auto-select your API key and generate the command.',
+          noKey: 'This account does not have an available API key yet. Create one and assign a group first.',
+          createKey: 'Create API key',
+          usingKey: 'Using current account key: {name}'
         },
         windows: {
           title: 'Windows paths',
