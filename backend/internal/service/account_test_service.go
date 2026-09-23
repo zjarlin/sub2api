@@ -22,6 +22,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -223,14 +224,42 @@ func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, accou
 			model.Type = "model"
 		}
 	}
+	// Manual self-mappings are authoritative test-picker entries even when the
+	// upstream /models response is stale or omits the model. Aliases still rely
+	// on the shared catalog projection above so stale alias targets stay hidden.
+	seen := make(map[string]bool, len(payload.Data)+len(account.GetModelMapping()))
+	for _, model := range payload.Data {
+		seen[model.ID] = true
+	}
+	manualModels := make([]string, 0, len(account.GetModelMapping()))
+	for requestedModel, upstreamModel := range account.GetModelMapping() {
+		requestedModel = strings.TrimSpace(requestedModel)
+		upstreamModel = strings.TrimSpace(upstreamModel)
+		if requestedModel == "" || strings.Contains(requestedModel, "*") {
+			continue
+		}
+		if requestedModel != upstreamModel || account.IsModelKnownUnsupported(requestedModel) {
+			continue
+		}
+		if !seen[requestedModel] {
+			manualModels = append(manualModels, requestedModel)
+		}
+	}
+	sort.Strings(manualModels)
+	for _, modelID := range manualModels {
+		seen[modelID] = true
+		payload.Data = append(payload.Data, openai.Model{
+			ID:          modelID,
+			Object:      "model",
+			OwnedBy:     "openai",
+			Type:        "model",
+			DisplayName: openaiCodexDisplayName(modelID),
+		})
+	}
 	// Codex discovery lists Responses drivers, not image_generation tool models.
 	// Add locally supported image choices only to the OAuth test picker; keep the
 	// shared upstream catalog and API-key discovery authoritative.
 	if account != nil && account.IsOpenAIOAuthLike() {
-		seen := make(map[string]bool, len(payload.Data))
-		for _, model := range payload.Data {
-			seen[model.ID] = true
-		}
 		for _, model := range openai.DefaultModels {
 			if IsGPTImageGenerationModel(model.ID) && account.IsModelSupported(model.ID) && !seen[model.ID] {
 				payload.Data = append(payload.Data, model)

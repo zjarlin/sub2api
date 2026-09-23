@@ -73,6 +73,47 @@ func TestFetchOpenAIAccountModelsAPIKeyPopulatesPickerFields(t *testing.T) {
 	require.Equal(t, "named-model", models[2].ID)
 }
 
+func TestFetchOpenAIAccountModelsAddsManualSelfMappingsMissingFromUpstream(t *testing.T) {
+	gateway := newCodexModelsAPIKeyTestService(&codexModelsHTTPUpstreamStub{do: func(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+		return ordinaryModelsUpstreamResponse(`{"data":[{"id":"gpt-6-astra","display_name":"GPT-6 Astra"}]}`), nil
+	}})
+	svc := &AccountTestService{openaiGatewayService: gateway}
+	account := newCodexModelsAPIKeyTestAccount("https://models.example/v1")
+	account.Credentials["model_mapping"] = map[string]any{
+		"gpt-6-astra": "gpt-6-astra",
+		"gpt-6-sol":   "gpt-6-sol",
+	}
+
+	models, err := svc.FetchOpenAIAccountModels(context.Background(), account)
+	require.NoError(t, err)
+	ids := make([]string, 0, len(models))
+	for _, model := range models {
+		ids = append(ids, model.ID)
+	}
+	require.Contains(t, ids, "gpt-6-sol")
+	require.Contains(t, ids, "gpt-6-astra")
+	require.Equal(t, "gpt-6-sol", models[len(models)-1].ID)
+	require.Equal(t, "gpt-6-sol", models[len(models)-1].DisplayName)
+}
+
+func TestFetchOpenAIAccountModelsSkipsManualSelfMappingKnownUnsupported(t *testing.T) {
+	gateway := newCodexModelsAPIKeyTestService(&codexModelsHTTPUpstreamStub{do: func(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+		return ordinaryModelsUpstreamResponse(`{"data":[]}`), nil
+	}})
+	svc := &AccountTestService{openaiGatewayService: gateway}
+	account := newCodexModelsAPIKeyTestAccount("https://models.example/v1")
+	account.Credentials["model_mapping"] = map[string]any{"gpt-6-sol": "gpt-6-sol"}
+	account.Extra = map[string]any{
+		UnsupportedModelsExtraKey: map[string]any{
+			"gpt-6-sol": map[string]any{"status_code": float64(http.StatusNotFound)},
+		},
+	}
+
+	models, err := svc.FetchOpenAIAccountModels(context.Background(), account)
+	require.NoError(t, err)
+	require.Empty(t, models)
+}
+
 func TestFetchOpenAIAccountModelsPreservesEmptyCatalog(t *testing.T) {
 	gateway := newCodexModelsAPIKeyTestService(&codexModelsHTTPUpstreamStub{do: func(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
 		return ordinaryModelsUpstreamResponse(`{"data":[]}`), nil
