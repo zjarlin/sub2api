@@ -9,6 +9,7 @@ export interface SetupConfig {
   providerName: string;
   authMode: 'legacy' | 'api-key';
   modelCatalogJson?: string;
+  modelCatalogPath?: string;
   platform?: NodeJS.Platform;
 }
 
@@ -32,8 +33,8 @@ export function normalizeBaseUrl(value: string): string {
 export function buildConfigToml(config: SetupConfig): string {
   const baseUrl = normalizeBaseUrl(config.baseUrl);
   const providerName = config.providerName || 'Sub2API';
-  const modelCatalogLine = config.modelCatalogJson
-    ? `model_catalog_json = "${escapeTomlBasicString(config.modelCatalogJson)}"\n`
+  const modelCatalogLine = config.modelCatalogPath
+    ? `model_catalog_json = "${escapeTomlBasicString(config.modelCatalogPath)}"\n`
     : ''
   const authLines = config.authMode === 'api-key'
     ? `requires_openai_auth = false
@@ -61,7 +62,7 @@ export async function writeCodexConfig(config: SetupConfig): Promise<WrittenConf
   const configPath = join(directory, 'config.toml');
   const modelCatalogPath = config.modelCatalogJson ? join(directory, 'codex-models.json') : undefined;
   await mkdir(directory, { recursive: true });
-  await writeFile(configPath, buildConfigToml(config), { encoding: 'utf8', mode: 0o600 });
+  await writeFile(configPath, buildConfigToml({ ...config, modelCatalogPath }), { encoding: 'utf8', mode: 0o600 });
 
   if (config.modelCatalogJson && modelCatalogPath) {
     await writeFile(modelCatalogPath, config.modelCatalogJson, { encoding: 'utf8', mode: 0o600 });

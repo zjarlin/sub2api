@@ -1,9 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 
 const cli = (...args) => execFileSync(process.execPath, ['dist/cli.mjs', ...args], {
   encoding: 'utf8',
@@ -68,6 +72,45 @@ test('legacy auth mode writes auth.json', () => {
     assert.match(config, /env_key = "SUB2API_API_KEY"/);
     assert.equal(auth.OPENAI_API_KEY, 'sk-test');
   } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('writes the model catalog to a file and references its path in config.toml', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'sub2api-codex-setup-'));
+  const manifest = { models: [{ slug: 'gpt-5.5' }] };
+  const server = createServer((request, response) => {
+    if (request.url?.startsWith('/v1/models')) {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify(manifest));
+      return;
+    }
+    response.writeHead(404);
+    response.end();
+  });
+
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address = server.address();
+    assert.ok(address && typeof address === 'object');
+
+    await execFileAsync(process.execPath, ['dist/cli.mjs',
+      '--base-url', `http://127.0.0.1:${address.port}`,
+      '--api-key', 'sk-test',
+      '--no-install'
+    ], {
+      encoding: 'utf8',
+      env: { ...process.env, HOME: home, USERPROFILE: home }
+    });
+
+    const config = readFileSync(join(home, '.codex', 'config.toml'), 'utf8');
+    const catalogLine = config.split('\n').find((line) => line.startsWith('model_catalog_json = '));
+    assert.ok(catalogLine);
+    assert.doesNotMatch(config, /"models"/);
+    assert.equal(JSON.parse(catalogLine.slice('model_catalog_json = '.length)), join(home, '.codex', 'codex-models.json'));
+    assert.deepEqual(JSON.parse(readFileSync(join(home, '.codex', 'codex-models.json'), 'utf8')), manifest);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
     rmSync(home, { recursive: true, force: true });
   }
 });
