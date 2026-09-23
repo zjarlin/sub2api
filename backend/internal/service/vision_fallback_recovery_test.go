@@ -291,7 +291,7 @@ func TestVisionFallbackPreservesHelperFailureStatusAndHeaders(t *testing.T) {
 func TestVisionFallbackReportsHelperHealthOnceWithoutBlamingPrimary(t *testing.T) {
 	cfg := visionTestConfig()
 	cache := &openAIAPIKeyHealthCacheStub{}
-	settings := NewSettingService(&openAIAPIKeyHealthSettingRepo{}, cfg)
+	settings := NewSettingService(&openAIAdvancedSchedulerSettingRepoStub{}, cfg)
 	rateLimits := NewRateLimitService(&openAIAPIKeyHealthAccountRepo{}, nil, cfg, nil, cache)
 	rateLimits.SetSettingService(settings)
 	rateLimits.SetOpenAIAPIKeyHealthCache(cache)
@@ -301,4 +301,68 @@ func TestVisionFallbackReportsHelperHealthOnceWithoutBlamingPrimary(t *testing.T
 	svc.observeVisionHelperFailure(&helper, helper.Name, failure)
 	require.Equal(t, 1, cache.recordCalls)
 	require.False(t, failure.ShouldReportAccountScheduleFailure())
+}
+
+// 通过真实辅助转发边界验证：本地超时/语义失败不能被脱敏状态伪装成账号故障。
+func TestVisionFallbackDoesNotTripAccountHealthForLocalFailures(t *testing.T) {
+	for _, scenario := range []string{"local_deadline", "empty_description", "incomplete_response", "upstream_502"} {
+		t.Run(scenario, func(t *testing.T) {
+			cfg := visionTestConfig()
+			cache := &openAIAPIKeyHealthCacheStub{tripped: true}
+			repo := &openAIAPIKeyHealthAccountRepo{}
+			rateLimits := NewRateLimitService(repo, nil, cfg, nil, cache)
+			rateLimits.SetSettingService(NewSettingService(&openAIAdvancedSchedulerSettingRepoStub{}, cfg))
+			rateLimits.SetOpenAIAPIKeyHealthCache(cache)
+			helper := visionTestAccount(2, "vision-model", "text", "image")
+			svc := &OpenAIGatewayService{
+				cfg: cfg,
+				httpUpstream: &codexModelsHTTPUpstreamStub{do: func(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+					switch scenario {
+					case "local_deadline":
+						<-req.Context().Done()
+						return nil, req.Context().Err()
+					case "empty_description":
+						return visionTestResponse(helper.Name, ""), nil
+					case "incomplete_response":
+						resp := visionTestResponse(helper.Name, "truncated description")
+						body, err := io.ReadAll(resp.Body)
+						require.NoError(t, err)
+						resp.Body = io.NopCloser(strings.NewReader(strings.ReplaceAll(string(body), `"finish_reason":"stop"`, `"finish_reason":"length"`)))
+						return resp, nil
+					default:
+						return &http.Response{StatusCode: http.StatusBadGateway, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"provider unavailable"}}`))}, nil
+					}
+				}},
+			}
+			svc.rateLimitService = rateLimits
+			body := []byte(visionTestInput)
+			parent, recorder := visionTestContext(body, 9, 7)
+			value, _ := parent.Get("api_key")
+			apiKey := value.(*APIKey)
+			timeout := 5 * time.Second
+			if scenario == "local_deadline" {
+				timeout = 50 * time.Millisecond
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
+			defer cancel()
+			_, err := svc.callVisionHelper(ctx, parent, apiKey, visionFallbackCandidate{account: &helper, model: helper.Name}, body, 0, 1, 0, 1)
+			require.Error(t, err)
+			var failure *UpstreamFailoverError
+			require.ErrorAs(t, err, &failure)
+			require.False(t, failure.ShouldReportAccountScheduleFailure())
+			require.Empty(t, recorder.Body.String())
+			if scenario == "upstream_502" {
+				// 实际上游 5xx 仍能触发熔断，不能用修复绕过健康保护。
+				require.Equal(t, 1, cache.recordCalls)
+				require.Equal(t, 1, repo.setCalls)
+				return
+			}
+			require.Zero(t, cache.recordCalls)
+			require.Zero(t, repo.setCalls)
+			require.Nil(t, helper.TempUnschedulableUntil)
+			if scenario == "local_deadline" {
+				require.Equal(t, http.StatusGatewayTimeout, failure.ClientStatusCode)
+			}
+		})
+	}
 }

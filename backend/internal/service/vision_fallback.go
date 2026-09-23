@@ -546,11 +546,14 @@ func (s *OpenAIGatewayService) callVisionHelper(ctx context.Context, parent *gin
 			CandidateIndex:     candidateIndex + 1,
 			Message:            clientMessage,
 		})
-		// 辅助账号本身仍是失败来源；只跳过主账号归因，不跳过辅助账号的调度/健康熔断。
-		// 5xx 走健康熔断，429 走专用限流窗口，其余语义错误只记录调度失败。
-		helperObservedErr := helperFailoverErr
-		if failoverErr != nil {
-			helperObservedErr = failoverErr
+		// 客户端的脱敏 502/504 不等于上游 HTTP 故障。保留本地预算超时的原因，
+		// 避免几次短视觉超时把整个账号（包括正常文本请求）熔断。
+		// 空描述、未完成响应等语义失败只影响调度；真实上游错误仍走原有健康/限流逻辑。
+		helperObservedErr := forwardErr
+		if ctx.Err() != nil {
+			helperObservedErr = ctx.Err()
+		} else if helperObservedErr == nil && writer.Status() >= http.StatusBadRequest {
+			helperObservedErr = helperFailoverErr
 		}
 		s.observeVisionHelperFailure(candidate.account, candidate.model, helperObservedErr)
 		return "", helperFailoverErr
