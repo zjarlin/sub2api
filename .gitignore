@@ -128,6 +128,8 @@ scripts
 !backend/scripts/resolve-version.sh
 !edge-vision/scripts/
 !edge-vision/scripts/**
+!tools/sub2api-codex-setup/scripts/
+!tools/sub2api-codex-setup/scripts/**
 .code-review-state
 #openspec/
 code-reviews/
