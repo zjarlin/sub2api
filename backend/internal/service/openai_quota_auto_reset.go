@@ -54,6 +54,7 @@ type OpenAIAutoResetCreditState struct {
 type openAIAutoResetQuota interface {
 	QueryUsage(ctx context.Context, accountID int64) (*OpenAIQuotaUsage, error)
 	CacheResetCreditsSnapshot(ctx context.Context, accountID int64, credits *OpenAIRateLimitResetCredits) error
+	CachePostResetSnapshot(ctx context.Context, accountID int64, usage *OpenAIQuotaUsage) error
 	ResetCreditTargeted(ctx context.Context, accountID int64, creditID, redeemRequestID string) (*OpenAIQuotaResetResult, error)
 }
 
@@ -219,7 +220,7 @@ func (s *OpenAIQuotaAutoResetService) scanEnabledAccounts(ctx context.Context) {
 	for page := 1; ; page++ {
 		accounts, pageInfo, err := s.accountRepo.ListWithFilters(ctx, pagination.PaginationParams{
 			Page: page, PageSize: openAIAutoResetBatchSize,
-		}, PlatformOpenAI, AccountTypeOAuth, StatusActive, "", 0, "")
+		}, PlatformOpenAI, AccountTypeOAuth, StatusActive, "", 0, "", nil, nil)
 		if err != nil {
 			slog.Warn("openai_auto_reset_scan_failed", "page", page, "error", err)
 			return

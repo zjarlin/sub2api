@@ -59,10 +59,115 @@ export default {
     dockerRecreate: 'Recreate the container'
   },
 
+  docs: {
+    title: 'Documentation',
+    subtitle: 'The complete flow from creating an API key to configuring local clients. Start from the Use Key dialog on the API Keys page; it generates copy-ready config files and one-click setup scripts for the selected group type.',
+    quickStart: {
+      title: 'Quick Start',
+      description: 'Complete these three steps to start using the gateway.',
+      items: {
+        createKey: {
+          title: '1. Create an API key',
+          body: 'After signing in, open API Keys and create a key. Use a clear name so usage records can be traced back to the client or project later.'
+        },
+        assignGroup: {
+          title: '2. Assign a group',
+          body: 'A key must be assigned to a group before client configuration can be generated. If the key list says no group is assigned, click the group column and choose an available group.'
+        },
+        useKey: {
+          title: '3. Open Use Key',
+          body: 'Click Use Key on the right side of the key row, select Codex CLI, Claude Code, Gemini CLI, or OpenCode, then copy the generated config or one-click script.'
+        }
+      }
+    },
+    codex: {
+      title: 'Codex CLI Configuration',
+      description: 'Codex CLI reads the gateway endpoint and API key from config files and auth.json.',
+      items: {
+        files: {
+          title: 'Config file locations',
+          body: 'macOS/Linux writes to ~/.codex. Windows writes to .codex under the user profile. The dialog shows the full config.toml and auth.json content.'
+        },
+        script: {
+          title: 'One-click setup command',
+          body: 'Use the npm-published command. It detects the Codex desktop client for the current OS, skips installation when already present, then creates the config directory and writes the files. Windows and macOS use the same command.'
+        },
+        download: {
+          title: 'Install and configure Codex automatically',
+          body: 'Copy the command into a terminal: macOS installs the official DMG when missing; Windows installs with winget when missing. If Codex is already installed, it only writes configuration.',
+        },
+        setupCommand: {
+          loading: 'Loading your API key...',
+          error: 'Failed to load an API key. Open API Keys and copy the command manually.',
+          loginRequired: 'Sign in to auto-select your API key and generate the command.',
+          noKey: 'This account does not have an available API key yet. Create one and assign a group first.',
+          createKey: 'Create API key',
+          usingKey: 'Using current account key: {name}'
+        },
+        windows: {
+          title: 'Windows paths',
+          body: 'Windows users should prefer the PowerShell script to avoid hidden-directory and backslash path mistakes.'
+        }
+      }
+    },
+    clients: {
+      title: 'Other Clients',
+      description: 'Different groups show client configuration for the protocol they support.',
+      items: {
+        claude: {
+          title: 'Claude Code',
+          body: 'Claude Code usually points to the gateway with ANTHROPIC_BASE_URL and ANTHROPIC_AUTH_TOKEN. For persistent use, save them in a shell profile or Claude settings.'
+        },
+        gemini: {
+          title: 'Gemini CLI',
+          body: 'Gemini CLI uses GOOGLE_GEMINI_BASE_URL, GEMINI_API_KEY, and GEMINI_MODEL. Use model names supported by the selected group.'
+        },
+        opencode: {
+          title: 'OpenCode',
+          body: 'OpenCode uses opencode.json. The dialog example includes provider, baseURL, apiKey, and common model settings, which can be adjusted as needed.'
+        }
+      }
+    },
+    usage: {
+      title: 'Usage Query',
+      description: 'Keys can be checked on the public usage page for status, quota, and daily spend.',
+      items: {
+        query: {
+          title: 'Query entry',
+          body: 'Open API Key Usage, enter the API key, and inspect today, 7-day, 30-day, or custom-range usage details.'
+        },
+        quota: {
+          title: 'Quota and limits',
+          body: 'If the key has quota, RPM, TPM, or period limits, the query page shows remaining quota, reset time, and model-level consumption.'
+        }
+      }
+    },
+    troubleshooting: {
+      title: 'Troubleshooting',
+      description: 'Check the key, group, and client config path first.',
+      items: {
+        noGroup: {
+          title: 'The dialog says to assign a group first',
+          body: 'The key has not been bound to an upstream group. Return to the API Keys list, assign a group, then open the Use Key dialog again.'
+        },
+        baseUrl: {
+          title: 'Client cannot connect',
+          body: 'Confirm the base_url or environment variable endpoint comes from the current site, and keep the generated /v1, /v1beta, or /antigravity path.'
+        },
+        secret: {
+          title: 'Key safety',
+          body: 'Do not commit auth.json, opencode.json, or scripts containing API keys to public repositories. If a key may be exposed, disable or delete it and create a replacement.'
+        }
+      }
+    }
+  },
+
   // Recharge / Subscription Page
   purchase: {
     title: 'Recharge / Subscription',
     description: 'Recharge balance or purchase subscription via the embedded page',
+    rechargeDescription: 'Recharge balance via the embedded page',
+    subscriptionDescription: 'Purchase subscription via the embedded page',
     openInNewTab: 'Open in new tab',
     notEnabledTitle: 'Feature not enabled',
     notEnabledDesc: 'The administrator has not enabled the recharge/subscription entry. Please contact admin.',
@@ -385,12 +490,13 @@ export default {
     tabSubscribe: 'Subscribe',
     noPlans: 'No subscription plans available',
     notAvailable: 'Top-up is currently unavailable',
+    billingUnavailable: 'Neither top-up nor subscriptions are currently available. Please contact the administrator.',
     confirmSubscription: 'Confirm Subscription',
     confirmCancel: 'Are you sure you want to cancel this order?',
     amountTooLow: 'Minimum amount is {min}',
     amountTooHigh: 'Maximum amount is {max}',
     amountNoMethod: 'No payment method available for this amount',
-    rechargeRatePreview: 'Each ¥1 paid credits ¥{amount} to your balance',
+    rechargeRatePreview: 'Each 1 {currency} paid credits ¥{amount} to your balance',
     refundReason: 'Refund Reason',
     refundReasonPlaceholder: 'Please describe your refund reason',
     stripeLoadFailed: 'Failed to load payment component. Please refresh and try again.',

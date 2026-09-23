@@ -58,10 +58,115 @@ export default {
     dockerRecreate: '重新创建容器'
   },
 
+  docs: {
+    title: '使用文档',
+    subtitle: '从创建 API 密钥到配置本地客户端的完整流程。优先使用密钥页里的“使用密钥”弹窗，它会根据分组类型生成可直接复制的配置文件和一键配置脚本。',
+    quickStart: {
+      title: '快速开始',
+      description: '完成这三步即可开始调用网关。',
+      items: {
+        createKey: {
+          title: '1. 创建 API 密钥',
+          body: '登录后进入“API 密钥”页面，点击创建密钥。建议给密钥设置清晰名称，便于后续在用量记录中识别来源。'
+        },
+        assignGroup: {
+          title: '2. 分配可用分组',
+          body: '密钥必须绑定分组后才能生成客户端配置。若密钥列表提示未分配分组，请点击分组列选择可用分组。'
+        },
+        useKey: {
+          title: '3. 打开“使用密钥”',
+          body: '点击密钥右侧的“使用密钥”，按客户端类型选择 Codex CLI、Claude Code、Gemini CLI 或 OpenCode，再复制对应配置或一键脚本。'
+        }
+      }
+    },
+    codex: {
+      title: 'Codex CLI 配置',
+      description: 'Codex CLI 使用配置文件和 auth.json 读取网关地址与 API 密钥。',
+      items: {
+        files: {
+          title: '配置文件位置',
+          body: 'macOS/Linux 写入 ~/.codex；Windows 写入用户目录下的 .codex。弹窗会同时展示 config.toml 和 auth.json 的完整内容。'
+        },
+        script: {
+          title: '一键配置命令',
+          body: '推荐使用 npm 发布的一键命令。它会按当前系统检测 Codex 客户端，已安装则跳过安装，然后自动创建目录并写入配置；Windows 和 macOS 都使用同一条命令。'
+        },
+        download: {
+          title: '自动安装并配置 Codex',
+          body: '复制命令到终端运行：macOS 未安装时下载并安装官方 DMG，Windows 未安装时通过 winget 安装；已安装客户端时只写配置，不重复安装。',
+        },
+        setupCommand: {
+          loading: '正在读取你的 API Key…',
+          error: '读取 API Key 失败，请打开 API 密钥页面手动复制。',
+          loginRequired: '登录后会自动选择你的 API Key 并生成命令。',
+          noKey: '当前账号还没有可用的 API Key，请先创建并绑定分组。',
+          createKey: '去创建 API Key',
+          usingKey: '将使用当前账号 Key：{name}'
+        },
+        windows: {
+          title: 'Windows 路径',
+          body: 'Windows 用户推荐直接复制 PowerShell 脚本执行，避免手动创建隐藏目录或写错反斜杠路径。'
+        }
+      }
+    },
+    clients: {
+      title: '其他客户端',
+      description: '不同分组会展示适配当前协议的客户端配置。',
+      items: {
+        claude: {
+          title: 'Claude Code',
+          body: 'Claude Code 主要通过 ANTHROPIC_BASE_URL 和 ANTHROPIC_AUTH_TOKEN 指向网关。需要长期生效时可写入 shell profile 或 Claude settings。'
+        },
+        gemini: {
+          title: 'Gemini CLI',
+          body: 'Gemini CLI 使用 GOOGLE_GEMINI_BASE_URL、GEMINI_API_KEY 和 GEMINI_MODEL。模型名称请以分组支持范围为准。'
+        },
+        opencode: {
+          title: 'OpenCode',
+          body: 'OpenCode 使用 opencode.json。弹窗中的示例已包含 provider、baseURL、apiKey 和常用模型配置，可按需调整。'
+        }
+      }
+    },
+    usage: {
+      title: '用量查询',
+      description: '密钥可在公开用量页查询状态、配额和每日消费。',
+      items: {
+        query: {
+          title: '查询入口',
+          body: '打开“API Key 用量查询”页面，输入 API Key 后即可查看今日、近 7 天、近 30 天或自定义时间范围的使用明细。'
+        },
+        quota: {
+          title: '额度与限制',
+          body: '若密钥设置了额度、RPM、TPM 或周期限制，查询页会展示剩余额度、重置时间和模型维度消耗。'
+        }
+      }
+    },
+    troubleshooting: {
+      title: '常见问题',
+      description: '优先检查密钥、分组和客户端配置路径。',
+      items: {
+        noGroup: {
+          title: '弹窗提示请先分配分组',
+          body: '这表示密钥还没有绑定上游分组。回到 API 密钥列表，点击分组列完成绑定后再打开使用弹窗。'
+        },
+        baseUrl: {
+          title: '客户端无法连接',
+          body: '确认 base_url 或环境变量中的网关地址来自当前站点，并保留弹窗生成的 /v1、/v1beta 或 /antigravity 路径。'
+        },
+        secret: {
+          title: '密钥安全',
+          body: '不要把 auth.json、opencode.json 或包含 API Key 的脚本提交到公开仓库。怀疑泄露时请立即禁用或删除该密钥并重新创建。'
+        }
+      }
+    }
+  },
+
   // Recharge / Subscription Page
   purchase: {
     title: '充值/订阅',
     description: '通过内嵌页面完成充值/订阅',
+    rechargeDescription: '通过内嵌页面完成充值',
+    subscriptionDescription: '通过内嵌页面完成订阅',
     openInNewTab: '新窗口打开',
     notEnabledTitle: '该功能未开启',
     notEnabledDesc: '管理员暂未开启充值/订阅入口，请联系管理员。',
@@ -409,12 +514,13 @@ export default {
     tabSubscribe: '订阅',
     noPlans: '暂无可用订阅套餐',
     notAvailable: '充值功能暂未开放',
+    billingUnavailable: '充值与订阅均暂未开放，请联系管理员。',
     confirmSubscription: '确认订阅',
     confirmCancel: '确定要取消此订单吗？',
     amountTooLow: '最低金额为 {min}',
     amountTooHigh: '最高金额为 {max}',
     amountNoMethod: '该金额没有可用的支付方式',
-    rechargeRatePreview: '每支付 ¥1，到账余额 ¥{amount}',
+    rechargeRatePreview: '每支付 1 {currency}，到账余额 ¥{amount}',
     refundReason: '退款原因',
     refundReasonPlaceholder: '请描述您的退款原因',
     stripeLoadFailed: '支付组件加载失败，请刷新页面重试',

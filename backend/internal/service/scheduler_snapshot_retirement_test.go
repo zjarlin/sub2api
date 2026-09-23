@@ -176,7 +176,7 @@ func TestSchedulerFullRebuildCapturesAllRegistryTokensBeforeDBLoad(t *testing.T)
 	}
 
 	captures, reopens := cache.captureAndReopenCounts()
-	require.Equal(t, 36, captures, "group0 and active-group canonical tokens must be captured before the first DB load")
+	require.Equal(t, 2*schedulerCanonicalBucketCount(), captures, "group0 and active-group canonical tokens must be captured before the first DB load")
 	require.Zero(t, reopens)
 	require.NoError(t, cache.RetireBucket(context.Background(), queued))
 	_, err := cache.ReopenBucket(context.Background(), queued)
@@ -255,7 +255,8 @@ func TestSchedulerFallbackReturnsDBAccountsWhenBucketRetired(t *testing.T) {
 
 	accounts, useMixed, err := svc.ListSchedulableAccounts(context.Background(), &groupID, bucket.Platform, false)
 	require.NoError(t, err)
-	require.False(t, useMixed)
+	// openai 目标分组现在也走混合调度，useMixed 为 true。
+	require.True(t, useMixed)
 	require.Len(t, accounts, 1)
 	setAttempts, published := cache.counts(bucket)
 	require.Zero(t, setAttempts)

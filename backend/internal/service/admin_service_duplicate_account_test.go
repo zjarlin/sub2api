@@ -11,6 +11,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
@@ -116,6 +117,7 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 			"quota_daily_used":                25,
 			"quota_daily_start":               "2026-07-15T00:00:00Z",
 			"model_rate_limits":               map[string]any{"gpt-5": "2099-01-01T00:00:00Z"},
+			UnsupportedModelsExtraKey:         map[string]any{"gpt-5": map[string]any{"status_code": 404}},
 			"codex_5h_used_percent":           80,
 			"codex_cli_only":                  true,
 			"grok_usage_snapshot":             map[string]any{"status_code": 429},
@@ -264,6 +266,28 @@ func TestDuplicateAccountPreservesUngroupedState(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, duplicate.GroupIDs)
 	require.NotContains(t, repo.groupsOf, duplicate.ID)
+}
+
+func TestDuplicateAccountSimpleModeRejectsCompositeGroupBinding(t *testing.T) {
+	ctx := context.Background()
+	repo := newDuplicateAccountRepoStub()
+	groupRepo := &groupRepoStubForAdmin{getByIDByID: map[int64]*Group{
+		9: {ID: 9, Platform: PlatformComposite},
+	}}
+	svc := &adminServiceImpl{
+		cfg: &config.Config{RunMode: config.RunModeSimple}, groupRepo: groupRepo,
+		accountRepo: repo, accountDuplicateRepo: repo,
+	}
+	source := &Account{
+		Name: "composite-bound", Platform: PlatformAnthropic, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "secret"}, GroupIDs: []int64{9},
+	}
+	require.NoError(t, repo.Create(ctx, source))
+
+	_, err := svc.DuplicateAccount(ctx, source.ID, "admin:1", "")
+
+	require.Equal(t, "SIMPLE_MODE_GROUP_NOT_BINDABLE", infraerrors.Reason(err))
+	require.Len(t, repo.accounts, 1)
 }
 
 func TestDuplicateAccountAtomicCreateFailureLeavesNoOrphan(t *testing.T) {

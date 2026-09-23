@@ -80,38 +80,37 @@ func TestIsModelSupported_OpenAIOAuthExplicitMappingUnchanged(t *testing.T) {
 	require.False(t, account.IsModelSupported("glm-4.7"))
 }
 
-func TestIsModelSupported_OpenAIOAuthPassthroughAllowsAll(t *testing.T) {
+func TestIsModelSupported_OpenAIOAuthPassthroughRequiresModelEvidence(t *testing.T) {
 	account := newOpenAIOAuthAccountForModelTest()
 	account.Extra = map[string]any{"openai_passthrough": true}
 
-	// 透传模式仅替换认证，模型语义由上游决定，保持"允许所有"。
-	require.True(t, account.IsModelSupported("deepseek-v4"))
+	// 透传不代表已知支持任意模型。
+	require.False(t, account.IsModelSupported("deepseek-v4"))
 }
 
-func TestIsModelSupported_OpenAIOAuthPassthroughIgnoresLeftoverMapping(t *testing.T) {
+func TestIsModelSupported_OpenAIOAuthPassthroughUsesConfiguredWhitelist(t *testing.T) {
 	account := newOpenAIOAuthAccountForModelTest()
 	account.Extra = map[string]any{"openai_passthrough": true}
-	// 账号从"白名单模式"切到透传后，credentials 里常残留旧的非空 model_mapping。
-	// 透传应无视该白名单，放行不在其中的模型（issue #4936）；否则透传账号会被
-	// 调度期的 IsModelSupported 排除，客户端收到 404 "not supported by any account"。
+	// 开启透传后，显式配置仍约束调度资格，转发时不改写模型名。
 	account.Credentials = map[string]any{
 		"model_mapping": map[string]any{"gpt-5.4": "gpt-5.4"},
 	}
 
-	require.True(t, account.IsModelSupported("gpt-5.6-sol"), "透传应放行不在残留白名单中的新模型")
-	require.True(t, account.IsModelSupported("deepseek-v4"), "透传应放行任意模型")
+	require.False(t, account.IsModelSupported("gpt-5.6-sol"))
+	require.False(t, account.IsModelSupported("deepseek-v4"))
+	require.True(t, account.IsModelSupported("gpt-5.4"))
 }
 
-func TestIsModelSupported_OpenAIAPIKeyEmptyMappingAllowsAll(t *testing.T) {
+func TestIsModelSupported_OpenAIAPIKeyEmptyMappingRejectsUnknownModels(t *testing.T) {
 	account := &Account{
 		ID:       2,
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeAPIKey,
 	}
 
-	// API Key 账号（第三方 OpenAI 兼容上游）可服务任意别名，语义不变。
-	require.True(t, account.IsModelSupported("deepseek-v4"))
-	require.True(t, account.IsModelSupported("gpt-5.4"))
+	// 第三方上游没有模型目录和配置时，不推断其支持任何模型。
+	require.False(t, account.IsModelSupported("deepseek-v4"))
+	require.False(t, account.IsModelSupported("gpt-5.4"))
 }
 
 func TestIsModelSupported_NonOpenAIPlatformsUnchanged(t *testing.T) {

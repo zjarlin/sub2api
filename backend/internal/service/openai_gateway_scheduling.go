@@ -292,11 +292,23 @@ func (s *OpenAIGatewayService) SelectAccountForTokenCount(
 // handler 调度入口仍需导出，保持导出名。）
 func NormalizeOpenAICompatiblePlatform(platform string) string {
 	switch platform {
-	case PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek:
+	case PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformZcode:
 		return platform
 	default:
 		return PlatformOpenAI
 	}
+}
+
+// openAIAccountMatchesPlatform 判定账号是否可服务目标平台请求。
+// 原生平台直接匹配；兼容来源按协议能力加入目标分组，账号是否已绑定由分组查询另行检查。
+func openAIAccountMatchesPlatform(account *Account, platform string) bool {
+	if account == nil {
+		return false
+	}
+	if account.Platform == platform {
+		return true
+	}
+	return account.IsMixedSchedulingEnabled() && mixedSchedulingTargetsPlatform(account.Platform, platform)
 }
 
 // noAvailableOpenAISelectionError builds the standard "no account available" error
@@ -392,7 +404,7 @@ func openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx context.Con
 	if account == nil {
 		return "account_nil"
 	}
-	if account.Platform != platform || !account.IsOpenAICompatible() {
+	if !openAIAccountMatchesPlatform(account, platform) || !account.IsOpenAICompatible() {
 		return "platform_mismatch"
 	}
 	if !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
@@ -710,26 +722,29 @@ func openAICodexSnapshotStaleForPause(extra map[string]any, now time.Time) bool 
 // timestamp and falls back to codex_<window>_reset_after_seconds anchored at
 // codex_usage_updated_at, mirroring AccountUsageService's window-progress logic.
 func openAIQuotaWindowReset(extra map[string]any, window string, now time.Time) bool {
+	resetAt, ok := openAICodexWindowResetAt(extra, window)
+	return ok && !now.Before(resetAt)
+}
+
+// 绝对时间优先；相对倒计时必须锚定快照采样时间，不能随每次评分向后滑动。
+func openAICodexWindowResetAt(extra map[string]any, window string) (time.Time, bool) {
 	if len(extra) == 0 {
-		return false
+		return time.Time{}, false
 	}
 	if resetAtRaw, ok := extra["codex_"+window+"_reset_at"]; ok {
 		if resetAt, err := parseTime(fmt.Sprint(resetAtRaw)); err == nil {
-			return !now.Before(resetAt)
+			return resetAt, true
 		}
 	}
 	resetAfter := parseExtraInt(extra["codex_"+window+"_reset_after_seconds"])
 	if resetAfter <= 0 {
-		return false
+		return time.Time{}, false
 	}
-	base := now
-	if updatedRaw, ok := extra["codex_usage_updated_at"]; ok {
-		if updatedAt, err := parseTime(fmt.Sprint(updatedRaw)); err == nil {
-			base = updatedAt
-		}
+	updatedAt, err := parseTime(fmt.Sprint(extra["codex_usage_updated_at"]))
+	if err != nil {
+		return time.Time{}, false
 	}
-	resetAt := base.Add(time.Duration(resetAfter) * time.Second)
-	return !now.Before(resetAt)
+	return updatedAt.Add(time.Duration(resetAfter) * time.Second), true
 }
 
 func readOpenAIQuotaUsedPercent(extra map[string]any, window string) float64 {
@@ -1476,15 +1491,25 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 		if err != nil {
 			return accounts, err
 		}
+		accounts = accountsWithModelAliases(ctx, accounts)
 		accounts = s.filterOpenAIAccountsBySchedulingThreshold(ctx, accounts)
-		if platform == PlatformGrok {
-			accounts = s.filterGrokFreeQuotaAccountsForOpenAI(ctx, accounts)
-		}
+		accounts = s.filterGrokFreeQuotaAccountsForOpenAI(ctx, accounts)
 		return accounts, nil
 	}
 	var accounts []Account
 	var err error
-	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+	sources := MixedSchedulingSourcePlatforms(platform)
+	if len(sources) > 0 {
+		platforms := append([]string{platform}, sources...)
+		switch {
+		case groupID != nil:
+			accounts, err = s.accountRepo.ListSchedulableByGroupIDAndPlatforms(ctx, *groupID, platforms)
+		case s.cfg != nil && s.cfg.RunMode == config.RunModeSimple:
+			accounts, err = s.accountRepo.ListSchedulableByPlatforms(ctx, platforms)
+		default:
+			accounts, err = s.accountRepo.ListSchedulableUngroupedByPlatforms(ctx, platforms)
+		}
+	} else if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
 		accounts, err = s.accountRepo.ListSchedulableByPlatform(ctx, platform)
 	} else if groupID != nil {
 		accounts, err = s.accountRepo.ListSchedulableByGroupIDAndPlatform(ctx, *groupID, platform)
@@ -1494,10 +1519,16 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 	if err != nil {
 		return nil, fmt.Errorf("query accounts failed: %w", err)
 	}
-	accounts = s.filterOpenAIAccountsBySchedulingThreshold(ctx, accounts)
-	if platform == PlatformGrok {
-		accounts = s.filterGrokFreeQuotaAccountsForOpenAI(ctx, accounts)
+	compatible := make([]Account, 0, len(accounts))
+	for _, account := range accounts {
+		if openAIAccountMatchesPlatform(&account, platform) {
+			compatible = append(compatible, account)
+		}
 	}
+	accounts = compatible
+	accounts = accountsWithModelAliases(ctx, accounts)
+	accounts = s.filterOpenAIAccountsBySchedulingThreshold(ctx, accounts)
+	accounts = s.filterGrokFreeQuotaAccountsForOpenAI(ctx, accounts)
 	return accounts, nil
 }
 
@@ -1602,6 +1633,7 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfit(ct
 	}
 
 	latest, err := s.accountRepo.GetByID(ctx, account.ID)
+	latest = accountWithModelAliases(ctx, latest)
 	if err != nil || latest == nil {
 		return nil
 	}
@@ -1630,8 +1662,11 @@ func (s *OpenAIGatewayService) recheckSelectedOpenAIAccountFromDBBeforeProfit(ct
 }
 
 func (s *OpenAIGatewayService) openAIAccountMatchesSchedulingGroup(account *Account, groupID *int64) bool {
+	if !account.IsPubliclyShared() {
+		return false
+	}
 	if s != nil && s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
-		return account != nil
+		return true
 	}
 	return openAIStickyAccountMatchesGroup(account, groupID)
 }
@@ -1646,8 +1681,12 @@ func (s *OpenAIGatewayService) getSchedulableAccount(ctx context.Context, accoun
 	} else {
 		account, err = s.accountRepo.GetByID(ctx, accountID)
 	}
+	account = accountWithModelAliases(ctx, account)
 	if err != nil || account == nil {
 		return account, err
+	}
+	if !account.IsPubliclyShared() {
+		return nil, nil
 	}
 	if s.isOpenAIAccountBlockedBySchedulingThreshold(ctx, account) {
 		return nil, nil
@@ -1694,7 +1733,7 @@ func (s *OpenAIGatewayService) isOpenAIAccountBlockedBySchedulingThreshold(ctx c
 
 func (s *OpenAIGatewayService) hydrateSelectedAccount(ctx context.Context, account *Account) (*Account, error) {
 	if account == nil || s.schedulerSnapshot == nil {
-		return account, nil
+		return accountWithModelAliases(ctx, account), nil
 	}
 	hydrated, err := s.schedulerSnapshot.GetAccount(ctx, account.ID)
 	if err != nil {
@@ -1703,7 +1742,7 @@ func (s *OpenAIGatewayService) hydrateSelectedAccount(ctx context.Context, accou
 	if hydrated == nil {
 		return nil, fmt.Errorf("selected openai account %d not found during hydration", account.ID)
 	}
-	return hydrated, nil
+	return accountWithModelAliases(ctx, hydrated), nil
 }
 
 func (s *OpenAIGatewayService) newSelectionResult(ctx context.Context, account *Account, acquired bool, release func(), waitPlan *AccountWaitPlan) (*AccountSelectionResult, error) {

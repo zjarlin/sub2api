@@ -1,0 +1,95 @@
+{
+  "configured_at": "2026-09-16T14:37:27+08:00",
+  "currency": "USD",
+  "billing_mode": "per_request",
+  "prices": {
+    "doubao-auto": 0.005,
+    "doubao-pro": 0.01
+  },
+  "market_reference": {
+    "source": "https://www.volcengine.com/product/doubao/",
+    "checked_on": "2026-09-16",
+    "currency": "CNY",
+    "reference_only_not_verified_desktop_model_mapping": true,
+    "models": {
+      "Doubao-Seed-2.1-turbo": {
+        "input_per_million_tokens": 3,
+        "output_per_million_tokens": 15
+      },
+      "Doubao-Seed-2.1-pro": {
+        "input_per_million_tokens": 6,
+        "output_per_million_tokens": 30
+      }
+    },
+    "pricing_assumptions_not_measured_usage": {
+      "input_tokens_per_request": 4000,
+      "output_tokens_per_request": 1500,
+      "budget_cny_per_usd_not_live_fx": 7,
+      "turbo_reference_cost_cny": 0.0345,
+      "pro_reference_cost_cny": 0.069,
+      "rounding": "Round converted reference costs to USD 0.005 and 0.010 per generation"
+    },
+    "pricing_basis": "Reference-based site prices, not an observed market consensus or official per-request tariff"
+  },
+  "groups": [
+    {
+      "id": 6,
+      "name": "codex",
+      "rate_multiplier_preserved": 0.3,
+      "default_effective_prices_usd": {
+        "doubao-auto": 0.0015,
+        "doubao-pro": 0.003
+      }
+    },
+    {
+      "id": 21,
+      "name": "豆包桌面套餐实验-20260915",
+      "rate_multiplier_preserved": 1,
+      "default_effective_prices_usd": {
+        "doubao-auto": 0.005,
+        "doubao-pro": 0.01
+      }
+    }
+  ],
+  "user_specific_rates_preserved": true,
+  "group_limits_preserved": true,
+  "account_routing_preserved": true,
+  "account_rate_multiplier_preserved": 1,
+  "account_id": 834,
+  "original_backup": "runtime/pricing-backup-20260916T063432Z.json",
+  "verified_via_admin_api_and_database": true,
+  "gateway_generation_checks": [
+    {
+      "model": "doubao-auto",
+      "http_status": 200,
+      "exact_reply": true,
+      "usage_log_id": 624710,
+      "group_id": 6,
+      "billing_mode": "per_request",
+      "total_cost_usd": 0.005,
+      "actual_cost_usd": 0.0015,
+      "input_tokens": 0,
+      "output_tokens": 0
+    },
+    {
+      "model": "doubao-pro",
+      "http_status": 200,
+      "exact_reply": true,
+      "usage_log_id": 624711,
+      "group_id": 6,
+      "billing_mode": "per_request",
+      "total_cost_usd": 0.01,
+      "actual_cost_usd": 0.003,
+      "input_tokens": 0,
+      "output_tokens": 0
+    }
+  ],
+  "notes": [
+    "One completed model generation is one billable request; continuation after a tool result is another request",
+    "No input or output token charge is added",
+    "Fixed prices do not vary with actual input or output length",
+    "Group 21 was verified by management API and database; live billed generation was verified through group 6",
+    "User-specific group multipliers override group defaults",
+    "When restoring through the group PUT API, include all three original daily/weekly/monthly limits; use -1 for unlimited instead of JSON null"
+  ]
+}

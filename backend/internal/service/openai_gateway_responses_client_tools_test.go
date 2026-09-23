@@ -12,17 +12,22 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
 
 func openAIClientToolsRequest(stream bool) []byte {
+	return openAIClientToolsRequestForModel("gpt-5.4", stream)
+}
+
+func openAIClientToolsRequestForModel(model string, stream bool) []byte {
 	streamValue := "false"
 	if stream {
 		streamValue = "true"
 	}
-	return []byte(`{"model":"gpt-5.4","input":"fix it","stream":` + streamValue + `,"tools":[{"type":"custom","name":"exec"},{"type":"custom","name":"apply_patch"}]}`)
+	return []byte(`{"model":"` + model + `","input":"fix it","stream":` + streamValue + `,"tools":[{"type":"custom","name":"exec"},{"type":"custom","name":"apply_patch"}]}`)
 }
 
 func assertOpenAIClientToolsLowered(t *testing.T, body []byte) {
@@ -191,6 +196,46 @@ func TestDeepSeekAdaptiveResponsesForwardRestoresClientToolsNonStreaming(t *test
 	require.Equal(t, "*** Begin Patch", gjson.Get(recorder.Body.String(), "output.1.input").String())
 }
 
+func TestAgnesResponsesForwardLowersClientTools(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"agness-2.0-flash","input":"fix it","stream":false,"tools":[{"type":"custom","name":"exec"},{"type":"web_search","search_context_size":"medium"}],"tool_choice":{"type":"web_search"}}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(`{"id":"resp_agnes_tools","status":"completed","output":[
+			{"type":"function_call","id":"i1","call_id":"c1","name":"exec","arguments":"{\"input\":\"pwd\"}"}],
+			"usage":{"input_tokens":1,"output_tokens":1}}`)),
+	}}
+	svc := openAIClientToolsTestService(upstream)
+	account := &Account{
+		ID:       5664,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Extra:    map[string]any{openai_compat.ExtraKeyResponsesSupported: true},
+		Credentials: map[string]any{
+			"api_key":  "test-key",
+			"base_url": "https://relay.example",
+		},
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "function", gjson.GetBytes(upstream.lastBody, "tools.0.type").String())
+	require.Equal(t, "exec", gjson.GetBytes(upstream.lastBody, "tools.0.name").String())
+	require.Equal(t, "web_search_preview", gjson.GetBytes(upstream.lastBody, "tools.1.type").String())
+	require.Equal(t, "medium", gjson.GetBytes(upstream.lastBody, "tools.1.search_context_size").String())
+	require.Equal(t, "web_search_preview", gjson.GetBytes(upstream.lastBody, "tool_choice.type").String())
+	require.Equal(t, "/v1/responses", upstream.lastReq.URL.Path)
+	require.Equal(t, "custom_tool_call", gjson.Get(recorder.Body.String(), "output.0.type").String())
+	require.Equal(t, "pwd", gjson.Get(recorder.Body.String(), "output.0.input").String())
+}
+
 func TestDeepSeekResponsesCompactSkipsClientToolAdaptation(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := openAIClientToolsRequest(false)
@@ -248,6 +293,34 @@ func TestOpenAIPassthroughAPIKeyRestoresClientToolsNonStreaming(t *testing.T) {
 	require.Equal(t, "pwd", gjson.Get(recorder.Body.String(), "output.0.input").String())
 	require.Equal(t, "custom_tool_call", gjson.Get(recorder.Body.String(), "output.1.type").String())
 	require.Equal(t, "*** Begin Patch", gjson.Get(recorder.Body.String(), "output.1.input").String())
+}
+
+func TestOpenAIPassthroughAPIKeyPreservesCustomToolOutputContentParts(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"gpt-5.4","stream":false,"tools":[{"type":"custom","name":"exec"}],"input":[{"type":"custom_tool_call_output","call_id":"call_1","output":[{"type":"input_text","text":"result"},{"type":"input_file","file_id":"file_123"}]}]}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"resp_tools","status":"completed","output":[],"usage":{}}`)),
+	}}
+	svc := openAIClientToolsTestService(upstream)
+	account := &Account{ID: 6240, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test-key"}}
+
+	result, err := svc.forwardOpenAIPassthrough(context.Background(), c, account, body, body, "gpt-5.4", false, nil, false, time.Now())
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "function_call_output", gjson.GetBytes(upstream.lastBody, "input.0.type").String())
+	output := gjson.GetBytes(upstream.lastBody, "input.0.output")
+	require.True(t, output.IsArray(), "native Responses content parts must reach the upstream as an array")
+	require.Equal(t, "input_text", output.Get("0.type").String())
+	require.Equal(t, "result", output.Get("0.text").String())
+	require.Equal(t, "input_file", output.Get("1.type").String())
+	require.Equal(t, "file_123", output.Get("1.file_id").String())
 }
 
 func TestOpenAIPassthroughAPIKeyRestoresClientToolsStreaming(t *testing.T) {

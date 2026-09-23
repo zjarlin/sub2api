@@ -20,11 +20,32 @@ type modelNotFoundRateLimitCall struct {
 	reason    string
 }
 
+type unsupportedModelCall struct {
+	accountID   int64
+	model       string
+	observation UnsupportedModelObservation
+}
+
 type modelNotFoundAccountRepoStub struct {
 	mockAccountRepoForGemini
 	tempCalls           int
 	modelRateLimitCalls []modelNotFoundRateLimitCall
+	unsupportedCalls    []unsupportedModelCall
 	modelRateLimitErr   error
+	unsupportedErr      error
+}
+
+func (r *modelNotFoundAccountRepoStub) SetUnsupportedModel(_ context.Context, accountID int64, model string, observation UnsupportedModelObservation) error {
+	r.unsupportedCalls = append(r.unsupportedCalls, unsupportedModelCall{
+		accountID:   accountID,
+		model:       model,
+		observation: observation,
+	})
+	return r.unsupportedErr
+}
+
+func (r *modelNotFoundAccountRepoStub) ClearUnsupportedModels(context.Context, int64) error {
+	return nil
 }
 
 func (r *modelNotFoundAccountRepoStub) SetTempUnschedulable(ctx context.Context, id int64, until time.Time, reason string) error {
@@ -67,6 +88,53 @@ func TestRateLimitService_HandleUpstreamError_ModelNotFoundUsesModelRateLimit(t 
 	require.Equal(t, "gpt-5.4", call.scope)
 	require.Equal(t, upstreamModelNotFoundReason, call.reason)
 	require.WithinDuration(t, time.Now().Add(upstreamModelNotFoundCooldown), call.resetAt, 5*time.Second)
+	require.Len(t, repo.unsupportedCalls, 1)
+	require.Equal(t, "gpt-5.4", repo.unsupportedCalls[0].model)
+	require.Equal(t, http.StatusNotFound, repo.unsupportedCalls[0].observation.StatusCode)
+}
+
+func TestRateLimitService_HandleUpstreamError_UnsupportedModelPersistsMappedNegativeCapability(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := openAIModelNotFoundTempAccount()
+	account.Credentials["model_mapping"] = map[string]any{"public-model": "upstream-model"}
+
+	handled := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusBadRequest,
+		http.Header{},
+		[]byte(`{"error":{"code":"unsupported_model","message":"The model upstream-model is not supported"}}`),
+		"public-model",
+	)
+
+	require.True(t, handled)
+	require.Len(t, repo.unsupportedCalls, 1)
+	require.Equal(t, "upstream-model", repo.unsupportedCalls[0].model)
+	require.False(t, account.IsModelSupported("public-model"))
+	require.Len(t, repo.modelRateLimitCalls, 1)
+}
+
+func TestRateLimitService_HandleUpstreamError_DoesNotPersistTransientOrFeatureErrors(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{name: "service unavailable", status: http.StatusServiceUnavailable, body: `{"error":{"message":"Service temporarily unavailable"}}`},
+		{name: "unsupported parameter", status: http.StatusBadRequest, body: `{"error":{"message":"Parameter tools is not supported for this model"}}`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &modelNotFoundAccountRepoStub{}
+			svc := &RateLimitService{accountRepo: repo}
+			account := openAIModelNotFoundTempAccount()
+
+			svc.HandleUpstreamError(context.Background(), account, tt.status, http.Header{}, []byte(tt.body), "gpt-5.4")
+
+			require.Empty(t, repo.unsupportedCalls)
+		})
+	}
 }
 
 func TestRateLimitService_HandleUpstreamError_ModelNotFoundWriteFailureDoesNotTempUnschedule(t *testing.T) {

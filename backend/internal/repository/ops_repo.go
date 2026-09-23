@@ -16,6 +16,9 @@ type opsRepository struct {
 	db *sql.DB
 }
 
+// 降级成功展示最终状态；失败日志继续展示便于诊断的上游状态。
+const opsErrorStatusCodeExpression = "CASE WHEN e.error_type = 'recovered_upstream' THEN e.status_code ELSE COALESCE(NULLIF(e.upstream_status_code, 0), e.status_code, 0) END"
+
 const insertOpsErrorLogSQL = `
 INSERT INTO ops_error_logs (
   request_id,
@@ -186,10 +189,10 @@ func opsErrorLogsOrderBy(filter *service.OpsErrorLogFilter) string {
 	case "model":
 		column = "COALESCE(NULLIF(TRIM(e.requested_model), ''), e.model)"
 	case "status_code":
-		// 与展示列/过滤保持同义:列表展示 COALESCE(upstream_status_code, status_code, 0),
+		// 与展示列/过滤保持同义：上游状态为零时使用客户端状态码。
 		// status_code 过滤也用同一表达式,故排序必须一致——否则 recovered upstream 行
 		//（status_code<400 但展示上游 5xx）排序键与显示值/分页切分不符。
-		column = "COALESCE(e.upstream_status_code, e.status_code, 0)"
+		column = opsErrorStatusCodeExpression
 	default:
 		column = "e.created_at"
 	}
@@ -240,7 +243,7 @@ SELECT
   COALESCE(e.error_owner, ''),
   COALESCE(e.error_source, ''),
   e.severity,
-  COALESCE(e.upstream_status_code, e.status_code, 0),
+  ` + opsErrorStatusCodeExpression + `,
   COALESCE(e.platform, ''),
   COALESCE(e.model, ''),
   COALESCE(e.resolved, false),
@@ -267,7 +270,17 @@ SELECT
   COALESCE(e.user_agent, ''),
   e.request_type,
   COALESCE(ak.name, ''),
-  ak.deleted_at
+  ak.deleted_at,
+  COALESCE((
+    SELECT jsonb_agg(jsonb_build_object(
+      'account_id', ev->'account_id',
+      'account_name', ev->'account_name'
+    ) ORDER BY seq)
+    FROM jsonb_array_elements(
+      CASE WHEN jsonb_typeof(e.upstream_errors) = 'array' THEN e.upstream_errors ELSE '[]'::jsonb END
+    ) WITH ORDINALITY AS attempts(ev, seq)
+    WHERE jsonb_typeof(ev) = 'object'
+  ), '[]'::jsonb)::text
 FROM ops_error_logs e
 LEFT JOIN accounts a ON e.account_id = a.id
 LEFT JOIN groups g ON e.group_id = g.id
@@ -302,6 +315,7 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 		var requestType sql.NullInt64
 		var apiKeyName string
 		var apiKeyDeletedAt sql.NullTime
+		var accountAttemptsJSON string
 		if err := rows.Scan(
 			&item.ID,
 			&item.CreatedAt,
@@ -338,6 +352,7 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 			&requestType,
 			&apiKeyName,
 			&apiKeyDeletedAt,
+			&accountAttemptsJSON,
 		); err != nil {
 			return nil, err
 		}
@@ -369,6 +384,9 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 			item.AccountID = &v
 		}
 		item.AccountName = accountName
+		if err := json.Unmarshal([]byte(accountAttemptsJSON), &item.AccountAttempts); err != nil {
+			return nil, fmt.Errorf("decode account attempts for error %d: %w", item.ID, err)
+		}
 		if groupID.Valid {
 			v := groupID.Int64
 			item.GroupID = &v
@@ -411,7 +429,7 @@ SELECT
   COALESCE(e.error_owner, ''),
   COALESCE(e.error_source, ''),
   e.severity,
-  COALESCE(e.upstream_status_code, e.status_code, 0),
+  ` + opsErrorStatusCodeExpression + `,
   COALESCE(e.platform, ''),
   COALESCE(e.model, ''),
   COALESCE(e.resolved, false),
@@ -914,7 +932,7 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 	// status 200 (the SSE stream opened successfully before upstream returned response.failed),
 	// but they are always client-visible blocked requests that belong in admin + user error
 	// lists.  Without the exemption the entire streaming-path cyber sink would be invisible.
-	if !opsFilterIncludesRecoveredProviderRows(filter, phaseFilter) {
+	if !opsFilterIncludesRecoveredAttemptRows(filter, phaseFilter) {
 		clauses = append(clauses, "(COALESCE(e.status_code, 0) >= 400 OR e.error_type = 'cyber_policy')")
 	}
 
@@ -970,6 +988,8 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 		clauses = append(clauses, "COALESCE(e.is_business_limited,false) = false")
 	case "excluded":
 		clauses = append(clauses, "COALESCE(e.is_business_limited,false) = true")
+	case "recovered":
+		clauses = append(clauses, opsRecoveredSuccessPredicate)
 	case "all":
 		// no-op
 	default:
@@ -978,12 +998,12 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 	}
 	if len(filter.StatusCodes) > 0 {
 		args = append(args, pq.Array(filter.StatusCodes))
-		clauses = append(clauses, "COALESCE(e.upstream_status_code, e.status_code, 0) = ANY($"+itoa(len(args))+")")
+		clauses = append(clauses, opsErrorStatusCodeExpression+" = ANY($"+itoa(len(args))+")")
 	} else if filter.StatusCodesOther {
 		// "Other" means: status codes not in the common list.
 		known := []int{400, 401, 403, 404, 409, 422, 429, 500, 502, 503, 504, 529}
 		args = append(args, pq.Array(known))
-		clauses = append(clauses, "NOT (COALESCE(e.upstream_status_code, e.status_code, 0) = ANY($"+itoa(len(args))+"))")
+		clauses = append(clauses, "NOT ("+opsErrorStatusCodeExpression+" = ANY($"+itoa(len(args))+"))")
 	}
 	// Exact correlation keys (preferred for request↔upstream linkage).
 	if rid := strings.TrimSpace(filter.RequestID); rid != "" {
@@ -1042,26 +1062,31 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 	return "WHERE " + strings.Join(clauses, " AND "), args
 }
 
-func opsFilterIncludesRecoveredProviderRows(filter *service.OpsErrorLogFilter, phaseFilter string) bool {
+func opsFilterIncludesRecoveredAttemptRows(filter *service.OpsErrorLogFilter, phaseFilter string) bool {
 	if filter == nil || !filter.IncludeRecoveredUpstream {
 		return false
 	}
+	// 错误与业务限制视图只展示最终失败；恢复记录只能进入全部或降级成功视图。
+	view := strings.ToLower(strings.TrimSpace(filter.View))
+	if view != "all" && view != "recovered" {
+		return false
+	}
 	if phaseFilter != "" {
-		return phaseFilter == "upstream" || phaseFilter == "account_auth"
+		return phaseFilter == "upstream" || phaseFilter == "account_auth" || phaseFilter == "routing"
 	}
 	if len(filter.ErrorPhasesAny) == 0 {
 		return false
 	}
-	sawProviderPhase := false
+	sawAttemptPhase := false
 	for _, rawPhase := range filter.ErrorPhasesAny {
 		switch strings.TrimSpace(strings.ToLower(rawPhase)) {
-		case "upstream", "account_auth":
-			sawProviderPhase = true
+		case "upstream", "account_auth", "routing":
+			sawAttemptPhase = true
 		default:
 			return false
 		}
 	}
-	return sawProviderPhase
+	return sawAttemptPhase
 }
 
 func buildOpsSystemLogsWhere(filter *service.OpsSystemLogFilter) (string, []any, bool) {

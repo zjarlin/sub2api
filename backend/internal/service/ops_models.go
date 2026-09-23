@@ -22,6 +22,12 @@ type OpsSystemLog struct {
 	Extra           map[string]any `json:"extra,omitempty"`
 }
 
+// 列表只传账号快照，完整错误与响应体留在详情接口，避免放大分页响应。
+type OpsAccountAttempt struct {
+	AccountID   int64  `json:"account_id"`
+	AccountName string `json:"account_name"`
+}
+
 type OpsErrorLog struct {
 	ID        int64     `json:"id"`
 	CreatedAt time.Time `json:"created_at"`
@@ -52,13 +58,14 @@ type OpsErrorLog struct {
 	RequestID       string `json:"request_id"`
 	Message         string `json:"message"`
 
-	UserID      *int64 `json:"user_id"`
-	UserEmail   string `json:"user_email"`
-	APIKeyID    *int64 `json:"api_key_id"`
-	AccountID   *int64 `json:"account_id"`
-	AccountName string `json:"account_name"`
-	GroupID     *int64 `json:"group_id"`
-	GroupName   string `json:"group_name"`
+	UserID          *int64              `json:"user_id"`
+	UserEmail       string              `json:"user_email"`
+	APIKeyID        *int64              `json:"api_key_id"`
+	AccountID       *int64              `json:"account_id"`
+	AccountName     string              `json:"account_name"`
+	AccountAttempts []OpsAccountAttempt `json:"account_attempts,omitempty"`
+	GroupID         *int64              `json:"group_id"`
+	GroupName       string              `json:"group_name"`
 
 	ClientIP    *string `json:"client_ip"`
 	RequestPath string  `json:"request_path"`
@@ -135,25 +142,16 @@ type OpsErrorLogFilter struct {
 	// ExcludeCountTokens drops count_tokens probe errors (is_count_tokens=true).
 	ExcludeCountTokens bool
 
-	// IncludeRecoveredUpstream explicitly exempts provider-health phases
-	// (upstream and account_auth) from the status>=400 guard. Ops provider
-	// health lists need status<400 recovered rows; request-error endpoints do
-	// not set this flag and retain client-error semantics.
+	// 管理端仅在 all/recovered 视图放行 upstream/account_auth/routing 的恢复记录。
+	// 请求错误端点不设置此标记，错误与业务限制视图始终只显示最终失败。
 	IncludeRecoveredUpstream bool
 
-	// ErrorPhasesAny / ErrorTypesAny add plain ANY() filters WITHOUT touching the
-	// special-cased single `Phase` field. With IncludeRecoveredUpstream, an ANY
-	// list containing only upstream/account_auth also bypasses status>=400.
-	// NOTE: these ANY filters do NOT bypass status>=400; records with error_phase='upstream'
-	// but status_code<400 (recovered upstream errors) remain excluded.
-	// Used to map user-facing coarse categories to backend conditions.
+	// 分类映射只增加 ANY 条件；放行恢复记录还需要上述管理端标记、视图及完整阶段范围。
 	ErrorPhasesAny []string
 	ErrorTypesAny  []string
 
-	// View controls error categorization for list endpoints.
-	// - errors: show actionable errors (exclude business-limited / 429 / 529)
-	// - excluded: only show excluded errors
-	// - all: show everything
+	// View 控制列表分类：errors 为非业务限制错误，excluded 为业务限制，all 为全部。
+	// recovered 仅在管理端上游视图显示经过重试或降级后最终成功的请求。
 	View string
 
 	Page     int

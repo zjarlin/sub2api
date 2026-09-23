@@ -27,6 +27,15 @@ func (r *bulkEventAccountRepo) GetByIDs(context.Context, []int64) ([]*Account, e
 	return append([]*Account(nil), r.accounts...), nil
 }
 
+func (r *bulkEventAccountRepo) GetByID(_ context.Context, id int64) (*Account, error) {
+	for _, acc := range r.accounts {
+		if acc.ID == id {
+			return acc, nil
+		}
+	}
+	return nil, ErrAccountNotFound
+}
+
 type bulkEventSnapshotCache struct {
 	*batchSnapshotCache
 
@@ -92,7 +101,7 @@ func schedulerBucketsForTest(groupIDs []int64, platforms ...string) []SchedulerB
 				SchedulerBucket{GroupID: groupID, Platform: platform, Mode: SchedulerModeSingle},
 				SchedulerBucket{GroupID: groupID, Platform: platform, Mode: SchedulerModeForced},
 			)
-			if platform == PlatformAnthropic || platform == PlatformGemini {
+			if len(MixedSchedulingSourcePlatforms(platform)) > 0 {
 				buckets = append(buckets, SchedulerBucket{GroupID: groupID, Platform: platform, Mode: SchedulerModeMixed})
 			}
 		}
@@ -114,8 +123,9 @@ func TestSchedulerBulkAccountEventScopesOpenAIRebuildToFreshPlatform(t *testing.
 	require.Empty(t, deleted)
 }
 
-func TestSchedulerBulkAccountEventScopesCNRebuildToFreshPlatform(t *testing.T) {
-	for _, platform := range []string{PlatformKimi, PlatformZhipu, PlatformDeepseek} {
+func TestSchedulerBulkAccountEventRebuildsOpenAICompatibleSourceAndTargetPlatforms(t *testing.T) {
+	for _, platform := range []string{PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax,
+		PlatformOpenCodeGo, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformZcode} {
 		t.Run(platform, func(t *testing.T) {
 			cache := newBulkEventSnapshotCache()
 			repo := newBulkEventAccountRepo(&Account{ID: 1, Platform: platform, GroupIDs: []int64{12}})
@@ -124,7 +134,7 @@ func TestSchedulerBulkAccountEventScopesCNRebuildToFreshPlatform(t *testing.T) {
 			err := svc.handleBulkAccountEvent(context.Background(), bulkEventPayload([]int64{1}, []int64{11}), make(map[batchSeenKey]struct{}))
 
 			require.NoError(t, err)
-			require.ElementsMatch(t, schedulerBucketsForTest([]int64{11, 12}, platform), cache.capturedBuckets())
+			require.ElementsMatch(t, schedulerBucketsForTest([]int64{11, 12}, platform, PlatformOpenAI), cache.capturedBuckets())
 		})
 	}
 }
@@ -166,7 +176,7 @@ func TestSchedulerBulkAccountEventDoesNotCrossCurrentGroupsBetweenPlatforms(t *t
 
 	require.NoError(t, err)
 	want := append(
-		schedulerBucketsForTest([]int64{61, 63}, PlatformOpenAI),
+		schedulerBucketsForTest([]int64{61, 62, 63}, PlatformOpenAI),
 		schedulerBucketsForTest([]int64{62, 63}, PlatformGrok)...,
 	)
 	require.ElementsMatch(t, want, cache.capturedBuckets())
@@ -181,6 +191,17 @@ func TestSchedulerBulkAccountEventUsesGroupZeroInSimpleMode(t *testing.T) {
 
 	require.NoError(t, err)
 	require.ElementsMatch(t, schedulerBucketsForTest([]int64{0}, PlatformOpenAI), cache.capturedBuckets())
+}
+
+func TestSchedulerBulkAccountEventUsesGroupZeroForCompatibleTargetsInSimpleMode(t *testing.T) {
+	cache := newBulkEventSnapshotCache()
+	repo := newBulkEventAccountRepo(&Account{ID: 11, Platform: PlatformKimi, GroupIDs: []int64{71}})
+	svc := NewSchedulerSnapshotService(cache, nil, repo, nil, &config.Config{RunMode: config.RunModeSimple})
+
+	err := svc.handleBulkAccountEvent(context.Background(), bulkEventPayload([]int64{11}, []int64{72}), make(map[batchSeenKey]struct{}))
+
+	require.NoError(t, err)
+	require.ElementsMatch(t, schedulerBucketsForTest([]int64{0}, PlatformKimi, PlatformOpenAI), cache.capturedBuckets())
 }
 
 func TestSchedulerBulkAccountEventConservativelyExpandsAntigravityPlatforms(t *testing.T) {
@@ -223,4 +244,61 @@ func TestSchedulerBulkAccountEventUnknownPlatformFallsBackToAllPlatforms(t *test
 	require.NoError(t, err)
 	platforms := schedulerSnapshotPlatforms()
 	require.ElementsMatch(t, schedulerBucketsForTest([]int64{41, 42}, platforms[:]...), cache.capturedBuckets())
+}
+
+// 启用混合调度的来源平台账号变动时，必须同时重建其可加入的目标平台分组快照，
+// 否则新绑定的账号不会进入目标分组（如 traework 绑定 openai/codex 分组后调度不到）。
+func TestSchedulerAccountEventRebuildsMixedTargetBuckets(t *testing.T) {
+	cases := []struct {
+		platform       string
+		expectedTarget string
+	}{
+		{PlatformGrok, PlatformOpenAI},
+		{PlatformKimi, PlatformOpenAI},
+		{PlatformZhipu, PlatformOpenAI},
+		{PlatformDeepseek, PlatformOpenAI},
+		{PlatformMiniMax, PlatformOpenAI},
+		{PlatformOpenCodeGo, PlatformOpenAI},
+		{PlatformDoubao, PlatformOpenAI},
+		{PlatformTraework, PlatformOpenAI},
+		{PlatformWorkbuddy, PlatformOpenAI},
+		{PlatformZcode, PlatformOpenAI},
+		{PlatformAntigravity, PlatformAnthropic},
+		{PlatformAntigravity, PlatformGemini},
+	}
+	for _, tc := range cases {
+		t.Run(tc.platform+"->"+tc.expectedTarget, func(t *testing.T) {
+			cache := newBulkEventSnapshotCache()
+			account := &Account{ID: 42, Platform: tc.platform, GroupIDs: []int64{77},
+				Extra: map[string]any{"mixed_scheduling": true}}
+			repo := newBulkEventAccountRepo(account)
+			svc := newBulkEventTestService(cache, repo)
+
+			accountID := int64(42)
+			err := svc.handleAccountEvent(context.Background(), &accountID, nil, make(map[batchSeenKey]struct{}))
+			require.NoError(t, err)
+
+			// 自身平台 bucket + 全部兼容目标平台 bucket 都应重建。
+			expected := schedulerBucketsForTest([]int64{77}, tc.platform)
+			for _, target := range MixedSchedulingTargetPlatforms(tc.platform) {
+				expected = append(expected, schedulerBucketsForTest([]int64{77}, target)...)
+			}
+			require.ElementsMatch(t, expected, cache.capturedBuckets())
+			require.Contains(t, bucketStrings(cache.capturedBuckets()),
+				SchedulerBucket{GroupID: 77, Platform: tc.expectedTarget, Mode: SchedulerModeMixed}.String())
+		})
+	}
+}
+
+// Antigravity 仍需要显式开启跨协议混合调度。
+func TestSchedulerAccountEventSkipsMixedTargetBucketsWhenDisabled(t *testing.T) {
+	cache := newBulkEventSnapshotCache()
+	account := &Account{ID: 43, Platform: PlatformAntigravity, GroupIDs: []int64{78}}
+	repo := newBulkEventAccountRepo(account)
+	svc := newBulkEventTestService(cache, repo)
+
+	accountID := int64(43)
+	require.NoError(t, svc.handleAccountEvent(context.Background(), &accountID, nil, make(map[batchSeenKey]struct{})))
+
+	require.ElementsMatch(t, schedulerBucketsForTest([]int64{78}, PlatformAntigravity), cache.capturedBuckets())
 }

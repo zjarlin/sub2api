@@ -38,6 +38,13 @@ func webSearchPricePerCallFromAPIKey(apiKey *APIKey) *float64 {
 	return apiKey.Group.WebSearchPricePerCall
 }
 
+func visionPricePerCallFromAPIKey(apiKey *APIKey) *float64 {
+	if apiKey == nil || apiKey.Group == nil {
+		return nil
+	}
+	return apiKey.Group.VisionPricePerCall
+}
+
 func groupSearchPricePer1kFromAPIKey(apiKey *APIKey) *float64 {
 	if apiKey == nil || apiKey.Group == nil {
 		return nil

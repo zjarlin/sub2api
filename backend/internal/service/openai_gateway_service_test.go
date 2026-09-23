@@ -101,6 +101,20 @@ func (r stubOpenAIAccountRepo) ListSchedulableByGroupIDAndPlatform(ctx context.C
 	return result, nil
 }
 
+func (r stubOpenAIAccountRepo) ListSchedulableByGroupIDAndPlatforms(ctx context.Context, groupID int64, platforms []string) ([]Account, error) {
+	allowed := make(map[string]struct{}, len(platforms))
+	for _, platform := range platforms {
+		allowed[platform] = struct{}{}
+	}
+	var result []Account
+	for _, acc := range r.accounts {
+		if _, ok := allowed[acc.Platform]; ok {
+			result = append(result, acc)
+		}
+	}
+	return result, nil
+}
+
 func (r stubOpenAIAccountRepo) ListSchedulableByPlatform(ctx context.Context, platform string) ([]Account, error) {
 	var result []Account
 	for _, acc := range r.accounts {
@@ -155,6 +169,7 @@ func TestOpenAIGatewayService_ForwardAsAnthropic_CapacityShedReturnsRequestScope
 		ID: 5099, Name: "temporary-unschedulable", Platform: PlatformOpenAI,
 		Type: AccountTypeAPIKey, Concurrency: 1,
 		Credentials: map[string]any{
+			"model_mapping":              testModelMapping("gpt-5.4"),
 			"api_key":                    "sk-test",
 			"base_url":                   "http://upstream.example",
 			"model_provider":             "env-openai",
@@ -203,6 +218,7 @@ func TestFailoverOpenAIUpstreamHTTPError_NilContextSkipsTempUnschedulablePolicy(
 	account := &Account{
 		ID: 5099, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 		Credentials: map[string]any{
+			"model_mapping":              testModelMapping("gpt-5.4"),
 			"temp_unschedulable_enabled": true,
 			"temp_unschedulable_rules": []any{map[string]any{
 				"error_code":       float64(http.StatusBadRequest),
@@ -232,6 +248,20 @@ func (r groupAwareStubOpenAIAccountRepo) ListSchedulableByGroupIDAndPlatform(ctx
 	var result []Account
 	for _, acc := range r.accounts {
 		if acc.Platform == platform && openAIStickyAccountMatchesGroup(&acc, &groupID) {
+			result = append(result, acc)
+		}
+	}
+	return result, nil
+}
+
+func (r groupAwareStubOpenAIAccountRepo) ListSchedulableByGroupIDAndPlatforms(ctx context.Context, groupID int64, platforms []string) ([]Account, error) {
+	allowed := make(map[string]struct{}, len(platforms))
+	for _, platform := range platforms {
+		allowed[platform] = struct{}{}
+	}
+	var result []Account
+	for _, acc := range r.accounts {
+		if _, ok := allowed[acc.Platform]; ok && openAIStickyAccountMatchesGroup(&acc, &groupID) {
 			result = append(result, acc)
 		}
 	}
@@ -565,7 +595,8 @@ func TestOpenAIGatewayService_BindHTTPResponseAccount(t *testing.T) {
 	SetOpenAIHTTPResponseOwner(c, 601, 501)
 
 	svc := &OpenAIGatewayService{}
-	account := &Account{ID: 37001, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	account := &Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1", "gpt-5.4", "gpt-5.6-sol", "gpt-test")}, ID: 37001, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
 	svc.bindHTTPResponseAccount(context.Background(), c, account, "resp_http_001")
 
 	got, err := svc.getOpenAIWSStateStore().GetResponseAccount(context.Background(), groupID, "resp_http_001")
@@ -587,6 +618,37 @@ func TestOpenAIGatewayService_BindHTTPResponseAccount(t *testing.T) {
 	owned, err = svc.ValidateOpenAIHTTPResponseOwner(context.Background(), groupID, "resp_unknown", 601, 501)
 	require.NoError(t, err)
 	require.False(t, owned)
+}
+
+func TestOpenAIGatewayService_BindHTTPResponseAccount_DetachesCanceledRequestContext(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
+	groupID := int64(4201)
+	c.Set("api_key", &APIKey{ID: 501, GroupID: &groupID})
+	SetOpenAIHTTPResponseOwner(c, 601, 501)
+
+	cache := &responseBindContextProbeCache{}
+	svc := &OpenAIGatewayService{cache: cache}
+	account := &Account{ID: 37001, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	requestCtx, cancelRequest := context.WithCancel(context.Background())
+	cancelRequest()
+	startedAt := time.Now()
+
+	svc.bindHTTPResponseAccount(requestCtx, c, account, "resp_http_canceled_001")
+
+	require.Len(t, cache.setContextErrors, 3)
+	for _, contextErr := range cache.setContextErrors {
+		require.NoError(t, contextErr, "response affinity writes must survive downstream cancellation")
+	}
+	require.Len(t, cache.setDeadlines, 3)
+	for _, deadline := range cache.setDeadlines {
+		require.True(t, deadline.After(startedAt))
+		require.LessOrEqual(t, deadline.Sub(startedAt), openAIWSStateStoreRedisTimeout+100*time.Millisecond)
+	}
+	require.Len(t, cache.sessionBindings, 3)
+	require.Contains(t, cache.sessionBindings, openAIWSResponseAccountCacheKey("resp_http_canceled_001"))
 }
 
 func TestOpenAIGatewayService_GenerateExplicitSessionHash_SkipsContentFallback(t *testing.T) {
@@ -710,6 +772,23 @@ type stubGatewayCache struct {
 	deletedSessions map[string]int
 }
 
+type responseBindContextProbeCache struct {
+	stubGatewayCache
+	setContextErrors []error
+	setDeadlines     []time.Time
+}
+
+func (c *responseBindContextProbeCache) SetSessionAccountID(ctx context.Context, groupID int64, sessionHash string, accountID int64, ttl time.Duration) error {
+	c.setContextErrors = append(c.setContextErrors, ctx.Err())
+	if deadline, ok := ctx.Deadline(); ok {
+		c.setDeadlines = append(c.setDeadlines, deadline)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return c.stubGatewayCache.SetSessionAccountID(ctx, groupID, sessionHash, accountID, ttl)
+}
+
 func (c *stubGatewayCache) GetSessionAccountID(ctx context.Context, groupID int64, sessionHash string) (int64, error) {
 	if id, ok := c.sessionBindings[sessionHash]; ok {
 		return id, nil
@@ -768,6 +847,7 @@ func TestOpenAISelectAccountWithLoadAwareness_FiltersUnschedulable(t *testing.T)
 	groupID := int64(1)
 
 	rateLimited := Account{
+		Credentials:      map[string]any{"model_mapping": testModelMapping("gpt-5.2")},
 		ID:               1,
 		Platform:         PlatformOpenAI,
 		Type:             AccountTypeAPIKey,
@@ -778,6 +858,7 @@ func TestOpenAISelectAccountWithLoadAwareness_FiltersUnschedulable(t *testing.T)
 		RateLimitResetAt: &resetAt,
 	}
 	available := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.2")},
 		ID:          2,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -812,6 +893,7 @@ func TestOpenAISelectAccountWithLoadAwareness_ImageRateLimitSkipsOnlyImageReques
 	groupID := int64(1)
 
 	imageLimited := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.4")},
 		ID:          1,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -828,6 +910,7 @@ func TestOpenAISelectAccountWithLoadAwareness_ImageRateLimitSkipsOnlyImageReques
 		},
 	}
 	available := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.4")},
 		ID:          2,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -864,6 +947,7 @@ func TestOpenAISelectAccountWithLoadAwareness_FiltersUnschedulableWhenNoConcurre
 	groupID := int64(1)
 
 	rateLimited := Account{
+		Credentials:      map[string]any{"model_mapping": testModelMapping("gpt-5.2")},
 		ID:               1,
 		Platform:         PlatformOpenAI,
 		Type:             AccountTypeAPIKey,
@@ -874,6 +958,7 @@ func TestOpenAISelectAccountWithLoadAwareness_FiltersUnschedulableWhenNoConcurre
 		RateLimitResetAt: &resetAt,
 	}
 	available := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.2")},
 		ID:          2,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -1808,7 +1893,8 @@ func TestOpenAIStreamingResponseFailedBeforeOutputCapacityErrorReturnsFailover(t
 		Type:     AccountTypeAPIKey,
 		Name:     "pool-account",
 		Credentials: map[string]any{
-			"pool_mode": true,
+			"model_mapping": testModelMapping("gpt-5.1", "gpt-5.4", "gpt-5.6-sol", "gpt-test"),
+			"pool_mode":     true,
 		},
 	}
 	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, account, time.Now(), "model", "model")
@@ -1864,7 +1950,7 @@ func TestOpenAIStreamingResponseFailedBeforeOutputServerOverloadedCodeReturnsFai
 	require.Empty(t, rec.Body.String())
 }
 
-func TestOpenAIStreamingResponseFailedBeforeOutputRateLimitUsesPoolRetryPolicy(t *testing.T) {
+func TestOpenAIStreamingResponseFailedBeforeOutputConcurrencySkipsPoolRetry(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{
 		Gateway: config.GatewayConfig{
@@ -1900,6 +1986,7 @@ func TestOpenAIStreamingResponseFailedBeforeOutputRateLimitUsesPoolRetryPolicy(t
 		Type:     AccountTypeAPIKey,
 		Name:     "pool-account",
 		Credentials: map[string]any{
+			"model_mapping":                testModelMapping("gpt-5.1", "gpt-5.4", "gpt-5.6-sol", "gpt-test"),
 			"pool_mode":                    true,
 			"pool_mode_retry_count":        float64(1),
 			"pool_mode_retry_status_codes": []any{float64(http.StatusTooManyRequests)},
@@ -1911,7 +1998,9 @@ func TestOpenAIStreamingResponseFailedBeforeOutputRateLimitUsesPoolRetryPolicy(t
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, http.StatusTooManyRequests, failoverErr.StatusCode)
-	require.True(t, failoverErr.RetryableOnSameAccount)
+	require.False(t, failoverErr.RetryableOnSameAccount)
+	require.True(t, failoverErr.ShouldReportAccountScheduleFailure())
+	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
 	require.Equal(t, "1", failoverErr.ResponseHeaders.Get("Retry-After"))
 	require.Equal(t, "rate_limit_error", gjson.GetBytes(failoverErr.ResponseBody, "error.type").String())
 	require.Contains(t, string(failoverErr.ResponseBody), "Concurrency limit exceeded")
@@ -1950,7 +2039,7 @@ func TestOpenAIStreamingResponseFailedRateLimitDoesNotBlockAccountScheduling(t *
 			`data: {"type":"response.created","response":{"id":"resp_1"}}`,
 			"",
 			"event: response.failed",
-			`data: {"type":"response.failed","response":{"id":"resp_1","status":"failed","error":{"code":"rate_limit_exceeded","message":"Concurrency limit exceeded for account, please retry later"}}}`,
+			`data: {"type":"response.failed","response":{"id":"resp_1","status":"failed","error":{"code":"rate_limit_exceeded","message":"Rate limit exceeded, please retry later"}}}`,
 			"",
 		}, "\n"))),
 		Header: http.Header{
@@ -2429,7 +2518,8 @@ func TestOpenAIStreamingPassthroughMissingTerminalEventReturnsIncompleteError(t 
 func TestOpenAIStreamingPassthroughPostOutputDisconnectQuarantinesSharedProxy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	proxyID := int64(4698)
-	account := &Account{ID: 469804, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, ProxyID: &proxyID}
+	account := &Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1", "gpt-5.4", "gpt-5.6-sol", "gpt-test")}, ID: 469804, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, ProxyID: &proxyID}
 	svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}
 	// collapseInterval 0: the loop below records within the production collapse
 	// window and must count as distinct failure events here.
@@ -2907,9 +2997,10 @@ func TestOpenAIInvalidBaseURLWhenAllowlistDisabled(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
 
 	account := &Account{
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Credentials: map[string]any{"base_url": "://invalid-url"},
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"model_mapping": testModelMapping("gpt-5.1", "gpt-5.4", "gpt-5.6-sol", "gpt-test"), "base_url": "://invalid-url"},
 	}
 
 	_, err := svc.buildUpstreamRequest(c.Request.Context(), c, account, []byte("{}"), "token", false, "", false)
@@ -3095,7 +3186,8 @@ func TestOpenAIBuildUpstreamRequestOpenAIPassthroughPreservesExplicitAPIKeyBetaH
 			URLAllowlist: config.URLAllowlistConfig{Enabled: false},
 		},
 	}}
-	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	account := &Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5")}, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
 
 	req, err := svc.buildUpstreamRequestOpenAIPassthrough(c.Request.Context(), c, account, []byte(`{"model":"gpt-5"}`), "token")
 	require.NoError(t, err)
@@ -3159,9 +3251,10 @@ func TestOpenAIBuildUpstreamRequestPreservesCompactPathForAPIKeyBaseURL(t *testi
 		},
 	}}
 	account := &Account{
-		Type:        AccountTypeAPIKey,
-		Platform:    PlatformOpenAI,
-		Credentials: map[string]any{"base_url": "https://example.com/v1"},
+		Type:     AccountTypeAPIKey,
+		Platform: PlatformOpenAI,
+		Credentials: map[string]any{
+			"model_mapping": testModelMapping("gpt-5"), "base_url": "https://example.com/v1"},
 	}
 
 	req, err := svc.buildUpstreamRequest(c.Request.Context(), c, account, []byte(`{"model":"gpt-5"}`), "token", false, "", false)
@@ -3185,7 +3278,8 @@ func TestOpenAIBuildUpstreamRequestPreservesCodexIdentityHeaders(t *testing.T) {
 			URLAllowlist: config.URLAllowlistConfig{Enabled: false},
 		},
 	}}
-	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	account := &Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5")}, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
 
 	req, err := svc.buildUpstreamRequest(c.Request.Context(), c, account, body, "token", false, "", true)
 	require.NoError(t, err)
@@ -3276,11 +3370,11 @@ func TestReplaceModelInSSELine(t *testing.T) {
 			expected: `data: {"type":"response","response":{"id":"resp-1","model":"my-model","output":[]}}`,
 		},
 		{
-			name:     "model 不匹配时不替换",
+			name:     "上游别名仍替换",
 			line:     `data: {"id":"chatcmpl-123","model":"gpt-3.5-turbo","choices":[]}`,
 			from:     "gpt-4o",
 			to:       "my-model",
-			expected: `data: {"id":"chatcmpl-123","model":"gpt-3.5-turbo","choices":[]}`,
+			expected: `data: {"id":"chatcmpl-123","model":"my-model","choices":[]}`,
 		},
 		{
 			name:     "无 model 字段时不替换",
@@ -3346,11 +3440,11 @@ func TestReplaceModelInSSELine(t *testing.T) {
 			expected: `data: {"id":"abc","object":"chat.completion.chunk","model":"alias","created":1234567890,"choices":[{"index":0,"delta":{"content":"hi"}}]}`,
 		},
 		{
-			name:     "顶层优先于嵌套：同时存在两个 model",
+			name:     "同时替换两个 model",
 			line:     `data: {"model":"gpt-4o","response":{"model":"gpt-4o"}}`,
 			from:     "gpt-4o",
 			to:       "replaced",
-			expected: `data: {"model":"replaced","response":{"model":"gpt-4o"}}`,
+			expected: `data: {"model":"replaced","response":{"model":"replaced"}}`,
 		},
 	}
 
@@ -3380,11 +3474,11 @@ func TestReplaceModelInSSEBody(t *testing.T) {
 			expected: "data: {\"model\":\"alias\",\"choices\":[]}\n\ndata: {\"model\":\"alias\",\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: [DONE]\n",
 		},
 		{
-			name:     "无需替换的 body",
+			name:     "上游别名 body",
 			body:     "data: {\"model\":\"gpt-3.5-turbo\"}\n\ndata: [DONE]\n",
 			from:     "gpt-4o",
 			to:       "alias",
-			expected: "data: {\"model\":\"gpt-3.5-turbo\"}\n\ndata: [DONE]\n",
+			expected: "data: {\"model\":\"alias\"}\n\ndata: [DONE]\n",
 		},
 		{
 			name:     "混合 event 和 data 行",
@@ -3428,11 +3522,11 @@ func TestReplaceModelInResponseBody(t *testing.T) {
 			expected: `{"id":"chatcmpl-123","model":"alias","choices":[]}`,
 		},
 		{
-			name:     "model 不匹配不替换",
+			name:     "上游别名仍替换",
 			body:     `{"id":"chatcmpl-123","model":"gpt-3.5-turbo","choices":[]}`,
 			from:     "gpt-4o",
 			to:       "alias",
-			expected: `{"id":"chatcmpl-123","model":"gpt-3.5-turbo","choices":[]}`,
+			expected: `{"id":"chatcmpl-123","model":"alias","choices":[]}`,
 		},
 		{
 			name:     "无 model 字段不替换",
@@ -3681,7 +3775,8 @@ func TestHandleNonStreamingResponse_APIKeyFallsBackToSSEBodyWhenContentTypeIsWro
 			`data: [DONE]`,
 		}, "\n"))),
 	}
-	account := &Account{ID: 1, Type: AccountTypeAPIKey}
+	account := &Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.4")}, ID: 1, Type: AccountTypeAPIKey}
 
 	result, err := svc.handleNonStreamingResponse(context.Background(), resp, c, account, "gpt-5.4", "gpt-5.4")
 	require.NoError(t, err)
@@ -3742,7 +3837,8 @@ func TestHandleNonStreamingResponse_ObservesUpstreamModelBeforeClientRewrite(t *
 			`{"id":"resp_model_audit","object":"response","model":"gpt-5.5","status":"completed","output":[],"usage":{"input_tokens":3,"output_tokens":2,"total_tokens":5}}`,
 		)),
 	}
-	account := &Account{ID: 1, Type: AccountTypeAPIKey}
+	account := &Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.5", "gpt-5.6-sol")}, ID: 1, Type: AccountTypeAPIKey}
 
 	result, err := svc.handleNonStreamingResponse(context.Background(), resp, c, account, "gpt-5.6-sol", "gpt-5.5")
 	require.NoError(t, err)
@@ -3806,7 +3902,10 @@ func TestHandleSSEToJSON_NoFinalResponseKeepsSSEBody(t *testing.T) {
 	require.Contains(t, rec.Body.String(), `data: {"type":"response.in_progress"`)
 }
 
-func TestHandleSSEToJSON_ResponseFailedReturnsProtocolError(t *testing.T) {
+// 无账号时没有可换的对象：newOpenAIStreamFailoverError 要拿 account 记录 ops 归属与
+// 账号健康，故这一支保持原有的协议错误行为。带真实账号的同一报文改为换号，
+// 由 TestNonStreamingSSEToJSON_UnclassifiedFailedEventFailsOver 钉死（issue #5281）。
+func TestHandleSSEToJSON_ResponseFailedWithoutAccountReturnsProtocolError(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)

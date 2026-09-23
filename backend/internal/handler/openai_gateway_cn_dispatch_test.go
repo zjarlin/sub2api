@@ -18,7 +18,7 @@ import (
 func TestAllowOpenAICompatibleMessagesDispatch_CNProvidersExempt(t *testing.T) {
 	require.True(t, allowOpenAICompatibleMessagesDispatch(nil, nil), "无 key 保持放行")
 
-	for _, platform := range []string{service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformGrok} {
+	for _, platform := range []string{service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformDoubao, service.PlatformGrok, service.PlatformZcode} {
 		apiKey := &service.APIKey{Group: &service.Group{Platform: platform, AllowMessagesDispatch: false}}
 		require.True(t, allowOpenAICompatibleMessagesDispatch(nil, apiKey),
 			"%s 分组必须豁免 allow_messages_dispatch 闸门", platform)
@@ -43,7 +43,7 @@ func TestAllowOpenAICompatibleMessagesDispatch_CompositeResolvedTargets(t *testi
 	}
 
 	// 解析到 grok/CN 目标：与对应独立分组同语义豁免。
-	for _, model := range []string{"grok-4.3", "kimi-k2-thinking", "glm-5.2", "deepseek-v3.2"} {
+	for _, model := range []string{"doubao-chat-turbo", "grok-4.3", "kimi-k2-thinking", "glm-5.2", "deepseek-v3.2"} {
 		c, apiKey := newCompositeCtx(model, false)
 		require.True(t, allowOpenAICompatibleMessagesDispatch(c, apiKey), "model=%s", model)
 	}
@@ -66,7 +66,7 @@ func TestAllowOpenAICompatibleMessagesDispatch_CompositeResolvedTargets(t *testi
 func TestResolveOpenAIMessagesDispatchMappedModel_CompositeCNTargetsSkipGroupMapping(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	for _, model := range []string{"kimi-k2-thinking", "glm-5.2", "deepseek-v3.2", "grok-4.3"} {
+	for _, model := range []string{"doubao-chat-turbo", "kimi-k2-thinking", "glm-5.2", "deepseek-v3.2", "grok-4.3"} {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 		c.Request = httptest.NewRequest("POST", "/v1/messages", nil)
 		apiKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformComposite}}
@@ -74,4 +74,11 @@ func TestResolveOpenAIMessagesDispatchMappedModel_CompositeCNTargetsSkipGroupMap
 
 		require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(c, apiKey, "claude-sonnet-4-5-20250929"), "model=%s", model)
 	}
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("POST", "/v1/messages", nil)
+	c.Request = c.Request.WithContext(service.WithResolvedTargetPlatform(c.Request.Context(), service.PlatformOpenCodeGo))
+	apiKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformComposite}}
+	require.Empty(t, resolveOpenAIMessagesDispatchMappedModel(c, apiKey, "claude-sonnet-4-5-20250929"),
+		"composite → opencode_go 不得注入 openai 默认 gpt-5.x 映射")
 }

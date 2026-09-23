@@ -119,6 +119,20 @@ func normalizeOpenAIResponsesRejectedFieldRetryBody(statusCode int, body, respon
 	code := strings.ToLower(strings.TrimSpace(extractUpstreamErrorCode(responseBody)))
 	message := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(responseBody)))
 	param := strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "error.param").String()))
+	// 仅在上游明确拒绝 none 时移除该值，重试使用原模型默认推理；有效配置保持透传。
+	if code == "unsupported_value" && param == "reasoning.effort" &&
+		strings.Contains(message, "unsupported value: 'none'") &&
+		strings.Contains(message, "is not supported") &&
+		gjson.GetBytes(body, param).String() == "none" {
+		retryBody, err := sjson.DeleteBytes(body, param)
+		if err != nil {
+			return nil, "", false, fmt.Errorf("delete rejected reasoning effort: %w", err)
+		}
+		if reasoning := gjson.GetBytes(retryBody, "reasoning"); reasoning.IsObject() && len(reasoning.Map()) == 0 {
+			retryBody, err = sjson.DeleteBytes(retryBody, "reasoning")
+		}
+		return retryBody, "unsupported none reasoning effort; using upstream default", true, err
+	}
 	if code == "invalid_function_parameters" &&
 		openAIResponsesToolParametersParamPattern.MatchString(param) &&
 		openAIResponsesMissingSchemaTypePattern.MatchString(message) {

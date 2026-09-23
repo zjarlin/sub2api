@@ -147,6 +147,7 @@ security:
       - "api.moonshot.cn"
       - "open.bigmodel.cn"
       - "api.minimaxi.com"
+      - "opencode.ai"
       - "generativelanguage.googleapis.com"
       - "cloudcode-pa.googleapis.com"
       - "*.openai.azure.com"
@@ -276,6 +277,16 @@ gateway:
   # 默认 false：保持纯文本 Codex 请求不被改写；客户端显式提供 image_generation tool 时，
   # 仍会在分组允许图片生成的情况下正常转发。
   codex_image_generation_bridge_enabled: false
+  # 为纯文本模型提供图片描述辅助；仅使用当前 API Key 分组内已确认支持视觉的 API Key 账号。
+  # 辅助调用单独记录用量和计费；纯文本请求不调用。模型能力目录会同步声明 image。
+  vision_fallback:
+    enabled: true
+    # 留空时按账号优先级选择；可填写分组中已配置的视觉模型公开名，不自动猜测模型 ID。
+    model: ""
+    # 非流式图片描述需等待生成完成；单个助手和整次辅助分别设置预算。
+    candidate_timeout_seconds: 60
+    timeout_seconds: 120
+
   # Optional: template file used to build the final top-level Codex `instructions`.
   # 可选：用于构建最终 Codex 顶层 `instructions` 的模板文件路径。
   #
@@ -305,11 +316,11 @@ gateway:
   # OpenAI 透传模式是否放行客户端超时头（如 x-stainless-timeout）
   # 默认 false：过滤超时头，降低上游提前断流风险。
   openai_passthrough_allow_timeout_headers: false
-  # Model used for OpenAI /responses/compact upstream requests (default: gpt-5.4).
-  # OpenAI /responses/compact 上游模型（默认 gpt-5.4）。
+  # Model used for OpenAI /responses/compact upstream requests (default: gpt-5.5).
+  # OpenAI /responses/compact 上游模型（默认 gpt-5.5）。
   # Use this to avoid compact failures when newer models are not yet supported by the compact endpoint.
   # 当 compact 端点暂未支持更新模型时，可通过这里降级规避失败。
-  openai_compact_model: "gpt-5.4"
+  openai_compact_model: "gpt-5.5"
   # ChatGPT Frameless Live 单会话硬上限（秒）。
   live:
     max_session_duration_seconds: 3600
@@ -356,10 +367,16 @@ gateway:
     max_idle_per_account: 12
     # 是否按账号并发动态计算连接池上限：
     # effective_max_conns = min(max_conns_per_account, ceil(account.concurrency * factor))
+    # 旧版及 mode_router_v2 的 ctx_pool 共用此开关和下方类型系数；关闭后使用 max_conns_per_account。
+    # mode_router_v2 下并发数 <= 0 的账号仍不可调度。
     dynamic_max_conns_by_account_concurrency_enabled: true
-    # 按账号类型分别设置系数（OAuth / API Key）
-    oauth_max_conns_factor: 1.0
-    apikey_max_conns_factor: 1.0
+    # 按账号类型分别设置系数（OAuth / API Key）。
+    # ctx_pool 接入下每个客户端会话在整个生命周期（轮次之间也不释放）持有一条上游连接，
+    # 该上限限制的是同时持有连接的会话数，在飞请求数另由账号并发限制；
+    # 系数 1.0 会让存活会话数一到并发数，新会话就收到 1013 upstream websocket is busy。
+    # 空闲连接数另受 max_idle_per_account 裁剪。
+    oauth_max_conns_factor: 5.0
+    apikey_max_conns_factor: 5.0
     dial_timeout_seconds: 10
     read_timeout_seconds: 900
     write_timeout_seconds: 120
@@ -1033,6 +1050,30 @@ rate_limit:
 # Local OAuth Transport Plugins (Optional)
 # 本地 OAuth 出站传输插件（可选）
 # =============================================================================
+# =============================================================================
+# Built-in Adapters (Optional)
+# 内置适配器（可选）
+# =============================================================================
+# Start the Doubao desktop-session and TRAE Work (traework2api) sidecars with the
+# Sub2API deployment, then let account creation inject the internal URL and key.
+# 随 Sub2API 部署一起启动豆包桌面会话与 TRAE Work (traework2api) sidecar，
+# 账号创建时自动注入内部地址与共享密钥，表单无需手填。
+#
+# Compose overlay: deploy/docker-compose.builtin-adapters.yml
+# Enable on the 252 cluster deploy with SUB2API_BUILTIN_ADAPTERS=1.
+builtin_adapter:
+  enabled: false
+  # Internal service URLs; defaults match the compose service names.
+  # 内部服务地址，默认与 compose 服务名一致。
+  desktop_url: "http://sub2api-desktop:8080"
+  desktop_key: ""
+  traework_url: "http://sub2api-traework:7864"
+  traework_key: ""
+  workbuddy_url: "http://sub2api-workbuddy:7863"
+  workbuddy_key: ""
+  zcode_url: "http://sub2api-zcode:7865"
+  zcode_key: ""
+
 plugins:
   # Empty means {{DATA_DIR}}/plugins, or ./data/plugins when DATA_DIR is unset.
   # 留空时使用 {{DATA_DIR}}/plugins；未设置 DATA_DIR 时使用 ./data/plugins。
@@ -1054,8 +1095,8 @@ plugins:
 # 定价数据源（可选）
 # =============================================================================
 pricing:
-  # URL to fetch model pricing data (default: pinned model-price-repo commit)
-  # 获取模型定价数据的 URL（默认：固定 commit 的 model-price-repo）
+  # URL to fetch model pricing data (default: model-price-repo main branch)
+  # 获取模型定价数据的 URL（默认：model-price-repo main 分支）
   remote_url: "https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/refs/heads/main//model_prices_and_context_window.json"
   # Hash verification URL (optional)
   # 哈希校验 URL（可选）
@@ -1063,14 +1104,27 @@ pricing:
   # Local data directory for caching
   # 本地数据缓存目录
   data_dir: "./data"
-  # Fallback pricing file
-  # 备用定价文件
+  # Fallback pricing file: fills in models missing from the catalog. Edits are
+  # detected by content hash at the next hash check and reloaded without restart.
+  # 备用定价文件：只补目录缺失的模型。修改后在下一次哈希检查时按内容哈希自动重载，无需重启。
   fallback_file: "./resources/model-pricing/model_prices_and_context_window.json"
+  # Override patch file (optional, highest priority): entries are shallow-merged
+  # field-by-field over catalog/fallback data; a null field value removes that field.
+  # Model names must match catalog keys exactly. Edits are detected by content hash
+  # at the next hash check and reloaded without restart.
+  # 覆盖补丁文件（可选，优先级最高）：条目按字段浅合并覆盖目录/回退数据，
+  # 字段值为 null 表示删除该字段。模型名须与目录键完全一致。
+  # 修改后在下一次哈希检查时按内容哈希自动重载，无需重启。
+  # override_file: "./data/model_pricing_overrides.json"
   # Update interval in hours
   # 更新间隔（小时）
   update_interval_hours: 24
-  # Hash check interval in minutes
-  # 哈希检查间隔（分钟）
+  # Hash check interval in minutes. Each check compares the remote catalog hash and
+  # the local fallback/override file contents. Deleting a local file drops its
+  # entries at the next check; a present but non-JSON file keeps the previous data
+  # and is retried next check.
+  # 哈希检查间隔（分钟）。每次检查同时比对远程目录哈希与本地 fallback/override 文件内容；
+  # 删除本地文件会在下次检查时移除其条目，文件存在但不是 JSON 时保留旧数据、下次检查再试。
   hash_check_interval_minutes: 10
 
 # =============================================================================

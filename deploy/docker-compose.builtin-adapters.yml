@@ -1,0 +1,152 @@
+# =============================================================================
+# 内置适配器：豆包桌面会话 + TRAE Work (SOLO CN) + WorkBuddy + ZCode
+# =============================================================================
+# 由 deploy/cluster/deploy-252.sh 通过 -f 叠加到基础 compose。
+# 启用条件（两者都满足才会实际启动账号侧注入）：
+#   1. 该文件被叠加进 compose（服务随部署自动启动）；
+#   2. Sub2API 配置 builtin_adapter.enabled=true。
+#
+# 凭证不落盘 git：
+#   - 豆包：宿主机目录通过 DESKTOP_SECRET_DIR 只读挂载，内含 session.json + api_key
+#   - TRAE / WorkBuddy：命名卷保存登录凭证，也可指定宿主机目录。
+#   - ZCode：网页授权凭据保存在命名卷；也可用 ZCODE_UPSTREAM_KEY 注入显式 API key。
+# =============================================================================
+services:
+  # 把内置适配器开关与共享密钥注入 Sub2API 主服务；compose 合并时追加到 environment。
+  sub2api:
+    environment:
+      - BUILTIN_ADAPTER_ENABLED=true
+      - BUILTIN_ADAPTER_DESKTOP_URL=http://sub2api-desktop:8080
+      - BUILTIN_ADAPTER_DESKTOP_KEY=${DESKTOP_ADAPTER_KEY:-}
+      - BUILTIN_ADAPTER_TRAEWORK_URL=http://sub2api-traework:7864
+      - BUILTIN_ADAPTER_TRAEWORK_KEY=${TRAEWORK_ADAPTER_KEY:-}
+      - BUILTIN_ADAPTER_WORKBUDDY_URL=http://sub2api-workbuddy:7863
+      - BUILTIN_ADAPTER_WORKBUDDY_KEY=${WORKBUDDY_ADAPTER_KEY:-}
+      - BUILTIN_ADAPTER_ZCODE_URL=http://sub2api-zcode:7865
+      - BUILTIN_ADAPTER_ZCODE_KEY=${ZCODE_ADAPTER_KEY:-}
+    depends_on:
+      sub2api-desktop:
+        condition: service_healthy
+      sub2api-traework:
+        condition: service_healthy
+      sub2api-workbuddy:
+        condition: service_healthy
+      sub2api-zcode:
+        condition: service_healthy
+
+  sub2api-desktop:
+    build:
+      context: ./tools/desktop_session
+      dockerfile: Dockerfile
+    image: ${DESKTOP_IMAGE:-sub2api-desktop:local}
+    container_name: sub2api-desktop
+    restart: unless-stopped
+    environment:
+      DESKTOP_MAX_REQUEST_BODY_BYTES: "${DESKTOP_MAX_REQUEST_BODY_BYTES:-33554432}"
+      DESKTOP_STATE_FILE: /var/lib/desktop-session/conversations.json
+      DESKTOP_UPSTREAM_TIMEOUT_SECONDS: "${DESKTOP_UPSTREAM_TIMEOUT_SECONDS:-120}"
+      DESKTOP_GENERATION_TIMEOUT_SECONDS: "${DESKTOP_GENERATION_TIMEOUT_SECONDS:-600}"
+    volumes:
+      - "${DESKTOP_SECRET_DIR:?Set DESKTOP_SECRET_DIR to the prepared private session directory}:/run/secrets:ro"
+      - "${DESKTOP_STATE_DIR:?Set DESKTOP_STATE_DIR to a private writable directory}:/var/lib/desktop-session"
+    networks:
+      - sub2api-network
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 512m
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  sub2api-traework:
+    build:
+      context: ./tools
+      dockerfile: traework2api/Dockerfile.sub2api
+    image: ${TRAEWORK_IMAGE:-sub2api-traework:local}
+    container_name: sub2api-traework
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      TW2A_API_KEY: "${TRAEWORK_ADAPTER_KEY:?Set TRAEWORK_ADAPTER_KEY to a shared adapter key}"
+      TW2A_AUTH_DIR: /app/auths
+      TW2A_STATE_FILE: /app/data/state.json
+      TW2A_DEFAULT_MODEL: ${TRAEWORK_DEFAULT_MODEL:-glm-5.2}
+    volumes:
+      - "${TRAEWORK_AUTH_DIR:-traework-auths}:/app/auths"
+      - "${TRAEWORK_STATE_DIR:-traework-data}:/app/data"
+    networks:
+      - sub2api-network
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    healthcheck:
+      test: [CMD, wget, -qO-, http://127.0.0.1:7864/healthz]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  sub2api-workbuddy:
+    build:
+      context: ./tools
+      dockerfile: workbuddy2api/Dockerfile.sub2api
+    image: ${WORKBUDDY_IMAGE:-sub2api-workbuddy:local}
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      WB2A_API_KEY: "${WORKBUDDY_ADAPTER_KEY:?Set WORKBUDDY_ADAPTER_KEY to a shared adapter key}"
+      WB2A_AUTH_DIR: /app/auths
+      WB2A_STATE_FILE: /app/data/state.json
+    volumes:
+      - "${WORKBUDDY_AUTH_DIR:-workbuddy-auths}:/app/auths"
+      - "${WORKBUDDY_STATE_DIR:-workbuddy-data}:/app/data"
+    networks:
+      - sub2api-network
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 512m
+    healthcheck:
+      test: [CMD, wget, -qO-, http://127.0.0.1:7863/livez]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  sub2api-zcode:
+    build:
+      context: ./tools
+      dockerfile: zcode2api/Dockerfile.sub2api
+    image: ${ZCODE_IMAGE:-sub2api-zcode:local}
+    container_name: sub2api-zcode
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      Z2A_LISTEN: 0.0.0.0:7865
+      Z2A_API_KEY: "${ZCODE_ADAPTER_KEY:?Set ZCODE_ADAPTER_KEY to a shared adapter key}"
+      # 上游 z.ai / 智谱 GLM Coding Plan 的 API key 与 Anthropic 端点。
+      Z2A_UPSTREAM_API_KEY: "${ZCODE_UPSTREAM_KEY:-}"
+      Z2A_UPSTREAM_BASE_URL: "${ZCODE_UPSTREAM_BASE_URL:-https://open.bigmodel.cn/api/anthropic}"
+      Z2A_UPSTREAM_PROVIDER_ID: "${ZCODE_UPSTREAM_PROVIDER_ID:-builtin:bigmodel-coding-plan}"
+      Z2A_THINKING_EFFORT: "${ZCODE_THINKING_EFFORT:-max}"
+      # 网页授权凭据落盘位置，指向命名卷，重建容器后仍保留。
+      Z2A_CREDENTIAL_STORE_PATH: /app/data/credential.json
+    volumes:
+      - "${ZCODE_STATE_DIR:-zcode-data}:/app/data"
+    networks:
+      - sub2api-network
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 256m
+    healthcheck:
+      test: [CMD, wget, -qO-, http://127.0.0.1:7865/livez]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  traework-auths:
+  traework-data:
+  workbuddy-auths:
+  workbuddy-data:
+  zcode-data:

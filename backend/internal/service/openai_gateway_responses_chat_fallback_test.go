@@ -5,6 +5,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -22,7 +23,7 @@ import (
 func TestForwardResponses_ForceChatCompletionsRoutesNonStreamingToChatCompletions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	body := []byte(`{"model":"gpt-5.4","input":"hello","stream":false}`)
+	body := []byte(`{"model":"gpt-5.4","input":"hello","stream":false,"service_tier":"priority"}`)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
@@ -32,7 +33,7 @@ func TestForwardResponses_ForceChatCompletionsRoutesNonStreamingToChatCompletion
 		StatusCode: http.StatusOK,
 		Header:     http.Header{"Content-Type": []string{"application/json"}, "x-request-id": []string{"rid_resp_chat_json"}},
 		Body: io.NopCloser(strings.NewReader(
-			`{"id":"chatcmpl_json","object":"chat.completion","model":"gpt-5.4","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5,"prompt_tokens_details":{"cached_tokens":1}}}`,
+			`{"id":"chatcmpl_json","object":"chat.completion","model":"gpt-5.4","service_tier":"default","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":2,"total_tokens":5,"prompt_tokens_details":{"cached_tokens":1}}}`,
 		)),
 	}}
 	svc := &OpenAIGatewayService{
@@ -54,6 +55,9 @@ func TestForwardResponses_ForceChatCompletionsRoutesNonStreamingToChatCompletion
 	require.Equal(t, 3, result.Usage.InputTokens)
 	require.Equal(t, 2, result.Usage.OutputTokens)
 	require.Equal(t, 1, result.Usage.CacheReadInputTokens)
+	require.NotNil(t, result.ServiceTier)
+	require.Equal(t, "priority", *result.ServiceTier)
+	require.Equal(t, "default", result.UpstreamResponseServiceTier)
 	require.False(t, result.Stream)
 }
 
@@ -299,6 +303,74 @@ func forceChatResponsesFallbackAccount() *Account {
 	return account
 }
 
+func glmRawChatFallbackAccount() *Account {
+	account := forceChatResponsesFallbackAccount()
+	account.ID = 832
+	account.Name = "glm-raw-chat"
+	account.Platform = PlatformZhipu
+	account.Credentials = map[string]any{
+		"api_key":      "sk-glm",
+		"base_url":     "http://upstream.example",
+		"api_protocol": APIProtocolChatCompletions,
+	}
+	return account
+}
+
+// GLM 只支持 Chat Completions，remote compaction v2 的摘要回合经 raw Chat
+// 回退后必须压成 Codex 要求的单个 compaction item，而不是 reasoning+message。
+func TestForwardResponses_GLMRemoteCompactionBridgesToSingleCompactionItem(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"glm-5.3","stream":true,"input":[{"type":"message","role":"user","content":"remember GLM-COMPACT"},{"type":"compaction_trigger"}],"tools":[{"type":"function","name":"shell","parameters":{"type":"object"}}],"tool_choice":"auto"}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+	MarkOpenAINativeCompactionV2(c)
+
+	response := `{"id":"chatcmpl_glm","object":"chat.completion","model":"glm-5.3","choices":[{"index":0,"message":{"role":"assistant","reasoning_content":"internal reasoning","content":"The marker is GLM-COMPACT"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":8,"total_tokens":18}}`
+	replayResponse := `{"id":"chatcmpl_glm_replay","object":"chat.completion","model":"glm-5.3","choices":[{"index":0,"message":{"role":"assistant","content":"The marker was GLM-COMPACT"},"finish_reason":"stop"}],"usage":{"prompt_tokens":20,"completion_tokens":6,"total_tokens":26}}`
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		newOpenAIRejectedFieldTestResponse(http.StatusOK, response),
+		newOpenAIRejectedFieldTestResponse(http.StatusOK, replayResponse),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+	svc.cfg.JWT.Secret = "compact-regression-test-secret"
+
+	result, err := svc.Forward(context.Background(), c, glmRawChatFallbackAccount(), body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "http://upstream.example/v1/chat/completions", upstream.lastReq.URL.String())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "stream").Bool())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "tools").Exists())
+	require.NotContains(t, string(upstream.lastBody), "compaction_trigger")
+	require.Contains(t, string(upstream.lastBody), deepSeekCompactSummaryPrompt)
+
+	events := parseCompactBridgeSSE(t, rec.Body.String())
+	require.Len(t, events, 2)
+	require.Equal(t, "response.output_item.done", events[0][0])
+	require.Equal(t, "compaction", gjson.Get(events[0][1], "item.type").String())
+	require.True(t, strings.HasPrefix(gjson.Get(events[0][1], "item.encrypted_content").String(), deepSeekCompactTokenPrefix))
+	require.Equal(t, "response.completed", events[1][0])
+	require.Equal(t, "compaction", gjson.Get(events[1][1], "response.output.0.type").String())
+
+	// 下一轮回放：仅携带标准 compaction 字段时，网关必须解密回摘要供 GLM 续聊。
+	token := gjson.Get(events[0][1], "item.encrypted_content").String()
+	replay, err := json.Marshal(map[string]any{"model": "glm-5.3", "stream": false, "input": []any{
+		map[string]any{"type": "compaction", "encrypted_content": token},
+		map[string]any{"role": "user", "content": "what was the marker?"},
+	}})
+	require.NoError(t, err)
+	replayCtx := newOpenAIRejectedFieldTestContext(replay)
+	_, err = svc.Forward(context.Background(), replayCtx, glmRawChatFallbackAccount(), replay)
+	require.NoError(t, err)
+	require.Contains(t, string(upstream.lastBody), "GLM-COMPACT")
+	require.NotContains(t, string(upstream.lastBody), deepSeekCompactTokenPrefix)
+}
+
 // reasoningRecordingCache 记录 reasoning 缓存写入、并按需响应回查。
 type reasoningRecordingCache struct {
 	stubGatewayCache
@@ -437,4 +509,53 @@ func TestForwardResponses_ChatFallbackRestoresReasoningFromCache(t *testing.T) {
 
 	// 明文 summary 的 item 被回写进缓存（自愈）。
 	require.Equal(t, "plain thinking", cache.snapshotSets()["item_plain"])
+}
+
+func TestForwardResponses_GenericUpstream400RetriesViaChatCompletions(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"deepseek-v4.1-flash","input":"hello","stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		newOpenAIRejectedFieldTestResponse(http.StatusBadRequest, `{"error":{"message":"请求未能完成，请检查请求参数、模型名称或输入内容后重试。","type":"upstream_error","param":"","code":"upstream_error"}}`),
+		newOpenAIRejectedFieldTestResponse(http.StatusOK, `{"id":"chatcmpl_fallback","object":"chat.completion","model":"deepseek-v4.1-flash","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}`),
+	}}
+	account := rawChatCompletionsTestAccount()
+	account.Extra = map[string]any{
+		openai_compat.ExtraKeyResponsesSupported: true,
+	}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, "/v1/responses", upstream.requests[0].URL.Path)
+	require.Equal(t, "/v1/chat/completions", upstream.requests[1].URL.Path)
+	messages := gjson.GetBytes(upstream.lastBody, "messages").Array()
+	require.NotEmpty(t, messages)
+	require.Equal(t, "hello", messages[len(messages)-1].Get("content").String())
+	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
+}
+
+func TestResponsesChatFallbackPreservesSpecificUpstreamErrors(t *testing.T) {
+	account := rawChatCompletionsTestAccount()
+	account.Extra = map[string]any{openai_compat.ExtraKeyResponsesSupported: true}
+	for _, body := range []string{
+		`{"error":{"code":"invalid_request_error","type":"upstream_error","message":"Upstream request failed"}}`,
+		`{"error":{"code":"upstream_error","type":"invalid_request_error","message":"Upstream request failed"}}`,
+		`{"error":{"code":"upstream_error","type":"upstream_error","message":"Invalid schema for response_format"}}`,
+		`{"error":{"code":"upstream_error","type":"upstream_error","message":"Your input exceeds the context window"}}`,
+		`{"error":{"code":"upstream_error","type":"upstream_error","message":"blocked by content policy"}}`,
+		`{"error":{"code":"upstream_error","type":"upstream_error","param":"input","message":"Upstream request failed"}}`,
+	} {
+		require.False(t, shouldRetryOpenAIResponsesViaChatCompletions(http.StatusBadRequest, account, []byte(body)), body)
+	}
 }

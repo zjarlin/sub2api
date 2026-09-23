@@ -7,11 +7,13 @@ import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { adminAPI } from '@/api'
-import { opsAPI, type OpsDashboardOverview, type OpsMetricThresholds, type OpsRealtimeTrafficSummary } from '@/api/admin/ops'
+import { opsAPI, type OpsDashboardOverview, type OpsErrorDetail, type OpsErrorListQueryParams, type OpsErrorLog, type OpsMetricThresholds, type OpsRealtimeTrafficSummary } from '@/api/admin/ops'
 import type { OpsRequestDetailsPreset } from './OpsRequestDetailsModal.vue'
 import { useAdminSettingsStore } from '@/stores'
 import { formatNumber } from '@/utils/format'
 import { formatMemorySizeMB } from '../utils/opsFormatters'
+import { useClipboard } from '@/composables/useClipboard'
+import { buildErrorFixPrompt, type FixPromptContext } from '../utils/buildFixPrompt'
 
 type RealtimeWindow = '1min' | '5min' | '30min' | '1h'
 
@@ -40,6 +42,7 @@ interface Emits {
   (e: 'refresh'): void
   (e: 'openRequestDetails', preset?: OpsRequestDetailsPreset): void
   (e: 'openErrorDetails', kind: 'request' | 'upstream'): void
+  (e: 'openRecoveredDetails'): void
   (e: 'openSettings'): void
   (e: 'openAlertRules'): void
   (e: 'enterFullscreen'): void
@@ -49,8 +52,11 @@ interface Emits {
 const props = defineProps<Props>()
 const emit = defineEmits<Emits>()
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const adminSettingsStore = useAdminSettingsStore()
+
+const { copyToClipboard } = useClipboard()
+const copyingFixPrompt = ref(false)
 
 const realtimeWindow = ref<RealtimeWindow>('1min')
 
@@ -213,6 +219,76 @@ function openDetails(preset?: OpsRequestDetailsPreset) {
 
 function openErrorDetails(kind: 'request' | 'upstream') {
   emit('openErrorDetails', kind)
+}
+
+// --- Copy "fix code defects" prompt (Request Errors card) ---
+
+const MAX_PROMPT_ERROR_LOGS = 10
+
+async function copyErrorFixPrompt() {
+  const ov = overview.value
+  if (!ov || copyingFixPrompt.value) return
+  copyingFixPrompt.value = true
+  try {
+    const params: OpsErrorListQueryParams = {
+      page: 1,
+      page_size: MAX_PROMPT_ERROR_LOGS,
+      view: 'errors',
+      sort_by: 'created_at',
+      sort_order: 'desc',
+      platform: props.platform || undefined,
+      group_id: props.groupId ?? undefined
+    }
+    if (props.timeRange === 'custom') {
+      if (props.customStartTime && props.customEndTime) {
+        params.start_time = props.customStartTime
+        params.end_time = props.customEndTime
+      } else {
+        params.time_range = '1h'
+      }
+    } else {
+      params.time_range = props.timeRange
+    }
+
+    let logs: OpsErrorLog[] = []
+    try {
+      const resp = await opsAPI.listErrorLogs(params)
+      logs = resp.items ?? []
+    } catch (err) {
+      console.error('[OpsDashboardHeader] Failed to load error logs for fix prompt', err)
+    }
+
+    const details: OpsErrorDetail[] = []
+    for (const log of logs.slice(0, MAX_PROMPT_ERROR_LOGS)) {
+      try {
+        details.push(await opsAPI.getErrorLogDetail(log.id))
+      } catch (err) {
+        console.error(`[OpsDashboardHeader] Failed to load error detail #${log.id}`, err)
+      }
+    }
+
+    const isZh = locale.value === 'zh'
+    const rangeMinutes = TOOLBAR_RANGE_MINUTES[props.timeRange] ?? 60
+    const ctx: FixPromptContext = {
+      locale: locale.value,
+      timeRangeLabel:
+        props.timeRange === 'custom' && props.customStartTime && props.customEndTime
+          ? `${props.customStartTime} ~ ${props.customEndTime}`
+          : isZh ? `近${rangeMinutes}分钟` : `Last ${rangeMinutes} minutes`,
+      platformLabel: !props.platform
+        ? isZh ? '全部' : 'All'
+        : CONCRETE_PLATFORM_OPTIONS.find((p) => p.value === props.platform)?.label ?? props.platform,
+      groupLabel: props.groupId == null
+        ? isZh ? '全部' : 'All'
+        : groups.value.find((g) => g.id === props.groupId)?.name ?? String(props.groupId)
+    }
+
+    const prompt = buildErrorFixPrompt(ov, details, ctx)
+    const successMsg = details.length > 0 ? t('admin.ops.copyFixPromptCopied') : t('admin.ops.copyFixPromptNoErrors')
+    await copyToClipboard(prompt, successMsg)
+  } finally {
+    copyingFixPrompt.value = false
+  }
 }
 
 // --- Threshold checking helpers ---
@@ -1206,7 +1282,7 @@ function handleToolbarRefresh() {
         </div>
       </div>
 
-      <!-- Right: 6 cards (3 cols x 2 rows) -->
+      <!-- 请求指标与降级成功入口 -->
       <div class="grid h-full grid-cols-1 content-center gap-4 sm:grid-cols-2 lg:col-span-7 lg:grid-cols-3">
         <!-- Card 1: Requests -->
         <div class="rounded-2xl bg-gray-50 p-4 dark:bg-dark-900" style="order: 1;">
@@ -1337,7 +1413,7 @@ function handleToolbarRefresh() {
               v-if="!props.fullscreen"
               class="text-[10px] font-bold text-blue-500 hover:underline"
               type="button"
-              @click="openDetails({ title: t('admin.ops.ttftLabel'), sort: 'duration_desc' })"
+              @click="openDetails({ title: t('admin.ops.ttftLabel'), kind: 'success', sort: 'ttft_desc' })"
             >
               {{ t('admin.ops.requestDetails.details') }}
             </button>
@@ -1384,9 +1460,20 @@ function handleToolbarRefresh() {
               <span class="text-[10px] font-bold uppercase text-gray-400">{{ t('admin.ops.requestErrors') }}</span>
               <HelpTooltip v-if="!props.fullscreen" :content="t('admin.ops.tooltips.errors')" />
             </div>
-            <button v-if="!props.fullscreen" class="text-[10px] font-bold text-blue-500 hover:underline" type="button" @click="openErrorDetails('request')">
-              {{ t('admin.ops.requestDetails.details') }}
-            </button>
+            <div class="flex items-center gap-2">
+              <button
+                v-if="!props.fullscreen"
+                class="text-[10px] font-bold text-blue-500 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                type="button"
+                :disabled="!overview || copyingFixPrompt"
+                @click="copyErrorFixPrompt()"
+              >
+                {{ t('admin.ops.copyFixPrompt') }}
+              </button>
+              <button v-if="!props.fullscreen" class="text-[10px] font-bold text-blue-500 hover:underline" type="button" @click="openErrorDetails('request')">
+                {{ t('admin.ops.requestDetails.details') }}
+              </button>
+            </div>
           </div>
           <div class="mt-2 text-3xl font-black" :class="getThresholdColorClass(getRequestErrorRateThresholdLevel(errorRatePercent))">
             {{ errorRatePercent == null ? '-' : `${errorRatePercent.toFixed(2)}%` }}
@@ -1401,6 +1488,17 @@ function handleToolbarRefresh() {
               <span class="font-bold text-gray-900 dark:text-white">{{ formatNumber(overview.business_limited_count ?? 0) }}</span>
             </div>
           </div>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-2xl bg-emerald-50 p-4 dark:bg-emerald-900/15 sm:col-span-2 lg:col-span-3" style="order: 7;" data-testid="recovered-success-card">
+          <div class="flex items-center gap-3">
+            <span class="text-xs font-bold text-emerald-800 dark:text-emerald-200">{{ t('admin.ops.recoveredSuccess') }}</span>
+            <span class="text-2xl font-black text-emerald-700 dark:text-emerald-300">{{ formatNumber(overview.recovered_success_count ?? 0) }}</span>
+          </div>
+          <span class="flex-1 text-xs text-emerald-700 dark:text-emerald-300">{{ t('admin.ops.recoveredSuccessHint') }}</span>
+          <button v-if="!props.fullscreen" class="text-xs font-bold text-blue-600 hover:underline dark:text-blue-400" type="button" @click="emit('openRecoveredDetails')">
+            {{ t('admin.ops.requestDetails.details') }}
+          </button>
         </div>
 
         <!-- Card 6: Upstream Errors -->

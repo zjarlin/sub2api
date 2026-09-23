@@ -9,6 +9,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
@@ -24,6 +25,65 @@ import (
 type profitCountingConcurrencyCache struct {
 	fakeConcurrencyCache
 	accountReleases atomic.Int64
+}
+
+type capacityLimitedConcurrencyCache struct {
+	fakeConcurrencyCache
+	canWait      bool
+	waitReleases atomic.Int64
+}
+
+func (c *capacityLimitedConcurrencyCache) AcquireAccountSlot(context.Context, int64, int, string) (bool, error) {
+	return false, nil
+}
+
+func (c *capacityLimitedConcurrencyCache) IncrementAccountWaitCount(context.Context, int64, int) (bool, error) {
+	return c.canWait, nil
+}
+
+func (c *capacityLimitedConcurrencyCache) DecrementAccountWaitCount(context.Context, int64) error {
+	c.waitReleases.Add(1)
+	return nil
+}
+
+func TestAcquireResponsesAccountSlotCapacityRequestsReschedule(t *testing.T) {
+	for _, canWait := range []bool{false, true} {
+		t.Run(fmt.Sprintf("can_wait_%t", canWait), func(t *testing.T) {
+			cache := &capacityLimitedConcurrencyCache{canWait: canWait}
+			handler := &OpenAIGatewayHandler{
+				gatewayService:    &service.OpenAIGatewayService{},
+				concurrencyHelper: NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, 0),
+			}
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = httptest.NewRequest("POST", "/v1/responses", nil)
+			streamStarted := false
+			selection := &service.AccountSelectionResult{
+				Account:  &service.Account{ID: 832},
+				WaitPlan: &service.AccountWaitPlan{AccountID: 832, MaxConcurrency: 1, MaxWaiting: 1, Timeout: time.Millisecond},
+			}
+			release, result := handler.acquireResponsesAccountSlot(ctx, nil, "", selection, false, &streamStarted, zap.NewNop())
+			require.Equal(t, openAISlotAcquireCapacityLimited, result)
+			require.Nil(t, release)
+			require.False(t, ctx.Writer.Written())
+			require.Empty(t, recorder.Body.String())
+			value, exists := ctx.Get(service.OpsUpstreamErrorsKey)
+			require.True(t, exists)
+			events := value.([]*service.OpsUpstreamErrorEvent)
+			require.Len(t, events, 1)
+			require.Equal(t, int64(832), events[0].AccountID)
+			require.Equal(t, "routing", events[0].Stage)
+			require.Equal(t, 429, events[0].StatusCode)
+			require.Zero(t, events[0].UpstreamStatusCode)
+			if canWait {
+				require.Equal(t, "account_wait_timeout", events[0].Reason)
+				require.Equal(t, int64(1), cache.waitReleases.Load())
+			} else {
+				require.Equal(t, "account_wait_queue_full", events[0].Reason)
+				require.Zero(t, cache.waitReleases.Load())
+			}
+		})
+	}
 }
 
 func (c *profitCountingConcurrencyCache) ReleaseAccountSlot(context.Context, int64, string) error {

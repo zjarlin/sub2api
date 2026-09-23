@@ -1,5 +1,45 @@
 export default {
     settings: {
+      visionFallback: {
+        title: '视觉助手与自动降级',
+        description: '主模型需要看图时，由视觉助手描述图片。首选失败后按顺序尝试后备助手，主模型继续处理原任务。',
+        enabled: '启用视觉辅助与降级',
+        models: '视觉模型顺序（首行为首选）',
+        modelsHint: '每行一个精确模型 ID，最多 64 个。先尝试同一模型的可用账号，再尝试下一模型。只能使用当前 API Key 分组允许且具有原生视觉能力的账号。',
+        allowUnlisted: '列表耗尽后，继续尝试分组内其他视觉模型',
+        candidateTimeout: '单个助手超时（秒）',
+        totalTimeout: '整个视觉辅助阶段超时（秒）',
+        scope: '多张图片及主账号重试共享总预算，实际调用受较短的超时限制。助手失败不会删除图片或清空工具结果。原生视觉模型直接处理图片。助手调用产生独立用量与费用。',
+        required: '启用时请填写至少一个视觉模型，或允许使用列表外模型。',
+        invalidModels: '模型 ID 不能重复、包含空白或通配符；最多 64 个，每个不超过 200 字符。',
+        invalidTimeout: '超时必须为 1 至 9223372036 之间的整数秒。',
+        saved: '视觉降级策略已保存，后续请求及 WebSocket 新回合使用新配置。'
+      },
+      modelFallback: {
+  "title": "模型档位与自动降级",
+  "description": "同名模型的可用账号尝试完毕后，先尝试同档位其他模型，再按顺序逐档降低。中间错误保留在监控链路。",
+  "enabled": "启用按档位自动降级",
+  "scope": "适用于 OpenAI 兼容账号池的 Responses、Chat Completions 和 Messages（含流式）。仅使用当前分组允许且满足请求能力的模型；会话引用、托管工具或已输出内容的请求不跨模型重放。",
+  "tierName": "第 {index} 档名称",
+  "models": "第 {index} 档模型 ID",
+  "moveUp": "提高档位",
+  "moveDown": "降低档位",
+  "modelsHint": "档位由上至下从高到低；每行一个精确模型 ID，同档内按填写顺序尝试。别名需要显式列入同一档。未分档模型只重试同名账号。最多 12 档、64 个模型。",
+  "addTier": "添加下一档",
+  "preset": "载入公开数据推荐（待保存）",
+  "saved": "档位已保存，后续请求使用新配置。",
+  "reload": "重新加载",
+  "reference": "推荐分档参考最高已测推理强度的综合能力分数，每 10 分一档；不代表所有任务或推理强度等价，也不会自动改写你的配置。来源：",
+  "required": "每档都需要名称和模型；启用时至少保留一档。",
+  "duplicate": "档位名称和模型 ID 不能重复。",
+  "invalidModels": "最多 64 个模型；每个 ID 不超过 200 字符，不支持通配符。"
+},
+      modelSystemPrompts: {
+  title: '模型系统提示词', description: '为指定模型追加一段 system 提示词，用来统一约束语言、语气等。按别名归一后的模型 ID 精确匹配，只对 OpenAI 兼容入口生效。', model: '模型 ID {index}', prompt: '提示词 {index}', promptPlaceholder: '例如：始终使用简体中文回答，除非用户明确要求其他语言。', hint: '模型 ID 使用别名归一后的规范 ID（见“全局模型同义词”）。命中时提示词会追加在已有 system 之后，不覆盖客户端自带的 system。', add: '添加模型提示词', saved: '模型提示词已保存，后续请求生效。', required: '每条都需要模型 ID 和提示词。', duplicate: '模型 ID 不能重复。',
+},
+      modelAliases: {
+  title: '全局模型同义词', description: '统一管理不同渠道使用的同一模型 ID。请求日志会同时记录原始 ID、规范 ID、实际上游 ID 和账号。', canonical: '规范模型 ID {index}', aliases: '同义模型 ID {index}', hint: '每组第一行是规范 ID，第二行填写同义 ID，每行一个。不会修改账号映射。', add: '添加同义词组', saved: '同义词已保存，后续请求生效。', required: '每组都需要规范 ID 和至少一个同义 ID。', duplicate: '所有模型 ID 必须全局唯一。',
+},
       title: '系统设置',
       description: '管理注册、邮箱验证、默认值和 SMTP 设置',
       tabs: {
@@ -34,6 +74,9 @@ export default {
           showQuota: '向用户展示渠道用量/余额',
           showQuotaHint:
             '开启后，配额模式的渠道监控会在用户端渠道状态页展示关联账号的用量滚动窗口/余额。默认关闭；管理员始终可见。',
+          hideUserRanking: '对用户隐藏用户排行',
+          hideUserRankingHint:
+            '开启后，用户端渠道监控 V2 不再显示「用户排行」页，用户 API 也不返回排行数据。管理员仍可查看。',
         },
         availableChannels: {
           title: '可用渠道',
@@ -41,6 +84,21 @@ export default {
           configureLink: '前往 渠道管理 > 渠道定价 配置模型价格',
           enabled: '启用可用渠道',
           enabledHint: '关闭后用户端侧边栏入口隐藏，接口返回空数组。',
+        },
+        siteBillingMode: {
+          title: '站点类型',
+          description: '决定用户端提供哪些购买方式。默认「充值 & 订阅」。',
+          label: '购买方式',
+          options: {
+            rechargeAndSubscription: '充值 & 订阅',
+            rechargeOnly: '仅充值',
+            subscriptionOnly: '仅订阅',
+          },
+          hints: {
+            rechargeAndSubscription: '用户端同时提供余额充值与订阅套餐。',
+            rechargeOnly: '用户端隐藏「我的订阅」、购买页订阅套餐、顶栏订阅进度与用量页「计费类型」筛选，直接访问「我的订阅」会跳回仪表盘；管理端侧边栏同时隐藏「订阅管理」入口（页面仍可通过地址访问）。已有订阅的计费与兑换码发放的订阅不受影响。',
+            subscriptionOnly: '用户端购买页只保留订阅套餐，侧边栏入口显示为「订阅」，余额充值下单会被拒绝；兑换码、返利等余额入账不受影响。',
+          },
         },
         modelPlaza: {
           title: '模型广场',
@@ -399,7 +457,7 @@ export default {
         subscriptionGroup: '订阅分组',
         subscriptionValidityDays: '有效期（天）',
         defaultPlatformQuotas: '默认平台限额（注册时分配）',
-        defaultPlatformQuotasHint: '新用户注册时自动写入平台限额记录；已有用户不受影响。留空 = 该平台该窗口不限制。',
+        defaultPlatformQuotasHint: '新用户注册时自动获得这里配置的限额；已有用户不受影响。留空 = 该平台该窗口不限制。',
         platformQuotaNotice: '月限额为 30 天滚动窗口，非自然月',
       },
       platformQuota: {
@@ -458,7 +516,7 @@ export default {
         grokDefaultTextModel: '默认 Grok 文本模型',
         grokDefaultTextModelHint: '用于空模型值；仅在右侧开关开启时也用于其他客户端模型命名空间。允许填写自定义 Grok 模型 ID。',
         grokCrossClientMap: '映射其他客户端模型到 Grok',
-        grokCrossClientMapHint: '默认关闭。开启后，GPT、Codex、o 系列和 Claude 模型 ID 会路由到左侧默认 Grok 文本模型。',
+        grokCrossClientMapHint: '为兼容客户端，默认开启。GPT、Codex、o 系列和 Claude 模型 ID 会路由到左侧默认 Grok 文本模型；关闭后必须使用 Grok 模型 ID。',
         grokDefaultBaseURLMode: '默认 Grok 上游',
         grokDefaultBaseURLModeHint: '仅用于 Grok 账号未配置显式 base URL 的文本请求；媒体和语音仍使用官方 API 主机。',
         grokBaseURLModeCLI: 'CLI 聊天代理',
@@ -466,6 +524,10 @@ export default {
         grokBaseURLModeUSEast1: '区域 API（us-east-1）',
         grokBaseURLModeUSWest2: '区域 API（us-west-2）',
         grokBaseURLModeEUWest1: '区域 API（eu-west-1）',
+        openaiTTFTMode: 'OpenAI Responses 首 token 统计口径',
+        openaiTTFTModeSemantic: '历史兼容（语义事件）',
+        openaiTTFTModeVisible: '真实可见输出',
+        openaiTTFTModeHint: '默认使用历史兼容口径，首个非预置语义事件即记录 first_token_ms。选择真实可见输出后，仅在首个非空文本、工具参数或图片内容到达时记录。',
         fingerprintUnification: '指纹统一化',
         fingerprintUnificationHint: '统一共享同一 OAuth 账号的用户的 X-Stainless-* 请求头。关闭后透传客户端原始请求头。',
         metadataPassthrough: 'Metadata 透传',
@@ -665,6 +727,7 @@ export default {
         namePlaceholder: '如：帮助中心',
         url: '页面 URL',
         urlPlaceholder: 'https://example.com/page',
+        hideOpenButton: '隐藏“新窗口打开”按钮',
         iconSvg: 'SVG 图标',
         iconSvgPlaceholder: '<svg>...</svg>',
         iconPreview: '图标预览',
@@ -746,7 +809,7 @@ export default {
         validationFieldRequired: '{field} 不能为空',
         validationEasyPayCustomMethodRequired: '每个易支付自定义方式都必须填写支付方式和上游 type',
         validationEasyPayCustomMethodTypeInvalid: '易支付自定义支付方式只能包含小写字母、数字、下划线和短横线',
-        validationEasyPayCustomMethodUpstreamTypeInvalid: '易支付上游 type 只能包含小写字母、数字、下划线和短横线',
+        validationEasyPayCustomMethodUpstreamTypeInvalid: '易支付上游 type 只能包含小写字母、数字、点号、下划线和短横线',
         validationEasyPayCustomMethodReserved: '易支付自定义支付方式不能使用内置的 alipay 或 wxpay',
         validationEasyPayCustomMethodPrefixReserved: '易支付自定义支付方式不能以 alipay 或 wxpay 开头',
         validationEasyPayCustomMethodDuplicate: '易支付自定义支付方式不能重复',
@@ -1071,7 +1134,7 @@ export default {
       },
       openaiFastPolicy: {
         title: 'OpenAI Fast/Flex 策略',
-        description: '基于请求体 service_tier 字段拦截/过滤/透传 OpenAI fast(priority) 与 flex 请求；仅作用于 OpenAI 网关。',
+        description: '基于请求体 service_tier 字段拦截/过滤/透传 OpenAI fast(priority)、ultrafast 与 flex 请求；仅作用于 OpenAI 网关。“全部 tier 值”仅包含显式传入的 tier。',
         empty: '尚未配置任何规则。点击下方按钮新增。',
         ruleHeader: '规则 #{index}',
         removeRule: '删除规则',
@@ -1079,7 +1142,9 @@ export default {
         saveHint: '保存时随系统设置一起提交（点击页面底部「保存」按钮）。',
         serviceTier: 'service_tier 匹配',
         tierAll: '全部 tier 值',
+        tierMissing: '省略 tier',
         tierPriority: 'priority（fast）',
+        tierUltrafast: 'ultrafast',
         tierFlex: 'flex',
         action: '处理方式',
         actionPass: '透传（保留 service_tier）',

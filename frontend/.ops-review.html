@@ -1,0 +1,33 @@
+<!doctype html><html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>运维监控本地验收</title></head><body><div id="app"></div><script type="module">
+import { createApp, h, ref } from 'vue';
+import { createPinia } from 'pinia';
+import { i18n, loadLocaleMessages } from '/src/i18n/index.ts';
+import { apiClient } from '/src/api/client.ts';
+import Header from '/src/views/admin/ops/components/OpsDashboardHeader.vue';
+import List from '/src/views/admin/ops/components/OpsErrorDetailsModal.vue';
+import Detail from '/src/views/admin/ops/components/OpsErrorDetailModal.vue';
+import '/src/style.css';
+await loadLocaleMessages('zh'); i18n.global.locale.value='zh';
+const stamp = new Date().toISOString();
+const chain = [{account_id:101,account_name:'同模型账号 A',model:'gpt-6-astra',upstream_status_code:503,message:'上游暂时不可用'},{account_id:102,account_name:'同模型账号 B',model:'gpt-6-astra',upstream_status_code:429,message:'速率限制'},{kind:'model_fallback',stage:'routing',from_model:'gpt-6-astra',model:'gpt-5.6-sol',model_tier:'下一档',message:'切换模型后恢复'}];
+const row = {id:1,created_at:stamp,phase:'routing',type:'recovered_upstream',error_owner:'platform',error_source:'gateway',severity:'warning',status_code:200,platform:'openai',model:'gpt-6-astra',requested_model:'gpt-6-astra',upstream_model:'gpt-5.6-sol',resolved:false,client_request_id:'local-review',request_id:'review-recovered',message:'Recovered model fallback',user_id:1,user_email:'review@example.test',api_key_id:1,api_key_name:'codex',account_attempts:[{account_id:101,account_name:'同模型账号 A'},{account_id:102,account_name:'同模型账号 B'}],account_id:103,account_name:'成功账号 C',group_id:6,group_name:'codex',inbound_endpoint:'/v1/responses',upstream_endpoint:'/v1/chat/completions',stream:true,error_body:'',upstream_status_code:429,upstream_errors:JSON.stringify(chain)};
+const overview={start_time:stamp,end_time:stamp,platform:'',success_count:70,recovered_success_count:12,error_count_total:9,business_limited_count:0,error_count_sla:9,request_count_total:79,request_count_sla:79,token_consumed:20000,sla:0.886,error_rate:0.114,upstream_error_rate:0.20,upstream_error_count_excl_429_529:27,upstream_429_count:3,upstream_529_count:0,qps:{current:2,peak:4,avg:2},tps:{current:200,peak:400,avg:300},duration:{},ttft:{}};
+window.reviewRequests=[];
+apiClient.defaults.adapter=async config=>{
+ window.reviewRequests.push({url:config.url,params:config.params});
+ let data={};
+ if(config.url.includes('/groups'))data=[];
+ if(config.url.includes('traffic'))data={};
+ if(config.url.endsWith('/upstream-errors'))data={items:[row],total:1,page:1,page_size:10,pages:1};
+ if(config.url.endsWith('/upstream-errors/1'))data=row;
+ if(config.url.endsWith('/request-errors'))data={items:[],total:0,page:1,page_size:10,pages:0};
+ return {data:{code:0,data},status:200,statusText:'OK',headers:{},config};
+};
+const Root={setup(){const show=ref(false),detail=ref(false),recovered=ref(false);const open=r=>{recovered.value=r;show.value=true};return()=>h('main',{class:'min-h-screen bg-gray-50 p-6 dark:bg-dark-950 dark:text-white'},[
+ h('p',{class:'mb-4 text-sm'},'本地交互验收 · 模拟数据'),h('button',{id:'theme-toggle',class:'btn btn-secondary mb-4',onClick:()=>document.documentElement.classList.toggle('dark')},'切换深色'),
+ h(Header,{overview,platform:'',groupId:null,timeRange:'1h',queryMode:'auto',loading:false,lastUpdated:new Date(),onOpenRecoveredDetails:()=>open(true),onOpenErrorDetails:()=>open(false)}),
+ h(List,{show:show.value,timeRange:'1h',errorType:recovered.value?'upstream':'request',recovered:recovered.value,'onUpdate:show':v=>show.value=v,onOpenErrorDetail:()=>{show.value=false;detail.value=true}}),
+ h(Detail,{show:detail.value,errorId:1,errorType:'upstream',recovered:recovered.value,backToList:true,'onUpdate:show':v=>detail.value=v,onBack:()=>{detail.value=false;show.value=true}})
+])}};
+createApp(Root).use(createPinia()).use(i18n).mount('#app');
+</script></body></html>

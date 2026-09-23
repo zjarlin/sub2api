@@ -39,6 +39,52 @@ describe('UseKeyModal', () => {
     vi.unstubAllGlobals()
     saveAsMock.mockClear()
   })
+
+  it('omits the attribution override from every standard Claude Code setup form', async () => {
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-anthropic-test',
+        baseUrl: 'https://example.com/v1',
+        platform: 'anthropic'
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            template: '<div><slot /><slot name="footer" /></div>'
+          },
+          Icon: {
+            template: '<span />'
+          }
+        }
+      }
+    })
+
+    for (const [shell, trafficSetting] of [
+      ['macOS / Linux', 'export CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1'],
+      ['Windows CMD', 'set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1'],
+      ['PowerShell', '$env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1']
+    ]) {
+      if (shell !== 'macOS / Linux') {
+        const shellTab = wrapper.findAll('button').find(
+          (button) => button.text().trim() === shell
+        )
+        expect(shellTab).toBeDefined()
+        await shellTab!.trigger('click')
+        await nextTick()
+      }
+
+      const codeBlocks = wrapper.findAll('pre code').map((code) => code.text())
+      const allCode = codeBlocks.join('\n')
+      const settings = JSON.parse(codeBlocks.find((content) => content.includes('"$schema"'))!)
+
+      expect(allCode).not.toContain('CLAUDE_CODE_ATTRIBUTION_HEADER')
+      expect(allCode).toContain(trafficSetting)
+      expect(settings.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC).toBe('1')
+      expect(settings.env).not.toHaveProperty('CLAUDE_CODE_ATTRIBUTION_HEADER')
+    }
+  })
+
   it('renders Grok Build and OpenCode setup for Grok groups', async () => {
     const wrapper = mount(UseKeyModal, {
       props: {
@@ -179,6 +225,10 @@ describe('UseKeyModal', () => {
     const parsedSettings = JSON.parse(settingsConfig!)
     expect(parsedSettings.$schema).toBe('https://json.schemastore.org/claude-code-settings.json')
     expect(parsedSettings.env.ANTHROPIC_MODEL).toBe('grok-4.5')
+    expect(codeBlocks.join('\n')).not.toContain('CLAUDE_CODE_ATTRIBUTION_HEADER')
+    expect(codeBlocks.join('\n')).toContain('CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC')
+    expect(parsedSettings.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC).toBe('1')
+    expect(parsedSettings.env).not.toHaveProperty('CLAUDE_CODE_ATTRIBUTION_HEADER')
     expect(wrapper.text()).toContain('keys.useKeyModal.claudeSettingsHint')
     expect(wrapper.text()).toContain('keys.useKeyModal.grok.claudeNote')
     expect(wrapper.find('nav[aria-label="Client"]').classes()).toContain('min-w-max')
@@ -195,6 +245,11 @@ describe('UseKeyModal', () => {
     expect(codeBlocks.join('\n')).toContain('set ANTHROPIC_MODEL=grok-4.5')
     expect(codeBlocks.join('\n')).toContain('set ANTHROPIC_DEFAULT_FABLE_MODEL=grok-4.5')
     expect(codeBlocks.join('\n')).toContain('set CLAUDE_CODE_SUBAGENT_MODEL=grok-4.5')
+    expect(codeBlocks.join('\n')).toContain('set CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1')
+    expect(codeBlocks.join('\n')).not.toContain('CLAUDE_CODE_ATTRIBUTION_HEADER')
+    const cmdSettings = JSON.parse(codeBlocks.find((content) => content.includes('"$schema"'))!)
+    expect(cmdSettings.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC).toBe('1')
+    expect(cmdSettings.env).not.toHaveProperty('CLAUDE_CODE_ATTRIBUTION_HEADER')
 
     const powershellTab = wrapper.findAll('button').find(
       (button) => button.text().trim() === 'PowerShell'
@@ -208,6 +263,11 @@ describe('UseKeyModal', () => {
     expect(codeBlocks.join('\n')).toContain('$env:ANTHROPIC_MODEL="grok-4.5"')
     expect(codeBlocks.join('\n')).toContain('$env:ANTHROPIC_DEFAULT_FABLE_MODEL="grok-4.5"')
     expect(codeBlocks.join('\n')).toContain('$env:CLAUDE_CODE_SUBAGENT_MODEL="grok-4.5"')
+    expect(codeBlocks.join('\n')).toContain('$env:CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC="1"')
+    expect(codeBlocks.join('\n')).not.toContain('CLAUDE_CODE_ATTRIBUTION_HEADER')
+    const powershellSettings = JSON.parse(codeBlocks.find((content) => content.includes('"$schema"'))!)
+    expect(powershellSettings.env.CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC).toBe('1')
+    expect(powershellSettings.env).not.toHaveProperty('CLAUDE_CODE_ATTRIBUTION_HEADER')
     expect(wrapper.text()).toContain('%USERPROFILE%\\.claude\\settings.json')
 
     const copyButton = wrapper.findAll('button').find((button) =>
@@ -311,6 +371,7 @@ describe('UseKeyModal', () => {
     expect(configToml).not.toContain('model_context_window')
     expect(configToml).not.toContain('model_auto_compact_token_limit')
     expect(configToml).toContain('requires_openai_auth = true')
+    expect(configToml).not.toContain('experimental_bearer_token')
     expect(configToml).not.toContain('x-openai-actor-authorization')
     expect(configToml).not.toContain('env_key')
     expect(configToml).not.toContain('image_generation')
@@ -320,6 +381,15 @@ describe('UseKeyModal', () => {
     expect(configToml).not.toContain('model_reasoning_effort = "xhigh"')
     expect(codeBlocks).toContain('{\n  "OPENAI_API_KEY": "sk-test"\n}')
     expect(wrapper.text()).toContain('auth.json')
+    expect(wrapper.text()).toContain('One-command setup')
+    expect(codeBlocks.join('\n')).toContain('npx -y sub2api-codex-setup --base-url https://example.com/v1 --api-key sk-test --auth-mode legacy')
+    const setupScript = codeBlocks.find((content) => content.includes('Codex CLI configuration written'))
+    expect(wrapper.text()).toContain('setup-codex.sh')
+    expect(setupScript).toContain('#!/usr/bin/env bash')
+    expect(setupScript).toContain('config_dir="${HOME}/.codex"')
+    expect(setupScript).toContain('cat > "$config_dir/config.toml"')
+    expect(setupScript).toContain('cat > "$config_dir/auth.json"')
+    expect(setupScript).toContain('chmod 600 "$config_dir/auth.json"')
     expect(wrapper.find('[data-testid="codex-api-key-restart-notice"]').exists()).toBe(false)
   })
 
@@ -353,11 +423,18 @@ describe('UseKeyModal', () => {
     expect(apiKeyMode.attributes('aria-checked')).toBe('true')
     expect(configToml).toBeDefined()
     expect(configToml).toContain('requires_openai_auth = false')
+    expect(configToml).toContain('experimental_bearer_token = "sk-test"')
     expect(configToml).toContain('http_headers = { "x-openai-actor-authorization" = "local-image-extension" }')
     expect(configToml).not.toContain('env_key')
     expect(configToml).not.toContain('image_generation')
-    expect(codeBlocks).toContain('{\n  "OPENAI_API_KEY": "sk-test"\n}')
-    expect(wrapper.text()).toContain('auth.json')
+    expect(codeBlocks).not.toContain('{\n  "OPENAI_API_KEY": "sk-test"\n}')
+    expect(wrapper.text()).not.toContain('auth.json')
+    const setupScript = codeBlocks.find((content) => content.includes('Codex CLI configuration written'))
+    expect(wrapper.text()).toContain('setup-codex.sh')
+    expect(setupScript).toContain('#!/usr/bin/env bash')
+    expect(setupScript).toContain('chmod 600 "$config_dir/config.toml"')
+    expect(setupScript).not.toContain('auth.json')
+    expect(codeBlocks.join('\n')).toContain('npx -y sub2api-codex-setup --base-url https://example.com/v1 --api-key sk-test')
 
     const restartNotice = wrapper.get('[data-testid="codex-api-key-restart-notice"]')
     expect(restartNotice.text()).toContain(
@@ -368,9 +445,11 @@ describe('UseKeyModal', () => {
     await nextTick()
 
     expect(wrapper.find('[data-testid="codex-api-key-restart-notice"]').exists()).toBe(false)
-    expect(wrapper.findAll('pre code').map((code) => code.text()).join('\n')).not.toContain(
+    const legacyCode = wrapper.findAll('pre code').map((code) => code.text()).join('\n')
+    expect(legacyCode).not.toContain(
       'x-openai-actor-authorization'
     )
+    expect(legacyCode).toContain('npx -y sub2api-codex-setup --base-url https://example.com/v1 --api-key sk-test --auth-mode legacy')
   })
 
   it('keeps legacy OpenAI Codex WebSocket config as the default', async () => {
@@ -411,6 +490,7 @@ describe('UseKeyModal', () => {
     expect(configToml).not.toContain('model_context_window')
     expect(configToml).not.toContain('model_auto_compact_token_limit')
     expect(configToml).toContain('requires_openai_auth = true')
+    expect(configToml).not.toContain('experimental_bearer_token')
     expect(configToml).not.toContain('x-openai-actor-authorization')
     expect(configToml).not.toContain('env_key')
     expect(configToml).not.toContain('image_generation')
@@ -418,6 +498,10 @@ describe('UseKeyModal', () => {
     expect(configToml).toContain('[features]\nresponses_websockets_v2 = true\ngoals = true')
     expect(codeBlocks).toContain('{\n  "OPENAI_API_KEY": "sk-test"\n}')
     expect(wrapper.text()).toContain('auth.json')
+    const setupScript = codeBlocks.find((content) => content.includes('Codex CLI configuration written'))
+    expect(wrapper.text()).toContain('setup-codex.sh')
+    expect(setupScript).toContain('cat > "$config_dir/config.toml"')
+    expect(setupScript).toContain('cat > "$config_dir/auth.json"')
   })
 
   it('preserves API Key Mode when switching to OpenAI Codex WebSocket config', async () => {
@@ -456,12 +540,18 @@ describe('UseKeyModal', () => {
     expect(wrapper.get('[data-testid="codex-auth-mode-api-key"]').attributes('aria-checked')).toBe('true')
     expect(configToml).toBeDefined()
     expect(configToml).toContain('requires_openai_auth = false')
+    expect(configToml).toContain('experimental_bearer_token = "sk-test"')
     expect(configToml).toContain('http_headers = { "x-openai-actor-authorization" = "local-image-extension" }')
     expect(configToml).not.toContain('env_key')
     expect(configToml).not.toContain('image_generation')
     expect(configToml).toContain('supports_websockets = true')
     expect(configToml).toContain('[features]\nresponses_websockets_v2 = true\ngoals = true')
-    expect(codeBlocks).toContain('{\n  "OPENAI_API_KEY": "sk-test"\n}')
+    expect(codeBlocks).not.toContain('{\n  "OPENAI_API_KEY": "sk-test"\n}')
+    expect(wrapper.text()).not.toContain('auth.json')
+    const setupScript = codeBlocks.find((content) => content.includes('Codex CLI configuration written'))
+    expect(wrapper.text()).toContain('setup-codex.sh')
+    expect(setupScript).toContain('cat > "$config_dir/config.toml"')
+    expect(setupScript).not.toContain('cat > "$config_dir/auth.json"')
   })
 
   it('resets Codex authentication mode when the modal reopens or platform changes', async () => {
@@ -535,7 +625,7 @@ describe('UseKeyModal', () => {
     expect(codeBlock.text()).not.toContain('"name": "GPT-5.4 Nano"')
   })
 
-  it('renders GPT-5.6 alias and max variants in OpenCode config', async () => {
+  it('renders GPT-5.6 and GPT-6 Astra capabilities in OpenCode config', async () => {
     const wrapper = mount(UseKeyModal, {
       props: {
         show: true,
@@ -570,6 +660,18 @@ describe('UseKeyModal', () => {
       expect(models[model].variants).toHaveProperty('xhigh')
     }
     expect(models['gpt-5.6'].name).toBe('GPT-5.6 (Sol)')
+    expect(models['gpt-6']).toEqual({
+      name: 'GPT-6 (Astra)',
+      limit: { context: 1050000, output: 128000 },
+      options: { store: false },
+      variants: { low: {}, medium: {}, high: {}, xhigh: {}, max: {} }
+    })
+    expect(models['gpt-6-astra']).toEqual({
+      name: 'GPT-6 Astra',
+      limit: { context: 1050000, output: 128000 },
+      options: { store: false },
+      variants: { low: {}, medium: {}, high: {}, xhigh: {}, max: {} }
+    })
   })
 
   it('renders Claude Fable 5 OpenCode config with adaptive thinking', async () => {
@@ -606,8 +708,13 @@ describe('UseKeyModal', () => {
 
     expect(claudeConfig).toBeDefined()
     const parsed = JSON.parse(claudeConfig!)
+    const fable51 = parsed.provider['antigravity-claude'].models['claude-fable-5-1']
     const fable = parsed.provider['antigravity-claude'].models['claude-fable-5']
 
+    expect(fable51.name).toBe('Claude Fable 5.1')
+    expect(fable51.limit).toEqual({ context: 1048576, output: 128000 })
+    expect(fable51.options.thinking).toEqual({ type: 'adaptive' })
+    expect(fable51.options.thinking).not.toHaveProperty('budgetTokens')
     expect(fable.name).toBe('Claude Fable 5')
     expect(fable.limit).toEqual({ context: 1048576, output: 128000 })
     expect(fable.options.thinking).toEqual({ type: 'adaptive' })
@@ -712,9 +819,19 @@ describe('UseKeyModal', () => {
     expect(windowsConfig).toContain(
       'model_catalog_json = "%userprofile%\\\\.codex\\\\codex-models.json"'
     )
+    const windowsSetupScript = wrapper.findAll('pre code')
+      .map((code) => code.text())
+      .find((content) => content.includes('Codex CLI configuration written'))
+    expect(wrapper.text()).toContain('setup-codex.ps1')
+    expect(windowsSetupScript).toContain('$ErrorActionPreference = "Stop"')
+    expect(windowsSetupScript).toContain('$configDir = Join-Path $env:USERPROFILE ".codex"')
+    expect(windowsSetupScript).toContain('WriteAllText((Join-Path $configDir "config.toml")')
+    expect(windowsSetupScript).not.toContain('auth.json')
+    expect(wrapper.text()).toContain('One-command setup')
+    expect(wrapper.text()).toContain('npx -y sub2api-codex-setup')
   })
 
-  it.each(['anthropic', 'gemini', 'antigravity', 'kimi', 'zhipu'] as const)(
+  it.each(['anthropic', 'gemini', 'antigravity', 'kimi', 'zhipu', 'minimax'] as const)(
     'offers Codex catalog configuration for the %s routed group',
     async (platform) => {
       const wrapper = mount(UseKeyModal, {

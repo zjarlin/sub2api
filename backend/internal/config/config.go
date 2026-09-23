@@ -104,6 +104,53 @@ type Config struct {
 	BatchImage              BatchImageConfig              `mapstructure:"batch_image"`
 	ImageStorage            ImageStorageConfig            `mapstructure:"image_storage"`
 	Plugins                 PluginConfig                  `mapstructure:"plugins"`
+	BuiltinAdapter          BuiltinAdapterConfig          `mapstructure:"builtin_adapter"`
+}
+
+// BuiltinAdapterConfig 控制随 Sub2API 部署一起启动的豆包、TRAE 和 WorkBuddy 适配器。
+// 启用后账号表单不再要求手填地址与密钥，后端统一注入内部地址和共享密钥。
+type BuiltinAdapterConfig struct {
+	Enabled      bool   `mapstructure:"enabled"`
+	DesktopURL   string `mapstructure:"desktop_url"`
+	DesktopKey   string `mapstructure:"desktop_key"`
+	TraeworkURL  string `mapstructure:"traework_url"`
+	TraeworkKey  string `mapstructure:"traework_key"`
+	WorkbuddyURL string `mapstructure:"workbuddy_url"`
+	WorkbuddyKey string `mapstructure:"workbuddy_key"`
+	ZcodeURL     string `mapstructure:"zcode_url"`
+	ZcodeKey     string `mapstructure:"zcode_key"`
+}
+
+// DesktopBaseURL 返回豆包桌面适配器地址，未显式配置时使用编排内的服务名。
+func (c BuiltinAdapterConfig) DesktopBaseURL() string {
+	if strings.TrimSpace(c.DesktopURL) == "" {
+		return "http://sub2api-desktop:8080"
+	}
+	return strings.TrimSpace(c.DesktopURL)
+}
+
+// TraeworkBaseURL 返回 traework2api 适配器地址，未显式配置时使用编排内的服务名。
+func (c BuiltinAdapterConfig) TraeworkBaseURL() string {
+	if strings.TrimSpace(c.TraeworkURL) == "" {
+		return "http://sub2api-traework:7864"
+	}
+	return strings.TrimSpace(c.TraeworkURL)
+}
+
+// WorkbuddyBaseURL 返回内置 WorkBuddy 服务地址。
+func (c BuiltinAdapterConfig) WorkbuddyBaseURL() string {
+	if strings.TrimSpace(c.WorkbuddyURL) == "" {
+		return "http://sub2api-workbuddy:7863"
+	}
+	return strings.TrimSpace(c.WorkbuddyURL)
+}
+
+// ZcodeBaseURL 返回内置 ZCode 服务地址。
+func (c BuiltinAdapterConfig) ZcodeBaseURL() string {
+	if strings.TrimSpace(c.ZcodeURL) == "" {
+		return "http://sub2api-zcode:7865"
+	}
+	return strings.TrimSpace(c.ZcodeURL)
 }
 
 // PluginConfig 控制管理员手动上传的本地进程插件。
@@ -667,6 +714,8 @@ type PricingConfig struct {
 	DataDir string `mapstructure:"data_dir"`
 	// 回退文件路径
 	FallbackFile string `mapstructure:"fallback_file"`
+	// 覆盖补丁文件路径（可选）：条目按字段浅合并覆盖目录/回退数据，优先级最高
+	OverrideFile string `mapstructure:"override_file"`
 	// 更新间隔（小时）
 	UpdateIntervalHours int `mapstructure:"update_interval_hours"`
 	// 哈希校验间隔（分钟）
@@ -944,6 +993,10 @@ const (
 
 // GatewayConfig API网关相关配置
 type GatewayConfig struct {
+	// VisionFallback 在当前分组内借助原生视觉模型描述图片，再交给原模型回答。
+	VisionFallback GatewayVisionFallbackConfig `mapstructure:"vision_fallback"`
+	// Vision 是离线边缘计算视觉服务（edge-vision）的上游接入配置。
+	Vision GatewayVisionConfig `mapstructure:"vision"`
 	// 等待上游响应头的超时时间（秒），0表示无超时
 	// 注意：这不影响流式数据传输，只控制等待响应头的时间
 	ResponseHeaderTimeout int `mapstructure:"response_header_timeout"`
@@ -1097,6 +1150,35 @@ type GatewayConfig struct {
 	// CNProviders: 国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）的余额检测配置。
 	// 仅作用于 payg（按量付费）账号：周期探测余额，低于阈值则临时停调。
 	CNProviders GatewayCNProvidersConfig `mapstructure:"cn_providers"`
+}
+
+// GatewayVisionFallbackConfig 不另存供应商凭据，复用分组账号及其模型能力快照。
+// GatewayVisionConfig 指向离线边缘计算视觉服务（edge-vision）的内部地址。
+// 服务以独立容器运行，只加入 sub2api 内部网络，不对外暴露宿主端口。
+type GatewayVisionConfig struct {
+	// URL 是 edge-vision 的内部基地址；为空时使用编排内的服务名。
+	URL string `mapstructure:"url"`
+	// TimeoutSeconds 是单次视觉推理请求的等待上限（秒），0 表示使用默认值。
+	TimeoutSeconds int `mapstructure:"timeout_seconds"`
+	// Enabled 控制 /v1/vision/* 端点是否开放。默认关闭，避免未部署服务时暴露空端点。
+	Enabled bool `mapstructure:"enabled"`
+}
+
+// BaseURL 返回视觉服务的内部基地址，未显式配置时使用编排内的服务名。
+func (c GatewayVisionConfig) BaseURL() string {
+	if strings.TrimSpace(c.URL) != "" {
+		return strings.TrimRight(strings.TrimSpace(c.URL), "/")
+	}
+	return "http://edge-vision:18081"
+}
+
+type GatewayVisionFallbackConfig struct {
+	Enabled bool `mapstructure:"enabled"`
+	// Model 为空时自动选择；非空时优先使用这个已配置的公开模型名。
+	Model string `mapstructure:"model"`
+	// 每个助手与整次图片辅助分别限时，兼容未显式配置这些字段的旧部署。
+	CandidateTimeoutSeconds int `mapstructure:"candidate_timeout_seconds"`
+	TimeoutSeconds          int `mapstructure:"timeout_seconds"`
 }
 
 // GatewayGrokConfig holds Grok-specific gateway scheduling knobs.
@@ -1272,11 +1354,15 @@ type GatewayOpenAIWSConfig struct {
 	MaxConnsPerAccount int `mapstructure:"max_conns_per_account"`
 	MinIdlePerAccount  int `mapstructure:"min_idle_per_account"`
 	MaxIdlePerAccount  int `mapstructure:"max_idle_per_account"`
-	// DynamicMaxConnsByAccountConcurrencyEnabled: 是否按账号并发动态计算连接池上限
+	// DynamicMaxConnsByAccountConcurrencyEnabled: 是否按账号并发动态计算连接池上限。
+	// 旧版及 mode_router_v2 的 ctx_pool 共用此开关和类型系数；关闭后使用 max_conns_per_account。
+	// mode_router_v2 下并发数 <= 0 的账号仍不可调度。
 	DynamicMaxConnsByAccountConcurrencyEnabled bool `mapstructure:"dynamic_max_conns_by_account_concurrency_enabled"`
-	// OAuthMaxConnsFactor: OAuth 账号连接池系数（effective=ceil(concurrency*factor)）
+	// OAuthMaxConnsFactor: OAuth 账号连接池系数（effective=ceil(concurrency*factor)，再受 max_conns_per_account 封顶）。
+	// ctx_pool 接入下每个客户端会话在整个生命周期（含轮次之间）持有一条上游连接，此上限限制的是同时持有连接的会话数，
+	// 在飞请求数另由账号并发槽限制；系数 1.0 会让存活会话数一到并发数就返回 1013 busy，默认 5.0。
 	OAuthMaxConnsFactor float64 `mapstructure:"oauth_max_conns_factor"`
-	// APIKeyMaxConnsFactor: API Key 账号连接池系数（effective=ceil(concurrency*factor)）
+	// APIKeyMaxConnsFactor: API Key 账号连接池系数，含义与 OAuthMaxConnsFactor 相同，默认 5.0。
 	APIKeyMaxConnsFactor  float64 `mapstructure:"apikey_max_conns_factor"`
 	DialTimeoutSeconds    int     `mapstructure:"dial_timeout_seconds"`
 	ReadTimeoutSeconds    int     `mapstructure:"read_timeout_seconds"`
@@ -1611,10 +1697,10 @@ type OpsCleanupConfig struct {
 	Enabled  bool   `mapstructure:"enabled"`
 	Schedule string `mapstructure:"schedule"`
 
-	// Retention days (0 disables that cleanup target).
-	//
-	// vNext requirement: default 30 days across ops datasets.
+	// Retention days. Error and metrics targets accept 0 as an explicit truncate;
+	// system logs require a positive value because their runtime setting is bounded.
 	ErrorLogRetentionDays      int `mapstructure:"error_log_retention_days"`
+	SystemLogRetentionDays     int `mapstructure:"system_log_retention_days"`
 	MinuteMetricsRetentionDays int `mapstructure:"minute_metrics_retention_days"`
 	HourlyMetricsRetentionDays int `mapstructure:"hourly_metrics_retention_days"`
 }
@@ -1986,6 +2072,15 @@ func configureConfigSource(setConfigFile, addConfigPath func(string)) {
 
 func setDefaults() {
 	viper.SetDefault("run_mode", RunModeStandard)
+	viper.SetDefault("builtin_adapter.enabled", false)
+	viper.SetDefault("builtin_adapter.desktop_url", "")
+	viper.SetDefault("builtin_adapter.desktop_key", "")
+	viper.SetDefault("builtin_adapter.traework_url", "")
+	viper.SetDefault("builtin_adapter.traework_key", "")
+	viper.SetDefault("builtin_adapter.workbuddy_url", "")
+	viper.SetDefault("builtin_adapter.workbuddy_key", "")
+	viper.SetDefault("builtin_adapter.zcode_url", "")
+	viper.SetDefault("builtin_adapter.zcode_key", "")
 
 	// Server
 	viper.SetDefault("server.host", "0.0.0.0")
@@ -2044,7 +2139,9 @@ func setDefaults() {
 		"api.moonshot.ai",
 		"api.moonshot.cn",
 		"open.bigmodel.cn",
-		"api.minimaxi.com",
+		"api.minimaxi.com", // MiniMax CN quota + inference
+		"api.minimax.io",   // MiniMax intl; frozen allowlists must add this host to use the intl site
+		"opencode.ai",
 		"generativelanguage.googleapis.com",
 		"cloudcode-pa.googleapis.com",
 		"*.openai.azure.com",
@@ -2248,6 +2345,7 @@ func setDefaults() {
 	viper.SetDefault("ops.cleanup.schedule", "0 2 * * *")
 	// Retention days: vNext defaults to 30 days across ops datasets.
 	viper.SetDefault("ops.cleanup.error_log_retention_days", 30)
+	viper.SetDefault("ops.cleanup.system_log_retention_days", 30)
 	viper.SetDefault("ops.cleanup.minute_metrics_retention_days", 30)
 	viper.SetDefault("ops.cleanup.hourly_metrics_retention_days", 30)
 	viper.SetDefault("ops.aggregation.enabled", true)
@@ -2279,11 +2377,12 @@ func setDefaults() {
 	viper.SetDefault("rate_limit.overload_cooldown_minutes", 10)
 	viper.SetDefault("rate_limit.oauth_401_cooldown_minutes", 10)
 
-	// Pricing - 从 model-price-repo 同步模型定价和上下文窗口数据（固定到 commit，避免分支漂移）
+	// Pricing - 从 model-price-repo main 分支同步模型定价和上下文窗口数据
 	viper.SetDefault("pricing.remote_url", "https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/main/model_prices_and_context_window.json")
 	viper.SetDefault("pricing.hash_url", "https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/main/model_prices_and_context_window.sha256")
 	viper.SetDefault("pricing.data_dir", "./data")
 	viper.SetDefault("pricing.fallback_file", "./resources/model-pricing/model_prices_and_context_window.json")
+	viper.SetDefault("pricing.override_file", "")
 	viper.SetDefault("pricing.update_interval_hours", 24)
 	viper.SetDefault("pricing.hash_check_interval_minutes", 10)
 
@@ -2369,8 +2468,12 @@ func setDefaults() {
 	viper.SetDefault("gateway.disable_codex_identity_enforcement", false)
 	viper.SetDefault("gateway.disable_codex_originator_normalization", false)
 	viper.SetDefault("gateway.codex_image_generation_bridge_enabled", false)
+	viper.SetDefault("gateway.vision_fallback.enabled", true)
+	viper.SetDefault("gateway.vision_fallback.model", "")
+	viper.SetDefault("gateway.vision_fallback.candidate_timeout_seconds", 60)
+	viper.SetDefault("gateway.vision_fallback.timeout_seconds", 120)
 	viper.SetDefault("gateway.openai_passthrough_allow_timeout_headers", false)
-	viper.SetDefault("gateway.openai_compact_model", "gpt-5.4")
+	viper.SetDefault("gateway.openai_compact_model", "gpt-5.5")
 	viper.SetDefault("gateway.live.max_session_duration_seconds", 3600)
 	// OpenAI Responses WebSocket（默认开启；可通过 force_http 紧急回滚）
 	viper.SetDefault("gateway.openai_ws.enabled", true)
@@ -2396,8 +2499,8 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_ws.min_idle_per_account", 4)
 	viper.SetDefault("gateway.openai_ws.max_idle_per_account", 12)
 	viper.SetDefault("gateway.openai_ws.dynamic_max_conns_by_account_concurrency_enabled", true)
-	viper.SetDefault("gateway.openai_ws.oauth_max_conns_factor", 1.0)
-	viper.SetDefault("gateway.openai_ws.apikey_max_conns_factor", 1.0)
+	viper.SetDefault("gateway.openai_ws.oauth_max_conns_factor", 5.0)
+	viper.SetDefault("gateway.openai_ws.apikey_max_conns_factor", 5.0)
 	viper.SetDefault("gateway.openai_ws.dial_timeout_seconds", 10)
 	viper.SetDefault("gateway.openai_ws.read_timeout_seconds", 900)
 	viper.SetDefault("gateway.openai_ws.write_timeout_seconds", 120)
@@ -3669,6 +3772,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Ops.Cleanup.ErrorLogRetentionDays < 0 {
 		return fmt.Errorf("ops.cleanup.error_log_retention_days must be non-negative")
+	}
+	if c.Ops.Cleanup.Enabled && c.Ops.Cleanup.SystemLogRetentionDays <= 0 {
+		return fmt.Errorf("ops.cleanup.system_log_retention_days must be positive when ops cleanup is enabled")
 	}
 	if c.Ops.Cleanup.MinuteMetricsRetentionDays < 0 {
 		return fmt.Errorf("ops.cleanup.minute_metrics_retention_days must be non-negative")

@@ -30,11 +30,11 @@
 
         <div class="rounded-xl bg-gray-50 p-4 dark:bg-dark-900">
           <div class="text-xs font-bold uppercase tracking-wider text-gray-400">
-            {{ isUpstreamError(detail) ? t('admin.ops.errorDetail.account') : t('admin.ops.errorDetail.user') }}
+            {{ hasAccountContext(detail) ? t('admin.ops.errorDetail.attemptChain.logAccount') : t('admin.ops.errorDetail.user') }}
           </div>
           <div class="mt-1 text-sm font-medium text-gray-900 dark:text-white">
-            <template v-if="isUpstreamError(detail)">
-              {{ detail.account_name || (detail.account_id != null ? String(detail.account_id) : '—') }}
+            <template v-if="hasAccountContext(detail)">
+              {{ detail.account_name || '—' }} <span v-if="detail.account_id" class="text-xs text-gray-500 dark:text-gray-400">#{{ detail.account_id }}</span>
             </template>
             <template v-else>
               {{ detail.user_email || (detail.user_id != null ? String(detail.user_id) : '—') }}
@@ -88,7 +88,7 @@
           <div class="text-xs font-bold uppercase tracking-wider text-gray-400">{{ t('admin.ops.errorDetail.status') }}</div>
           <div class="mt-1">
             <span :class="['inline-flex items-center rounded-lg px-2 py-1 text-xs font-black ring-1 ring-inset shadow-sm', statusClass]">
-              {{ detail.status_code }}
+              {{ recovered && detail.type !== 'recovered_upstream' ? t('admin.ops.errorDetail.attemptChain.finalSuccess') : detail.status_code }}
             </span>
           </div>
         </div>
@@ -97,7 +97,7 @@
           <div class="text-xs font-bold uppercase tracking-wider text-gray-400">{{ t('admin.ops.errorDetail.upstreamStatus') }}</div>
           <div class="mt-1">
             <span :class="['inline-flex items-center rounded-lg px-2 py-1 text-xs font-black ring-1 ring-inset shadow-sm', upstreamStatusClass]">
-              {{ detail.upstream_status_code ?? '—' }}
+              {{ detail.upstream_status_code || '—' }}
             </span>
           </div>
         </div>
@@ -124,6 +124,15 @@
         </div>
 
       </div>
+
+      <OpsAccountAttemptChain
+        :raw="detail.upstream_errors"
+        :final-status-code="detail.status_code"
+        :final-succeeded="recovered"
+        :final-account-id="detail.type === 'recovered_upstream' ? detail.account_id : null"
+        :final-account-name="detail.type === 'recovered_upstream' ? detail.account_name : ''"
+        :final-model="detail.upstream_model || detail.model"
+      />
 
       <div v-if="rootCauseMessage" class="rounded-xl bg-amber-50 p-6 dark:bg-amber-900/10">
         <h3 class="text-sm font-black uppercase tracking-wider text-amber-900 dark:text-amber-200">{{ t('admin.ops.errorDetail.rootCause') }}</h3>
@@ -228,6 +237,7 @@
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import OpsAccountAttemptChain from './OpsAccountAttemptChain.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useAppStore } from '@/stores'
 import { opsAPI, type OpsErrorDetail } from '@/api/admin/ops'
@@ -239,6 +249,7 @@ interface Props {
   errorId: number | null
   errorType?: 'request' | 'upstream'
   backToList?: boolean
+  recovered?: boolean
 }
 
 interface Emits {
@@ -296,17 +307,17 @@ function diagnosticPayloadLabel(key: DiagnosticPayloadKey): string {
 }
 
 const title = computed(() => {
+  if (props.recovered) return t('admin.ops.errorDetail.recoveredTitle', { id: String(props.errorId || '') })
   if (!props.errorId) return t('admin.ops.errorDetail.title')
   return t('admin.ops.errorDetail.titleWithId', { id: String(props.errorId) })
 })
 
 const emptyText = computed(() => t('admin.ops.errorDetail.noErrorSelected'))
 
-function isUpstreamError(d: OpsErrorDetail | null): boolean {
+function hasAccountContext(d: OpsErrorDetail | null): boolean {
   if (!d) return false
   const phase = String(d.phase || '').toLowerCase()
-  const owner = String(d.error_owner || '').toLowerCase()
-  return phase === 'upstream' && owner === 'provider'
+  return ['upstream', 'account_auth', 'routing'].includes(phase) && d.account_id != null
 }
 
 function formatRequestTypeLabel(type: number | null | undefined): string {
@@ -430,7 +441,9 @@ function statusBadgeClass(code: number): string {
   return 'bg-gray-50 text-gray-700 ring-gray-600/20 dark:bg-gray-900/30 dark:text-gray-400 dark:ring-gray-500/30'
 }
 
-const statusClass = computed(() => statusBadgeClass(detail.value?.status_code ?? 0))
+const statusClass = computed(() => props.recovered
+  ? 'bg-emerald-50 text-emerald-700 ring-emerald-600/20 dark:bg-emerald-900/30 dark:text-emerald-300 dark:ring-emerald-500/30'
+  : statusBadgeClass(detail.value?.status_code ?? 0))
 
 const upstreamStatusClass = computed(() => statusBadgeClass(detail.value?.upstream_status_code ?? 0))
 

@@ -2,7 +2,7 @@
   <div class="card">
     <div class="flex items-center justify-between border-b border-gray-100 px-6 py-4 dark:border-dark-700">
       <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('dashboard.recentUsage') }}</h2>
-      <span class="badge badge-gray">{{ t('dashboard.last7Days') }}</span>
+      <span class="badge badge-gray">{{ periodLabel || t('dashboard.last7Days') }}</span>
     </div>
     <div class="p-6">
       <div v-if="loading" class="flex items-center justify-center py-12">
@@ -52,6 +52,7 @@ import type { UsageLog } from '@/types'
 defineProps<{
   data: UsageLog[]
   loading: boolean
+  periodLabel?: string
 }>()
 const { t } = useI18n()
 const formatCost = (c: number) => c.toFixed(4)

@@ -119,11 +119,15 @@ backend/.installed
 tests
 !deploy/tests/
 !deploy/tests/**
+!edge-vision/tests/
+!edge-vision/tests/**
 CLAUDE.md
 .claude
 scripts
 !backend/scripts/
 !backend/scripts/resolve-version.sh
+!edge-vision/scripts/
+!edge-vision/scripts/**
 .code-review-state
 #openspec/
 code-reviews/
@@ -133,6 +137,7 @@ deploy/docker-compose.override.yml
 .gocache/
 vite.config.js
 docs/*
+!docs/ANTIGRAVITY_ATTRIBUTION_429.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md
@@ -141,6 +146,7 @@ docs/*
 !docs/COMPOSITE_GROUPS.md
 !docs/PLUGIN_DEVELOPMENT.md
 !docs/channel-monitor-v2-safe-defaults.md
+!docs/model-fallback-tiers.md
 !docs/legal/
 !docs/legal/*.md
 !docs/screenshots/
@@ -264,3 +270,11 @@ output/
 /.playwright-mcp/page-2026-06-16T09-52-29-076Z.yml
 /.playwright-mcp/page-2026-06-20T23-59-18-847Z.yml
 /sub2api
+
+# 内置适配器的脚本与模块说明需要随源码交付。
+!tools/workbuddy2api/scripts/
+!tools/workbuddy2api/scripts/**
+!tools/builtinlogin/AGENTS.md
+
+# 边缘计算视觉服务的维护者约定需随源码交付。
+!edge-vision/AGENTS.md

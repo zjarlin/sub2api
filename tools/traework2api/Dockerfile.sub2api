@@ -1,0 +1,23 @@
+# 构建上下文为仓库 tools 目录，共享登录模块与适配器一起构建。
+FROM golang:1.26-alpine AS build
+WORKDIR /src/traework2api
+COPY builtinlogin /src/builtinlogin
+COPY traework2api/go.mod ./
+# 构建机在国内网络，默认 proxy.golang.org 不可达；与主 Dockerfile 保持同一镜像源。
+ARG GOPROXY=https://goproxy.cn,direct
+ARG GOSUMDB=sum.golang.google.cn
+ENV GOPROXY=${GOPROXY} GOSUMDB=${GOSUMDB}
+RUN go mod download
+COPY traework2api/cmd ./cmd
+COPY traework2api/internal ./internal
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/adapter ./cmd/server
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates tzdata wget \
+ && adduser -D -u 10001 app \
+ && mkdir -p /app/auths /app/data && chown -R app:app /app
+WORKDIR /app
+COPY --from=build /out/adapter /app/adapter
+USER app
+EXPOSE 7864
+ENTRYPOINT ["/app/adapter"]

@@ -5,6 +5,9 @@ package ctxkey
 type Key string
 
 const (
+	// GatewayStreamHeartbeatBytes 是 Gin 上下文里的排队心跳字节数，不代表模型输出。
+	GatewayStreamHeartbeatBytes = "gateway_stream_heartbeat_bytes"
+
 	// ForcePlatform 强制平台（用于 /antigravity 路由），由 middleware.ForcePlatform 设置
 	ForcePlatform Key = "ctx_force_platform"
 

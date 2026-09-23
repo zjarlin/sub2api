@@ -30,6 +30,18 @@ func (r *thresholdSelectionAccountRepoStub) ListSchedulableByGroupIDAndPlatform(
 	return r.ListSchedulableByPlatform(ctx, platform)
 }
 
+func (r *thresholdSelectionAccountRepoStub) ListSchedulableByGroupIDAndPlatforms(ctx context.Context, _ int64, platforms []string) ([]Account, error) {
+	result := make([]Account, 0)
+	for _, platform := range platforms {
+		items, err := r.ListSchedulableByPlatform(ctx, platform)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, items...)
+	}
+	return result, nil
+}
+
 func (r *thresholdSelectionAccountRepoStub) ListSchedulableUngroupedByPlatform(ctx context.Context, platform string) ([]Account, error) {
 	return r.ListSchedulableByPlatform(ctx, platform)
 }

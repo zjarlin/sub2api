@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/google/uuid"
 )
@@ -42,11 +43,12 @@ type channelMonitorRuntimeSubscriber interface {
 }
 
 type ChannelMonitorV2Aggregator struct {
-	repo       ChannelMonitorV2Repository
-	db         *sql.DB
-	settings   channelMonitorRuntimeReader
-	instanceID string
-	stopCh     chan struct{}
+	routingMetrics bool
+	repo           ChannelMonitorV2Repository
+	db             *sql.DB
+	settings       channelMonitorRuntimeReader
+	instanceID     string
+	stopCh         chan struct{}
 	// kickCh wakes the loop early after a settings change (buffered 1).
 	kickCh    chan struct{}
 	startOnce sync.Once
@@ -70,13 +72,14 @@ type ChannelMonitorV2Aggregator struct {
 
 func NewChannelMonitorV2Aggregator(repo ChannelMonitorV2Repository, db *sql.DB, settings channelMonitorRuntimeReader) *ChannelMonitorV2Aggregator {
 	return &ChannelMonitorV2Aggregator{
-		repo:          repo,
-		db:            db,
-		settings:      settings,
-		instanceID:    uuid.NewString(),
-		stopCh:        make(chan struct{}),
-		kickCh:        make(chan struct{}, 1),
-		backfillChunk: channelMonitorV2BackfillChunkInit,
+		routingMetrics: config.RoutingMetricsFromEnvironment().Enabled(),
+		repo:           repo,
+		db:             db,
+		settings:       settings,
+		instanceID:     uuid.NewString(),
+		stopCh:         make(chan struct{}),
+		kickCh:         make(chan struct{}, 1),
+		backfillChunk:  channelMonitorV2BackfillChunkInit,
 	}
 }
 
@@ -158,14 +161,14 @@ func (s *ChannelMonitorV2Aggregator) loop() {
 			continue
 		}
 		if cfg, err := s.repo.GetConfig(ctx); err == nil {
-			if !cfg.Enabled {
+			if !cfg.Enabled && !s.routingMetrics {
 				cancel()
 				if !s.wait(interval) {
 					return
 				}
 				continue
 			}
-			if cfg.RefreshIntervalSeconds > 0 {
+			if cfg.RefreshIntervalSeconds > 0 && !s.routingMetrics {
 				interval = time.Duration(cfg.RefreshIntervalSeconds) * time.Second
 			}
 		}
@@ -186,6 +189,10 @@ func (s *ChannelMonitorV2Aggregator) loop() {
 }
 
 func (s *ChannelMonitorV2Aggregator) passiveAggregationAllowed(ctx context.Context) bool {
+	return s != nil && (s.routingMetrics || s.dashboardAggregationAllowed(ctx))
+}
+
+func (s *ChannelMonitorV2Aggregator) dashboardAggregationAllowed(ctx context.Context) bool {
 	if s == nil || s.settings == nil {
 		// Fail closed without settings: do not aggregate under ambiguous mode.
 		return false
@@ -257,6 +264,11 @@ func (s *ChannelMonitorV2Aggregator) runOnce() {
 	// Always refresh the trailing overlap so late usage/error writes land in 1m facts.
 	if err := s.repo.RecomputeRange(ctx, now.Add(-channelMonitorV2RecentOverlap), now); err != nil {
 		logger.LegacyPrintf("service.channel_monitor_v2", "[ChannelMonitorV2] overlap aggregation failed: %v", err)
+		return
+	}
+
+	// Router-only consumers need fresh 90m statistics, not the dashboard history backfill.
+	if s.routingMetrics && !s.dashboardAggregationAllowed(ctx) {
 		return
 	}
 

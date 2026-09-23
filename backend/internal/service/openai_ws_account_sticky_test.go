@@ -13,6 +13,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_Hit(t *testing.T
 	ctx := context.Background()
 	groupID := int64(23)
 	account := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 		ID:          2,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -52,6 +53,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_QuotaAutoPausedM
 	ctx := context.Background()
 	groupID := int64(23)
 	account := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 		ID:          77,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -93,6 +95,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_RateLimitedMiss(
 	groupID := int64(23)
 	rateLimitedUntil := time.Now().Add(30 * time.Minute)
 	account := Account{
+		Credentials:      map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 		ID:               12,
 		Platform:         PlatformOpenAI,
 		Type:             AccountTypeAPIKey,
@@ -130,6 +133,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_DBRuntimeRecheck
 	groupID := int64(24)
 	rateLimitedUntil := time.Now().Add(30 * time.Minute)
 	staleAccount := &Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 		ID:          13,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -141,6 +145,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_DBRuntimeRecheck
 		},
 	}
 	dbAccount := Account{
+		Credentials:      map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 		ID:               13,
 		Platform:         PlatformOpenAI,
 		Type:             AccountTypeAPIKey,
@@ -181,6 +186,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_Excluded(t *test
 	ctx := context.Background()
 	groupID := int64(23)
 	account := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 		ID:          8,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -213,6 +219,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_APIKeyForceHTTPH
 	ctx := context.Background()
 	groupID := int64(23)
 	account := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 		ID:          11,
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeAPIKey,
@@ -284,6 +291,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_BusyKeepsSticky(
 	groupID := int64(23)
 	accounts := []Account{
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          21,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -296,6 +304,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_BusyKeepsSticky(
 			},
 		},
 		{
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
 			ID:          22,
 			Platform:    PlatformOpenAI,
 			Type:        AccountTypeAPIKey,
@@ -356,6 +365,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_CapabilityMismat
 		Schedulable: true,
 		Concurrency: 1,
 		Credentials: map[string]any{
+			"model_mapping":       testModelMapping("text-embedding-3-small"),
 			"openai_capabilities": []any{"chat_completions"},
 		},
 		Extra: map[string]any{

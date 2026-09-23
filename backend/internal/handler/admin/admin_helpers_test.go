@@ -46,6 +46,9 @@ func TestParseOpsViewParam(t *testing.T) {
 	c3, _ := gin.CreateTestContext(w)
 	c3.Request = httptest.NewRequest(http.MethodGet, "/?view=unknown", nil)
 	require.Equal(t, opsListViewErrors, parseOpsViewParam(c3))
+	c4, _ := gin.CreateTestContext(w)
+	c4.Request = httptest.NewRequest(http.MethodGet, "/?view=recovered", nil)
+	require.Equal(t, opsListViewRecovered, parseOpsViewParam(c4))
 
 	require.Equal(t, "", parseOpsViewParam(nil))
 }
@@ -278,13 +281,15 @@ func TestOpenAIFastPolicySettingsFromDTO_NormalizesServiceTier(t *testing.T) {
 			Rules: []dto.OpenAIFastPolicyRule{
 				{ServiceTier: "priority", Action: "filter", Scope: "all"},
 				{ServiceTier: "flex", Action: "block", Scope: "oauth"},
+				{ServiceTier: "ultrafast", Action: "pass", Scope: "all"},
 				{ServiceTier: "all", Action: "pass", Scope: "apikey"},
 			},
 		}
 		out := openaiFastPolicySettingsFromDTO(in)
-		require.Len(t, out.Rules, 3)
+		require.Len(t, out.Rules, 4)
 		require.Equal(t, service.OpenAIFastTierPriority, out.Rules[0].ServiceTier)
 		require.Equal(t, service.OpenAIFastTierFlex, out.Rules[1].ServiceTier)
-		require.Equal(t, service.OpenAIFastTierAny, out.Rules[2].ServiceTier)
+		require.Equal(t, service.OpenAIFastTierUltrafast, out.Rules[2].ServiceTier)
+		require.Equal(t, service.OpenAIFastTierAny, out.Rules[3].ServiceTier)
 	})
 }

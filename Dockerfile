@@ -7,7 +7,7 @@
 # Stage 3: Final minimal image
 # =============================================================================
 
-ARG NODE_IMAGE=node:24-alpine
+ARG NODE_IMAGE=node:20-alpine
 ARG GOLANG_IMAGE=golang:1.27.0-alpine
 ARG ALPINE_IMAGE=alpine:3.21
 ARG POSTGRES_IMAGE=postgres:18-alpine
@@ -52,21 +52,19 @@ RUN pnpm run build
 # build (emulated networking here was dropping module fetches with EOF).
 FROM --platform=${BUILDPLATFORM} ${GOLANG_IMAGE} AS backend-builder
 
-# Build arguments for version info (set by CI)
-ARG VERSION=
-ARG COMMIT=docker
-ARG DATE
 ARG GOPROXY
 ARG GOSUMDB
-# Populated by buildx from the --platform target (e.g. linux/amd64).
-ARG TARGETOS
-ARG TARGETARCH
+ARG ALPINE_MIRROR=https://mirrors.tuna.tsinghua.edu.cn/alpine
 
 ENV GOPROXY=${GOPROXY}
 ENV GOSUMDB=${GOSUMDB}
 
-# Install build dependencies
-RUN apk add --no-cache git ca-certificates tzdata
+# 252 到官方 CDN 的包下载可能长时间停滞；镜像包仍由 apk 校验官方签名。
+# 传入空 ALPINE_MIRROR 可保留基础镜像的软件源。
+RUN if [ -n "${ALPINE_MIRROR}" ]; then \
+      sed -i "s|https://dl-cdn.alpinelinux.org/alpine|${ALPINE_MIRROR%/}|g" /etc/apk/repositories; \
+    fi && \
+    apk --timeout 30 add --no-cache git ca-certificates tzdata
 
 WORKDIR /app/backend
 
@@ -85,6 +83,12 @@ COPY --from=frontend-builder /app/backend/internal/web/dist ./internal/web/dist
 
 # Build the binary (BuildType=release for CI builds, embed frontend)
 # Version precedence: build arg VERSION > exact git tag > cmd/server/VERSION
+# 版本参数只影响编译层，避免每次发版都让依赖安装和模块下载缓存失效。
+ARG VERSION=
+ARG COMMIT=docker
+ARG DATE
+ARG TARGETOS
+ARG TARGETARCH
 RUN --mount=type=cache,id=sub2api-gomod,target=/go/pkg/mod \
     --mount=type=cache,id=sub2api-gobuild,target=/root/.cache/go-build \
     VERSION_VALUE="${VERSION}" && \

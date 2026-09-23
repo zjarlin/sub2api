@@ -45,6 +45,27 @@ function mountTable(row: Partial<OpsErrorLog>) {
 }
 
 describe('OpsErrorLogTable user/api-key/account columns', () => {
+  it('collapses account attempts and preserves a different log account without opening the detail', async () => {
+    const wrapper = mountTable({
+      account_id: 900, account_name: 'final-account',
+      account_attempts: [
+        { account_id: 837, account_name: 'aaawinn' },
+        { account_id: 832, account_name: 'r4' },
+        { account_id: 832, account_name: 'r4' }
+      ]
+    })
+    const accordion = wrapper.get('details[data-testid="account-attempts"]')
+    expect(accordion.attributes('open')).toBeUndefined()
+    await accordion.get('summary').trigger('click')
+    expect(wrapper.emitted('openErrorDetail')).toBeUndefined()
+    const attempts = wrapper.findAll('ol li')
+    expect(attempts).toHaveLength(4)
+    expect(attempts[0].text()).toContain('aaawinn')
+    expect(attempts[1].text()).toContain('r4')
+    expect(attempts[2].text()).toContain('r4')
+    expect(attempts[3].text()).toContain('final-account')
+  })
+
   // 回归:上游错误行(phase=upstream, owner=provider)以前在单一「用户」列里只显示账号、
   // 丢失用户;现在用户/API Key/账号各占独立列,三者同时可见。
   it('renders user, api key and account in separate columns for an upstream row', () => {
@@ -72,6 +93,37 @@ describe('OpsErrorLogTable user/api-key/account columns', () => {
 
     expect(wrapper.text()).toContain('old-key')
     expect(wrapper.text()).toContain('admin.ops.errorLog.keyDeletedBadge')
+  })
+})
+
+describe('OpsErrorLogTable column order', () => {
+  it('puts time and response content first for ops without changing time sorting', async () => {
+    const wrapper = mountTable({})
+    await wrapper.setProps({ summaryFirst: true })
+
+    const headers = wrapper.findAll('thead th')
+    expect(headers.slice(0, 3).map((header) => header.text())).toEqual([
+      'admin.ops.errorLog.time',
+      'admin.ops.errorLog.message',
+      'admin.ops.errorLog.user',
+    ])
+    expect(wrapper.findAll('tbody td')[1].text()).toBe('boom')
+
+    await headers[0].trigger('click')
+    expect(wrapper.emitted('sort')).toEqual([['created_at', 'asc']])
+    wrapper.unmount()
+  })
+
+  it('preserves the usage column order and visibility by default', async () => {
+    const wrapper = mountTable({})
+    await wrapper.setProps({ visibleColumnKeys: ['created_at', 'user', 'message'] })
+
+    expect(wrapper.findAll('thead th').map((header) => header.text())).toEqual([
+      'admin.ops.errorLog.user',
+      'admin.ops.errorLog.message',
+      'admin.ops.errorLog.time',
+    ])
+    wrapper.unmount()
   })
 })
 

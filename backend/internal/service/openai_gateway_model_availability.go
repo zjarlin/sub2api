@@ -32,16 +32,28 @@ func (s *OpenAIGatewayService) DiagnoseModelAvailabilityForPlatform(
 	}
 
 	platform = NormalizeOpenAICompatiblePlatform(platform)
+	// 混合调度：目标平台分组可纳入启用 mixed_scheduling 的来源平台账号
+	// （例如 openai/Codex 分组可由 traework/workbuddy 账号服务）。
+	useMixed := len(MixedSchedulingSourcePlatforms(platform)) > 0
+	platforms := []string{platform}
+	if useMixed {
+		platforms = append(platforms, MixedSchedulingSourcePlatforms(platform)...)
+	}
 	queryGroupID := groupID
 	includeGrouped := false
-	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+	if useMixed {
+		// 与调度器一致的取号范围：显式分组优先，无分组 simple 模式扫描全部账号。
+		if groupID == nil && s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
+			includeGrouped = true
+		}
+	} else if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple {
 		queryGroupID = nil
 		includeGrouped = true
 	}
 	accounts, err := s.accountRepo.ListModelAvailabilityCandidates(
 		ctx,
 		queryGroupID,
-		[]string{platform},
+		platforms,
 		includeGrouped,
 	)
 	if err != nil {
@@ -52,11 +64,12 @@ func (s *OpenAIGatewayService) DiagnoseModelAvailabilityForPlatform(
 
 	diag := ModelAvailabilityDiagnosis{}
 	for i := range accounts {
+		if useMixed && accounts[i].Platform != platform &&
+			!(accounts[i].IsMixedSchedulingEnabled() && mixedSchedulingTargetsPlatform(accounts[i].Platform, platform)) {
+			continue
+		}
 		diag.HasAccountsInPool = true
-		// Mirrors the per-candidate filter used during account selection
-		// (openai_account_scheduler.isAccountRequestCompatible): empty
-		// model_mapping accepts everything; otherwise the explicit / wildcard
-		// mapping must match.
+		// 与调度使用同一模型资格判断，缺失目录和配置不能被诊断为支持全部模型。
 		if accounts[i].IsModelSupported(requestedModel) {
 			diag.HasModelSupport = true
 			return diag

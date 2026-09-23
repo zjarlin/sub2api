@@ -41,6 +41,11 @@ func (r *schedulerCancellationAccountRepo) ListSchedulableUngroupedByPlatform(ct
 	return nil, ctx.Err()
 }
 
+func (r *schedulerCancellationAccountRepo) ListSchedulableByGroupIDAndPlatforms(ctx context.Context, _ int64, _ []string) ([]Account, error) {
+	r.listCalls++
+	return nil, ctx.Err()
+}
+
 func (r *schedulerCancellationAccountRepo) GetByID(ctx context.Context, _ int64) (*Account, error) {
 	r.getByIDCalls++
 	return nil, ctx.Err()
@@ -58,7 +63,8 @@ func TestSchedulerSnapshotListStopsAfterRequestCancellation(t *testing.T) {
 
 	require.ErrorIs(t, err, context.Canceled)
 	require.Nil(t, accounts)
-	require.False(t, useMixed)
+	// openai 目标分组现在也走混合调度（可纳入 traework/workbuddy），故 useMixed 为 true。
+	require.True(t, useMixed)
 	require.Zero(t, cache.tokenCaptures, "canceled requests must not capture a cache publish token")
 	require.Zero(t, repo.listCalls, "canceled requests must not fall back to the database")
 }

@@ -610,8 +610,10 @@ type AudioUsage struct {
 
 type ForwardResult struct {
 	RequestID string
-	Usage     ClaudeUsage
-	Model     string
+	// UpstreamHeaders 是直接上游的响应头，用于按账户配置解析上游请求标识。
+	UpstreamHeaders http.Header
+	Usage           ClaudeUsage
+	Model           string
 	// UpstreamModel is the actual upstream model after mapping.
 	// Prefer empty when it is identical to Model; persistence normalizes equal values away as no-op mappings.
 	UpstreamModel string
@@ -627,6 +629,8 @@ type ForwardResult struct {
 	FirstTokenMs                *int // 首字时间（流式请求）
 	ClientDisconnect            bool // 客户端是否在流式传输过程中断开
 	ReasoningEffort             *string
+	// RequestedReasoningEffort is the client-requested effort before mapping.
+	RequestedReasoningEffort *string
 	// ServiceTier records the tier requested by the client. OpenAI uses
 	// service_tier; Anthropic speed=fast is normalized to "fast". Usage recording
 	// lowers it to UpstreamResponseServiceTier when the upstream reports a
@@ -653,6 +657,7 @@ type GatewayFailureStage string
 const (
 	GatewayFailureStageInference   GatewayFailureStage = "inference"
 	GatewayFailureStageAccountAuth GatewayFailureStage = "account_auth"
+	GatewayFailureStageRouting     GatewayFailureStage = "routing"
 )
 
 // GatewayFailureScope identifies whether selecting another account can help.
@@ -680,22 +685,23 @@ type GatewayFailureReason string
 // trigger account failover. Additive metadata keeps existing composite literals
 // source-compatible and preserves their legacy retry-next-account behavior.
 type UpstreamFailoverError struct {
-	StatusCode               int
-	ResponseBody             []byte        // 上游响应体，用于错误透传规则匹配
-	ResponseHeaders          http.Header   // 上游响应头，用于透传 cf-ray/cf-mitigated/content-type 等诊断信息
-	ForceCacheBilling        bool          // Antigravity 粘性会话切换时设为 true
-	RetryableOnSameAccount   bool          // 临时性错误（如 Google 间歇性 400、空响应），应在同一账号上重试 N 次再切换
-	SameAccountRetryDelay    time.Duration // 同账号重试的最小间隔；零值使用 handler 默认值
-	SameAccountRetryDeadline time.Time     // 同账号重试截止时间；零值表示仅受 retryLimit 限制
-	SameAccountRetryMax      int           // 可选的错误级同账号重试上限，低于 handler 默认预算时优先采用
-	RequestScopedTransient   bool          // 故障因素与账号无关（如上游按客户端身份/模型容量降载）：可同账号重试，但不得据此对账号做临时封禁
-	SafeToFailoverAfterWrite bool          // 仅写出 SSE 注释等非语义字节时，仍可在同一客户端流中切换账号
-	Stage                    GatewayFailureStage
-	Scope                    GatewayFailureScope
-	Reason                   GatewayFailureReason
-	NextAccountAction        NextAccountAction
-	ClientStatusCode         int
-	ClientMessage            string
+	StatusCode                 int
+	ResponseBody               []byte        // 上游响应体，用于错误透传规则匹配
+	ResponseHeaders            http.Header   // 上游响应头，用于透传 cf-ray/cf-mitigated/content-type 等诊断信息
+	ForceCacheBilling          bool          // Antigravity 粘性会话切换时设为 true
+	RetryableOnSameAccount     bool          // 临时性错误（如 Google 间歇性 400、空响应），应在同一账号上重试 N 次再切换
+	SameAccountRetryDelay      time.Duration // 同账号重试的最小间隔；零值使用 handler 默认值
+	SameAccountRetryDeadline   time.Time     // 同账号重试截止时间；零值表示仅受 retryLimit 限制
+	SameAccountRetryMax        int           // 可选的错误级同账号重试上限，低于 handler 默认预算时优先采用
+	RequestScopedTransient     bool          // 故障因素与账号无关（如上游按客户端身份/模型容量降载）：可同账号重试，但不得据此对账号做临时封禁
+	SafeToFailoverAfterWrite   bool          // 仅写出 SSE 注释等非语义字节时，仍可在同一客户端流中切换账号
+	SkipAccountScheduleFailure bool          // 预检/辅助链路失败时仍要触发外层换号或换模型，但不得把故障归因到当前主账号
+	Stage                      GatewayFailureStage
+	Scope                      GatewayFailureScope
+	Reason                     GatewayFailureReason
+	NextAccountAction          NextAccountAction
+	ClientStatusCode           int
+	ClientMessage              string
 }
 
 func (e *UpstreamFailoverError) Error() string {
@@ -718,6 +724,9 @@ func (e *UpstreamFailoverError) IsCredentialFailure() bool {
 // and inference failures retain their existing scheduler-health behavior.
 func (e *UpstreamFailoverError) ShouldReportAccountScheduleFailure() bool {
 	if e == nil {
+		return false
+	}
+	if e.SkipAccountScheduleFailure {
 		return false
 	}
 	return !e.IsCredentialFailure() || e.Scope == GatewayFailureScopeAccount
@@ -1399,17 +1408,25 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	// Filter by platform if specified
 	if platform != "" {
 		filtered := make([]Account, 0)
-		for _, acc := range accounts {
-			if acc.Platform == platform {
-				filtered = append(filtered, acc)
+		for i := range accounts {
+			if openAIAccountMatchesPlatform(&accounts[i], platform) {
+				filtered = append(filtered, accounts[i])
 			}
 		}
 		accounts = filtered
 	}
+	if models, required := s.healthCheckedModels(ctx, groupID, platform, accounts); required {
+		sort.Strings(models)
+		if s.modelsListCache != nil {
+			s.modelsListCache.Set(cacheKey, cloneStringSlice(models), s.modelsListCacheTTL)
+			modelsListCacheStoreTotal.Add(1)
+		}
+		return cloneStringSlice(models)
+	}
 
 	// Collect unique models from all accounts
 	modelSet := make(map[string]struct{})
-	hasAnyMapping := false
+	hasAnyCatalog := false
 
 	for _, acc := range accounts {
 		// Passthrough routing accepts models independently of model_mapping. A stale
@@ -1425,15 +1442,25 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 
 		mapping := acc.GetModelMapping()
 		if len(mapping) > 0 {
-			hasAnyMapping = true
+			hasAnyCatalog = true
 			for model := range mapping {
 				modelSet[model] = struct{}{}
+			}
+			continue
+		}
+		if snapshot := acc.GetUpstreamSupportedModelsSnapshot(); snapshot != nil {
+			hasAnyCatalog = true
+			for _, model := range snapshot.Models {
+				model = strings.TrimSpace(model)
+				if model != "" {
+					modelSet[model] = struct{}{}
+				}
 			}
 		}
 	}
 
-	// If no account has model_mapping, return nil (use default)
-	if !hasAnyMapping {
+	// 没有账号映射或已同步目录时返回 nil，由调用方使用平台默认模型。
+	if !hasAnyCatalog {
 		if s.modelsListCache != nil {
 			s.modelsListCache.Set(cacheKey, []string(nil), s.modelsListCacheTTL)
 			modelsListCacheStoreTotal.Add(1)
@@ -1447,6 +1474,10 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		models = append(models, model)
 	}
 	sort.Strings(models)
+
+	if platform == PlatformOpenAI {
+		models = supplementUnmappedOpenAIModels(accounts, models)
+	}
 
 	if s.modelsListCache != nil {
 		s.modelsListCache.Set(cacheKey, cloneStringSlice(models), s.modelsListCacheTTL)

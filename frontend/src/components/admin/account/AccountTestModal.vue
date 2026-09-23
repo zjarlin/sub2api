@@ -49,7 +49,7 @@
         <Select
           v-model="grokTestMode"
           :options="grokTestModeOptions"
-          :disabled="status === 'connecting'"
+          :disabled="status === 'connecting' || batchTesting"
         />
         <p class="text-xs text-gray-500 dark:text-gray-400">
           {{ t('admin.accounts.grok.testModeHint') }}
@@ -63,7 +63,7 @@
         <Select
           v-model="selectedModelId"
           :options="modelOptionsForMode"
-          :disabled="loadingModels || status === 'connecting'"
+          :disabled="loadingModels || status === 'connecting' || batchTesting"
           value-key="id"
           label-key="display_name"
           :placeholder="loadingModels ? t('common.loading') + '...' : t('admin.accounts.selectTestModel')"
@@ -77,7 +77,7 @@
         <Select
           v-model="testMode"
           :options="openAITestModeOptions"
-          :disabled="status === 'connecting'"
+          :disabled="status === 'connecting' || batchTesting"
         />
       </div>
 
@@ -87,7 +87,7 @@
           :label="promptInputLabel"
           :placeholder="promptInputPlaceholder"
           :hint="promptInputHint"
-          :disabled="status === 'connecting'"
+          :disabled="status === 'connecting' || batchTesting"
           rows="3"
         />
       </div>
@@ -107,7 +107,7 @@
           <button
             type="button"
             class="btn btn-secondary btn-sm shrink-0"
-            :disabled="status === 'connecting'"
+            :disabled="status === 'connecting' || batchTesting"
             @click="imageFileInput?.click()"
           >
             {{ t('admin.accounts.grok.chooseImageFile') }}
@@ -124,7 +124,7 @@
             type="file"
             accept="image/png,image/jpeg,image/webp,image/gif"
             class="hidden"
-            :disabled="status === 'connecting'"
+            :disabled="status === 'connecting' || batchTesting"
             @change="onImageFileChange"
           />
         </div>
@@ -146,7 +146,7 @@
           <button
             type="button"
             class="btn btn-secondary btn-sm shrink-0"
-            :disabled="status === 'connecting'"
+            :disabled="status === 'connecting' || batchTesting"
             @click="audioFileInput?.click()"
           >
             {{ t('admin.accounts.grok.chooseAudioFile') }}
@@ -163,12 +163,26 @@
             type="file"
             accept="audio/*,.wav,.mp3,.m4a,.ogg,.webm"
             class="hidden"
-            :disabled="status === 'connecting'"
+            :disabled="status === 'connecting' || batchTesting"
             @change="onAudioFileChange"
           />
         </div>
         <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.grok.audioUploadHint') }}</p>
       </div>
+
+      <p v-if="loadingModels" role="status" class="text-sm text-gray-500 dark:text-gray-400">
+        {{ t('admin.accounts.loadingTestModels') }}
+      </p>
+      <div v-else-if="modelsLoadFailed" role="alert" class="flex items-center gap-3 text-sm text-red-600 dark:text-red-400">
+        <span>{{ t('admin.accounts.testModelsLoadFailed') }}</span>
+        <button type="button" class="btn btn-secondary" @click="loadAvailableModels">{{ t('admin.accounts.retry') }}</button>
+      </div>
+      <BatchModelTestButton
+        v-if="account && !isGrokAccount && testMode === 'default'"
+        :account="account" :models="availableModels" :show="show"
+        :disabled="loadingModels || status === 'connecting' || batchTesting"
+        @running="batchTesting = $event" @updated="handleBatchUpdated"
+      />
 
       <!-- Terminal Output -->
       <div class="group relative">
@@ -320,6 +334,9 @@
 
     <template #footer>
       <div class="flex justify-end gap-3">
+        <button v-if="status === 'connecting'" type="button" class="btn btn-secondary" @click="abortStream">
+          {{ t('admin.accounts.cancelTest') }}
+        </button>
         <button
           @click="handleClose"
           class="rounded-lg bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-300 dark:hover:bg-dark-500"
@@ -365,15 +382,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from 'vue'
+import BatchModelTestButton from '@/components/account/testing/BatchModelTestButton.vue'
+import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
 import TextArea from '@/components/common/TextArea.vue'
 import { Icon } from '@/components/icons'
 import { useClipboard } from '@/composables/useClipboard'
-import { buildApiUrl } from '@/api/client'
-import { ADMIN_UI_REQUEST_HEADER } from '@/api/adminUIRequest'
+import { runModelTest, type ModelTestEvent } from '@/api/accountTest'
 import { adminAPI } from '@/api/admin'
 import type { Account, ClaudeModel } from '@/types'
 
@@ -397,7 +414,14 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'updated', account: Account): void
 }>()
+
+const batchTesting = ref(false)
+const handleBatchUpdated = (account: Account) => {
+  emit('updated', account)
+  void loadAvailableModels()
+}
 
 const terminalRef = ref<HTMLElement | null>(null)
 const status = ref<'idle' | 'connecting' | 'success' | 'error'>('idle')
@@ -408,6 +432,8 @@ const availableModels = ref<ClaudeModel[]>([])
 const selectedModelId = ref('')
 const testPrompt = ref('')
 const loadingModels = ref(false)
+const modelsLoadFailed = ref(false)
+let modelsController: AbortController | null = null
 let abortController: AbortController | null = null
 const generatedImages = ref<PreviewMedia[]>([])
 const generatedAudios = ref<PreviewMedia[]>([])
@@ -674,7 +700,7 @@ const testModeSummary = computed(() => {
 })
 
 const canStartTest = computed(() => {
-  if (status.value === 'connecting') return false
+  if (status.value === 'connecting' || batchTesting.value) return false
   if (isGrokAccount.value) {
     if (
       grokTestMode.value === 'search' ||
@@ -734,9 +760,11 @@ const pickDefaultModelForMode = () => {
 }
 
 watch(
-  () => props.show,
-  async (newVal) => {
-    if (newVal && props.account) {
+  () => [props.show, props.account?.id] as const,
+  async ([show]) => {
+    modelsController?.abort()
+    abortStream()
+    if (show && props.account) {
       testPrompt.value = ''
       testMode.value = 'default'
       grokTestMode.value = 'text'
@@ -764,9 +792,16 @@ const loadAvailableModels = async () => {
   if (!props.account) return
 
   loadingModels.value = true
-  selectedModelId.value = '' // Reset selection before loading
+  modelsLoadFailed.value = false
+  availableModels.value = []
+  selectedModelId.value = ''
+  modelsController?.abort()
+  const request = new AbortController()
+  modelsController = request
+  const account = props.account
   try {
-    const models = await adminAPI.accounts.getAvailableModels(props.account.id)
+    const models = await adminAPI.accounts.getAvailableModels(account.id, { signal: request.signal, timeout: 10000 })
+    if (request.signal.aborted) return
     availableModels.value = props.account.platform === 'gemini' || props.account.platform === 'antigravity'
       ? sortTestModels(models)
       : models
@@ -781,12 +816,17 @@ const loadAvailableModels = async () => {
       }
     }
   } catch (error) {
+    if (request.signal.aborted) return
+    modelsLoadFailed.value = true
     console.error('Failed to load available models:', error)
     // Fallback to empty list
     availableModels.value = []
     selectedModelId.value = ''
   } finally {
-    loadingModels.value = false
+    if (modelsController === request) {
+      loadingModels.value = false
+      modelsController = null
+    }
   }
 }
 
@@ -801,7 +841,13 @@ const resetState = () => {
   previewImageUrl.value = ''
 }
 
+onBeforeUnmount(() => {
+  modelsController?.abort()
+  abortStream()
+})
+
 const handleClose = () => {
+  modelsController?.abort()
   abortStream()
   emit('close')
 }
@@ -810,6 +856,9 @@ const abortStream = () => {
   if (abortController) {
     abortController.abort()
     abortController = null
+  }
+  if (status.value === 'connecting') {
+    status.value = 'idle'
   }
 }
 
@@ -828,6 +877,7 @@ const scrollToBottom = async () => {
 const startTest = async () => {
   if (!props.account || !canStartTest.value) return
 
+  abortStream()
   resetState()
   status.value = 'connecting'
   addLine(t('admin.accounts.startingTestForAccount', { name: props.account.name }), 'text-blue-400')
@@ -839,9 +889,8 @@ const startTest = async () => {
   }
   addLine('', 'text-gray-300')
 
-  abortStream()
-
-  abortController = new AbortController()
+  const request = new AbortController()
+  abortController = request
 
   try {
     const requestBody: {
@@ -877,78 +926,27 @@ const startTest = async () => {
       }
     }
 
-    // Use the configured API base; EventSource does not support POST.
-    const url = buildApiUrl(`/admin/accounts/${props.account.id}/test`)
-
-    // Use fetch with streaming for SSE since EventSource doesn't support POST
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${localStorage.getItem('auth_token')}`,
-        'Content-Type': 'application/json',
-        [ADMIN_UI_REQUEST_HEADER]: '1'
-      },
-      body: JSON.stringify(requestBody),
-      signal: abortController.signal
-    })
-
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-
-    const reader = response.body?.getReader()
-    if (!reader) {
-      throw new Error(t('admin.accounts.grok.noResponseBody'))
-    }
-
-    const decoder = new TextDecoder()
-    let buffer = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      buffer += decoder.decode(value, { stream: true })
-      const lines = buffer.split('\n')
-      buffer = lines.pop() || ''
-
-      for (const line of lines) {
-        if (line.startsWith('data: ')) {
-          const jsonStr = line.slice(6).trim()
-          if (jsonStr) {
-            try {
-              const event = JSON.parse(jsonStr)
-              handleEvent(event)
-            } catch (e) {
-              console.error('Failed to parse SSE event:', e)
-            }
-          }
-        }
+    await runModelTest(`/admin/accounts/${props.account.id}/test`, requestBody, request.signal, event => {
+      if (abortController === request && !request.signal.aborted) {
+        handleEvent(event)
       }
-    }
+    })
   } catch (error: unknown) {
-    if (error instanceof DOMException && error.name === 'AbortError') {
-      status.value = 'idle'
+    if (request.signal.aborted || abortController !== request) {
       return
     }
     status.value = 'error'
     const msg = error instanceof Error ? error.message : t('common.unknownError')
     errorMessage.value = msg
     addLine(t('admin.accounts.errorPrefix', { message: msg }), 'text-red-400')
+  } finally {
+    if (abortController === request) {
+      abortController = null
+    }
   }
 }
 
-const handleEvent = (event: {
-  type: string
-  text?: string
-  model?: string
-  success?: boolean
-  error?: string
-  image_url?: string
-  audio_url?: string
-  video_url?: string
-  mime_type?: string
-}) => {
+const handleEvent = (event: ModelTestEvent) => {
   switch (event.type) {
     case 'test_start':
       addLine(t('admin.accounts.connectedToApi'), 'text-green-400')

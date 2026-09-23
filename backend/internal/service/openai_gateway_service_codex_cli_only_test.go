@@ -331,6 +331,22 @@ func TestIsOpenAIContextWindowError(t *testing.T) {
 		"",
 		[]byte(`maximum context length exceeded`),
 	))
+	require.True(t, isOpenAIContextWindowError(
+		"",
+		[]byte(`{"error":{"message":"该模型的最大上下文长度为65536个标记。但您的请求包含180415个输入标记，请缩短输入消息的长度。"}}`),
+	))
+	require.True(t, isOpenAIContextWindowError(
+		"上下文长度超过模型限制",
+		nil,
+	))
+	require.False(t, isOpenAIContextWindowError(
+		"上下文长度未超过模型限制",
+		nil,
+	))
+	require.False(t, isOpenAIContextWindowError(
+		"输入长度不超过最大上下文长度",
+		nil,
+	))
 	require.False(t, isOpenAIContextWindowError(
 		"context canceled",
 		nil,
@@ -355,10 +371,14 @@ func TestOpenAITransientAndCapacityClassificationIgnoresEchoedJSON(t *testing.T)
 func TestShouldFailoverOpenAIUpstreamResponseContextWindow502(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	body := []byte(`{"error":{"message":"Your input exceeds the context window of this model. Please adjust your input and try again.","type":"upstream_error","code":null}}`)
+	chineseBody := []byte(`{"error":{"message":"该模型的最大上下文长度为65536个标记。但您的请求包含180415个输入标记，请缩短输入消息的长度。"}}`)
+	negatedChineseBody := []byte(`{"error":{"message":"上下文长度未超过模型限制","code":"upstream_error"}}`)
 
-	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(http.StatusBadGateway, "", body))
-	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(http.StatusBadGateway, "temporary upstream outage", []byte(`{"error":{"message":"temporary upstream outage"}}`)))
-	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(
+	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(newOpenAIUpstreamErrorTestAccount(), http.StatusBadGateway, "", body))
+	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(newOpenAIUpstreamErrorTestAccount(), http.StatusBadGateway, "", chineseBody))
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(newOpenAIUpstreamErrorTestAccount(), http.StatusBadGateway, "", negatedChineseBody))
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(newOpenAIUpstreamErrorTestAccount(), http.StatusBadGateway, "temporary upstream outage", []byte(`{"error":{"message":"temporary upstream outage"}}`)))
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(newOpenAIUpstreamErrorTestAccount(),
 		http.StatusBadGateway,
 		"temporary upstream outage",
 		[]byte(`{"error":{"message":"temporary upstream outage"},"echo":"context_length_exceeded"}`),

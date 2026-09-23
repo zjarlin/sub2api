@@ -1,0 +1,23 @@
+{
+  "name": "豆包桌面套餐 Docker 实验",
+  "platform": "doubao",
+  "type": "apikey",
+  "credentials": {
+    "base_url": "http://sub2api-doubao-desktop:8080/v1",
+    "api_key": "REPLACE_WITH_RUNTIME_API_KEY",
+    "openai_capabilities": [
+      "chat_completions"
+    ],
+    "model_mapping": {
+      "doubao-auto": "doubao-auto",
+      "doubao-pro": "doubao-pro",
+      "doubao-chat-turbo": "doubao-chat-turbo"
+    },
+    "api_protocol": "chat_completions"
+  },
+  "concurrency": 1,
+  "priority": 50,
+  "group_ids": [],
+  "upstream_billing_probe_enabled": false,
+  "notes": "豆包桌面会话适配器；默认 doubao-chat-turbo 普通聊天。doubao-auto/pro 使用工作模式。工具由调用方执行，不支持图片/音频；绑定豆包或 Composite 分组，单并发。"
+}

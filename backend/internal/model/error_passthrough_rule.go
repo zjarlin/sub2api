@@ -44,6 +44,12 @@ const (
 	PlatformKimi        = domain.PlatformKimi
 	PlatformZhipu       = domain.PlatformZhipu
 	PlatformDeepseek    = domain.PlatformDeepseek
+	PlatformMiniMax     = domain.PlatformMiniMax
+	PlatformOpenCodeGo  = domain.PlatformOpenCodeGo
+	PlatformDoubao      = domain.PlatformDoubao
+	PlatformTraework    = domain.PlatformTraework
+	PlatformWorkbuddy   = domain.PlatformWorkbuddy
+	PlatformZcode       = domain.PlatformZcode
 )
 
 // AllPlatforms 返回所有支持的平台列表
@@ -57,6 +63,12 @@ func AllPlatforms() []string {
 		PlatformKimi,
 		PlatformZhipu,
 		PlatformDeepseek,
+		PlatformMiniMax,
+		PlatformOpenCodeGo,
+		PlatformDoubao,
+		PlatformTraework,
+		PlatformWorkbuddy,
+		PlatformZcode,
 	}
 }
 

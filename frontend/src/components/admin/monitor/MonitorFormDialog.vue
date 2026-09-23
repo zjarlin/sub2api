@@ -269,6 +269,12 @@ import {
   PROVIDER_KIMI,
   PROVIDER_ZHIPU,
   PROVIDER_DEEPSEEK,
+  PROVIDER_MINIMAX,
+  PROVIDER_OPENCODE_GO,
+  PROVIDER_DOUBAO,
+  PROVIDER_TRAEWORK,
+  PROVIDER_WORKBUDDY,
+  PROVIDER_ZCODE,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_RESPONSES,
   CHECK_MODE_PROBE,
@@ -279,6 +285,8 @@ import {
   DEFAULT_KIMI_ENDPOINT,
   DEFAULT_ZHIPU_ENDPOINT,
   DEFAULT_DEEPSEEK_ENDPOINT,
+  DEFAULT_MINIMAX_ENDPOINT,
+  DEFAULT_OPENCODE_GO_ENDPOINT,
   DEFAULT_INTERVAL_SECONDS,
 } from '@/constants/channelMonitor'
 
@@ -473,6 +481,12 @@ const providerOptions = computed<ProviderOption[]>(() => [
   { value: PROVIDER_KIMI, label: t('monitorCommon.providers.kimi') },
   { value: PROVIDER_ZHIPU, label: t('monitorCommon.providers.zhipu') },
   { value: PROVIDER_DEEPSEEK, label: t('monitorCommon.providers.deepseek') },
+  { value: PROVIDER_MINIMAX, label: t('monitorCommon.providers.minimax') },
+  { value: PROVIDER_OPENCODE_GO, label: t('monitorCommon.providers.opencode_go') },
+  { value: PROVIDER_DOUBAO, label: t('monitorCommon.providers.doubao') },
+  { value: PROVIDER_TRAEWORK, label: t('monitorCommon.providers.traework') },
+  { value: PROVIDER_WORKBUDDY, label: t('monitorCommon.providers.workbuddy') },
+  { value: PROVIDER_ZCODE, label: t('monitorCommon.providers.zcode') },
 ])
 
 // 国产 provider 预填的官方 endpoint（仅探活侧；配额模式 endpoint 可留空）。
@@ -480,6 +494,8 @@ const PROVIDER_DEFAULT_ENDPOINTS: Partial<Record<Provider, string>> = {
   [PROVIDER_KIMI]: DEFAULT_KIMI_ENDPOINT,
   [PROVIDER_ZHIPU]: DEFAULT_ZHIPU_ENDPOINT,
   [PROVIDER_DEEPSEEK]: DEFAULT_DEEPSEEK_ENDPOINT,
+  [PROVIDER_MINIMAX]: DEFAULT_MINIMAX_ENDPOINT,
+  [PROVIDER_OPENCODE_GO]: DEFAULT_OPENCODE_GO_ENDPOINT,
 }
 
 interface CheckModeOption {
@@ -501,14 +517,14 @@ const checkModeOptions = computed<CheckModeOption[]>(() => [
     value: CHECK_MODE_QUOTA,
     label: t('admin.channelMonitor.form.checkModeQuota'),
     hint: t('admin.channelMonitor.form.checkModeQuotaHint'),
-    disabled: false,
+    disabled: form.provider === PROVIDER_DOUBAO || form.provider === PROVIDER_TRAEWORK || form.provider === PROVIDER_WORKBUDDY,
   },
   {
     value: CHECK_MODE_QUOTA_PROBE,
     label: t('admin.channelMonitor.form.checkModeQuotaProbe'),
     hint: t('admin.channelMonitor.form.checkModeQuotaProbeHint'),
-    // antigravity 无探活 adapter，只支持配额模式。
-    disabled: form.provider === PROVIDER_ANTIGRAVITY,
+    // 豆包 / TRAE Work 不提供配额查询，antigravity 不提供探活。
+    disabled: form.provider === PROVIDER_ANTIGRAVITY || form.provider === PROVIDER_DOUBAO || form.provider === PROVIDER_TRAEWORK || form.provider === PROVIDER_WORKBUDDY,
   },
 ])
 
@@ -682,6 +698,15 @@ function selectProvider(provider: Provider) {
   if (previousProvider === PROVIDER_ANTIGRAVITY && form.check_mode === CHECK_MODE_QUOTA) {
     form.check_mode = CHECK_MODE_PROBE
     if (form.primary_model.trim() === 'quota') form.primary_model = ''
+  }
+  if (provider === PROVIDER_DOUBAO) {
+    form.check_mode = CHECK_MODE_PROBE
+    form.primary_model = 'doubao-chat-turbo'
+  }
+  if (provider === PROVIDER_TRAEWORK || provider === PROVIDER_WORKBUDDY) {
+    form.check_mode = CHECK_MODE_PROBE
+    form.primary_model = 'glm-5.2'
+    form.endpoint = ''
   }
   if (provider === PROVIDER_GROK) {
     if (!form.endpoint.trim()) form.endpoint = DEFAULT_GROK_ENDPOINT

@@ -1,0 +1,9 @@
+services:
+  desktop-api:
+    container_name: sub2api-doubao-desktop
+    networks: [gateway]
+
+networks:
+  gateway:
+    external: true
+    name: "${SUB2API_NETWORK:?Set the existing Sub2API Docker network}"

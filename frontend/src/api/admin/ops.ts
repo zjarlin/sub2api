@@ -37,6 +37,7 @@ export interface OpsDashboardOverview {
   job_heartbeats?: OpsJobHeartbeat[] | null
 
   success_count: number
+  recovered_success_count?: number
   error_count_total: number
   business_limited_count: number
   error_count_sla: number
@@ -107,7 +108,7 @@ export interface OpsThroughputTrendResponse {
 
 export type OpsRequestKind = 'success' | 'error'
 export type OpsRequestDetailsKind = OpsRequestKind | 'all'
-export type OpsRequestDetailsSort = 'created_at_desc' | 'duration_desc'
+export type OpsRequestDetailsSort = 'created_at_desc' | 'duration_desc' | 'ttft_desc'
 
 export interface OpsRequestDetail {
   kind: OpsRequestKind
@@ -117,6 +118,7 @@ export interface OpsRequestDetail {
   platform?: string
   model?: string
   duration_ms?: number | null
+  first_token_ms?: number | null
   status_code?: number | null
 
   error_id?: number | null
@@ -817,6 +819,7 @@ export interface OpsAggregationSettings {
 
 export interface OpsRuntimeLogConfig {
   level: 'debug' | 'info' | 'warn' | 'error'
+  persist_access_logs: boolean
   enable_sampling: boolean
   sampling_initial: number
   sampling_thereafter: number
@@ -921,6 +924,7 @@ export interface OpsErrorLog {
   // 关联 api_key 名称（后端 LEFT JOIN api_keys；软删保留 name，故已删 key 仍有原名）。
   api_key_name?: string
   api_key_deleted?: boolean
+  account_attempts?: Array<{ account_id: number; account_name: string }>
   account_id?: number | null
   account_name: string
   group_id?: number | null
@@ -1082,7 +1086,7 @@ export async function getOpenAITokenStats(
   return data
 }
 
-export type OpsErrorListView = 'errors' | 'excluded' | 'all'
+export type OpsErrorListView = 'errors' | 'excluded' | 'all' | 'recovered'
 
 export type OpsErrorListQueryParams = {
   page?: number

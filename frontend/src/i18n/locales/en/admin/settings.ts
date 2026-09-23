@@ -1,5 +1,45 @@
 export default {
     settings: {
+      visionFallback: {
+        title: 'Vision assistants and fallback',
+        description: 'A vision assistant describes images for the primary model. If it fails, backup assistants are tried in order while the primary model continues the original task.',
+        enabled: 'Enable vision assistance and fallback',
+        models: 'Vision models in order (preferred model first)',
+        modelsHint: 'One exact model ID per line, up to 64. Available accounts for each model are tried before the next model. Only permitted native vision accounts in the API key group are eligible.',
+        allowUnlisted: 'Try other vision models in the group after this list',
+        candidateTimeout: 'Timeout per assistant (seconds)',
+        totalTimeout: 'Total vision assistance timeout (seconds)',
+        scope: 'Images and primary account retries share the total budget; the shorter timeout applies. Failed assistance preserves images and tool results. Native vision models handle images directly. Assistant calls have separate usage and costs.',
+        required: 'Configure at least one vision model or allow unlisted models when enabled.',
+        invalidModels: 'Use up to 64 unique exact model IDs, each at most 200 characters, without whitespace or wildcards.',
+        invalidTimeout: 'Timeouts must be whole seconds between 1 and 9223372036.',
+        saved: 'Vision fallback saved. New requests and WebSocket turns use the updated policy.'
+      },
+      modelFallback: {
+  "title": "Model tiers and automatic fallback",
+  "description": "After same-model accounts are exhausted, try other models in the same tier, then each lower tier. Intermediate failures stay in the monitoring chain.",
+  "enabled": "Enable tiered model fallback",
+  "scope": "For Responses, Chat Completions and Messages, including streaming, on OpenAI-compatible account pools. Candidates must satisfy group access and request capabilities. Stateful references, hosted tools and committed output cannot be replayed across models.",
+  "tierName": "Tier {index} name",
+  "models": "Tier {index} model IDs",
+  "moveUp": "Move tier up",
+  "moveDown": "Move tier down",
+  "modelsHint": "Order tiers from highest to lowest and enter one exact model ID per line. Models within a tier follow the listed order. Add aliases explicitly to the same tier. Unranked models only retry same-model accounts. Limit: 12 tiers and 64 models.",
+  "addTier": "Add lower tier",
+  "preset": "Load public-data preset (unsaved)",
+  "saved": "Tiers saved. Subsequent requests will use the new configuration.",
+  "reload": "Reload",
+  "reference": "Preset tiers use the highest evaluated reasoning effort and 10-point score bands. They do not imply equivalence for every task or effort, and never automatically overwrite your configuration. Source:",
+  "required": "Each tier needs a name and models. Keep at least one tier when enabled.",
+  "duplicate": "Tier names and model IDs must be unique.",
+  "invalidModels": "Use at most 64 exact model IDs, each at most 200 characters, without wildcards."
+},
+      modelSystemPrompts: {
+  title: 'Model system prompts', description: 'Append a system prompt to specific models to enforce language, tone and similar constraints. Matches the canonical model ID after alias resolution and applies to OpenAI-compatible endpoints only.', model: 'Model ID {index}', prompt: 'Prompt {index}', promptPlaceholder: 'For example: Always answer in Simplified Chinese unless the user explicitly asks for another language.', hint: 'Use the canonical model ID (see Global model synonyms). When matched, the prompt is appended after existing system content and never replaces the client system prompt.', add: 'Add model prompt', saved: 'Model prompts saved and active for subsequent requests.', required: 'Each entry needs a model ID and a prompt.', duplicate: 'Model IDs must be unique.',
+},
+      modelAliases: {
+  title: 'Global model synonyms', description: 'Manage equivalent IDs across channels. Request logs keep the requested, canonical, upstream and account values.', canonical: 'Canonical model ID {index}', aliases: 'Synonym IDs {index}', hint: 'Use the first line for the canonical ID and one synonym per line below. Account mappings are not modified.', add: 'Add synonym group', saved: 'Synonyms saved and active for subsequent requests.', required: 'Each group needs a canonical ID and at least one synonym.', duplicate: 'Every model ID must be globally unique.',
+},
       title: 'System Settings',
       description: 'Manage registration, email verification, default values, and SMTP settings',
       tabs: {
@@ -34,6 +74,9 @@ export default {
           showQuota: 'Show channel usage/balance to users',
           showQuotaHint:
             'When on, quota-mode channel monitors expose the linked account usage windows/balance on the user Channel Status page. Disabled by default; admins always see it.',
+          hideUserRanking: 'Hide user ranking from users',
+          hideUserRankingHint:
+            'When on, the user Channel Monitor V2 page hides the user ranking tab and the user API returns no ranking rows. Admins still see the ranking.',
         },
         availableChannels: {
           title: 'Available Channels',
@@ -41,6 +84,21 @@ export default {
           configureLink: 'Configure model pricing in Channel Management > Channel Pricing',
           enabled: 'Enable Available Channels',
           enabledHint: 'When off, the sidebar entry is hidden and the endpoint returns an empty list.',
+        },
+        siteBillingMode: {
+          title: 'Site Billing Mode',
+          description: 'Controls which purchase options users see. Defaults to "Recharge & Subscription".',
+          label: 'Purchase options',
+          options: {
+            rechargeAndSubscription: 'Recharge & Subscription',
+            rechargeOnly: 'Recharge only',
+            subscriptionOnly: 'Subscription only',
+          },
+          hints: {
+            rechargeAndSubscription: 'Users can both top up their balance and buy subscription plans.',
+            rechargeOnly: 'Hides "My Subscriptions", the purchase-page subscription tab, the header subscription badge and the usage billing-type filter; direct visits to "My Subscriptions" return to the dashboard. The admin sidebar also hides the "Subscription Management" entry (the page stays reachable by URL). Existing subscription billing and redeem-code subscriptions are unaffected.',
+            subscriptionOnly: 'The purchase page only offers subscription plans and the sidebar entry reads "Subscription"; balance top-up orders are rejected. Redeem codes, affiliate payouts and other balance credits are unaffected.',
+          },
         },
         modelPlaza: {
           title: 'Model Plaza',
@@ -404,7 +462,7 @@ export default {
         subscriptionGroup: 'Subscription Group',
         subscriptionValidityDays: 'Validity (days)',
         defaultPlatformQuotas: 'Default Platform Quotas (on signup)',
-        defaultPlatformQuotasHint: 'Automatically assigned to new users on signup; existing users are not affected. Leave blank = unlimited.',
+        defaultPlatformQuotasHint: 'Applied to new users on signup; existing users are not affected. Leave blank = no limit for that platform and window.',
         platformQuotaNotice: 'Monthly quota uses a 30-day rolling window, not a calendar month.',
       },
       platformQuota: {
@@ -465,7 +523,7 @@ export default {
         grokDefaultTextModel: 'Default Grok text model',
         grokDefaultTextModelHint: 'Used for empty model values and, only when the switch is enabled, requests from other client model namespaces. Custom Grok model IDs are accepted.',
         grokCrossClientMap: 'Map other clients to Grok',
-        grokCrossClientMapHint: 'Disabled by default. When enabled, GPT, Codex, o-series, and Claude model IDs are routed to the default Grok text model above.',
+        grokCrossClientMapHint: 'Enabled by default for client compatibility. GPT, Codex, o-series, and Claude model IDs are routed to the default Grok text model above. Disable this to require Grok model IDs.',
         grokDefaultBaseURLMode: 'Default Grok upstream',
         grokDefaultBaseURLModeHint: 'Used only when a Grok account has no explicit base URL. Media and voice endpoints continue to use their official API hosts.',
         grokBaseURLModeCLI: 'CLI chat proxy',
@@ -473,6 +531,10 @@ export default {
         grokBaseURLModeUSEast1: 'Regional API (us-east-1)',
         grokBaseURLModeUSWest2: 'Regional API (us-west-2)',
         grokBaseURLModeEUWest1: 'Regional API (eu-west-1)',
+        openaiTTFTMode: 'OpenAI Responses first-token metric',
+        openaiTTFTModeSemantic: 'Legacy-compatible (semantic event)',
+        openaiTTFTModeVisible: 'Actual visible output',
+        openaiTTFTModeHint: 'The default records first_token_ms at the first non-preamble semantic event. Actual visible output records it only when non-empty text, tool arguments, or image content arrives.',
         fingerprintUnification: 'Fingerprint Unification',
         fingerprintUnificationHint: 'Unify X-Stainless-* headers across users sharing the same OAuth account. Disabling passes through each client\'s original headers.',
         metadataPassthrough: 'Metadata Passthrough',
@@ -670,6 +732,7 @@ export default {
         namePlaceholder: 'e.g. Help Center',
         url: 'Page URL',
         urlPlaceholder: 'https://example.com/page',
+        hideOpenButton: 'Hide the “Open in new tab” button',
         iconSvg: 'SVG Icon',
         iconSvgPlaceholder: '<svg>...</svg>',
         iconPreview: 'Icon Preview',
@@ -751,7 +814,7 @@ export default {
         validationFieldRequired: '{field} is required',
         validationEasyPayCustomMethodRequired: 'Each custom EasyPay method requires both a payment type and an upstream type',
         validationEasyPayCustomMethodTypeInvalid: 'Custom EasyPay payment types may only contain lowercase letters, digits, underscores, and hyphens',
-        validationEasyPayCustomMethodUpstreamTypeInvalid: 'EasyPay upstream types may only contain lowercase letters, digits, underscores, and hyphens',
+        validationEasyPayCustomMethodUpstreamTypeInvalid: 'EasyPay upstream types may only contain lowercase letters, digits, periods, underscores, and hyphens',
         validationEasyPayCustomMethodReserved: 'Custom EasyPay payment types cannot use built-in alipay or wxpay',
         validationEasyPayCustomMethodPrefixReserved: 'Custom EasyPay payment types cannot start with alipay or wxpay',
         validationEasyPayCustomMethodDuplicate: 'Custom EasyPay payment types must be unique',
@@ -1077,7 +1140,7 @@ export default {
       },
       openaiFastPolicy: {
         title: 'OpenAI Fast/Flex Policy',
-        description: 'Intercept, filter, or pass OpenAI fast(priority) / flex requests based on the request body service_tier field. Applies to the OpenAI gateway only.',
+        description: 'Intercept, filter, or pass OpenAI fast(priority), ultrafast, or flex requests based on the request body service_tier field. Applies to the OpenAI gateway only. "All tier values" includes explicitly sent tiers only.',
         empty: 'No rules configured. Click the button below to add one.',
         ruleHeader: 'Rule #{index}',
         removeRule: 'Remove rule',
@@ -1085,7 +1148,9 @@ export default {
         saveHint: 'Saved together with system settings (click the global Save button at the bottom of the page).',
         serviceTier: 'service_tier match',
         tierAll: 'All tier values',
+        tierMissing: 'Omitted tier',
         tierPriority: 'priority (fast)',
+        tierUltrafast: 'ultrafast',
         tierFlex: 'flex',
         action: 'Action',
         actionPass: 'Pass (keep service_tier)',

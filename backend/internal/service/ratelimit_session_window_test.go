@@ -84,10 +84,10 @@ func (m *sessionWindowMockRepo) Delete(context.Context, int64) error    { panic(
 func (m *sessionWindowMockRepo) List(context.Context, pagination.PaginationParams) ([]Account, *pagination.PaginationResult, error) {
 	panic("unexpected")
 }
-func (m *sessionWindowMockRepo) ListWithFilters(context.Context, pagination.PaginationParams, string, string, string, string, int64, string) ([]Account, *pagination.PaginationResult, error) {
+func (m *sessionWindowMockRepo) ListWithFilters(context.Context, pagination.PaginationParams, string, string, string, string, int64, string, *float64, *float64) ([]Account, *pagination.PaginationResult, error) {
 	panic("unexpected")
 }
-func (m *sessionWindowMockRepo) ListAllWithFilters(context.Context, string, string, string, string, int64, string) ([]Account, error) {
+func (m *sessionWindowMockRepo) ListAllWithFilters(context.Context, string, string, string, string, int64, string, *float64, *float64) ([]Account, error) {
 	panic("unexpected")
 }
 func (m *sessionWindowMockRepo) ListByGroup(context.Context, int64) ([]Account, error) {
@@ -164,7 +164,9 @@ func (m *sessionWindowMockRepo) BulkUpdate(context.Context, []int64, AccountBulk
 func (m *sessionWindowMockRepo) IncrementQuotaUsed(context.Context, int64, float64) error {
 	panic("unexpected")
 }
-func (m *sessionWindowMockRepo) ResetQuotaUsed(context.Context, int64) error { panic("unexpected") }
+func (m *sessionWindowMockRepo) ResetQuotaUsedAndClearRateLimitCooldown(context.Context, int64) error {
+	panic("unexpected")
+}
 func (m *sessionWindowMockRepo) RevertProxyFallback(context.Context, int64) error {
 	panic("unexpected")
 }

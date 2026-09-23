@@ -18,6 +18,13 @@ var (
 const AccountListGroupUngrouped int64 = -1
 const AccountPrivacyModeUnsetFilter = "__unset__"
 
+// AccountListFilters 是账号列表的可选过滤条件。倍率区间为闭区间；
+// nil 表示不过滤，同时设置 min/max 时要求 min <= max。
+type AccountListFilters struct {
+	RateMultiplierMin *float64
+	RateMultiplierMax *float64
+}
+
 // OAuthRefreshPageOptions describes one bounded, cursor-stable scan of OAuth
 // accounts. Candidate platforms are supplied by TokenRefreshService's refresher
 // registry so repository eligibility cannot drift from registered providers.
@@ -67,10 +74,10 @@ type AccountRepository interface {
 	Delete(ctx context.Context, id int64) error
 
 	List(ctx context.Context, params pagination.PaginationParams) ([]Account, *pagination.PaginationResult, error)
-	ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, *pagination.PaginationResult, error)
+	ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, rateMultiplierMin, rateMultiplierMax *float64) ([]Account, *pagination.PaginationResult, error)
 	// ListAllWithFilters 返回符合过滤条件的全部账号（不分页），用于账号列表页
 	// 计算 OpenAI 调度分数的过滤范围池。
-	ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string) ([]Account, error)
+	ListAllWithFilters(ctx context.Context, platform, accountType, status, search string, groupID int64, privacyMode string, rateMultiplierMin, rateMultiplierMax *float64) ([]Account, error)
 	ListByGroup(ctx context.Context, groupID int64) ([]Account, error)
 	ListActive(ctx context.Context) ([]Account, error)
 	ListByPlatform(ctx context.Context, platform string) ([]Account, error)
@@ -91,8 +98,8 @@ type AccountRepository interface {
 	ListSchedulableByGroupIDAndPlatforms(ctx context.Context, groupID int64, platforms []string) ([]Account, error)
 	ListSchedulableUngroupedByPlatform(ctx context.Context, platform string) ([]Account, error)
 	ListSchedulableUngroupedByPlatforms(ctx context.Context, platforms []string) ([]Account, error)
-	// ListModelAvailabilityCandidates 返回用于模型支持诊断的配置账号。
-	// 结果包含正常可调度账号和错误状态账号，但排除 inactive/disabled 账号；
+	// ListModelAvailabilityCandidates 返回用于模型支持诊断和停调恢复的配置账号。
+	// 结果包含 active 与 error 状态账号，但排除 disabled 账号；
 	// groupID 为空时，includeGrouped 决定是否包含已绑定分组的账号。
 	ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error)
 
@@ -112,14 +119,26 @@ type AccountRepository interface {
 	BulkUpdate(ctx context.Context, ids []int64, updates AccountBulkUpdate) (int64, error)
 	// IncrementQuotaUsed 原子递增 API Key 账号的配额用量（总/日/周）
 	IncrementQuotaUsed(ctx context.Context, id int64, amount float64) error
-	// ResetQuotaUsed 重置 API Key 账号所有维度的配额用量为 0
-	ResetQuotaUsed(ctx context.Context, id int64) error
+	// ResetQuotaUsedAndClearRateLimitCooldown atomically resets API Key quota usage
+	// and clears only the account-level rate-limit cooldown.
+	ResetQuotaUsedAndClearRateLimitCooldown(ctx context.Context, id int64) error
 	// RevertProxyFallback 将账号的 proxy_id 切回 proxy_fallback_origin_id，并清空 origin 字段。
 	// 仅当 proxy_fallback_origin_id IS NOT NULL 时更新，否则视为账号不存在（返回 ErrAccountNotFound）。
 	RevertProxyFallback(ctx context.Context, accountID int64) error
 	// ListShadowsByParent 返回指定父账号的影子账号；当前实现仅查 quota_dimension='spark'（唯一预设）。
 	// ⚠️ 新增影子维度时：须更新此函数（或新增维度专用列举），并检查所有调用点（级联删除/一母一影校验/type 守卫），否则会静默漏掉新维度。
 	ListShadowsByParent(ctx context.Context, parentID int64) ([]*Account, error)
+}
+
+// AccountRecoveryCandidateRepository 仅由支持停调账号探活的仓库实现。
+type AccountRecoveryCandidateRepository interface {
+	ListAccountRecoveryCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error)
+}
+
+// AccountUnsupportedModelRepository 持久化账号的负向模型能力，并同步调度快照。
+type AccountUnsupportedModelRepository interface {
+	SetUnsupportedModel(ctx context.Context, accountID int64, model string, observation UnsupportedModelObservation) error
+	ClearUnsupportedModels(ctx context.Context, accountID int64) error
 }
 
 type AccountDuplicateRepository interface {
@@ -511,8 +530,8 @@ func (s *AccountService) TestCredentials(ctx context.Context, id int64) error {
 	case PlatformGrok:
 		// Grok OAuth credentials are validated via token exchange/refresh and request-path probes.
 		return nil
-	case PlatformKimi, PlatformZhipu, PlatformDeepseek:
-		// 国产 OpenAI 兼容供应商：凭证为 API Key，实际可用性经余额/额度探测与转发路径验证。
+	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformZcode:
+		// 国产 OpenAI 兼容供应商与 OpenCode：凭证为 API Key，实际可用性经余额/额度探测与转发路径验证。
 		return nil
 	default:
 		return fmt.Errorf("unsupported platform: %s", account.Platform)

@@ -24,28 +24,50 @@
           : 'rounded-lg border border-gray-200 bg-gray-50 dark:border-dark-600 dark:bg-dark-800'
       ]"
     >
-      <label
+      <div
         v-for="group in filteredGroups"
         :key="group.id"
         class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 transition-colors hover:bg-white dark:hover:bg-dark-700"
-        :title="t('admin.groups.rateAndAccounts', { rate: group.rate_multiplier, count: group.account_count || 0 })"
+        :title="group.rate_multiplier == null ? group.name : t('admin.groups.rateAndAccounts', { rate: group.rate_multiplier, count: group.account_count || 0 })"
       >
-        <input
-          type="checkbox"
-          :value="group.id"
-          :checked="modelValue.includes(group.id)"
-          @change="handleChange(group.id, ($event.target as HTMLInputElement).checked)"
-          class="h-3.5 w-3.5 shrink-0 rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
-        />
-        <GroupBadge
-          :name="group.name"
-          :platform="group.platform"
-          :subscription-type="group.subscription_type"
-          :rate-multiplier="group.rate_multiplier"
-          class="min-w-0 flex-1"
-        />
-        <span class="shrink-0 text-xs text-gray-400">{{ group.account_count || 0 }}</span>
-      </label>
+        <label class="flex min-w-0 flex-1 cursor-pointer items-center gap-2">
+          <input
+            type="checkbox"
+            :value="group.id"
+            :checked="modelValue.includes(group.id)"
+            data-testid="group-option-checkbox"
+            :data-group-id="group.id"
+            :data-group-platform="group.platform"
+            @change="handleChange(group.id, ($event.target as HTMLInputElement).checked)"
+            class="h-3.5 w-3.5 shrink-0 rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
+          />
+          <GroupBadge
+            :name="group.name"
+            :platform="group.platform"
+            :subscription-type="group.subscription_type || undefined"
+            :rate-multiplier="group.rate_multiplier == null ? undefined : group.rate_multiplier"
+            class="min-w-0 flex-1"
+          />
+          <span class="shrink-0 text-xs text-gray-400">{{ group.account_count || 0 }}</span>
+        </label>
+        <label
+          v-if="showDefaultSelector"
+          class="flex h-6 shrink-0 cursor-pointer items-center gap-1 rounded-md border px-1.5 text-[11px] font-medium transition-colors"
+          :class="defaultGroupId === group.id
+            ? 'border-primary-200 bg-primary-50 text-primary-700 dark:border-primary-700/60 dark:bg-primary-900/20 dark:text-primary-300'
+            : 'border-transparent text-gray-500 hover:bg-gray-100 dark:text-gray-400 dark:hover:bg-dark-600'"
+          :title="t('admin.accounts.quickOpenAI.defaultGroupHint')"
+          @click.stop
+        >
+          <input
+            type="checkbox"
+            :checked="defaultGroupId === group.id"
+            class="h-3.5 w-3.5 rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
+            @change="handleDefaultGroupChange(group.id, ($event.target as HTMLInputElement).checked)"
+          />
+          <span class="leading-none">{{ t('common.default') }}</span>
+        </label>
+      </div>
       <div
         v-if="filteredGroups.length === 0"
         class="col-span-2 py-2 text-center text-sm text-gray-500 dark:text-gray-400"
@@ -57,27 +79,35 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import GroupBadge from './GroupBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
-import type { AdminGroup, GroupPlatform } from '@/types'
+import type { Group, GroupPlatform } from '@/types'
+import { mixedSchedulingTargets, usesAutomaticMixedScheduling } from '@/constants/platforms'
+import { useAuthStore } from '@/stores'
 
 const { t } = useI18n()
+const authStore = useAuthStore()
 
 interface Props {
   modelValue: number[]
-  groups: AdminGroup[]
-  platform?: GroupPlatform // Optional platform filter
-  mixedScheduling?: boolean // For antigravity accounts: allow anthropic/gemini groups
+  groups: (Group & { account_count?: number })[]
+  platform?: GroupPlatform // 可选的平台筛选条件
+  mixedScheduling?: boolean // Antigravity 账号启用后可选择 Anthropic/Gemini 分组
   searchable?: boolean | 'auto'
+  showDefaultSelector?: boolean
+  defaultGroupId?: number | null
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  searchable: 'auto'
+  searchable: 'auto',
+  showDefaultSelector: false,
+  defaultGroupId: null
 })
 const emit = defineEmits<{
   'update:modelValue': [value: number[]]
+  'update:defaultGroupId': [value: number | null]
 }>()
 
 const searchText = ref('')
@@ -87,19 +117,21 @@ const isSearchable = computed(() => {
   return props.searchable
 })
 
-// Filter groups by platform if specified
+// 指定平台时，仅展示该平台、组合分组及兼容的目标分组。
 const filteredGroups = computed(() => {
-  let result: AdminGroup[] = props.groups
+  let result = authStore.isSimpleMode
+    ? props.groups.filter((g) => g.platform !== 'composite')
+    : props.groups
   if (props.platform) {
-    // antigravity 账户启用混合调度后，可选择 anthropic/gemini 分组
-    if (props.platform === 'antigravity' && props.mixedScheduling) {
-      result = result.filter(
-        (g) => g.platform === 'antigravity' || g.platform === 'anthropic' || g.platform === 'gemini' || g.platform === 'composite'
-      )
-    } else {
-      // 默认：只能选择同 platform 的分组；composite 分组可接收任意具体平台账号
-      result = result.filter((g) => g.platform === props.platform || g.platform === 'composite')
-    }
+    const enablesCompatibleTargets =
+      usesAutomaticMixedScheduling(props.platform) || props.mixedScheduling
+    const extraTargets = enablesCompatibleTargets ? mixedSchedulingTargets(props.platform) : []
+    result = result.filter(
+      (g) =>
+        g.platform === props.platform ||
+        g.platform === 'composite' ||
+        extraTargets.includes(g.platform)
+    )
   }
   if (isSearchable.value && searchText.value) {
     const q = searchText.value.toLowerCase()
@@ -110,10 +142,25 @@ const filteredGroups = computed(() => {
   return result
 })
 
+watch(
+  () => [authStore.isSimpleMode, props.groups, props.modelValue] as const,
+  () => {
+    if (!authStore.isSimpleMode || props.groups.length === 0) return
+    const visibleIDs = new Set(props.groups.filter((group) => group.platform !== 'composite').map((group) => group.id))
+    const cleaned = props.modelValue.filter((id) => visibleIDs.has(id))
+    if (cleaned.length !== props.modelValue.length) emit('update:modelValue', cleaned)
+  },
+  { immediate: true, deep: true }
+)
+
 const handleChange = (groupId: number, checked: boolean) => {
   const newValue = checked
     ? [...props.modelValue, groupId]
     : props.modelValue.filter((id) => id !== groupId)
   emit('update:modelValue', newValue)
+}
+
+const handleDefaultGroupChange = (groupId: number, checked: boolean) => {
+  emit('update:defaultGroupId', checked ? groupId : null)
 }
 </script>

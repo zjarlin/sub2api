@@ -295,7 +295,8 @@ func TestOpenAIGatewayService_PreviousResponseHonorsGroupAndRequiredPrivacy(t *t
 		{
 			name: "privacy unset",
 			boundAccount: Account{
-				ID: 39041, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+				Credentials: map[string]any{"model_mapping": testModelMapping(codexAutoReviewModel)},
+				ID:          39041, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 				Status: StatusActive, Schedulable: true, Concurrency: 1,
 				GroupIDs: []int64{groupID},
 				Extra:    map[string]any{"openai_apikey_responses_websockets_v2_enabled": true},
@@ -304,7 +305,8 @@ func TestOpenAIGatewayService_PreviousResponseHonorsGroupAndRequiredPrivacy(t *t
 		{
 			name: "privacy policy lookup error fails closed",
 			boundAccount: Account{
-				ID: 39041, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+				Credentials: map[string]any{"model_mapping": testModelMapping(codexAutoReviewModel)},
+				ID:          39041, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 				Status: StatusActive, Schedulable: true, Concurrency: 1,
 				GroupIDs: []int64{groupID},
 				Extra:    map[string]any{"openai_apikey_responses_websockets_v2_enabled": true},
@@ -314,7 +316,8 @@ func TestOpenAIGatewayService_PreviousResponseHonorsGroupAndRequiredPrivacy(t *t
 		{
 			name: "different group",
 			boundAccount: Account{
-				ID: 39041, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+				Credentials: map[string]any{"model_mapping": testModelMapping(codexAutoReviewModel)},
+				ID:          39041, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 				Status: StatusActive, Schedulable: true, Concurrency: 1,
 				GroupIDs: []int64{groupID + 1},
 				Extra: map[string]any{
@@ -328,7 +331,8 @@ func TestOpenAIGatewayService_PreviousResponseHonorsGroupAndRequiredPrivacy(t *t
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			fallback := Account{
-				ID: 39042, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+				Credentials: map[string]any{"model_mapping": testModelMapping(codexAutoReviewModel)},
+				ID:          39042, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 				Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5,
 				GroupIDs: []int64{groupID},
 				Extra: map[string]any{
@@ -392,13 +396,15 @@ func TestOpenAIGatewayService_PreviousResponseHonorsGroupAndRequiredPrivacy(t *t
 func TestOpenAIGatewayService_PreviousResponseSimpleModeIgnoresGroupMembership(t *testing.T) {
 	groupID := int64(3905)
 	bound := Account{
-		ID: 39051, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"model_mapping": testModelMapping(codexAutoReviewModel)},
+		ID:          39051, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 		Status: StatusActive, Schedulable: true, Concurrency: 1,
 		GroupIDs: []int64{groupID + 1},
 		Extra:    map[string]any{"openai_apikey_responses_websockets_v2_enabled": true},
 	}
 	fallback := Account{
-		ID: 39052, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"model_mapping": testModelMapping(codexAutoReviewModel)},
+		ID:          39052, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 		Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 10,
 		GroupIDs: []int64{groupID},
 		Extra:    map[string]any{"openai_apikey_responses_websockets_v2_enabled": true},

@@ -15,7 +15,7 @@ import (
 	entsql "entgo.io/ent/dialect/sql"
 )
 
-func TestListModelAvailabilityCandidates_GroupQueryIncludesErrorStatusAndIgnoresTransientState(t *testing.T) {
+func TestListModelAvailabilityCandidates_GroupQueryIncludesStoppedAndErrorAccounts(t *testing.T) {
 	var capturedSQL string
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(captureEntQueryMatcher{actual: &capturedSQL}))
 	require.NoError(t, err)
@@ -43,11 +43,12 @@ func TestListModelAvailabilityCandidates_GroupQueryIncludesErrorStatusAndIgnores
 	_, whereClause, found := strings.Cut(normalized, " WHERE ")
 	require.True(t, found, "expected WHERE clause in query: %s", normalized)
 	whereClause, _, _ = strings.Cut(whereClause, " ORDER BY ")
-	for _, configuredPredicate := range []string{"group_id", "status", "schedulable", "platform"} {
+	for _, configuredPredicate := range []string{"group_id", "status", "platform"} {
 		require.Contains(t, whereClause, configuredPredicate)
 	}
 	require.Contains(t, whereClause, " OR ", "配置诊断必须包含 error 状态账号")
 	for _, transientPredicate := range []string{
+		"schedulable",
 		"rate_limit_reset_at",
 		"overload_until",
 		"temp_unschedulable_until",

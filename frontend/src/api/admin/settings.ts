@@ -38,17 +38,21 @@ export type SchedulingThresholdPlatformType =
   | "grok"
   | "kimi"
   | "zhipu"
+  | "minimax"
+  | "opencode_go"
 
 export type AccountSchedulingThresholdsMap = Record<SchedulingThresholdPlatformType, number>
 
 // 与后端 AllowedSchedulingThresholdPlatforms 保持一致（deepseek 为余额型，
-// 走余额检测而非用量阈值）。
+// 走余额检测而非用量阈值；minimax Coding/Token Plan 与 OpenCode GO 有滚动窗口）。
 export const SCHEDULING_THRESHOLD_PLATFORMS: SchedulingThresholdPlatformType[] = [
   "openai",
   "anthropic",
   "grok",
   "kimi",
   "zhipu",
+  "minimax",
+  "opencode_go",
 ]
 
 export function normalizeAccountSchedulingThresholdsMap(
@@ -620,6 +624,7 @@ export interface SystemSettings {
   allow_ungrouped_key_scheduling: boolean;
 
   // Gateway forwarding behavior
+  openai_ttft_mode: string;
   enable_fingerprint_unification: boolean;
   enable_metadata_passthrough: boolean;
   enable_cch_signing: boolean;
@@ -719,9 +724,13 @@ export interface SystemSettings {
   channel_monitor_default_interval_seconds: number;
   channel_monitor_hide_throughput?: boolean;
   channel_monitor_show_quota?: boolean;
+  channel_monitor_hide_user_ranking?: boolean;
 
   // Available Channels feature switch
   available_channels_enabled: boolean;
+
+  // Subscription feature switch (user sidebar "My Subscriptions" entry)
+  subscription_enabled: boolean;
 
   // Model Plaza feature switches + description
   model_plaza_enabled: boolean;
@@ -935,6 +944,7 @@ export interface UpdateSettingsRequest {
   min_claude_code_version?: string;
   max_claude_code_version?: string;
   allow_ungrouped_key_scheduling?: boolean;
+  openai_ttft_mode?: string;
   enable_fingerprint_unification?: boolean;
   enable_metadata_passthrough?: boolean;
   enable_cch_signing?: boolean;
@@ -1019,9 +1029,13 @@ export interface UpdateSettingsRequest {
   channel_monitor_default_interval_seconds?: number;
   channel_monitor_hide_throughput?: boolean;
   channel_monitor_show_quota?: boolean;
+  channel_monitor_hide_user_ranking?: boolean;
 
   // Available Channels feature switch
   available_channels_enabled?: boolean;
+
+  // Subscription feature switch
+  subscription_enabled?: boolean;
 
   // Model Plaza feature switches + description
   model_plaza_enabled?: boolean;
@@ -1427,7 +1441,7 @@ export async function updateRectifierSettings(
  * Matches backend dto.OpenAIFastPolicyRule.
  */
 export interface OpenAIFastPolicyRule {
-  service_tier: "all" | "priority" | "flex";
+  service_tier: "all" | "priority" | "flex" | "ultrafast" | "missing";
   action: "pass" | "filter" | "block" | "force_priority";
   scope: "all" | "oauth" | "apikey" | "bedrock";
   user_ids?: number[];
@@ -1584,3 +1598,63 @@ export const settingsAPI = {
 };
 
 export default settingsAPI;
+
+// 模型能力档位从高到低排列，ID 使用精确匹配。
+export interface ModelCapabilityTier {
+  name: string;
+  models: string[];
+}
+export interface ModelFallbackPolicy {
+  enabled: boolean;
+  tiers: ModelCapabilityTier[];
+}
+export async function getModelFallbackPolicy(): Promise<ModelFallbackPolicy> {
+  const { data } = await apiClient.get<ModelFallbackPolicy>("/admin/settings/model-fallback");
+  return data;
+}
+export async function getModelFallbackPreset(): Promise<ModelFallbackPolicy> {
+  const { data } = await apiClient.get<ModelFallbackPolicy>("/admin/settings/model-fallback/preset");
+  return data;
+}
+export async function updateModelFallbackPolicy(policy: ModelFallbackPolicy): Promise<ModelFallbackPolicy> {
+  const { data } = await apiClient.put<ModelFallbackPolicy>("/admin/settings/model-fallback", policy);
+  return data;
+}
+
+export interface VisionFallbackPolicy {
+  enabled: boolean;
+  models: string[];
+  allow_unlisted_models: boolean;
+  candidate_timeout_seconds: number;
+  timeout_seconds: number;
+}
+export async function getVisionFallbackPolicy(): Promise<VisionFallbackPolicy> {
+  const { data } = await apiClient.get<VisionFallbackPolicy>("/admin/settings/vision-fallback");
+  return data;
+}
+export async function updateVisionFallbackPolicy(policy: VisionFallbackPolicy): Promise<VisionFallbackPolicy> {
+  const { data } = await apiClient.put<VisionFallbackPolicy>("/admin/settings/vision-fallback", policy);
+  return data;
+}
+
+export interface ModelAliasGroup { canonical: string; aliases: string[] }
+export interface ModelAliasPolicy { groups: ModelAliasGroup[] }
+export async function getModelAliasPolicy(): Promise<ModelAliasPolicy> {
+  const { data } = await apiClient.get<ModelAliasPolicy>("/admin/settings/model-aliases");
+  return data;
+}
+export async function updateModelAliasPolicy(policy: ModelAliasPolicy): Promise<ModelAliasPolicy> {
+  const { data } = await apiClient.put<ModelAliasPolicy>("/admin/settings/model-aliases", policy);
+  return data;
+}
+
+export interface ModelSystemPromptEntry { model: string; prompt: string }
+export interface ModelSystemPromptPolicy { entries: ModelSystemPromptEntry[] }
+export async function getModelSystemPromptPolicy(): Promise<ModelSystemPromptPolicy> {
+  const { data } = await apiClient.get<ModelSystemPromptPolicy>("/admin/settings/model-system-prompts");
+  return data;
+}
+export async function updateModelSystemPromptPolicy(policy: ModelSystemPromptPolicy): Promise<ModelSystemPromptPolicy> {
+  const { data } = await apiClient.put<ModelSystemPromptPolicy>("/admin/settings/model-system-prompts", policy);
+  return data;
+}
