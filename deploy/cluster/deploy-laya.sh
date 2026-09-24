@@ -14,7 +14,12 @@ for file in \
   test -s "$file" || { echo "缺少 Laya 权重文件: $file" >&2; exit 1; }
 done
 docker network inspect "$NETWORK" >/dev/null
-docker build -t "$IMAGE" -f "$DEPLOY_DIR/edge-laya/docker/Dockerfile" "$DEPLOY_DIR/edge-laya"
+# 国内网络下 Docker Hub 常不可达，允许通过环境变量替换基础镜像源。
+docker build \
+  --build-arg "PYTHON_IMAGE=${EDGE_LAYA_PYTHON_IMAGE:-python:3.12-slim-bookworm}" \
+  -t "$IMAGE" \
+  -f "$DEPLOY_DIR/edge-laya/docker/Dockerfile" \
+  "$DEPLOY_DIR/edge-laya"
 EDGE_LAYA_IMAGE="$IMAGE" EDGE_LAYA_MODELS_DIR="$MODEL_DIR" SUB2API_NETWORK="$NETWORK" \
   docker compose -f "$DEPLOY_DIR/edge-laya/compose/docker-compose.yml" up -d --force-recreate
 for _ in $(seq 1 60); do
