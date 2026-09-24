@@ -23,6 +23,7 @@ describe('BuiltinAdapterLogin', () => {
     expect(complete).toHaveBeenCalledWith('traework', expect.anything(), expect.stringContaining('refreshToken=secret'), expect.any(AbortSignal))
     expect(wrapper.text()).toContain('admin.accounts.builtinLogin.success')
     expect(wrapper.find('input').exists()).toBe(false)
+    expect(wrapper.emitted('authorized')).toHaveLength(1)
     wrapper.unmount()
   })
 
@@ -36,6 +37,7 @@ describe('BuiltinAdapterLogin', () => {
     expect(complete).toHaveBeenCalledTimes(2)
     await vi.advanceTimersByTimeAsync(10000)
     expect(complete).toHaveBeenCalledTimes(2)
+    expect(wrapper.emitted('authorized')).toHaveLength(1)
     wrapper.unmount()
   })
 

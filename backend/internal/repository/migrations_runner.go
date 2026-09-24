@@ -118,6 +118,29 @@ func ApplyMigrations(ctx context.Context, db *sql.DB) error {
 	return applyMigrationsFS(ctx, db, migrations.FS)
 }
 
+// listMigrationFiles 返回按文件名排序的迁移文件列表，并跳过 macOS AppleDouble
+// （._*）等点/下划线开头的垃圾文件。
+//
+// Go embed 的目录模式（如 //go:embed migrations）会自动排除这类文件，但文件
+// glob 模式（如 //go:embed *.sql）不会；fs.Glob 的 "*" 在 Go 中也会匹配点开头
+// 文件（与 shell glob 不同）。若不显式过滤，._001_init.sql 这类二进制乱码会被
+// 当作迁移执行，导致启动失败（2026-09-19 事故）。
+func listMigrationFiles(fsys fs.FS) ([]string, error) {
+	files, err := fs.Glob(fsys, "*.sql")
+	if err != nil {
+		return nil, err
+	}
+	filtered := files[:0]
+	for _, name := range files {
+		if strings.HasPrefix(name, ".") || strings.HasPrefix(name, "_") {
+			continue
+		}
+		filtered = append(filtered, name)
+	}
+	sort.Strings(filtered)
+	return filtered, nil
+}
+
 // applyMigrationsFS 是迁移执行的核心实现。
 // 它从指定的文件系统读取 SQL 迁移文件并按顺序应用。
 //
@@ -173,11 +196,11 @@ func applyMigrationsFS(ctx context.Context, db *sql.DB, fsys fs.FS) error {
 
 	// 获取所有 .sql 迁移文件并按文件名排序。
 	// 命名规范：使用零填充数字前缀（如 001_init.sql, 002_add_users.sql）。
-	files, err := fs.Glob(fsys, "*.sql")
+	// listMigrationFiles 会跳过 ._* / _* 垃圾文件，避免被当作迁移执行。
+	files, err := listMigrationFiles(fsys)
 	if err != nil {
 		return fmt.Errorf("list migrations: %w", err)
 	}
-	sort.Strings(files) // 确保按文件名顺序执行迁移
 
 	for _, name := range files {
 		// 读取迁移文件内容
@@ -447,14 +470,13 @@ func tableExists(ctx context.Context, db migrationConnection, tableName string) 
 }
 
 func latestMigrationBaseline(fsys fs.FS) (string, string, string, error) {
-	files, err := fs.Glob(fsys, "*.sql")
+	files, err := listMigrationFiles(fsys)
 	if err != nil {
 		return "", "", "", err
 	}
 	if len(files) == 0 {
 		return "baseline", "baseline", "", nil
 	}
-	sort.Strings(files)
 	name := files[len(files)-1]
 	contentBytes, err := fs.ReadFile(fsys, name)
 	if err != nil {

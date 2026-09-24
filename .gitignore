@@ -152,9 +152,11 @@ docs/*
 !docs/model-fallback-tiers.md
 !docs/legal/
 !docs/legal/*.md
-!docs/screenshots/
-docs/screenshots/*
-!docs/screenshots/mobile-account-actions-menu.png
+ !docs/screenshots/
+ docs/screenshots/*
+ !docs/screenshots/mobile-account-actions-menu.png
+ !docs/incidents/
+ !docs/incidents/*.md
 .serena/
 .codex/
 frontend/coverage/
@@ -281,3 +283,11 @@ output/
 
 # 边缘计算视觉服务的维护者约定需随源码交付。
 !edge-vision/AGENTS.md
+
+# 本地 Laya 决策服务的维护者约定与权重准备脚本需随源码交付。
+!edge-laya/AGENTS.md
+!edge-laya/scripts/
+!edge-laya/scripts/**
+!edge-laya/tests/
+!edge-laya/tests/**
+edge-laya/tests/__pycache__/

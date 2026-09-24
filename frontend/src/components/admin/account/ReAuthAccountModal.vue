@@ -33,7 +33,9 @@
             }}</span>
             <span class="text-sm text-gray-500 dark:text-gray-400">
               {{
-                isOpenAI
+                isBuiltinAdapterAccount
+                  ? t(`admin.accounts.${builtinAdapterPlatform}.title`)
+                  : isOpenAI
                   ? t('admin.accounts.openaiAccount')
                   : isGemini
                     ? t('admin.accounts.geminiAccount')
@@ -47,6 +49,13 @@
           </div>
         </div>
       </div>
+
+      <BuiltinAdapterLogin
+        v-if="isBuiltinAdapterAccount && builtinAdapterPlatform"
+        :key="builtinAdapterPlatform"
+        :platform="builtinAdapterPlatform"
+        @authorized="handleBuiltinAuthorized"
+      />
 
       <!-- Add Method Selection (Claude only) -->
       <fieldset v-if="isAnthropic" class="border-0 p-0">
@@ -121,6 +130,7 @@
       </div>
 
       <OAuthAuthorizationFlow
+        v-if="!isBuiltinAdapterAccount"
         ref="oauthFlowRef"
         :add-method="addMethod"
         :auth-url="currentAuthUrl"
@@ -206,7 +216,9 @@ import { useGrokOAuth } from '@/composables/useGrokOAuth'
 import type { Account } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
+import BuiltinAdapterLogin from '@/components/account/BuiltinAdapterLogin.vue'
 import OAuthAuthorizationFlow from '@/components/account/OAuthAuthorizationFlow.vue'
+import type { BuiltinLoginPlatform } from '@/api/admin/builtinAdapters'
 
 // Type for exposed OAuthAuthorizationFlow component
 // Note: defineExpose automatically unwraps refs, so we use the unwrapped types
@@ -254,6 +266,11 @@ const isGemini = computed(() => props.account?.platform === 'gemini')
 const isAnthropic = computed(() => props.account?.platform === 'anthropic')
 const isAntigravity = computed(() => props.account?.platform === 'antigravity')
 const isGrok = computed(() => props.account?.platform === 'grok')
+const isBuiltinAdapterAccount = computed(() => ['traework', 'workbuddy', 'zcode'].includes(props.account?.platform ?? ''))
+const builtinAdapterPlatform = computed<BuiltinLoginPlatform | null>(() => {
+  const platform = props.account?.platform
+  return platform === 'traework' || platform === 'workbuddy' || platform === 'zcode' ? platform : null
+})
 
 /**
  * Grok reauth default tab (password auth is hidden):
@@ -364,6 +381,19 @@ const resetState = () => {
 
 const handleClose = () => {
   emit('close')
+}
+
+const handleBuiltinAuthorized = async () => {
+  if (!props.account) return
+  try {
+    const updatedAccount = await adminAPI.accounts.clearError(props.account.id)
+    appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
+    emit('reauthorized', updatedAccount)
+    handleClose()
+  } catch (error: any) {
+    const message = error.response?.data?.detail || error.response?.data?.message || error.message || t('admin.accounts.oauth.authFailed')
+    appStore.showError(message)
+  }
 }
 
 const handleGenerateUrl = async () => {
