@@ -407,6 +407,8 @@ export default {
           anthropicDesc: '直通供应商原生 Anthropic 端点，零转换，适配 Claude Code。',
           responses: 'Responses',
           responsesDesc: '供应商原生 Responses 端点，适配 Codex。',
+          systemone: 'System One',
+          systemoneDesc: '决策模型协议：请求携带 state 与 questions，返回校准概率，不生成文本。',
         },
         zhipuTeam: {
           title: '团队版组织 / 项目 ID',

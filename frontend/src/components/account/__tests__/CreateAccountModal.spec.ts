@@ -274,6 +274,43 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(payload.credentials.api_key).toBeUndefined()
   })
 
+  it('creates Laya through the built-in System One adapter with the systemone protocol', async () => {
+    const wrapper = mountModal()
+    // 平台按钮必须存在：早前平台选择器是硬编码列表，漏加平台会导致完全无法选中。
+    const button = wrapper.get('[data-testid="platform-laya"]')
+    expect(button.exists()).toBe(true)
+    await button.trigger('click')
+
+    // 内置适配器：地址与密钥由后端注入，前端不显示需要手填的密码输入。
+    expect(wrapper.find('form#create-account-form input[type="password"]').exists()).toBe(false)
+    // 决策模型没有 chat/anthropic/responses 变体，因此不提供协议选择。
+    expect(wrapper.find('[data-testid="cn-adaptive-base-url-chat_completions"]').exists()).toBe(false)
+
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Laya')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    const payload = createAccountMock.mock.calls[0]?.[0]
+    expect(payload).toMatchObject({ platform: 'laya', type: 'apikey', concurrency: 1 })
+    expect(payload.credentials.api_protocol).toBe('systemone')
+    expect(payload.credentials.base_url).toBeUndefined()
+    expect(payload.credentials.api_key).toBeUndefined()
+  })
+
+  it('creates JEV through the built-in System One adapter', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="platform-jev"]').trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('JEV')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    const payload = createAccountMock.mock.calls[0]?.[0]
+    expect(payload).toMatchObject({ platform: 'jev', type: 'apikey', concurrency: 1 })
+    expect(payload.credentials.api_protocol).toBe('systemone')
+    expect(payload.credentials.base_url).toBeUndefined()
+    expect(payload.credentials.api_key).toBeUndefined()
+  })
+
   it('creates Kimi without mixed_scheduling and synchronizes its model catalog', async () => {
     const wrapper = mountModal()
     await wrapper.get('[data-testid="platform-kimi"]').trigger('click')

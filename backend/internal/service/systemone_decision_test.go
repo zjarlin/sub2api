@@ -85,3 +85,16 @@ func TestSystemOneDecisionCredentialsAcceptValidAPIKey(t *testing.T) {
 		), "platform=%s", platform)
 	}
 }
+
+func TestSystemOneDecisionAccountsReportSystemOneProtocol(t *testing.T) {
+	// IsCNProvider 把 laya/jev 纳入了国产供应商集合，因此 GetAPIProtocol 必须在
+	// 通用 chat_completions 回退之前判定这两个平台，否则协议会被兜成 chat_completions。
+	for _, platform := range []string{PlatformLaya, PlatformJev} {
+		account := &Account{Platform: platform, Credentials: map[string]any{}}
+		require.Equal(t, APIProtocolSystemOne, account.GetAPIProtocol(), "platform=%s", platform)
+	}
+
+	// 对照：ZCode 等内置适配器仍是 chat_completions。
+	zcode := &Account{Platform: PlatformZcode, Credentials: map[string]any{}}
+	require.Equal(t, APIProtocolChatCompletions, zcode.GetAPIProtocol())
+}

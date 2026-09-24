@@ -204,6 +204,8 @@ export default {
           anthropicDesc: 'Native passthrough to the provider’s Anthropic endpoint — ideal for Claude Code.',
           responses: 'Responses',
           responsesDesc: 'Provider’s native Responses endpoint — ideal for Codex.',
+          systemone: 'System One',
+          systemoneDesc: 'Decision protocol: sends state + questions and returns calibrated probabilities. No text is generated.',
         },
         zhipuTeam: {
           title: 'Team Plan Organization / Project ID',
