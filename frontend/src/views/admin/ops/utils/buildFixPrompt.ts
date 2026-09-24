@@ -1,5 +1,6 @@
 import type { OpsDashboardOverview, OpsErrorDetail } from '@/api/admin/ops'
 import { formatNumber } from '@/utils/format'
+import { isVisionAttempt } from './attemptRole'
 
 export interface FixPromptContext {
   locale: string
@@ -11,6 +12,7 @@ export interface FixPromptContext {
 const STAGE_LABEL_ZH: Record<string, string> = {
   routing: '路由',
   account_auth: '账号认证',
+  vision_helper: '视觉辅助',
   upstream: '上游'
 }
 
@@ -48,13 +50,14 @@ export function formatAttemptChain(raw?: string | null, isZh = true): string {
   if (!Array.isArray(parsed)) return ''
   const lines: string[] = []
   for (const entry of parsed) {
-    if (!entry || typeof entry !== 'object') continue
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue
     const e = entry as Record<string, unknown>
+    const role = isVisionAttempt(e) ? (isZh ? '视觉辅助' : 'vision helper') : (isZh ? '文本主请求' : 'text primary request')
     if (e.kind === 'model_fallback') {
       const from = typeof e.from_model === 'string' ? e.from_model : '?'
       const to = typeof e.model === 'string' ? e.model : '?'
       const tier = typeof e.model_tier === 'string' ? ` (${e.model_tier})` : ''
-      lines.push(isZh ? `- 切换模型：${from} → ${to}${tier}` : `- model fallback: ${from} -> ${to}${tier}`)
+      lines.push(isZh ? `- [${role}] 切换模型：${from} → ${to}${tier}` : `- [${role}] model fallback: ${from} -> ${to}${tier}`)
       continue
     }
     const name = typeof e.account_name === 'string' ? e.account_name : ''
@@ -70,10 +73,14 @@ export function formatAttemptChain(raw?: string | null, isZh = true): string {
           : undefined
     const message = collapseText(typeof e.message === 'string' ? e.message : '', 160)
     const parts = [
+      `${isZh ? '用途' : 'role'}=${role}`,
       isZh ? `账号 ${name || '未知'}${id}` : `account ${name || 'unknown'}${id}`,
       stage ? `${isZh ? '阶段' : 'stage'}=${stage}` : '',
       model ? `${isZh ? '模型' : 'model'}=${model}` : '',
       status != null ? `${isZh ? '状态' : 'status'}=${status}` : '',
+      typeof e.image_index === 'number' ? `${isZh ? '图片' : 'image'}=${e.image_index}${typeof e.image_count === 'number' ? `/${e.image_count}` : ''}` : '',
+      e.reason === 'vision_total_timeout' ? (isZh ? '整轮视觉预算耗尽' : 'total vision budget exhausted') : '',
+      e.reason === 'vision_candidate_timeout' ? (isZh ? '单次视觉调用超时' : 'vision candidate timed out') : '',
       message
     ].filter(Boolean)
     lines.push(`- ${parts.join(' | ')}`)

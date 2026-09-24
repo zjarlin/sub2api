@@ -2,6 +2,11 @@
   <section v-if="attempts.length" class="rounded-xl bg-gray-50 p-6 dark:bg-dark-900">
     <h3 class="text-sm font-bold text-gray-900 dark:text-white">{{ t('admin.ops.errorDetail.attemptChain.title') }}</h3>
     <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.ops.errorDetail.attemptChain.description') }}</p>
+    <p v-if="primaryModel" class="mt-2 break-all text-xs text-gray-700 dark:text-gray-300" data-testid="attempt-chain-primary">
+      {{ t('admin.ops.errorDetail.attemptChain.textRole') }} · <span class="font-mono">{{ primaryModel }}</span>
+      <template v-if="primaryAccountName"> · {{ primaryAccountName }}</template>
+      <span v-if="primaryAccountId" class="ml-1 font-mono">#{{ primaryAccountId }}</span>
+    </p>
     <ol class="mt-4 space-y-3">
       <li v-for="(attempt, index) in attempts" :key="index">
         <details
@@ -18,8 +23,12 @@
               class="shrink-0 transition-transform group-open:rotate-90"
             />
             <span class="text-gray-500 dark:text-gray-400">{{ index + 1 }}.</span>
+            <span class="rounded px-2 py-0.5 text-xs font-semibold" :class="attempt.vision ? 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200' : 'bg-gray-200 text-gray-800 dark:bg-dark-700 dark:text-gray-200'" :data-testid="`attempt-chain-role-${index}`">
+              {{ t(`admin.ops.errorDetail.attemptChain.${attempt.vision ? 'visionRole' : 'textRole'}`) }}
+            </span>
             <span class="break-all font-medium text-gray-900 dark:text-white">{{ attempt.modelFallback ? t('admin.ops.errorDetail.attemptChain.modelFallback') : attempt.name || t('common.unknown') }}</span>
             <span v-if="attempt.id" class="font-mono text-xs text-gray-500 dark:text-gray-400">#{{ attempt.id }}</span>
+            <span v-if="attempt.model" class="break-all font-mono text-xs text-gray-700 dark:text-gray-300">{{ attempt.model }}</span>
             <span v-if="!attempt.modelFallback" class="rounded bg-white/70 px-2 py-0.5 text-xs text-gray-700 ring-1 ring-inset ring-black/5 dark:bg-dark-800/70 dark:text-gray-200 dark:ring-white/10">
               {{ t(`admin.ops.errorDetail.attemptChain.${attempt.stage}`) }}<template v-if="attempt.status"> · {{ attempt.status }}</template>
             </span>
@@ -37,13 +46,15 @@
             </p>
             <p v-if="attempt.model" class="break-all font-mono text-xs text-gray-700 dark:text-gray-300"><template v-if="attempt.fromModel">{{ attempt.fromModel }} → </template>{{ attempt.model }}<span v-if="attempt.tier" class="ml-2">· {{ attempt.tier }}</span></p>
             <p v-if="attempt.message && !attempt.modelFallback" class="mt-2 whitespace-pre-wrap break-words text-sm text-gray-800 dark:text-gray-200">{{ attempt.message }}</p>
-            <p v-if="attempt.imageIndex" class="mt-2 text-xs text-gray-600 dark:text-gray-300">{{ t('admin.ops.errorDetail.attemptChain.visionImage', { index: attempt.imageIndex }) }}</p>
+            <p v-if="attempt.imageIndex" class="mt-2 text-xs text-gray-600 dark:text-gray-300">{{ t('admin.ops.errorDetail.attemptChain.visionImage', { index: attempt.imageIndex }) }}<template v-if="attempt.imageCount"> / {{ attempt.imageCount }}</template></p>
+            <p v-if="attempt.timeoutLabel" class="mt-2 text-xs text-gray-600 dark:text-gray-300">{{ t(`admin.ops.errorDetail.attemptChain.${attempt.timeoutLabel}`) }}</p>
             <p v-if="attempt.recoveredByModel" class="mt-2 break-all text-xs text-emerald-700 dark:text-emerald-300">{{ t('admin.ops.errorDetail.attemptChain.visionRecovered', { model: attempt.recoveredByModel, account: attempt.recoveredByAccountId }) }}</p>
           </div>
         </details>
       </li>
       <li v-if="isSuccess" class="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800 dark:border-emerald-500/30 dark:bg-emerald-950/30 dark:text-emerald-200" data-testid="attempt-chain-success">
         <div class="flex flex-wrap items-center gap-2">
+          <span class="text-xs">{{ t('admin.ops.errorDetail.attemptChain.textRole') }}</span>
           <span class="font-semibold">{{ t('admin.ops.errorDetail.attemptChain.finalSuccess') }}</span>
           <span v-if="Number(finalStatusCode) >= 200 && Number(finalStatusCode) < 400">{{ finalStatusCode }}</span>
           <span v-if="finalAccountName" class="break-all">{{ finalAccountName }}</span>
@@ -60,6 +71,7 @@ import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import { formatDateTime } from '@/utils/format'
+import { isVisionAttempt } from '../utils/attemptRole'
 
 const props = defineProps<{
   raw?: string
@@ -68,6 +80,9 @@ const props = defineProps<{
   finalAccountId?: number | null
   finalAccountName?: string
   finalModel?: string
+  primaryModel?: string
+  primaryAccountId?: number | null
+  primaryAccountName?: string
 }>()
 const { t } = useI18n()
 const isSuccess = computed(() => props.finalSucceeded || (Number(props.finalStatusCode) >= 200 && Number(props.finalStatusCode) < 400))
@@ -84,8 +99,11 @@ const attempts = computed(() => {
   const finalFailure = !isSuccess.value && Number(props.finalStatusCode || 0) >= 400
   const attempts = parsed.filter((value): value is Record<string, unknown> => value != null && typeof value === 'object' && !Array.isArray(value)).map(value => ({
     id: positiveNumber(value.account_id),
+    vision: isVisionAttempt(value),
     modelFallback: value.kind === 'model_fallback',
     imageIndex: positiveNumber(value.image_index),
+    imageCount: positiveNumber(value.image_count),
+    timeoutLabel: value.reason === 'vision_total_timeout' ? 'visionTotalTimeout' : value.reason === 'vision_candidate_timeout' ? 'visionCandidateTimeout' : '',
     recoveredByModel: typeof value.recovered_by_model === 'string' ? value.recovered_by_model : '',
     recoveredByAccountId: positiveNumber(value.recovered_by_account_id),
     model: typeof value.model === 'string' ? value.model : '',

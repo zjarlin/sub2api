@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -9,6 +10,29 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestOpsAttemptRolesKeepVisionSeparateFromPrimaryModel(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	SetOpsAttemptModel(c, "kimi-k3")
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{AccountID: 831, Model: "gpt-5.6-luna", Stage: "vision_helper", ImageIndex: 8, ImageCount: 8})
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{AccountID: 837, Stage: "routing"})
+	RecordOpsModelFallback(c, "kimi-k3", "backup", "peer")
+	value, _ := c.Get(OpsUpstreamErrorsKey)
+	encoded := marshalOpsUpstreamErrors(value.([]*OpsUpstreamErrorEvent))
+	require.NotNil(t, encoded)
+	var events []OpsUpstreamErrorEvent
+	require.NoError(t, json.Unmarshal([]byte(*encoded), &events))
+	require.Equal(t, "vision", events[0].RequestRole)
+	require.Equal(t, "gpt-5.6-luna", events[0].Model)
+	require.Equal(t, 8, events[0].ImageCount)
+	require.Equal(t, "text", events[1].RequestRole)
+	require.Equal(t, "kimi-k3", events[1].Model)
+	require.Equal(t, "text", events[2].RequestRole)
+	c.Set(visionFallbackInternalKey, true)
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{Stage: "account_auth"})
+	value, _ = c.Get(OpsUpstreamErrorsKey)
+	require.Equal(t, "vision", value.([]*OpsUpstreamErrorEvent)[3].RequestRole)
+}
 
 func TestRecordOpsAccountCapacityFailurePreservesHistoryAndClearsPreviousUpstream(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())

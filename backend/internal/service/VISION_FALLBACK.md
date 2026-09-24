@@ -105,7 +105,28 @@ Chat 入口在原生 Chat、Responses 和 Anthropic 分流前完成辅助，避�
 
 文字描述无法无损保留图片中的全部信息，精确像素操作仍应选用原生视觉模型。
 
-## 验证
+## 2026-09-24 调用链与混合平台能力
+
+错误链每个事件通过 `request_role` 区分 `vision`（视觉辅助）与 `text`（文本主请求）。
+界面折叠标题和复制诊断文本同时显示用途、该次尝试的实际模型及账号；旧事件仍可通过
+`stage: vision_helper` 识别。主请求模型和账号单独展示，不把视觉助手账号当作文本模型的上游。
+视觉事件包含 `image_index`、`image_count`，本地预算到期分别记录
+`vision_candidate_timeout`（单次助手）或 `vision_total_timeout`（所有图片共用预算）。
+
+线上错误 175076 的主模型为 `kimi-k3`、主账号为 837；831 的 `gpt-5.6-luna`
+仅负责视觉辅助。前七张图片累计约 174 秒，第八张触发整轮 180 秒预算。
+这条记录不能据此判断 831 接收了 Kimi 请求，也不能据此认定视觉能力缺失或欠费。
+
+WorkBuddy、TraeWork 等混合调度来源的目录能力判断复用实际调度的平台匹配规则，
+并按显式模型映射确定能力归属，避免同组通配账号覆盖已确认的原生能力。
+原生视觉和可用辅助都必须反映到 `input_modalities`；平台不兼容或助手关闭时不扩大能力。
+
+本轮对 `gpt-6-sol` 进行了直接上游和真实网关 Responses 图片请求，均正确识别控制图；
+八张不同编号图片的 `q3-4b` 网关请求也全部识别成功。模型能力探测使用不同图片复核，
+只将通过的候选写入运行时有序策略，保留账号已有隔离配置，并关闭列表外自动选取。
+本机 `model_catalog_json` 已同步；Codex 启动时读取该文件，现有桌面进程仍可能持有旧目录。
+
+## 回归测试
 
 重点测试在 `backend/internal/service/vision_fallback_test.go`、`vision_fallback_chat_test.go`、
 `vision_fallback_recovery_test.go` 与 `backend/internal/handler/openai_vision_error_response_test.go`，覆盖能力目录与 ETag、

@@ -127,6 +127,9 @@
 
       <OpsAccountAttemptChain
         :raw="detail.upstream_errors"
+        :primary-model="detail.model || detail.requested_model"
+        :primary-account-id="detail.account_id"
+        :primary-account-name="detail.account_name"
         :final-status-code="detail.status_code"
         :final-succeeded="recovered"
         :final-account-id="detail.type === 'recovered_upstream' ? detail.account_id : null"

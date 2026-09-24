@@ -408,8 +408,11 @@ type OpsUpstreamErrorEvent struct {
 	Model     string `json:"model,omitempty"`
 	FromModel string `json:"from_model,omitempty"`
 	ModelTier string `json:"model_tier,omitempty"`
+	// 用途独立于主请求模型，避免把看图账号误认为文本模型的承接账号。
+	RequestRole string `json:"request_role,omitempty"`
 	// 视觉辅助按图片记录失败与恢复，不影响主账号归因。
 	ImageIndex           int    `json:"image_index,omitempty"`
+	ImageCount           int    `json:"image_count,omitempty"`
 	CandidateIndex       int    `json:"candidate_index,omitempty"`
 	RecoveredByModel     string `json:"recovered_by_model,omitempty"`
 	RecoveredByAccountID int64  `json:"recovered_by_account_id,omitempty"`
@@ -515,6 +518,11 @@ func appendOpsUpstreamError(c *gin.Context, ev OpsUpstreamErrorEvent) {
 	ev.UpstreamResponseBody = strings.TrimSpace(ev.UpstreamResponseBody)
 	ev.Kind = strings.TrimSpace(ev.Kind)
 	ev.Stage = strings.TrimSpace(ev.Stage)
+	if ev.Stage == "vision_helper" || c.GetBool(visionFallbackInternalKey) {
+		ev.RequestRole = "vision"
+	} else {
+		ev.RequestRole = "text"
+	}
 	ev.Scope = strings.TrimSpace(ev.Scope)
 	ev.Reason = strings.TrimSpace(ev.Reason)
 	ev.UpstreamURL = strings.TrimSpace(ev.UpstreamURL)

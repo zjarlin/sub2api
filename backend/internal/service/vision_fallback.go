@@ -501,16 +501,25 @@ func (s *OpenAIGatewayService) callVisionHelper(ctx context.Context, parent *gin
 			clientMessage = "The vision helper returned an empty or oversized image description"
 		}
 		clientStatus := http.StatusBadGateway
+		timeoutReason := ""
 		if errors.Is(forwardErr, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			// 超时由网关预算触发时，上游可能没有返回 HTTP 状态，不能一律记录为 502。
 			failoverStatus = http.StatusGatewayTimeout
 			clientStatus = http.StatusGatewayTimeout
 			clientMessage = "The vision helper timed out while describing the image; please retry later"
+			timeoutReason = "vision_candidate_timeout"
+			if value, ok := parent.Get(visionFallbackStateKey); ok {
+				if state, ok := value.(*visionFallbackState); ok && !time.Now().Before(state.deadline) {
+					timeoutReason = "vision_total_timeout"
+				}
+			}
 		}
 		fields := []zap.Field{
 			zap.Int64("account_id", candidate.account.ID),
 			zap.String("account_name", candidate.account.Name),
 			zap.String("model", candidate.model),
+			zap.String("request_role", "vision"),
+			zap.String("reason", timeoutReason),
 			zap.Int("image_index", imageIndex+1),
 			zap.Int("image_count", imageCount),
 			zap.Int("candidate_index", candidateIndex+1),
@@ -543,7 +552,9 @@ func (s *OpenAIGatewayService) callVisionHelper(ctx context.Context, parent *gin
 			Kind:               "failover",
 			Stage:              "vision_helper",
 			ImageIndex:         imageIndex + 1,
+			ImageCount:         imageCount,
 			CandidateIndex:     candidateIndex + 1,
+			Reason:             timeoutReason,
 			Message:            clientMessage,
 		})
 		// 客户端的脱敏 502/504 不等于上游 HTTP 故障。保留本地预算超时的原因，
@@ -560,6 +571,7 @@ func (s *OpenAIGatewayService) callVisionHelper(ctx context.Context, parent *gin
 	}
 	logger.FromContext(ctx).Info("gateway.vision_helper_succeeded",
 		zap.Int64("account_id", candidate.account.ID), zap.String("model", candidate.model),
+		zap.String("request_role", "vision"),
 		zap.Int("image_index", imageIndex+1), zap.Int("image_count", imageCount),
 		zap.Int("candidate_index", candidateIndex+1), zap.Int("candidate_count", candidateCount),
 		zap.Duration("duration", time.Since(pricingAt)))

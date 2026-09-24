@@ -393,6 +393,49 @@ func TestVisionFallbackVerifiedCapabilityDoesNotCrossModelMappings(t *testing.T)
 	require.False(t, groupModelHasNativeVision([]Account{unknown}, PlatformOpenAI, "coder"))
 }
 
+func TestVisionFallbackManifestMixedScheduling(t *testing.T) {
+	for _, tc := range []struct {
+		name, platform                             string
+		native, catchAll, helperEnabled, wantImage bool
+	}{
+		{"workbuddy native", PlatformWorkbuddy, true, true, false, true},
+		{"workbuddy assisted", PlatformWorkbuddy, false, true, true, true},
+		{"traework assisted", PlatformTraework, false, true, true, true},
+		{"unrelated platform", PlatformAnthropic, true, false, true, false},
+		{"helper disabled", PlatformWorkbuddy, false, true, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			primary := visionTestAccount(1, "mixed-model", "text")
+			primary.Platform = tc.platform
+			if tc.native {
+				primary.SetUpstreamModelMetadataSnapshot(UpstreamModelMetadataSnapshot{
+					Source: "verified-responses-image",
+					Models: map[string]UpstreamModelMetadata{
+						"mixed-model": {ID: "mixed-model", InputModalities: []string{"text", "image"}},
+					},
+				})
+			}
+			helper := visionTestAccount(2, "helper-model", "text", "image")
+			// 显式声明来自混合账号时，OpenAI 通配账号不应覆盖其能力。
+			catchAll := visionTestAccount(3, "*", "text")
+			accounts := []Account{primary, helper}
+			if tc.catchAll {
+				accounts = append(accounts, catchAll)
+			}
+			cfg := visionTestConfig()
+			cfg.Gateway.VisionFallback.Enabled = tc.helperEnabled
+			body, err := applyVisionFallbackManifest(
+				[]byte(`{"models":[{"slug":"mixed-model","input_modalities":["text"]}]}`),
+				cfg, &Group{ID: 7, Platform: PlatformOpenAI}, PlatformOpenAI, accounts, nil, false,
+			)
+			require.NoError(t, err)
+			var modalities []string
+			require.NoError(t, json.Unmarshal([]byte(gjson.GetBytes(body, "models.0.input_modalities").Raw), &modalities))
+			require.Equal(t, tc.wantImage, stringSliceContains(modalities, "image"))
+		})
+	}
+}
+
 func TestVisionFallbackCacheExpiryAndCancellation(t *testing.T) {
 	var cache visionDescriptionCache
 	key := [32]byte{1}

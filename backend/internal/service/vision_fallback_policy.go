@@ -139,7 +139,7 @@ func visionFallbackModelIDs(account *Account) map[string]struct{} {
 func groupVisionAccounts(accounts []Account, platform, model string) []*Account {
 	explicitClaims := false
 	for i := range accounts {
-		if accounts[i].Platform == platform && accounts[i].IsSchedulable() && codexExplicitModelMappingClaims(accounts[i], model) {
+		if openAIAccountMatchesPlatform(&accounts[i], platform) && accounts[i].IsSchedulable() && codexExplicitModelMappingClaims(accounts[i], model) {
 			explicitClaims = true
 			break
 		}
@@ -147,7 +147,7 @@ func groupVisionAccounts(accounts []Account, platform, model string) []*Account 
 	var eligible []*Account
 	for i := range accounts {
 		account := &accounts[i]
-		if account.Platform != platform || !account.IsSchedulable() || !account.IsModelSupported(model) ||
+		if !openAIAccountMatchesPlatform(account, platform) || !account.IsSchedulable() || !account.IsModelSupported(model) ||
 			!account.IsSchedulableForModel(model) ||
 			(explicitClaims && !codexExplicitModelMappingClaims(*account, model)) {
 			continue
@@ -162,7 +162,7 @@ func groupModelHasNativeVision(accounts []Account, platform, model string) bool 
 	verifiedModels := make(map[string]bool)
 	for i := range accounts {
 		account := &accounts[i]
-		if account.Platform != platform || account.Status != StatusActive || !account.IsModelSupported(model) {
+		if !openAIAccountMatchesPlatform(account, platform) || account.Status != StatusActive || !account.IsModelSupported(model) {
 			continue
 		}
 		verified := account.GetUpstreamModelMetadataSnapshot()

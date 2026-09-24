@@ -112,6 +112,13 @@ func TestVisionFallbackTimeoutRetriesWithinTotalBudget(t *testing.T) {
 			events := value.([]*OpsUpstreamErrorEvent)
 			require.Len(t, events, 1)
 			require.Equal(t, http.StatusGatewayTimeout, events[0].UpstreamStatusCode)
+			require.Equal(t, "vision", events[0].RequestRole)
+			require.Equal(t, 1, events[0].ImageCount)
+			if exhaustTotal {
+				require.Equal(t, "vision_total_timeout", events[0].Reason)
+			} else {
+				require.Equal(t, "vision_candidate_timeout", events[0].Reason)
+			}
 			require.Contains(t, events[0].Message, "timed out")
 			require.NotContains(t, events[0].Message, "upstream.example")
 		})

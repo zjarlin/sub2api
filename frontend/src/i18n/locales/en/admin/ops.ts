@@ -315,6 +315,10 @@ export default {
       // Error Detail Modal
       errorDetail: {
         attemptChain: {
+          visionRole: 'Vision helper',
+          textRole: 'Text primary request',
+          visionTotalTimeout: 'Total vision budget exhausted (shared by all images)',
+          visionCandidateTimeout: 'Vision candidate timed out',
           visionHelper: 'Vision assistant',
           visionImage: 'Image {index}',
           visionRecovered: 'Image described by {model} (account #{account})',

@@ -11,6 +11,26 @@ function render(raw: string) {
 }
 
 describe('OpsAccountAttemptChain', () => {
+  it('labels legacy vision and text attempts in collapsed summaries without assigning the primary model to the helper', async () => {
+    const wrapper = render(JSON.stringify([
+      { account_id: 831, account_name: 'vision-provider', model: 'gpt-5.6-luna', stage: 'vision_helper', image_index: 8, image_count: 8, reason: 'vision_total_timeout', upstream_status_code: 504 },
+      { account_id: 837, account_name: 'text-provider', model: 'kimi-k3', upstream_status_code: 503 }
+    ]))
+    await wrapper.setProps({ primaryModel: 'kimi-k3', primaryAccountId: 837, primaryAccountName: 'text-provider' })
+    const summaries = wrapper.findAll('summary')
+    expect(summaries[0].text()).toContain('attemptChain.visionRole')
+    expect(summaries[0].text()).toContain('gpt-5.6-luna')
+    expect(summaries[0].text()).not.toContain('kimi-k3')
+    expect(summaries[1].text()).toContain('attemptChain.textRole')
+    expect(summaries[1].text()).toContain('kimi-k3')
+    expect(wrapper.get('[data-testid="attempt-chain-primary"]').text()).toContain('kimi-k3')
+    expect(wrapper.text()).toContain('attemptChain.visionTotalTimeout')
+  })
+
+  it('uses explicit vision attribution for an internal authentication attempt', () => {
+    const wrapper = render('[{"request_role":"vision","stage":"account_auth","account_id":831}]')
+    expect(wrapper.get('[data-testid="attempt-chain-role-0"]').text()).toContain('attemptChain.visionRole')
+  })
   it('distinguishes failed vision helpers from the primary model and shows recovery', async () => {
     const wrapper = render(JSON.stringify([{ account_id: 3, model: 'preferred-vision', stage: 'vision_helper', image_index: 2, upstream_status_code: 504, recovered_by_model: 'backup-vision', recovered_by_account_id: 4 }]))
     await wrapper.setProps({ finalStatusCode: 502 })

@@ -315,6 +315,10 @@ export default {
       // Error Detail Modal
       errorDetail: {
         attemptChain: {
+          visionRole: '视觉辅助',
+          textRole: '文本主请求',
+          visionTotalTimeout: '整轮视觉预算耗尽（所有图片共用）',
+          visionCandidateTimeout: '单次视觉调用超时',
           visionHelper: '视觉助手',
           visionImage: '图片 {index}',
           visionRecovered: '已由 {model}（账号 #{account}）完成图片描述',
