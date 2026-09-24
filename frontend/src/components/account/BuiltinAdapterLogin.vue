@@ -32,6 +32,9 @@ import { useI18n } from 'vue-i18n'
 import { cancelBuiltinLogin, completeBuiltinLogin, startBuiltinLogin, type BuiltinLoginPlatform, type BuiltinLoginSession } from '@/api/admin/builtinAdapters'
 
 const props = defineProps<{ platform: BuiltinLoginPlatform }>()
+const emit = defineEmits<{
+  authorized: []
+}>()
 const { t } = useI18n()
 const session = ref<BuiltinLoginSession | null>(null)
 const callback = ref('')
@@ -42,6 +45,7 @@ let controller: AbortController | undefined
 let generation = 0
 let disposed = false
 let starting = false
+let authorizedEmitted = false
 
 function stop() {
   generation++
@@ -49,6 +53,7 @@ function stop() {
   controller?.abort()
   busy.value = false
   callback.value = ''
+  authorizedEmitted = false
 }
 
 function showError(err: unknown) {
@@ -107,7 +112,13 @@ async function complete() {
     const result = await completeBuiltinLogin(props.platform, current, callback.value.trim(), controller.signal)
     if (version !== generation) return
     session.value = result
-    if (result.status === 'completed') callback.value = ''
+    if (result.status === 'completed') {
+      callback.value = ''
+      if (!authorizedEmitted) {
+        authorizedEmitted = true
+        emit('authorized')
+      }
+    }
     else if (result.mode === 'poll') timer = setTimeout(complete, 2500)
   } catch (err) {
     if (version === generation) showError(err)
