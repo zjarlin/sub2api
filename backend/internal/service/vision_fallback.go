@@ -44,6 +44,7 @@ type visionHelperID struct {
 type visionFallbackState struct {
 	turn         int
 	policy       *VisionFallbackPolicy
+	aliases      *ModelAliasPolicy
 	deadline     time.Time
 	failed       map[visionHelperID]bool
 	descriptions map[[32]byte]string
@@ -58,6 +59,10 @@ func (s *OpenAIGatewayService) visionFallbackState(ctx context.Context, c *gin.C
 		}
 	}
 	policy, err := loadVisionFallbackPolicy(ctx, s.settingService, s.cfg)
+	var aliases *ModelAliasPolicy
+	if err == nil && policy.Enabled {
+		aliases, err = s.settingService.GetModelAliasPolicy(ctx)
+	}
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
@@ -65,7 +70,7 @@ func (s *OpenAIGatewayService) visionFallbackState(ctx context.Context, c *gin.C
 		return nil, newVisionFallbackFailoverError(http.StatusServiceUnavailable, "Unable to load image assistance policy")
 	}
 	state := &visionFallbackState{
-		turn: turn, policy: policy, deadline: time.Now().Add(time.Duration(policy.TimeoutSeconds) * time.Second),
+		turn: turn, policy: policy, aliases: aliases, deadline: time.Now().Add(time.Duration(policy.TimeoutSeconds) * time.Second),
 		failed: make(map[visionHelperID]bool), descriptions: make(map[[32]byte]string),
 	}
 	c.Set(visionFallbackStateKey, state)
@@ -241,7 +246,7 @@ func (s *OpenAIGatewayService) prepareVisionFallback(ctx context.Context, c *gin
 		}
 		return nil, newVisionFallbackFailoverError(http.StatusServiceUnavailable, "Unable to load image assistance models")
 	}
-	candidates := visionFallbackCandidatesWithPolicy(accounts, state.policy, apiKey.Group)
+	candidates := visionFallbackCandidatesWithPolicy(accounts, state.policy, apiKey.Group, state.aliases)
 	if len(candidates) == 0 {
 		if state.lastErr != nil {
 			return nil, state.lastErr

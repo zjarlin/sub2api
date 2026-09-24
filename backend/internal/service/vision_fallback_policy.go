@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"slices"
 	"sort"
 	"strings"
 
@@ -61,19 +62,19 @@ func visionFallbackPlatform(platform string) bool {
 
 // 候选仅来自调用方分组的可调度 API Key 账号，不扫描其他租户、不猜测模型名。
 func visionFallbackCandidates(accounts []Account, cfg *config.Config, group *Group) []visionFallbackCandidate {
-	return visionFallbackCandidatesWithPolicy(accounts, DefaultVisionFallbackPolicy(cfg), group)
+	return visionFallbackCandidatesWithPolicy(accounts, DefaultVisionFallbackPolicy(cfg), group, nil)
 }
 
-func visionFallbackCandidatesWithPolicy(accounts []Account, policy *VisionFallbackPolicy, group *Group) []visionFallbackCandidate {
+func visionFallbackCandidatesWithPolicy(accounts []Account, policy *VisionFallbackPolicy, group *Group, aliases *ModelAliasPolicy) []visionFallbackCandidate {
 	if !policy.Enabled {
 		return nil
 	}
 	order := make(map[string]int, len(policy.Models))
-	for i, model := range policy.Models {
+	for i, model := range aliases.CanonicalIDs(policy.Models) {
 		order[model] = i
 	}
 	rank := func(model string) int {
-		if index, ok := order[model]; ok {
+		if index, ok := order[aliases.Canonicalize(model)]; ok {
 			return index
 		}
 		return len(order)
@@ -87,10 +88,11 @@ func visionFallbackCandidatesWithPolicy(accounts []Account, policy *VisionFallba
 			continue
 		}
 		for model := range visionFallbackModelIDs(account) {
-			if _, listed := order[model]; !listed && !policy.AllowUnlistedModels {
+			canonical := aliases.Canonicalize(model)
+			if _, listed := order[canonical]; !listed && !policy.AllowUnlistedModels {
 				continue
 			}
-			if group != nil && !group.ModelAllowlist.Allows(model) {
+			if group != nil && !group.ModelAllowlist.Allows(model) && !group.ModelAllowlist.Allows(canonical) {
 				continue
 			}
 			if model == "" || strings.Contains(model, "*") {
@@ -112,9 +114,26 @@ func visionFallbackCandidatesWithPolicy(accounts []Account, policy *VisionFallba
 		if candidates[i].account.ID != candidates[j].account.ID {
 			return candidates[i].account.ID < candidates[j].account.ID
 		}
-		return candidates[i].model < candidates[j].model
+		canonicalI, canonicalJ := aliases.Canonicalize(candidates[i].model), aliases.Canonicalize(candidates[j].model)
+		if canonicalI != canonicalJ {
+			return canonicalI < canonicalJ
+		}
+		ids := aliases.IDs(canonicalI)
+		return slices.Index(ids, candidates[i].model) < slices.Index(ids, candidates[j].model)
 	})
-	return candidates
+	// 同一账号的等价别名或同一上游目标只尝试一次，保留真实 ID 供转发、日志和缓存使用。
+	seenModels := make(map[visionHelperID]bool)
+	seenTargets := make(map[visionHelperID]bool)
+	return slices.DeleteFunc(candidates, func(candidate visionFallbackCandidate) bool {
+		modelID := visionHelperID{accountID: candidate.account.ID, model: aliases.Canonicalize(candidate.model)}
+		_, upstream := resolveOpenAIForwardMappedModels(candidate.account, candidate.model, false)
+		targetID := visionHelperID{accountID: candidate.account.ID, model: upstream}
+		if seenModels[modelID] || seenTargets[targetID] {
+			return true
+		}
+		seenModels[modelID], seenTargets[targetID] = true, true
+		return false
+	})
 }
 
 // 合并公开别名与已同步的具体模型，允许没有显式映射的账号提供已知视觉模型。
@@ -209,7 +228,7 @@ func groupModelNeedsVisionFallback(accounts []Account, platform, model string) b
 
 // 使用当前可调度账号的能力更新目录，避免暂不可用的旧账号隐藏原生视觉。
 func applyVisionFallbackManifest(body []byte, cfg *config.Config, group *Group, platform string, accounts []Account, routes []CompositeModelRoute, routesAvailable bool) ([]byte, error) {
-	return applyVisionFallbackManifestWithPolicy(body, DefaultVisionFallbackPolicy(cfg), group, platform, accounts, routes, routesAvailable)
+	return applyVisionFallbackManifestWithPolicy(body, DefaultVisionFallbackPolicy(cfg), group, platform, accounts, routes, routesAvailable, nil)
 }
 
 func applyConfiguredVisionFallbackManifest(ctx context.Context, settings *SettingService, body []byte, cfg *config.Config, group *Group, platform string, accounts []Account, routes []CompositeModelRoute, routesAvailable bool) ([]byte, error) {
@@ -217,14 +236,19 @@ func applyConfiguredVisionFallbackManifest(ctx context.Context, settings *Settin
 	if err != nil {
 		return nil, err
 	}
-	return applyVisionFallbackManifestWithPolicy(body, policy, group, platform, accounts, routes, routesAvailable)
+	aliases, err := settings.GetModelAliasPolicy(ctx)
+	if err != nil {
+		return nil, err
+	}
+	accounts = accountsWithModelAliases(WithModelAliases(ctx, aliases), accounts)
+	return applyVisionFallbackManifestWithPolicy(body, policy, group, platform, accounts, routes, routesAvailable, aliases)
 }
 
-func applyVisionFallbackManifestWithPolicy(body []byte, policy *VisionFallbackPolicy, group *Group, platform string, accounts []Account, routes []CompositeModelRoute, routesAvailable bool) ([]byte, error) {
+func applyVisionFallbackManifestWithPolicy(body []byte, policy *VisionFallbackPolicy, group *Group, platform string, accounts []Account, routes []CompositeModelRoute, routesAvailable bool, aliases *ModelAliasPolicy) ([]byte, error) {
 	if len(accounts) == 0 {
 		return body, nil
 	}
-	helperAvailable := len(visionFallbackCandidatesWithPolicy(accounts, policy, group)) > 0
+	helperAvailable := len(visionFallbackCandidatesWithPolicy(accounts, policy, group, aliases)) > 0
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		return nil, err

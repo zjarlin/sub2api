@@ -820,18 +820,19 @@ func resolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedMode
 		return normalizeOpenAIModelForUpstream(account, upstreamModel)
 	}
 
-	// Passthrough accounts only replace authentication. Their Forward path
-	// keeps the channel-mapped model in the request body and does not apply the
-	// account's normal model_mapping. Legacy /responses/compact is the one
-	// exception: forwardOpenAIPassthrough applies compact_model_mapping
-	// directly to that channel-mapped model.
+	// 与透传转发保持一致：普通账号映射不改写报文，全局别名还原真实 ID，显式 compact 映射优先。
 	if account != nil && account.IsOpenAIPassthroughEnabled() {
 		upstreamModel := strings.TrimSpace(requestedModel)
 		if upstreamModel == "" {
 			return ""
 		}
 		if requireCompact {
-			return resolveOpenAICompactForwardModel(account, upstreamModel)
+			if compactModel := resolveOpenAICompactForwardModel(account, upstreamModel); compactModel != upstreamModel {
+				return compactModel
+			}
+		}
+		if target := account.globalModelMapping[upstreamModel]; target != "" {
+			return target
 		}
 		return upstreamModel
 	}

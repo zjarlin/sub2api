@@ -19,7 +19,12 @@ type visionPolicyRepo struct {
 	err error
 }
 
-func (r *visionPolicyRepo) GetValue(context.Context, string) (string, error) { return r.raw, r.err }
+func (r *visionPolicyRepo) GetValue(_ context.Context, key string) (string, error) {
+	if key != SettingKeyVisionFallbackPolicy {
+		return "", ErrSettingNotFound
+	}
+	return r.raw, r.err
+}
 func (r *visionPolicyRepo) Set(_ context.Context, key, value string) error {
 	if r.err != nil {
 		return r.err
@@ -83,11 +88,11 @@ func TestVisionFallbackPolicyValidationAndCandidateOrder(t *testing.T) {
 		return result
 	}
 	require.NoError(t, p.Validate())
-	require.Equal(t, []int64{4, 3, 2}, ids(visionFallbackCandidatesWithPolicy(accounts, p, nil)))
+	require.Equal(t, []int64{4, 3, 2}, ids(visionFallbackCandidatesWithPolicy(accounts, p, nil, nil)))
 	p.AllowUnlistedModels = true
-	require.Equal(t, []int64{4, 3, 2, 1}, ids(visionFallbackCandidatesWithPolicy(accounts, p, nil)))
+	require.Equal(t, []int64{4, 3, 2, 1}, ids(visionFallbackCandidatesWithPolicy(accounts, p, nil, nil)))
 	group := &Group{ModelAllowlist: GroupModelAllowlist{Enabled: true, Models: []string{"backup"}}}
-	require.Equal(t, []int64{2}, ids(visionFallbackCandidatesWithPolicy(accounts, p, group)))
+	require.Equal(t, []int64{2}, ids(visionFallbackCandidatesWithPolicy(accounts, p, group, nil)))
 	for _, models := range [][]string{{"x", "x"}, {""}, {"a b"}, {"a*"}, {strings.Repeat("a", 201)}} {
 		p.Models = models
 		require.Error(t, p.Validate())
