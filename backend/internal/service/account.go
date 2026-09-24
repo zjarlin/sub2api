@@ -125,7 +125,10 @@ const (
 	OpenAIEndpointCapabilityResponses OpenAIEndpointCapability = "responses"
 )
 
-const openAIEndpointCapabilitiesCredentialKey = "openai_capabilities"
+const (
+	openAIEndpointCapabilitiesCredentialKey       = "openai_capabilities"
+	legacyOpenAIEndpointCapabilitiesCredentialKey = "endpoint_capabilities"
+)
 
 // GrokMediaEligibleExtraKey is an optional per-account override stored in
 // accounts.extra. true forces media routing on, false disables it, and an
@@ -2017,8 +2020,18 @@ func (a *Account) openAIEndpointCapabilitySet() (map[string]bool, bool) {
 	if a == nil || a.Credentials == nil {
 		return nil, false
 	}
-	raw, found := a.Credentials[openAIEndpointCapabilitiesCredentialKey]
-	if !found || raw == nil {
+	// 新写入用 openai_capabilities；旧账号历史上写的是 endpoint_capabilities，
+	// 两者都要识别，否则旧账号的能力集合会被判为「未配置」而改变调度行为。
+	var raw any
+	found := false
+	for _, key := range []string{openAIEndpointCapabilitiesCredentialKey, legacyOpenAIEndpointCapabilitiesCredentialKey} {
+		if value, ok := a.Credentials[key]; ok && value != nil {
+			raw = value
+			found = true
+			break
+		}
+	}
+	if !found {
 		return nil, false
 	}
 
@@ -2049,6 +2062,13 @@ func (a *Account) openAIEndpointCapabilitySet() (map[string]bool, bool) {
 			return nil, false
 		}
 		for _, value := range capabilities {
+			add(value)
+		}
+	case string:
+		if strings.TrimSpace(capabilities) == "" {
+			return nil, false
+		}
+		for _, value := range strings.Split(capabilities, ",") {
 			add(value)
 		}
 	case map[string]any:
