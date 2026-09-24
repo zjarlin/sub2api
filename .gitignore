@@ -152,9 +152,11 @@ docs/*
 !docs/model-fallback-tiers.md
 !docs/legal/
 !docs/legal/*.md
-!docs/screenshots/
-docs/screenshots/*
-!docs/screenshots/mobile-account-actions-menu.png
+ !docs/screenshots/
+ docs/screenshots/*
+ !docs/screenshots/mobile-account-actions-menu.png
+ !docs/incidents/
+ !docs/incidents/*.md
 .serena/
 .codex/
 frontend/coverage/
