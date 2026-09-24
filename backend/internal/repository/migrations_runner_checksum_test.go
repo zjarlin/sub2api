@@ -43,6 +43,25 @@ func TestIsMigrationChecksumCompatible(t *testing.T) {
 		require.True(t, ok)
 	})
 
+	t.Run("234发布版checksum兼容", func(t *testing.T) {
+		// 234 在发布后才补上「跳过已删除账号」的守卫，已应用发布版的库保留旧 checksum。
+		ok := isMigrationChecksumCompatible(
+			"234_account_model_health_probe_failures.sql",
+			"ada3fb0d3633e35de24969c55209dc7d10e115b7a9d51d358fb75142427b9680",
+			"ada752ff9d07d964669f404df9a6b5d518520728d9538df4399e8ef3cad91fa9",
+		)
+		require.True(t, ok)
+	})
+
+	t.Run("234未知checksum仍拒绝", func(t *testing.T) {
+		ok := isMigrationChecksumCompatible(
+			"234_account_model_health_probe_failures.sql",
+			"0000000000000000000000000000000000000000000000000000000000000000",
+			"ada752ff9d07d964669f404df9a6b5d518520728d9538df4399e8ef3cad91fa9",
+		)
+		require.False(t, ok)
+	})
+
 	t.Run("非白名单迁移不兼容", func(t *testing.T) {
 		ok := isMigrationChecksumCompatible(
 			"001_init.sql",
