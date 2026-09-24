@@ -1,4 +1,11 @@
-# 国内网络下 Docker Hub 与 Debian 官方源常不可达/缓慢，两者都做成可替换。
+# edge-laya 运行镜像。
+#
+# 默认路径：从官方 python 基础镜像安装固定的 laya[serve]。国内网络下 Docker Hub
+# 与 PyPI 可能不可达/极慢，因此基础镜像与 pip 源均可通过构建参数替换。
+#
+# 已有离线运行时的部署（例如权重与 torch 都已在本地缓存）可以改用
+# `--build-arg PYTHON_IMAGE=<已有带 laya[serve] 的镜像>`，此时依赖安装步骤会
+# 直接复用镜像里的版本，避免重复下载数 GB 的 torch。
 ARG PYTHON_IMAGE=python:3.12-slim-bookworm
 FROM ${PYTHON_IMAGE}
 
@@ -12,8 +19,17 @@ RUN set -eux; \
     sed -i 's|deb.debian.org|mirrors.aliyun.com|g; s|security.debian.org|mirrors.aliyun.com|g' /etc/apt/sources.list 2>/dev/null || true
 
 RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+
 ARG LAYA_REF=d211a50dd816280e01f7782668f23000664c8a32
-RUN pip install --no-cache-dir "laya[serve] @ https://github.com/NandhaKishorM/laya/archive/${LAYA_REF}.tar.gz"
+# 国内直连 PyPI 较慢，默认走清华源；需要时可用 PIP_INDEX_URL 覆盖。
+ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
+# 基础镜像若已自带 laya[serve]（离线部署），把 SKIP_PIP_INSTALL 设为 1 直接复用。
+ARG SKIP_PIP_INSTALL=0
+RUN if [ "${SKIP_PIP_INSTALL}" != "1" ]; then \
+        pip install --no-cache-dir --index-url "${PIP_INDEX_URL}" --timeout 120 --retries 5 \
+            "laya[serve] @ https://github.com/NandhaKishorM/laya/archive/${LAYA_REF}.tar.gz"; \
+    fi
+
 COPY app /app/app
 
 ENV HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 HF_HOME=/models LAYA_PORT=18082 LAYA_DEVICE=cpu LAYA_MODELS=english,multilingual LAYA_PRELOAD=1
