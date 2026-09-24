@@ -259,6 +259,8 @@ import {
   PROVIDER_TRAEWORK,
   PROVIDER_WORKBUDDY,
   PROVIDER_ZCODE,
+  PROVIDER_LAYA,
+  PROVIDER_JEV,
   PROVIDERS,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_RESPONSES,
@@ -290,6 +292,8 @@ const providerTabs = computed<{ value: Provider; label: string }[]>(() => [
   { value: PROVIDER_TRAEWORK, label: t('monitorCommon.providers.traework') },
   { value: PROVIDER_WORKBUDDY, label: t('monitorCommon.providers.workbuddy') },
   { value: PROVIDER_ZCODE, label: t('monitorCommon.providers.zcode') },
+  { value: PROVIDER_LAYA, label: t('monitorCommon.providers.laya') },
+  { value: PROVIDER_JEV, label: t('monitorCommon.providers.jev') },
 ])
 
 const activeProvider = ref<Provider>(PROVIDER_ANTHROPIC)

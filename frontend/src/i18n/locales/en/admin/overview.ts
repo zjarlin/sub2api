@@ -987,6 +987,8 @@ export default {
         traework: 'TRAE Work',
         workbuddy: 'WorkBuddy',
         zcode: 'ZCode',
+        laya: 'Laya',
+        jev: 'JEV',
       opencode_go: 'OpenCode',
         composite: 'Composite',
       },

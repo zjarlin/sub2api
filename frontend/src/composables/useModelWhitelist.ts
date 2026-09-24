@@ -448,6 +448,9 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'traework': return ['glm-5.2']
     case 'workbuddy': return ['glm-5.2']
     case 'zcode': return ['glm-5.3', 'glm-5.3-flash']
+    // Laya / JEV 是 System One 决策模型，不生成文本；模型名只用于选择决策检查点。
+    case 'laya': return ['laya', 'laya-english', 'laya-multilingual']
+    case 'jev': return ['typesafe/jev']
     case 'deepseek': return deepseekModels
     case 'mistral': return mistralModels
     case 'meta': return metaModels

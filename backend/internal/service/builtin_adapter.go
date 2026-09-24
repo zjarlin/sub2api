@@ -28,6 +28,12 @@ func BuiltinAdapterEnabled() bool {
 	return cfg != nil && cfg.Enabled
 }
 
+// BuiltinAdapterBaseURLForPlatform 返回平台对应的内置适配器地址；
+// 未启用或平台不适用时返回空串。供 handler 在账号未显式配置地址时兜底。
+func BuiltinAdapterBaseURLForPlatform(platform string) string {
+	return builtinAdapterBaseURL(platform)
+}
+
 // builtinAdapterBaseURL 返回平台对应的内置适配器地址；未启用或平台不适用时返回空串。
 func builtinAdapterBaseURL(platform string) string {
 	cfg := builtinAdapterConfig.Load()
@@ -43,6 +49,10 @@ func builtinAdapterBaseURL(platform string) string {
 		return strings.TrimRight(cfg.WorkbuddyBaseURL(), "/")
 	case PlatformZcode:
 		return strings.TrimRight(cfg.ZcodeBaseURL(), "/")
+	case PlatformLaya:
+		return strings.TrimRight(cfg.LayaBaseURL(), "/")
+	case PlatformJev:
+		return strings.TrimRight(cfg.JevBaseURL(), "/")
 	default:
 		return ""
 	}
@@ -63,6 +73,10 @@ func builtinAdapterAPIKey(platform string) string {
 		return strings.TrimSpace(cfg.WorkbuddyKey)
 	case PlatformZcode:
 		return strings.TrimSpace(cfg.ZcodeKey)
+	case PlatformLaya:
+		return strings.TrimSpace(cfg.LayaKey)
+	case PlatformJev:
+		return strings.TrimSpace(cfg.JevKey)
 	default:
 		return ""
 	}

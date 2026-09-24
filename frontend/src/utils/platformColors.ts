@@ -20,6 +20,8 @@ export type Platform =
   | 'traework'
   | 'workbuddy'
   | 'zcode'
+  | 'laya'
+  | 'jev'
   | 'composite'
 
 // ── Badge (bg + text + border, for inline badges with border) ───────
@@ -36,6 +38,8 @@ const BADGE: Record<Platform, string> = {
   traework: 'bg-lime-500/10 text-lime-600 border-lime-500/30 dark:text-lime-400',
   workbuddy: 'bg-blue-500/10 text-blue-600 border-blue-500/30 dark:text-blue-400',
   zcode: 'bg-indigo-500/10 text-indigo-600 border-indigo-500/30 dark:text-indigo-400',
+  laya: 'bg-violet-500/10 text-violet-600 border-violet-500/30 dark:text-violet-400',
+  jev: 'bg-slate-500/10 text-slate-700 border-slate-500/30 dark:text-slate-300',
   minimax: 'bg-rose-500/10 text-rose-600 border-rose-500/30 dark:text-rose-400',
   opencode_go: 'bg-amber-500/10 text-amber-700 border-amber-500/30 dark:text-amber-300',
   composite: 'bg-cyan-500/10 text-cyan-700 border-cyan-500/30 dark:text-cyan-300',
@@ -56,6 +60,8 @@ const BADGE_LIGHT: Record<Platform, string> = {
   traework: 'bg-lime-500/10 text-lime-600 dark:bg-lime-500/10 dark:text-lime-300',
   workbuddy: 'bg-blue-500/10 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300',
   zcode: 'bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300',
+  laya: 'bg-violet-500/10 text-violet-600 dark:bg-violet-500/10 dark:text-violet-300',
+  jev: 'bg-slate-500/10 text-slate-700 dark:bg-slate-500/10 dark:text-slate-300',
   minimax: 'bg-rose-500/10 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300',
   opencode_go: 'bg-amber-500/10 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300',
   composite: 'bg-cyan-500/10 text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300',
@@ -75,6 +81,8 @@ const BORDER: Record<Platform, string> = {
   traework: 'border-lime-500/20 dark:border-lime-500/20',
   workbuddy: 'border-blue-500/20 dark:border-blue-500/20',
   zcode: 'border-indigo-500/20 dark:border-indigo-500/20',
+  laya: 'border-violet-500/20 dark:border-violet-500/20',
+  jev: 'border-slate-500/20 dark:border-slate-500/20',
   minimax: 'border-rose-500/20 dark:border-rose-500/20',
   opencode_go: 'border-amber-500/20 dark:border-amber-500/20',
   composite: 'border-cyan-500/20 dark:border-cyan-500/20',
@@ -95,6 +103,8 @@ const BORDER_STRONG: Record<Platform, string> = {
   traework: 'border-lime-500/35 dark:border-lime-500/30',
   workbuddy: 'border-blue-500/35 dark:border-blue-500/30',
   zcode: 'border-indigo-500/35 dark:border-indigo-500/30',
+  laya: 'border-violet-500/35 dark:border-violet-500/30',
+  jev: 'border-slate-500/35 dark:border-slate-500/30',
   minimax: 'border-rose-500/35 dark:border-rose-500/30',
   opencode_go: 'border-amber-500/35 dark:border-amber-500/30',
   composite: 'border-cyan-500/35 dark:border-cyan-500/30',
@@ -116,6 +126,8 @@ const ACCENT: Record<Platform, string> = {
   traework: '#84cc16',
   workbuddy: '#3b82f6',
   zcode: '#6366f1',
+  laya: '#8b5cf6',
+  jev: '#64748b',
   minimax: '#f43f5e', // rose-500
   opencode_go: '#f59e0b', // amber-500
   composite: '#06b6d4', // cyan-500
@@ -136,6 +148,8 @@ const ACCENT_BAR: Record<Platform, string> = {
   traework: 'bg-gradient-to-r from-lime-400 to-lime-500',
   workbuddy: 'bg-gradient-to-r from-blue-400 to-blue-500',
   zcode: 'bg-gradient-to-r from-indigo-400 to-indigo-500',
+  laya: 'bg-gradient-to-r from-violet-400 to-violet-500',
+  jev: 'bg-gradient-to-r from-slate-400 to-slate-500',
   minimax: 'bg-gradient-to-r from-rose-400 to-rose-500',
   opencode_go: 'bg-gradient-to-r from-amber-400 to-amber-500',
   composite: 'bg-gradient-to-r from-slate-500 to-cyan-500',
@@ -156,6 +170,8 @@ const TEXT: Record<Platform, string> = {
   traework: 'text-lime-600 dark:text-lime-400',
   workbuddy: 'text-blue-600 dark:text-blue-400',
   zcode: 'text-indigo-600 dark:text-indigo-400',
+  laya: 'text-violet-600 dark:text-violet-400',
+  jev: 'text-slate-700 dark:text-slate-300',
   minimax: 'text-rose-600 dark:text-rose-400',
   opencode_go: 'text-amber-700 dark:text-amber-300',
   composite: 'text-cyan-700 dark:text-cyan-300',
@@ -176,6 +192,8 @@ const ICON: Record<Platform, string> = {
   traework: 'text-lime-500 dark:text-lime-400',
   workbuddy: 'text-blue-500 dark:text-blue-400',
   zcode: 'text-indigo-500 dark:text-indigo-400',
+  laya: 'text-violet-500 dark:text-violet-400',
+  jev: 'text-slate-500 dark:text-slate-300',
   minimax: 'text-rose-500 dark:text-rose-400',
   opencode_go: 'text-amber-500 dark:text-amber-300',
   composite: 'text-cyan-600 dark:text-cyan-300',
@@ -196,6 +214,8 @@ const BUTTON: Record<Platform, string> = {
   traework: 'bg-lime-500 text-white hover:bg-lime-600 active:bg-lime-700 dark:bg-lime-500/80 dark:hover:bg-lime-500',
   workbuddy: 'bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700 dark:bg-blue-500/80 dark:hover:bg-blue-500',
   zcode: 'bg-indigo-500 text-white hover:bg-indigo-600 active:bg-indigo-700 dark:bg-indigo-500/80 dark:hover:bg-indigo-500',
+  laya: 'bg-violet-500 text-white hover:bg-violet-600 active:bg-violet-700 dark:bg-violet-500/80 dark:hover:bg-violet-500',
+  jev: 'bg-slate-600 text-white hover:bg-slate-700 active:bg-slate-800 dark:bg-slate-600/80 dark:hover:bg-slate-600',
   minimax: 'bg-rose-500 text-white hover:bg-rose-600 active:bg-rose-700 dark:bg-rose-500/80 dark:hover:bg-rose-500',
   opencode_go: 'bg-amber-500 text-white hover:bg-amber-600 active:bg-amber-700 dark:bg-amber-500/80 dark:hover:bg-amber-500',
   composite: 'bg-cyan-700 text-white hover:bg-cyan-800 active:bg-cyan-900 dark:bg-cyan-600 dark:hover:bg-cyan-500',
@@ -216,6 +236,8 @@ const DISCOUNT: Record<Platform, string> = {
   traework: 'bg-lime-100 text-lime-700 dark:bg-lime-900/40 dark:text-lime-300',
   workbuddy: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
   zcode: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300',
+  laya: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
+  jev: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
   minimax: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',
   opencode_go: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
   composite: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300',
@@ -236,6 +258,8 @@ const GRADIENT: Record<Platform, string> = {
   traework: 'from-lime-500 to-lime-600',
   workbuddy: 'from-blue-500 to-blue-600',
   zcode: 'from-indigo-500 to-indigo-600',
+  laya: 'from-violet-500 to-violet-600',
+  jev: 'from-slate-500 to-slate-600',
   minimax: 'from-rose-500 to-rose-600',
   opencode_go: 'from-amber-500 to-amber-600',
   composite: 'from-slate-600 to-cyan-600',
@@ -256,6 +280,8 @@ const GRADIENT_TEXT: Record<Platform, string> = {
   traework: 'text-lime-100',
   workbuddy: 'text-blue-100',
   zcode: 'text-indigo-100',
+  laya: 'text-violet-100',
+  jev: 'text-slate-100',
   minimax: 'text-rose-100',
   opencode_go: 'text-amber-100',
   composite: 'text-cyan-100',
@@ -275,6 +301,8 @@ const GRADIENT_SUBTEXT: Record<Platform, string> = {
   traework: 'text-lime-200',
   workbuddy: 'text-blue-200',
   zcode: 'text-indigo-200',
+  laya: 'text-violet-200',
+  jev: 'text-slate-200',
   minimax: 'text-rose-200',
   opencode_go: 'text-amber-200',
   composite: 'text-cyan-200',
@@ -297,6 +325,8 @@ function isPlatform(p: string): p is Platform {
     p === 'traework' ||
     p === 'workbuddy' ||
     p === 'zcode' ||
+    p === 'laya' ||
+    p === 'jev' ||
     p === 'minimax' ||
     p === 'opencode_go' ||
     p === 'composite'
@@ -369,6 +399,8 @@ export function platformLabel(p: string): string {
     case 'traework': return 'TRAE Work'
     case 'workbuddy': return 'WorkBuddy'
     case 'zcode': return 'ZCode'
+    case 'laya': return 'Laya'
+    case 'jev': return 'JEV'
     case 'minimax': return 'MiniMax'
     case 'opencode_go': return 'OpenCode'
     case 'composite': return 'Composite'

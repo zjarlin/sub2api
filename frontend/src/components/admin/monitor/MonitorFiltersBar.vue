@@ -81,6 +81,8 @@ import {
   PROVIDER_TRAEWORK,
   PROVIDER_WORKBUDDY,
   PROVIDER_ZCODE,
+  PROVIDER_LAYA,
+  PROVIDER_JEV,
 } from '@/constants/channelMonitor'
 
 defineProps<{
@@ -116,6 +118,8 @@ const providerFilterOptions = computed(() => [
   { value: PROVIDER_TRAEWORK, label: t('monitorCommon.providers.traework') },
   { value: PROVIDER_WORKBUDDY, label: t('monitorCommon.providers.workbuddy') },
   { value: PROVIDER_ZCODE, label: t('monitorCommon.providers.zcode') },
+  { value: PROVIDER_LAYA, label: t('monitorCommon.providers.laya') },
+  { value: PROVIDER_JEV, label: t('monitorCommon.providers.jev') },
 ])
 
 const enabledFilterOptions = computed(() => [

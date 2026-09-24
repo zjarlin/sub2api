@@ -349,7 +349,7 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 }
 
 func normalizeAccountConcurrency(platform, accountType string, concurrency int) int {
-	if platform == PlatformDoubao || platform == PlatformTraework || platform == PlatformWorkbuddy || platform == PlatformZcode {
+	if platform == PlatformDoubao || platform == PlatformTraework || platform == PlatformWorkbuddy || platform == PlatformZcode || IsSystemOneDecisionPlatform(platform) {
 		return 1
 	}
 	if platform == PlatformGrok && accountType == AccountTypeOAuth {
@@ -813,7 +813,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if input.Concurrency != nil {
 		account.Concurrency = normalizeAccountConcurrency(account.Platform, account.Type, *input.Concurrency)
 	}
-	if account.IsDoubao() || account.IsTraework() || account.IsWorkbuddy() || account.IsZcode() {
+	if account.IsDoubao() || account.IsTraework() || account.IsWorkbuddy() || account.IsZcode() || account.IsLaya() || account.IsJev() {
 		account.Concurrency = 1
 	}
 	// 只在指针非 nil 时更新 Priority（支持设置为 0）
@@ -1029,7 +1029,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	}
 	// 批量路径直接合并数据库字段，需在首次写入前保护豆包协议与并发约束。
 	for _, account := range cachedTargets {
-		if !account.IsDoubao() && !account.IsTraework() && !account.IsWorkbuddy() && !account.IsZcode() {
+		if !account.IsDoubao() && !account.IsTraework() && !account.IsWorkbuddy() && !account.IsZcode() && !account.IsLaya() && !account.IsJev() {
 			continue
 		}
 		if input.Concurrency != nil && *input.Concurrency != 1 {

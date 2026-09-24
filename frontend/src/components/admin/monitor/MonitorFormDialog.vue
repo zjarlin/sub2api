@@ -275,6 +275,8 @@ import {
   PROVIDER_TRAEWORK,
   PROVIDER_WORKBUDDY,
   PROVIDER_ZCODE,
+  PROVIDER_LAYA,
+  PROVIDER_JEV,
   API_MODE_CHAT_COMPLETIONS,
   API_MODE_RESPONSES,
   CHECK_MODE_PROBE,
@@ -487,6 +489,8 @@ const providerOptions = computed<ProviderOption[]>(() => [
   { value: PROVIDER_TRAEWORK, label: t('monitorCommon.providers.traework') },
   { value: PROVIDER_WORKBUDDY, label: t('monitorCommon.providers.workbuddy') },
   { value: PROVIDER_ZCODE, label: t('monitorCommon.providers.zcode') },
+  { value: PROVIDER_LAYA, label: t('monitorCommon.providers.laya') },
+  { value: PROVIDER_JEV, label: t('monitorCommon.providers.jev') },
 ])
 
 // 国产 provider 预填的官方 endpoint（仅探活侧；配额模式 endpoint 可留空）。
@@ -706,6 +710,12 @@ function selectProvider(provider: Provider) {
   if (provider === PROVIDER_TRAEWORK || provider === PROVIDER_WORKBUDDY) {
     form.check_mode = CHECK_MODE_PROBE
     form.primary_model = 'glm-5.2'
+    form.endpoint = ''
+  }
+  if (provider === PROVIDER_LAYA || provider === PROVIDER_JEV) {
+    // Laya / JEV 只做 System One 决策，不生成文本。
+    form.check_mode = CHECK_MODE_PROBE
+    form.primary_model = provider === PROVIDER_LAYA ? 'laya' : 'typesafe/jev'
     form.endpoint = ''
   }
   if (provider === PROVIDER_GROK) {

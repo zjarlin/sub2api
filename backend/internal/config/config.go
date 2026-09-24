@@ -119,6 +119,11 @@ type BuiltinAdapterConfig struct {
 	WorkbuddyKey string `mapstructure:"workbuddy_key"`
 	ZcodeURL     string `mapstructure:"zcode_url"`
 	ZcodeKey     string `mapstructure:"zcode_key"`
+	// System One 决策模型：Laya（本地 edge-laya）与 JEV（远端 / 内网 TypeSafe）。
+	LayaURL string `mapstructure:"laya_url"`
+	LayaKey string `mapstructure:"laya_key"`
+	JevURL  string `mapstructure:"jev_url"`
+	JevKey  string `mapstructure:"jev_key"`
 }
 
 // DesktopBaseURL 返回豆包桌面适配器地址，未显式配置时使用编排内的服务名。
@@ -151,6 +156,22 @@ func (c BuiltinAdapterConfig) ZcodeBaseURL() string {
 		return "http://sub2api-zcode:7865"
 	}
 	return strings.TrimSpace(c.ZcodeURL)
+}
+
+// LayaBaseURL 返回内置 Laya 决策服务地址。
+func (c BuiltinAdapterConfig) LayaBaseURL() string {
+	if strings.TrimSpace(c.LayaURL) == "" {
+		return "http://edge-laya:18082"
+	}
+	return strings.TrimSpace(c.LayaURL)
+}
+
+// JevBaseURL 返回内置 JEV / TypeSafe System One 适配地址。
+func (c BuiltinAdapterConfig) JevBaseURL() string {
+	if strings.TrimSpace(c.JevURL) == "" {
+		return "http://sub2api-jev:18083"
+	}
+	return strings.TrimSpace(c.JevURL)
 }
 
 // PluginConfig 控制管理员手动上传的本地进程插件。
@@ -2096,6 +2117,10 @@ func setDefaults() {
 	viper.SetDefault("builtin_adapter.workbuddy_key", "")
 	viper.SetDefault("builtin_adapter.zcode_url", "")
 	viper.SetDefault("builtin_adapter.zcode_key", "")
+	viper.SetDefault("builtin_adapter.laya_url", "")
+	viper.SetDefault("builtin_adapter.laya_key", "")
+	viper.SetDefault("builtin_adapter.jev_url", "")
+	viper.SetDefault("builtin_adapter.jev_key", "")
 
 	// Server
 	viper.SetDefault("server.host", "0.0.0.0")

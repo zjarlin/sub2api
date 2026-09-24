@@ -1421,7 +1421,7 @@ func (a *Account) GetOpenAIBaseURL() string {
 	}
 	// 平台默认 base_url：CN 供应商按 account_mode 选择 payg / coding 默认值。
 	switch a.Platform {
-	case PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformZcode:
+	case PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformZcode, PlatformLaya, PlatformJev:
 		// 内置适配器模式下由部署注入地址，账号本身不存默认公网端点。
 		return builtinAdapterBaseURL(a.Platform)
 	case PlatformKimi:
@@ -1448,7 +1448,7 @@ func (a *Account) GetOpenAIBaseURL() string {
 // GetAccountMode 返回国产供应商账号的接入模式（payg / coding）；非国产供应商或未设置时
 // 返回空串。存储于 credentials["account_mode"]。
 func (a *Account) GetAccountMode() string {
-	if a == nil || a.IsDoubao() || a.IsTraework() || a.IsWorkbuddy() || a.IsZcode() {
+	if a == nil || a.IsDoubao() || a.IsTraework() || a.IsWorkbuddy() || a.IsZcode() || a.IsLaya() || a.IsJev() {
 		return ""
 	}
 	mode := strings.TrimSpace(a.GetCredential("account_mode"))
@@ -1470,6 +1470,10 @@ func (a *Account) IsCodingPlan() bool {
 func (a *Account) GetAPIProtocol() string {
 	if a == nil || a.IsDoubao() || a.IsTraework() || a.IsWorkbuddy() || a.IsZcode() || !a.IsMultiProtocolAPIKey() {
 		return APIProtocolChatCompletions
+	}
+	if a.IsLaya() || a.IsJev() {
+		// System One 决策模型共用 /v1/systemone，不生成文本，不存在 chat/responses 变体。
+		return APIProtocolSystemOne
 	}
 	switch strings.TrimSpace(a.GetCredential("api_protocol")) {
 	case APIProtocolAdaptive:

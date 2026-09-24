@@ -24,7 +24,9 @@ export const CONCRETE_PLATFORM_OPTIONS = [
   { value: 'doubao', label: 'Doubao' },
   { value: 'traework', label: 'TRAE Work' },
   { value: 'workbuddy', label: 'WorkBuddy' },
-  { value: 'zcode', label: 'ZCode' }
+  { value: 'zcode', label: 'ZCode' },
+  { value: 'laya', label: 'Laya' },
+  { value: 'jev', label: 'JEV' }
 ] as const satisfies readonly PlatformOption<AccountPlatform>[]
 
 /** Platforms that can own a group. */
@@ -49,6 +51,8 @@ export const MIXED_SCHEDULING_TARGETS: Partial<Record<AccountPlatform, GroupPlat
   traework: ['openai'],
   workbuddy: ['openai'],
   zcode: ['openai'],
+  laya: ['openai'],
+  jev: ['openai'],
 }
 
 /** 平台是否支持跨平台兼容分组。 */
