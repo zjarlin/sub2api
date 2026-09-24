@@ -22,5 +22,7 @@ func TestAllPlatformsIncludesEveryConcretePlatform(t *testing.T) {
 		"traework",
 		"workbuddy",
 		"zcode",
+		"laya",
+		"jev",
 	}, AllPlatforms())
 }

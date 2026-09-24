@@ -50,6 +50,8 @@ const (
 	PlatformTraework    = domain.PlatformTraework
 	PlatformWorkbuddy   = domain.PlatformWorkbuddy
 	PlatformZcode       = domain.PlatformZcode
+	PlatformLaya        = domain.PlatformLaya
+	PlatformJev         = domain.PlatformJev
 )
 
 // AllPlatforms 返回所有支持的平台列表
@@ -69,6 +71,8 @@ func AllPlatforms() []string {
 		PlatformTraework,
 		PlatformWorkbuddy,
 		PlatformZcode,
+		PlatformLaya,
+		PlatformJev,
 	}
 }
 

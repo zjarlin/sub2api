@@ -60,6 +60,21 @@ func (h *Handler) Relay(c *gin.Context) {
 	c.Data(status, "application/json", payload)
 }
 
+// IsKnownSystemOneModel 报告模型名是否属于 System One 决策协议。
+//
+// 分两类上游：
+//   - Laya（本地 edge-laya）：公开名 `laya` 表示自动选检查点，
+//     `laya-english` / `laya-multilingual` 指定检查点；
+//   - JEV / TypeSafe：沿用上游的 `typesafe/jev`。
+//
+// 名字同时充当平台选择器，见 handler.systemOnePlatformForModel。
+func IsKnownSystemOneModel(model string) bool {
+	if model == ModelID {
+		return true
+	}
+	return model == LayaModelID || strings.HasPrefix(model, LayaModelID+"-")
+}
+
 // ReadModel 只读取单一、明确的顶层模型 ID；拒绝大小写变体和重复键。
 func ReadModel(body []byte) (string, error) {
 	trimmed := bytes.TrimSpace(body)
@@ -69,10 +84,10 @@ func ReadModel(body []byte) (string, error) {
 	if len(trimmed) == 0 || trimmed[0] != '{' || json.Unmarshal(trimmed, &request) != nil || hasDuplicateModelKey(trimmed) {
 		return "", errors.New("invalid System One request body")
 	}
-	if request.Model != ModelID && request.Model != LayaModelID {
-		return "", errors.New("unsupported System One model")
+	if IsKnownSystemOneModel(request.Model) {
+		return request.Model, nil
 	}
-	return request.Model, nil
+	return "", errors.New("unsupported System One model")
 }
 
 func hasDuplicateModelKey(body []byte) bool {

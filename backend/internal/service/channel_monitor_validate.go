@@ -27,6 +27,8 @@ var monitorProviders = map[string]struct{}{
 	MonitorProviderTraework:    {},
 	MonitorProviderWorkbuddy:   {},
 	MonitorProviderZcode:       {},
+	MonitorProviderLaya:        {},
+	MonitorProviderJev:         {},
 }
 
 // probeCapableProviders 支持探活（probe / quota_probe）的 provider。
@@ -46,6 +48,8 @@ var probeCapableProviders = map[string]struct{}{
 	MonitorProviderTraework:  {},
 	MonitorProviderWorkbuddy: {},
 	MonitorProviderZcode:     {},
+	MonitorProviderLaya:      {},
+	MonitorProviderJev:       {},
 }
 
 // validateProvider 校验 provider 字符串。
@@ -83,7 +87,7 @@ func monitorCheckModeUsesQuota(checkMode string) bool {
 //	antigravity（无 adapter）|  N    |  Y    |  N
 func validateCheckMode(provider, checkMode string) error {
 	checkMode = defaultCheckMode(checkMode)
-	if (provider == MonitorProviderDoubao || provider == MonitorProviderTraework || provider == MonitorProviderWorkbuddy || provider == MonitorProviderZcode) && monitorCheckModeUsesQuota(checkMode) {
+	if (provider == MonitorProviderDoubao || provider == MonitorProviderTraework || provider == MonitorProviderWorkbuddy || provider == MonitorProviderZcode || provider == MonitorProviderLaya || provider == MonitorProviderJev) && monitorCheckModeUsesQuota(checkMode) {
 		return ErrChannelMonitorAccountNotSupportable
 	}
 	switch checkMode {

@@ -94,6 +94,11 @@ func DetectModelPlatform(model string) (string, bool) {
 	}
 
 	normalized = strings.TrimPrefix(normalized, "models/")
+	// System One 决策模型的公开名带命名空间（typesafe/jev），必须在下面的
+	// provider 前缀切分之前按完整名字识别，否则会被切成 provider=typesafe。
+	if normalized == "typesafe/jev" {
+		return PlatformJev, true
+	}
 	if slash := strings.IndexByte(normalized, '/'); slash > 0 {
 		provider := strings.TrimSpace(normalized[:slash])
 		rest := strings.TrimSpace(normalized[slash+1:])
@@ -118,6 +123,10 @@ func DetectModelPlatform(model string) (string, bool) {
 			return PlatformWorkbuddy, true
 		case "zcode":
 			return PlatformZcode, true
+		case "laya":
+			return PlatformLaya, true
+		case "jev":
+			return PlatformJev, true
 		case "traework":
 			return PlatformTraework, true
 		case "minimax":
@@ -164,6 +173,12 @@ func DetectModelPlatform(model string) (string, bool) {
 		return PlatformWorkbuddy, true
 	case strings.HasPrefix(normalized, "zcode-"):
 		return PlatformZcode, true
+	case normalized == "laya":
+		return PlatformLaya, true
+	case strings.HasPrefix(normalized, "laya-"):
+		return PlatformLaya, true
+	case strings.HasPrefix(normalized, "jev-"):
+		return PlatformJev, true
 	case strings.HasPrefix(normalized, "traework-"):
 		return PlatformTraework, true
 	case strings.HasPrefix(normalized, "minimax-"),
@@ -218,7 +233,7 @@ func (s *GatewayService) resolveCompositeRouteDecision(ctx context.Context, grou
 func isConcreteRequestPlatform(platform string) bool {
 	switch platform {
 	case PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformGrok,
-		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformZcode:
+		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformZcode, PlatformLaya, PlatformJev:
 		return true
 	default:
 		return false

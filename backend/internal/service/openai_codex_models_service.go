@@ -343,6 +343,8 @@ func codexCatalogCandidatePlatforms(targetPlatform string) []string {
 			PlatformTraework,
 			PlatformWorkbuddy,
 			PlatformZcode,
+			PlatformLaya,
+			PlatformJev,
 		}
 	}
 	targetPlatform = strings.TrimSpace(targetPlatform)

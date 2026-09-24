@@ -50,7 +50,8 @@ func RegisterGatewayRoutes(
 		switch getGroupPlatform(c) {
 		case service.PlatformOpenAI, service.PlatformGrok,
 			service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek,
-			service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformDoubao, service.PlatformTraework, service.PlatformWorkbuddy, service.PlatformZcode:
+			service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformDoubao, service.PlatformTraework, service.PlatformWorkbuddy, service.PlatformZcode,
+			service.PlatformLaya, service.PlatformJev:
 			// 国产 OpenAI 兼容供应商与 openai/grok 一样经 OpenAI 网关转发。
 			return true
 		default:
@@ -59,7 +60,7 @@ func RegisterGatewayRoutes(
 	}
 	countTokensHandler := func(c *gin.Context) {
 		switch getGroupPlatform(c) {
-		case service.PlatformOpenAI, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformDoubao, service.PlatformTraework, service.PlatformWorkbuddy, service.PlatformZcode:
+		case service.PlatformOpenAI, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformDoubao, service.PlatformTraework, service.PlatformWorkbuddy, service.PlatformZcode, service.PlatformLaya, service.PlatformJev:
 			h.OpenAIGateway.CountTokens(c)
 		case service.PlatformGrok:
 			h.OpenAIGateway.GrokCountTokens(c)
@@ -191,10 +192,11 @@ func RegisterGatewayRoutes(
 	gateway.Use(endpointNorm)
 	gateway.Use(gin.HandlerFunc(apiKeyAuth))
 	gateway.GET("/sub2api/billing", h.Gateway.KeyBillingInfo)
-	// TypeSafe / JEV System One 中继：实现与配置读取都在 internal/jev_api。
+	// System One 决策协议（Laya / JEV 共用）：按 model 选平台后走账号池，
+	// 鉴权、调度、用量与其它平台一致。
 	jevGroup := gateway.Group("")
 	jevGroup.Use(groupModelAllowlist)
-	h.Gateway.RegisterJevRelay(jevGroup)
+	h.Gateway.RegisterSystemOneAccountRelay(jevGroup)
 	// 边缘计算视觉服务：鉴权+计费+反代 edge-vision。
 	visionGroup := gateway.Group("/vision")
 	{

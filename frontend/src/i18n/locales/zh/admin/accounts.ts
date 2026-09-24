@@ -11,6 +11,16 @@ export default {
         baseUrlHint: '使用内置 WorkBuddy 服务，无需填写地址。',
         apiKeyHint: '连接密钥由服务器管理。',
       },
+      laya: {
+        title: 'Laya',
+        baseUrlHint: '使用内置 Laya System One 决策适配器，无需填写地址。',
+        apiKeyHint: '连接密钥由服务器管理。Laya 返回决策结果，不生成文本。',
+      },
+      jev: {
+        title: 'JEV',
+        baseUrlHint: '使用内置 JEV / TypeSafe System One 决策适配器，无需填写地址。',
+        apiKeyHint: '连接密钥由服务器管理。JEV 返回决策结果，不生成文本。',
+      },
       builtinLogin: {
         traeworkHint: '打开 TRAE 授权页完成登录，再把浏览器地址栏的完整回调链接粘贴回来。页面无法打开 127.0.0.1 不影响导入。',
         workbuddyHint: '打开 WorkBuddy 国内版授权页并登录，本页会自动获取授权结果。',
@@ -373,6 +383,8 @@ export default {
         traework: 'TRAE Work',
         workbuddy: 'WorkBuddy',
         zcode: 'ZCode',
+        laya: 'Laya',
+        jev: 'JEV',
       opencode_go: 'OpenCode',
       },
       cnProviders: {

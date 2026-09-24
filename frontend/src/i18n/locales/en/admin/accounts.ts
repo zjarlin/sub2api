@@ -11,6 +11,16 @@ export default {
         baseUrlHint: 'Uses the built-in WorkBuddy service. No URL is required.',
         apiKeyHint: 'The server manages the adapter key.',
       },
+      laya: {
+        title: 'Laya',
+        baseUrlHint: 'Uses the built-in Laya System One decision adapter. No URL is required.',
+        apiKeyHint: 'The server manages the adapter key. Laya returns decisions, not generated text.',
+      },
+      jev: {
+        title: 'JEV',
+        baseUrlHint: 'Uses the built-in JEV / TypeSafe System One decision adapter. No URL is required.',
+        apiKeyHint: 'The server manages the adapter key. JEV returns decisions, not generated text.',
+      },
       builtinLogin: {
         traeworkHint: 'Open TRAE authorization, sign in, then paste the full callback URL from the address bar. A connection error at 127.0.0.1 does not prevent import.',
         workbuddyHint: 'Open WorkBuddy CN authorization and sign in. This page retrieves the authorization result automatically.',
@@ -170,6 +180,8 @@ export default {
         traework: 'TRAE Work',
         workbuddy: 'WorkBuddy',
         zcode: 'ZCode',
+        laya: 'Laya',
+        jev: 'JEV',
       opencode_go: 'OpenCode',
       },
       cnProviders: {

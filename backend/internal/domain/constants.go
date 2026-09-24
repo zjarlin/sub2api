@@ -30,6 +30,10 @@ const (
 	PlatformWorkbuddy = "workbuddy"
 	// ZCode (z.ai / 智谱 GLM Coding Plan) Anthropic 协议反向代理适配器。
 	PlatformZcode = "zcode"
+	// Laya 离线决策模型（本地 edge-laya 适配器，System One 协议）。
+	PlatformLaya = "laya"
+	// JEV / TypeSafe System One 决策模型（远端或内网适配器）。
+	PlatformJev = "jev"
 	// 国产 OpenAI 兼容供应商（经 OpenAI 网关转发，按 Chat Completions 协议）。
 	PlatformKimi     = "kimi"     // Kimi (月之暗面 / Moonshot)
 	PlatformZhipu    = "zhipu"    // 智谱 GLM (bigmodel)
@@ -58,6 +62,7 @@ const (
 	APIProtocolAnthropic       = "anthropic"        // 原生 Anthropic /v1/messages（适配 Claude Code）
 	APIProtocolResponses       = "responses"        // OpenAI Responses（deepseek / kimi / minimax 原生端点，适配 Codex）
 	APIProtocolAdaptive        = "adaptive"         // 按入站协议优先选择供应商原生端点
+	APIProtocolSystemOne       = "systemone"        // TypeSafe / JEV System One 决策协议（Laya 与 JEV 共用）
 )
 
 // Account type constants
