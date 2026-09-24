@@ -15,25 +15,14 @@ Laya 原生契约是 `/v1/systemone`：一次前向传播返回校准概率，�
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import time
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-
-# 模型名 → Laya 检查点。`laya` 与未知名字映射为 None，表示由 Router 自动选路。
-MODEL_ALIASES: Dict[str, Optional[str]] = {
-    "laya": None,
-    "laya-english": "english",
-    "laya-multilingual": "multilingual",
-    "laya-typed-decisions": "typed-decisions",
-    "english": "english",
-    "multilingual": "multilingual",
-    "typed-decisions": "typed-decisions",
-}
 
 _SENTIMENT_FALLBACK: Dict[str, Any] = {
     "sentiment": {
@@ -73,14 +62,6 @@ class ResponsesRequest(BaseModel):
     questions: Optional[Dict[str, Any]] = None
     task: Optional[str] = None
     lang: Optional[str] = None
-
-
-def resolve_model(name: Optional[str]) -> Optional[str]:
-    """把客户端模型名映射到检查点；None 表示自动选路。"""
-    key = (name or "").strip().lower()
-    if not key:
-        return None
-    return MODEL_ALIASES.get(key, None)
 
 
 def flatten_content(content: Any) -> str:
@@ -178,13 +159,11 @@ def build_call(
 
     原生字段优先；其次是 input/content 里的信封；最后退化为「文本 + 情感二分类」。
     """
-    call_model = resolve_model(model)
-
     if native_state is not None and isinstance(native_questions, dict) and native_questions:
         return {
             "state": native_state,
             "questions": native_questions,
-            "model": call_model,
+            "model": model,
             "task": task,
             "lang": lang,
         }
@@ -199,7 +178,7 @@ def build_call(
         return {
             "state": state,
             "questions": questions,
-            "model": call_model,
+            "model": model,
             "task": task or inner_task,
             "lang": lang or inner_lang,
         }
@@ -208,7 +187,7 @@ def build_call(
     return {
         "state": state if state is not None else "",
         "questions": _SENTIMENT_FALLBACK,
-        "model": call_model,
+        "model": model,
         "task": task,
         "lang": lang,
     }
@@ -408,37 +387,21 @@ def create_openai_router(
     """
     resolved_available = tuple(available_models or DEFAULT_AVAILABLE_MODELS)
 
-    def ensure_available(checkpoint: Optional[str]) -> Optional[str]:
-        if checkpoint is not None and checkpoint not in resolved_available:
-            raise HTTPException(
-                status_code=400,
-                detail=f"checkpoint {checkpoint!r} is not available on this instance; "
-                       f"available: {', '.join(resolved_available)}",
-            )
-        return checkpoint
-
-    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="laya-openai-infer")
-    gate: Optional[asyncio.Lock] = None
-
+    # 推理、串行化与 model 解析都由注入的 predict 统一负责（见 server.py）。
+    # 这里只做协议翻译：把客户端 model 原样透传，避免两条通道解析出不同检查点。
     async def run(call: Dict[str, Any]) -> Dict[str, Any]:
-        nonlocal gate
         kwargs: Dict[str, Any] = {}
-        checkpoint = ensure_available(call.get("model"))
-        if checkpoint:
-            kwargs["model"] = checkpoint
         if call.get("task"):
             kwargs["task"] = call["task"]
         if call.get("lang"):
             kwargs["lang"] = call["lang"]
-
-        if gate is None:
-            gate = asyncio.Lock()
-        loop = asyncio.get_running_loop()
         try:
-            async with gate:
-                return await loop.run_in_executor(
-                    pool, lambda: predict(call["state"], call["questions"], **kwargs)
-                )
+            result = predict(call["state"], call["questions"], call.get("model"), **kwargs)
+            if inspect.isawaitable(result):
+                result = await result
+            return result
+        except HTTPException:
+            raise
         except Exception as exc:  # noqa: BLE001 -- 模型/分词器错误按 422 暴露
             raise HTTPException(status_code=422, detail=f"{type(exc).__name__}: {exc}") from exc
 

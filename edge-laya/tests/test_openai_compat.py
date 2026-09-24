@@ -23,8 +23,8 @@ from app.openai_compat import (  # noqa: E402
     create_openai_router,
     extract_envelope,
     input_to_text,
-    resolve_model,
 )
+from app.server import resolve_checkpoint  # noqa: E402
 
 CANNED = {
     "model": "laya-rl-agent",
@@ -48,8 +48,8 @@ class Recorder:
         self.calls = []
         self.payload = payload or CANNED
 
-    def __call__(self, state, questions, **kwargs):
-        self.calls.append({"state": state, "questions": questions, **kwargs})
+    def __call__(self, state, questions, model=None, **kwargs):
+        self.calls.append({"state": state, "questions": questions, "model": model, **kwargs})
         return self.payload
 
 
@@ -65,19 +65,25 @@ def client_factory():
 
 # --------------------------------------------------------------------------- 模型名
 
-def test_resolve_model_laya_auto_routes():
-    """`laya` 与未知模型名必须回落到自动选路（None），不得硬编码 english。"""
-    assert resolve_model("laya") is None
-    assert resolve_model("gpt-5") is None
-    assert resolve_model(None) is None
-    assert resolve_model("") is None
+def test_resolve_checkpoint_laya_auto_routes():
+    """`laya` 与未知模型名必须回落到自动选路（None），不得硬编码 english。
+
+    上游 `laya.router.normalise_name` 把 `laya` 别名成 english，而网关只放行
+    `model: "laya"`；若沿用该别名，中文请求会被强制送到读不了中文的英文检查点。
+    """
+    assert resolve_checkpoint("laya") is None
+    assert resolve_checkpoint("gpt-5") is None
+    assert resolve_checkpoint("jev-1") is None
+    assert resolve_checkpoint(None) is None
+    assert resolve_checkpoint("") is None
 
 
-def test_resolve_model_explicit_checkpoints():
-    assert resolve_model("laya-english") == "english"
-    assert resolve_model("laya-multilingual") == "multilingual"
-    assert resolve_model("laya-typed-decisions") == "typed-decisions"
-    assert resolve_model("MULTILINGUAL") == "multilingual"
+def test_resolve_checkpoint_explicit_names():
+    assert resolve_checkpoint("laya-english") == "english"
+    assert resolve_checkpoint("laya-multilingual") == "multilingual"
+    assert resolve_checkpoint("laya-typed-decisions") == "typed-decisions"
+    assert resolve_checkpoint("MULTILINGUAL") == "multilingual"
+    assert resolve_checkpoint("convaiinnovations/laya") is None
 
 
 # --------------------------------------------------------------------------- 信封解析
@@ -118,7 +124,8 @@ def test_build_call_keeps_native_state_object():
     call = build_call("laya", state, questions, None, None)
     assert call["state"] == state
     assert call["questions"] == questions
-    assert call["model"] is None
+    # build_call 只做协议翻译，不解析模型：原样带给统一的 predict。
+    assert call["model"] == "laya"
 
 
 def test_build_call_does_not_force_english_when_model_omitted():
@@ -177,7 +184,8 @@ def test_chat_completions_passes_native_object(client_factory):
 
     call = recorder.calls[0]
     assert call["state"] == {"body": "We were billed twice."}
-    assert "model" not in call, "laya 应自动选路，不应显式传 model"
+    # 客户端值原样透传，由统一的 resolve_checkpoint 决定是否自动选路。
+    assert call["model"] == "laya"
 
 
 def test_chat_completions_forces_checkpoint(client_factory):
@@ -191,7 +199,7 @@ def test_chat_completions_forces_checkpoint(client_factory):
         },
     )
     assert resp.status_code == 200
-    assert recorder.calls[0]["model"] == "multilingual"
+    assert recorder.calls[0]["model"] == "laya-multilingual"  # 原样透传，由 server 解析
 
 
 def test_responses_accepts_object_input(client_factory):
@@ -270,20 +278,11 @@ def test_models_endpoint_includes_typed_decisions_when_mounted(client_factory):
     assert ids == {"laya", "laya-english", "laya-multilingual", "laya-typed-decisions"}
 
 
-def test_unmounted_checkpoint_is_rejected_without_network(client_factory):
-    """未挂载的检查点必须快速失败，而不是让 Router 去 Hugging Face 下载。"""
-    recorder = Recorder()
-    client = client_factory(recorder)
-    resp = client.post(
-        "/v1/responses",
-        json={
-            "model": "laya-typed-decisions",
-            "input": {"state": "s", "questions": {"q": {"type": "noul", "instructions": "?"}}},
-        },
-    )
-    assert resp.status_code == 400
-    assert "typed-decisions" in resp.json()["detail"]
-    assert recorder.calls == [], "不应调用 predict"
+def test_models_endpoint_excludes_unmounted_checkpoint(client_factory):
+    """未挂载的检查点不得出现在 /v1/models 里。"""
+    client = client_factory(Recorder())
+    ids = {item["id"] for item in client.get("/v1/models").json()["data"]}
+    assert "laya-typed-decisions" not in ids
 
 
 def test_predict_failure_surfaces_422(client_factory):
@@ -295,3 +294,103 @@ def test_predict_failure_surfaces_422(client_factory):
     client = TestClient(app)
     resp = client.post("/v1/responses", json={"model": "laya", "input": "hello"})
     assert resp.status_code == 422
+
+
+# ------------------------------------------------- 两条通道必须解析出同一个检查点
+
+class _FakeRouter:
+    """server.create_app 只依赖 `router.predict`，这里按该契约替身。"""
+
+    def __init__(self, seen):
+        self._seen = seen
+
+    def predict(self, state, questions, model=None, **kwargs):
+        self._seen["last"] = model
+        return CANNED
+
+
+def _edge_laya_client(recorder):
+    """按 server.create_app 的真实接线构造应用（含原生 + 兼容两面）。"""
+    from app.server import create_app
+
+    saw = {}
+    app = create_app(_FakeRouter(saw))
+    return TestClient(app), saw
+
+
+def test_both_faces_resolve_laya_identically():
+    """同一个 model='laya' 在两条通道上必须解析成同一个检查点。
+
+    上游 `normalise_name` 把 `laya` 别名成 english；若沿用，中文会被送到读不了
+    中文的英文检查点。这里锁定「laya = 自动选路」这一公开契约。
+    """
+    from app.server import resolve_checkpoint
+
+    assert resolve_checkpoint("laya") is None
+
+    recorder = Recorder()
+    client, saw = _edge_laya_client(recorder)
+
+    native = client.post(
+        "/v1/systemone",
+        json={"model": "laya", "state": "s", "questions": {"q": {"type": "noul", "instructions": "?"}}},
+    )
+    assert native.status_code == 200
+    native_checkpoint = saw["last"]
+
+    compat = client.post(
+        "/v1/responses",
+        json={"model": "laya", "input": {"state": "s", "questions": {"q": {"type": "noul", "instructions": "?"}}}},
+    )
+    assert compat.status_code == 200
+    compat_checkpoint = saw["last"]
+
+    # 两条通道必须交给 Router 同一个检查点；`laya` 一律是 None（自动选路）。
+    assert native_checkpoint is None
+    assert compat_checkpoint is None
+
+
+def test_both_faces_agree_on_explicit_checkpoint():
+    recorder = Recorder()
+    client, saw = _edge_laya_client(recorder)
+
+    client.post(
+        "/v1/systemone",
+        json={"model": "laya-multilingual", "state": "s",
+              "questions": {"q": {"type": "noul", "instructions": "?"}}},
+    )
+    native_checkpoint = saw["last"]
+
+    client.post(
+        "/v1/responses",
+        json={"model": "laya-multilingual",
+              "input": {"state": "s", "questions": {"q": {"type": "noul", "instructions": "?"}}}},
+    )
+    assert saw["last"] == native_checkpoint == "multilingual"
+
+
+def test_systemone_rejects_unmounted_checkpoint():
+    recorder = Recorder()
+    client, _ = _edge_laya_client(recorder)
+    resp = client.post(
+        "/v1/systemone",
+        json={"model": "laya-typed-decisions", "state": "s",
+              "questions": {"q": {"type": "noul", "instructions": "?"}}},
+    )
+    assert resp.status_code == 400
+    assert "typed-decisions" in resp.json()["detail"]
+
+
+def test_systemone_requires_questions_field():
+    recorder = Recorder()
+    client, _ = _edge_laya_client(recorder)
+    resp = client.post("/v1/systemone", json={"model": "laya", "state": "s"})
+    assert resp.status_code == 400
+
+
+def test_health_reports_loaded_checkpoints():
+    recorder = Recorder()
+    client, _ = _edge_laya_client(recorder)
+    body = client.get("/health").json()
+    assert body["status"] == "ok"
+    assert body["loaded"] == ["english", "multilingual"]
