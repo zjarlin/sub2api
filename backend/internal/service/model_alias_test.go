@@ -13,7 +13,7 @@ import (
 )
 
 func aliasTestPolicy() *ModelAliasPolicy {
-	return &ModelAliasPolicy{Groups: []ModelAliasGroup{{Canonical: "deepseek-v4-flash", Aliases: []string{"DeepSeek-V4-Flash", "cn:deepseek-v4-flash"}}}}
+	return &ModelAliasPolicy{Groups: []ModelAliasGroup{{Canonical: "deepseek-v4-flash", Aliases: []string{"DeepSeek-V4-Flash", "cn:deepseek-v4-flash", "deepseek/deepseek-v4-flash"}}}}
 }
 
 func TestGlobalModelAliasPersistenceAndValidation(t *testing.T) {
@@ -44,7 +44,7 @@ func TestGlobalModelAliasAccountRoutingAndIsolation(t *testing.T) {
 	p := aliasTestPolicy()
 	ctx := WithModelAliases(context.Background(), p)
 	for _, passthrough := range []bool{false, true} {
-		for _, native := range []string{"cn:deepseek-v4-flash", "DeepSeek-V4-Flash", "deepseek-v4-flash"} {
+		for _, native := range []string{"cn:deepseek-v4-flash", "DeepSeek-V4-Flash", "deepseek-v4-flash", "deepseek/deepseek-v4-flash"} {
 			t.Run(native+string(rune('0'+boolInt(passthrough))), func(t *testing.T) {
 				account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"model_mapping": map[string]any{native: native}}, Extra: map[string]any{"openai_passthrough": passthrough}}
 				account.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{Source: "upstream", SyncedAt: time.Now().Format(time.RFC3339), Models: []string{native}})
