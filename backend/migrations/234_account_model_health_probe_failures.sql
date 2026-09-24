@@ -81,15 +81,18 @@ END;
 $$ LANGUAGE plpgsql;
 
 INSERT INTO account_model_health (account_id, model, last_success_at, last_failure_at, source)
-SELECT account_id,
-       COALESCE(NULLIF(BTRIM(requested_model), ''), BTRIM(model)) AS model,
+SELECT o.account_id,
+       COALESCE(NULLIF(BTRIM(o.requested_model), ''), BTRIM(o.model)) AS model,
        NULL,
-       MAX(created_at),
+       MAX(o.created_at),
        'ops_error'
-FROM ops_error_logs
-WHERE account_id IS NOT NULL
-  AND COALESCE(NULLIF(BTRIM(requested_model), ''), BTRIM(model)) <> ''
-GROUP BY account_id, COALESCE(NULLIF(BTRIM(requested_model), ''), BTRIM(model))
+FROM ops_error_logs o
+-- ops_error_logs 可能保留已删除账号的历史行，
+-- account_model_health.account_id 有外键，回填时必须只取仍然存在的账号。
+WHERE o.account_id IS NOT NULL
+  AND EXISTS (SELECT 1 FROM accounts a WHERE a.id = o.account_id)
+  AND COALESCE(NULLIF(BTRIM(o.requested_model), ''), BTRIM(o.model)) <> ''
+GROUP BY o.account_id, COALESCE(NULLIF(BTRIM(o.requested_model), ''), BTRIM(o.model))
 ON CONFLICT (account_id, model) DO UPDATE
 SET last_failure_at = GREATEST(
     COALESCE(account_model_health.last_failure_at, EXCLUDED.last_failure_at),
