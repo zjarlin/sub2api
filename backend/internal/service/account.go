@@ -1468,12 +1468,17 @@ func (a *Account) IsCodingPlan() bool {
 // （与既有行为完全一致）。responses 协议仅 deepseek / kimi / minimax 支持（官方原生
 // Responses 端点，适配 Codex）；zhipu 无此端点。
 func (a *Account) GetAPIProtocol() string {
-	if a == nil || a.IsDoubao() || a.IsTraework() || a.IsWorkbuddy() || a.IsZcode() || !a.IsMultiProtocolAPIKey() {
+	if a == nil {
 		return APIProtocolChatCompletions
 	}
+	// 决策模型必须在通用回退之前判定：IsCNProvider 已把 laya/jev 纳入，
+	// 若放在下面会先被 chat_completions 兜住。
 	if a.IsLaya() || a.IsJev() {
 		// System One 决策模型共用 /v1/systemone，不生成文本，不存在 chat/responses 变体。
 		return APIProtocolSystemOne
+	}
+	if a.IsDoubao() || a.IsTraework() || a.IsWorkbuddy() || a.IsZcode() || !a.IsMultiProtocolAPIKey() {
+		return APIProtocolChatCompletions
 	}
 	switch strings.TrimSpace(a.GetCredential("api_protocol")) {
 	case APIProtocolAdaptive:

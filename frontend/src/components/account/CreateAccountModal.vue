@@ -300,6 +300,16 @@
             <PlatformIcon platform="zcode" size="sm" />
             {{ t('admin.accounts.zcode.title') }}
           </button>
+          <button type="button" data-testid="platform-laya" @click="selectLayaPlatform"
+            :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'laya' ? 'bg-white text-violet-600 shadow-sm dark:bg-dark-600 dark:text-violet-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
+            <PlatformIcon platform="laya" size="sm" />
+            {{ t('admin.accounts.laya.title') }}
+          </button>
+          <button type="button" data-testid="platform-jev" @click="selectJevPlatform"
+            :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'jev' ? 'bg-white text-fuchsia-600 shadow-sm dark:bg-dark-600 dark:text-fuchsia-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
+            <PlatformIcon platform="jev" size="sm" />
+            {{ t('admin.accounts.jev.title') }}
+          </button>
         </div>
       </div>
 
@@ -311,6 +321,12 @@
       </p>
       <p v-if="form.platform === 'zcode'" class="input-hint" data-testid="zcode-connection-hint">
         {{ t('admin.accounts.zcode.connectionHint') }}
+      </p>
+      <p v-if="form.platform === 'laya'" class="input-hint" data-testid="laya-connection-hint">
+        {{ t('admin.accounts.laya.baseUrlHint') }}
+      </p>
+      <p v-if="form.platform === 'jev'" class="input-hint" data-testid="jev-connection-hint">
+        {{ t('admin.accounts.jev.baseUrlHint') }}
       </p>
       <BuiltinAdapterLogin v-if="show && (form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'zcode')" :key="form.platform" :platform="form.platform" />
 
@@ -4125,6 +4141,8 @@ const baseUrlHint = computed(() => {
   if (form.platform === 'traework') return t('admin.accounts.traework.baseUrlHint')
   if (form.platform === 'workbuddy') return t('admin.accounts.workbuddy.baseUrlHint')
   if (form.platform === 'zcode') return t('admin.accounts.zcode.baseUrlHint')
+  if (form.platform === 'laya') return t('admin.accounts.laya.baseUrlHint')
+  if (form.platform === 'jev') return t('admin.accounts.jev.baseUrlHint')
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
   if (form.platform === 'grok') return ''
@@ -4136,6 +4154,8 @@ const apiKeyHint = computed(() => {
   if (form.platform === 'traework') return t('admin.accounts.traework.apiKeyHint')
   if (form.platform === 'workbuddy') return t('admin.accounts.workbuddy.apiKeyHint')
   if (form.platform === 'zcode') return t('admin.accounts.zcode.apiKeyHint')
+  if (form.platform === 'laya') return t('admin.accounts.laya.apiKeyHint')
+  if (form.platform === 'jev') return t('admin.accounts.jev.apiKeyHint')
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
   if (form.platform === 'grok') return ''
@@ -4422,7 +4442,34 @@ function selectZcodePlatform() {
   form.platform = 'zcode'
 }
 
-const isBuiltinAdapterPlatform = computed(() => ['doubao', 'traework', 'workbuddy', 'zcode'].includes(form.platform))
+// Laya / JEV 是 System One 决策模型：属内置适配器平台，地址与共享密钥由后端注入。
+// 协议由平台固定为 systemone（见 buildCredentials），表单不提供协议选择——
+// 决策模型不生成文本，不存在 chat / anthropic / responses 变体。
+function selectSystemOnePlatform(platform: 'laya' | 'jev') {
+  upstreamBillingAutoProbeEnabled.value = false
+  form.platform = platform
+  accountCategory.value = 'apikey'
+  form.type = 'apikey'
+  apiProtocol.value = 'chat_completions'
+  apiKeyBaseUrl.value = ''
+  apiKeyValue.value = ''
+  form.concurrency = 1
+}
+
+function selectLayaPlatform() {
+  selectSystemOnePlatform('laya')
+}
+
+function selectJevPlatform() {
+  selectSystemOnePlatform('jev')
+}
+
+// 内置适配器平台（地址与共享密钥由后端注入）的单一权威列表。
+// 新增此类平台时只改这里，避免平台按钮 / base_url 复位 / 密钥必填等分支各漏一处。
+const BUILTIN_ADAPTER_PLATFORMS = ['doubao', 'traework', 'workbuddy', 'zcode', 'laya', 'jev'] as const
+const isBuiltinAdapterPlatform = computed(() =>
+  (BUILTIN_ADAPTER_PLATFORMS as readonly string[]).includes(form.platform)
+)
 // 账号类型 / 协议变更时同步默认 base url。
 watch(openCodeAccountMode, (mode, previousMode) => {
   if (!isOpenCodeGoPlatform.value) return
@@ -5070,8 +5117,10 @@ watch(
 watch(
   () => form.platform,
   (newPlatform) => {
-    // Reset base URL based on platform
-    if (newPlatform === 'doubao' || newPlatform === 'traework' || newPlatform === 'workbuddy' || newPlatform === 'zcode') {
+    // Reset base URL based on platform.
+    // 内置适配器平台（豆包 / TRAE / WorkBuddy / ZCode / Laya / JEV）地址由后端注入，
+    // 必须清空 base_url，否则会保留上一个平台的默认值（例如 Anthropic）而打到错误上游。
+    if ((BUILTIN_ADAPTER_PLATFORMS as readonly string[]).includes(newPlatform)) {
       apiKeyBaseUrl.value = ''
       accountCategory.value = 'apikey'
       form.concurrency = 1
@@ -6050,16 +6099,17 @@ const handleSubmit = async () => {
 
   // For apikey type, create directly
   // 豆包 / TRAE Work 使用内置适配器，地址由后端注入，无需手填。
-  if (!apiKeyValue.value.trim() && form.platform !== 'doubao' && form.platform !== 'traework' && form.platform !== 'workbuddy' && form.platform !== 'zcode') {
+  if (!apiKeyValue.value.trim() && !isBuiltinAdapterPlatform.value) {
     appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
     return
   }
 
-  // Determine default base URL based on platform
-  const defaultBaseUrl =
-    form.platform === 'doubao'
-      ? ''
-      : form.platform === 'openai'
+  // Determine default base URL based on platform.
+  // 内置适配器平台（含 Laya / JEV）地址由后端按平台注入，不能落到 Anthropic 默认值，
+  // 否则会把决策请求发到错误的上游。
+  const defaultBaseUrl = isBuiltinAdapterPlatform.value
+    ? ''
+    : form.platform === 'openai'
       ? 'https://api.openai.com'
       : form.platform === 'gemini'
         ? 'https://generativelanguage.googleapis.com'
@@ -6073,7 +6123,7 @@ const handleSubmit = async () => {
     api_key: apiKeyValue.value.trim()
   }
   // 内置适配器平台：地址与密钥由后端注入，前端允许留空。
-  if (form.platform === 'doubao' || form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'zcode') {
+  if ((BUILTIN_ADAPTER_PLATFORMS as readonly string[]).includes(form.platform)) {
     if (!apiKeyBaseUrl.value.trim()) delete credentials.base_url
     if (!apiKeyValue.value.trim()) delete credentials.api_key
   }
@@ -6083,6 +6133,10 @@ const handleSubmit = async () => {
   if (form.platform === 'doubao' || form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'zcode') {
     credentials.api_protocol = 'chat_completions'
     credentials.openai_capabilities = ['chat_completions']
+  }
+  // System One 决策模型：协议固定 systemone，不生成文本，不声明 chat/responses 能力。
+  if (form.platform === 'laya' || form.platform === 'jev') {
+    credentials.api_protocol = 'systemone'
   }
 
   // 国产供应商：账号模式 + 协议 + 对应端点写入凭据；后端按 account_mode 路由
