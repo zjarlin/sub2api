@@ -30,8 +30,10 @@ func TestOpenAIModelRoutingRequiresEvidence(t *testing.T) {
 		account.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
 			Source: "upstream", SyncedAt: time.Now().UTC().Format(time.RFC3339), Models: []string{"q3-4b"},
 		})
-		require.True(t, account.IsModelSupported("q3-4b"))
+		require.False(t, account.IsModelSupported("q3-4b"))
 		require.False(t, account.IsModelSupported("gpt-5.4"))
+		delete(account.Credentials, "model_mapping")
+		require.True(t, account.IsModelSupported("q3-4b"))
 	}
 }
 
@@ -59,21 +61,34 @@ func TestOpenAIPassthroughCatalogChecksOriginalModel(t *testing.T) {
 		Source: "upstream", SyncedAt: time.Now().UTC().Format(time.RFC3339), Models: []string{"upstream-model"},
 	})
 	require.False(t, account.IsModelSupported("public-model"))
-	require.True(t, account.IsModelSupported("upstream-model"))
+	require.False(t, account.IsModelSupported("upstream-model"))
+	account.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
+		Source: "upstream", SyncedAt: time.Now().UTC().Format(time.RFC3339), Models: []string{"public-model", "upstream-model"},
+	})
+	require.True(t, account.IsModelSupported("public-model"))
+	require.False(t, account.IsModelSupported("upstream-model"))
 	account.Extra["openai_passthrough"] = false
+	account.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
+		Source: "upstream", SyncedAt: time.Now().UTC().Format(time.RFC3339), Models: []string{"upstream-model"},
+	})
 	require.True(t, account.IsModelSupported("public-model"))
 }
 
-func TestOpenAIModelRoutingRejectsUnknownPassthroughAcrossSchedulerPaths(t *testing.T) {
+func TestOpenAIModelRoutingRejectsUnconfiguredModelsAcrossSchedulerPaths(t *testing.T) {
 	for _, tc := range []struct {
-		name     string
-		advanced string
-		sticky   bool
+		name        string
+		advanced    string
+		sticky      bool
+		catalogOnly bool
 	}{
 		{name: "legacy/fresh", advanced: "false"},
 		{name: "legacy/sticky", advanced: "false", sticky: true},
 		{name: "advanced/fresh", advanced: "true"},
 		{name: "advanced/sticky", advanced: "true", sticky: true},
+		{name: "catalog/legacy/fresh", advanced: "false", catalogOnly: true},
+		{name: "catalog/legacy/sticky", advanced: "false", sticky: true, catalogOnly: true},
+		{name: "catalog/advanced/fresh", advanced: "true", catalogOnly: true},
+		{name: "catalog/advanced/sticky", advanced: "true", sticky: true, catalogOnly: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resetOpenAIAdvancedSchedulerSettingCacheForTest()
@@ -93,6 +108,12 @@ func TestOpenAIModelRoutingRejectsUnknownPassthroughAcrossSchedulerPaths(t *test
 					Credentials:   map[string]any{"model_mapping": map[string]any{"q3-4b": "q3-4b"}},
 					AccountGroups: []AccountGroup{{GroupID: groupID}},
 				},
+			}
+			if tc.catalogOnly {
+				accounts[0].Credentials = map[string]any{"model_mapping": testModelMapping("gpt-6-luna")}
+				accounts[0].SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
+					Source: "upstream", SyncedAt: time.Now().UTC().Format(time.RFC3339), Models: []string{"q3-4b", "gpt-6-luna"},
+				})
 			}
 			cache := &schedulerTestGatewayCache{}
 			var acquiredIDs []int64
@@ -128,4 +149,46 @@ func TestOpenAIModelRoutingRejectsUnknownPassthroughAcrossSchedulerPaths(t *test
 			require.NotContains(t, acquiredIDs, int64(840))
 		})
 	}
+}
+
+func TestOpenAIModelRoutingConfiguredAllowlistPrecedesCatalog(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		passthrough bool
+		stale       bool
+	}{
+		{name: "mapped/fresh"},
+		{name: "mapped/stale", stale: true},
+		{name: "passthrough/fresh", passthrough: true},
+		{name: "passthrough/stale", passthrough: true, stale: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			account := &Account{
+				Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+				Credentials: map[string]any{"model_mapping": testModelMapping("gpt-6-luna")},
+				Extra:       map[string]any{"openai_passthrough": tc.passthrough},
+			}
+			syncedAt := time.Now()
+			if tc.stale {
+				syncedAt = syncedAt.Add(-24 * time.Hour)
+			}
+			account.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
+				Source: "upstream", SyncedAt: syncedAt.UTC().Format(time.RFC3339),
+				Models: []string{"gpt-6-astra", "gpt-6-luna"},
+			})
+			require.False(t, account.IsModelSupported("gpt-6-astra"))
+			require.True(t, account.IsModelSupported("gpt-6-luna"))
+			account.Credentials["model_mapping"] = map[string]any{"gpt-6-*": "gpt-6-astra"}
+			require.True(t, account.IsModelSupported("gpt-6-astra"))
+		})
+	}
+}
+
+func TestModelRoutingPlatformDefaultsDoNotRestrictUpstreamCatalog(t *testing.T) {
+	account := &Account{Platform: PlatformGrok, Type: AccountTypeAPIKey}
+	require.NotEmpty(t, account.GetModelMapping())
+	account.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
+		Source: "upstream", SyncedAt: time.Now().UTC().Format(time.RFC3339), Models: []string{"grok-future-model"},
+	})
+	require.True(t, account.IsModelSupported("grok-future-model"))
 }

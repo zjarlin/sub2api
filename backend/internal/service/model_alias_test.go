@@ -91,3 +91,34 @@ func TestGlobalModelAliasCatalogAndFallback(t *testing.T) {
 	require.Equal(t, []ModelFallbackCandidate{{Model: "peer", Tier: "first"}, {Model: "low", Tier: "later"}}, canonical.Candidates("deepseek-v4-flash"))
 	require.Equal(t, "cn:deepseek-v4-flash", policy.Tiers[0].Models[0])
 }
+
+func TestGlobalModelAliasRespectsConfiguredAllowlist(t *testing.T) {
+	ctx := WithModelAliases(context.Background(), aliasTestPolicy())
+	for _, passthrough := range []bool{false, true} {
+		account := &Account{
+			Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+			Credentials: map[string]any{"model_mapping": testModelMapping("gpt-6-luna")},
+			Extra:       map[string]any{"openai_passthrough": passthrough},
+		}
+		account.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
+			Source: "upstream", SyncedAt: time.Now().UTC().Format(time.RFC3339),
+			Models: []string{"gpt-6-luna", "deepseek-v4-flash", "cn:deepseek-v4-flash"},
+		})
+		routed := accountWithModelAliases(ctx, account)
+		require.Empty(t, routed.globalModelMapping)
+		require.False(t, routed.IsModelSupported("deepseek-v4-flash"))
+		require.False(t, routed.IsModelSupported("cn:deepseek-v4-flash"))
+		require.True(t, routed.IsModelSupported("gpt-6-luna"))
+
+		account.Credentials["model_mapping"] = testModelMapping("cn:deepseek-v4-flash")
+		routed = accountWithModelAliases(ctx, account)
+		require.True(t, routed.IsModelSupported("deepseek-v4-flash"))
+		require.Equal(t, "cn:deepseek-v4-flash", routed.GetMappedModel("deepseek-v4-flash"))
+
+		// 未设白名单时，全局别名仍可依据目录归一化，且不能限制目录中的其他模型。
+		delete(account.Credentials, "model_mapping")
+		routed = accountWithModelAliases(ctx, account)
+		require.True(t, routed.IsModelSupported("deepseek-v4-flash"))
+		require.True(t, routed.IsModelSupported("gpt-6-luna"))
+	}
+}

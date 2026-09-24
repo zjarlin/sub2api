@@ -874,7 +874,7 @@ func resolveRequestedModelInMapping(mapping map[string]string, requestedModel st
 	return matchWildcardMappingResult(mapping, requestedModel)
 }
 
-// IsModelSupported 优先使用上游模型目录，目录未知时回退到显式模型配置。
+// IsModelSupported 先遵守显式模型白名单，再校验上游目录；目录未知时回退到模型配置。
 // OpenAI API Key、兼容协议来源和透传账号必须有模型支持依据，不能把未知能力当成全部支持。
 //
 // 例外：OpenAI OAuth 账号（Codex 上游）的空映射会排除明确属于其他厂商
@@ -893,13 +893,24 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 	if a.IsModelKnownUnsupported(requestedModel) {
 		return false
 	}
+	mapping := a.GetModelMapping()
+	mappingSupported := mappingSupportsRequestedModel(mapping, requestedModel)
+	if !mappingSupported && !a.IsOpenAIPassthroughEnabled() {
+		normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
+		mappingSupported = normalized != requestedModel && mappingSupportsRequestedModel(mapping, normalized)
+	}
+	// 同步目录只证明上游能力，不能扩大管理员选定的调度范围。
+	// 平台默认映射和仅由目录生成的全局别名不属于显式白名单。
+	rawMapping, _ := a.Credentials["model_mapping"].(map[string]any)
+	if len(rawMapping) > 0 && !mappingSupported {
+		return false
+	}
 	if known, supported := a.upstreamModelCatalogSupport(requestedModel, time.Now()); known {
 		return supported
 	}
-	mapping := a.GetModelMapping()
 	// 透传仍按原始模型名转发，映射键只用于调度白名单，不改写请求模型。
 	if a.IsOpenAIPassthroughEnabled() {
-		return mappingSupportsRequestedModel(mapping, requestedModel)
+		return mappingSupported
 	}
 	if len(mapping) == 0 {
 		if a.IsOpenAIOAuth() {
@@ -914,11 +925,7 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 		}
 		return !(a.IsOpenAI() && a.Type == AccountTypeAPIKey)
 	}
-	if mappingSupportsRequestedModel(mapping, requestedModel) {
-		return true
-	}
-	normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
-	return normalized != requestedModel && mappingSupportsRequestedModel(mapping, normalized)
+	return mappingSupported
 }
 
 // GetMappedModel 获取映射后的模型名（支持通配符，最长优先匹配）

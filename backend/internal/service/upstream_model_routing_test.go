@@ -43,7 +43,7 @@ func TestAccountIsModelSupportedUsesFreshUpstreamCatalog(t *testing.T) {
 	}
 
 	require.True(t, account.IsModelSupported("public-good"))
-	require.True(t, account.IsModelSupported("public-new"), "fresh upstream capability must not be rejected by a stale mapping allowlist")
+	require.False(t, account.IsModelSupported("public-new"), "上游目录不能扩大显式白名单")
 	require.False(t, account.IsModelSupported("public-bad"))
 
 	account.Extra[UpstreamSupportedModelsExtraKey] = UpstreamSupportedModelsSnapshot{
@@ -51,7 +51,8 @@ func TestAccountIsModelSupportedUsesFreshUpstreamCatalog(t *testing.T) {
 		SyncedAt: now.Add(-upstreamSupportedModelsFreshness - time.Minute).Format(time.RFC3339),
 		Models:   []string{"upstream-good", "public-new"},
 	}
-	require.True(t, account.IsModelSupported("public-new"), "stale positive capability remains usable until a deterministic failure disproves it")
+	require.False(t, account.IsModelSupported("public-new"), "过期目录同样不能扩大显式白名单")
+	require.True(t, account.IsModelSupported("public-good"), "过期目录中的已配置模型仍可使用")
 	require.True(t, account.IsModelSupported("public-bad"), "stale catalogs must fail open")
 	require.False(t, account.IsModelSupported("public-unknown"), "stale absence must fall back to the configured mapping")
 }
