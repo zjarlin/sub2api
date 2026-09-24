@@ -106,6 +106,7 @@ func TestOpenAIGatewayService_ResponsesUnknownModelDoesNotFallbackToGPT54(t *tes
 	}}
 
 	svc := &OpenAIGatewayService{
+		accountRepo:  &modelNotFoundManagedAccountRepo{},
 		cfg:          &config.Config{},
 		httpUpstream: upstream,
 	}

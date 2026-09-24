@@ -48,7 +48,11 @@ func newOpenAIWSPassthroughHandlerHarness(t *testing.T, upstreamURL string) *ope
 		Status:      service.StatusActive,
 		Schedulable: true,
 		Concurrency: 1,
-		Credentials: map[string]any{"api_key": "sk-test", "base_url": upstreamURL},
+		Credentials: map[string]any{
+			"api_key":       "sk-test",
+			"base_url":      upstreamURL,
+			"model_mapping": map[string]any{"gpt-5.1": "gpt-5.1"},
+		},
 		Extra: map[string]any{
 			"openai_apikey_responses_websockets_v2_enabled": true,
 			"openai_apikey_responses_websockets_v2_mode":    service.OpenAIWSIngressModePassthrough,

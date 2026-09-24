@@ -441,6 +441,7 @@ func TestOpenAIGatewayForwardDoesNotRecurseWhenCompactFallbackAlsoFails(t *testi
 		{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(failed))},
 	}}
 	svc := &OpenAIGatewayService{
+		accountRepo:  &modelNotFoundManagedAccountRepo{},
 		cfg:          &config.Config{Gateway: config.GatewayConfig{OpenAICompactModel: "gpt-5.4"}},
 		httpUpstream: upstream,
 	}

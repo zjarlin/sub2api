@@ -176,6 +176,7 @@ func TestForwardAsChatCompletions_UnknownModelWithoutMessagesDispatchKeepsReques
 	}}
 
 	svc := &OpenAIGatewayService{
+		accountRepo:  &modelNotFoundManagedAccountRepo{},
 		cfg:          &config.Config{},
 		httpUpstream: upstream,
 	}

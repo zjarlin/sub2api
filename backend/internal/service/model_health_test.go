@@ -74,6 +74,22 @@ func TestGetAvailableModelsFailsClosedWhenHealthEvidenceCannotBeRead(t *testing.
 	require.Empty(t, svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI))
 }
 
+func TestGetAvailableModelsOpenAIPassthroughAdvertisesDefaultModelsWithoutHealthHistory(t *testing.T) {
+	groupID := int64(6)
+	svc := &GatewayService{
+		accountRepo: &modelHealthAccountRepoStub{accounts: []Account{{
+			ID:       820,
+			Platform: PlatformOpenAI,
+			Extra:    map[string]any{"openai_passthrough": true},
+		}}},
+		usageLogRepo: &modelHealthUsageRepoStub{err: errors.New("health query must be bypassed")},
+	}
+
+	models := svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI)
+
+	require.Contains(t, models, "gpt-6-astra")
+}
+
 func TestGetAvailableModelsIncludesHistoricallyVerifiedUnusedModels(t *testing.T) {
 	groupID := int64(6)
 	account := Account{

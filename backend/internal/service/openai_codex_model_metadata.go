@@ -102,6 +102,22 @@ func codexModelRoutingAccountIDs(group *Group, modelID string) []int64 {
 	return group.GetRoutingAccountIDs(strings.TrimSpace(modelID))
 }
 
+// 精确能力快照可证明账号属于 Codex 目录模型，但不扩大实际请求的调度资格。
+func accountClaimsCodexCatalogModel(account *Account, modelID string) bool {
+	if account == nil || strings.TrimSpace(modelID) == "" {
+		return false
+	}
+	if account.IsModelSupported(modelID) {
+		return true
+	}
+	lookupModel := strings.TrimSpace(account.GetMappedModel(modelID))
+	if lookupModel == "" {
+		return false
+	}
+	_, ok := account.GetUpstreamModelMetadata(lookupModel)
+	return ok
+}
+
 func groupCodexModelMetadata(
 	platform string,
 	modelID string,
@@ -175,7 +191,7 @@ func groupCodexModelMetadata(
 			}
 			lookupModel = account.GetMappedModel(modelID)
 		} else {
-			if !account.IsModelSupported(upstreamModel) {
+			if !accountClaimsCodexCatalogModel(account, upstreamModel) {
 				continue
 			}
 			lookupModel = account.GetMappedModel(upstreamModel)

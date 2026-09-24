@@ -269,6 +269,7 @@ func (s *OpenAIGatewayService) MergeGroupConfiguredCodexModels(
 		}
 		changed = true
 	}
+
 	if changed {
 		manifest.Body = body
 		manifest.ETag = codexModelsManifestBodyETag(body)
@@ -1202,7 +1203,7 @@ func groupCodexModelSupportsImageInput(
 	candidates := 0
 	for i := range accounts {
 		account := &accounts[i]
-		if account.Platform != platform || !account.IsModelSupported(upstreamModel) {
+		if account.Platform != platform || !accountClaimsCodexCatalogModel(account, upstreamModel) {
 			continue
 		}
 		candidates++
@@ -1248,7 +1249,7 @@ func groupCodexModelSupportsSearchTool(
 	candidates := 0
 	for i := range accounts {
 		account := &accounts[i]
-		if account.Platform != platform || !account.IsModelSupported(upstreamModel) {
+		if account.Platform != platform || !accountClaimsCodexCatalogModel(account, upstreamModel) {
 			continue
 		}
 		candidates++

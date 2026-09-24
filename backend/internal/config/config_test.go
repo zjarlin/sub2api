@@ -20,6 +20,7 @@ func resetViperWithJWTSecret(t *testing.T) {
 	t.Cleanup(viper.Reset)
 	t.Setenv("CONFIG_FILE", "")
 	t.Setenv("DATA_DIR", "")
+	t.Setenv("SERVER_HOST", "")
 	t.Setenv("JWT_SECRET", strings.Repeat("x", 32))
 }
 

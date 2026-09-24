@@ -865,8 +865,8 @@ export default {
         testMode: '测试模式',
         testModeDefault: '常规请求',
         testModeCompact: 'Compact 探测',
+        modelRestrictionDisabledByPassthrough: '已开启自动透传：模型白名单/映射不会生效。',
         passthroughModelRestrictionHint: '透传仍校验模型支持范围。请同步上游模型或配置白名单；映射键用于调度，模型名称不会改写。',
-        modelRestrictionDisabledByPassthrough: '已开启自动透传：无法在此批量编辑模型白名单/映射。',
         modelSupportRequired: '（仅调度上游目录已确认的模型；无目录时请先同步或配置白名单）',
       },
       grok: {

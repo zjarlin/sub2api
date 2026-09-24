@@ -103,6 +103,14 @@ func TestOpenAISchedulerCanonicalResetScoresMatchSnapshot(t *testing.T) {
 	}
 }
 
+func TestOpenAISchedulerScoreSnapshotUsesNeutralErrorAffinityWithoutRuntimeSamples(t *testing.T) {
+	accounts := []*Account{{ID: 1}}
+	weights := GatewayOpenAIWSSchedulerScoreWeightsView{ErrorRate: 0.8}
+
+	snapshots := buildOpenAIAccountSchedulerScoreSnapshot(accounts, nil, weights, false, defaultOpenAIOAuthSchedulingRateMultiplier)
+	require.InDelta(t, 0.4, snapshots[1].BaseScore, 1e-9)
+}
+
 func TestOpenAISchedulingResetWindowEnd(t *testing.T) {
 	now := time.Date(2026, 9, 1, 12, 0, 0, 0, time.UTC)
 	updated := now.Add(-30 * time.Minute)

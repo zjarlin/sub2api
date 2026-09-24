@@ -5,6 +5,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 )
 
 const accountModelHealthPersistTimeout = 3 * time.Second
@@ -68,6 +70,16 @@ func healthCheckedModelIDs(
 	if !ok {
 		return nil, false
 	}
+	// OpenAI 透传账号直接广告默认模型目录，不依赖历史健康记录
+	// （保留 upstream 行为；与下面的多平台观测读取并存）。
+	if platform == PlatformOpenAI {
+		for i := range accounts {
+			if accounts[i].IsOpenAIPassthroughEnabled() {
+				return openai.DefaultModelIDs(), true
+			}
+		}
+	}
+	// 目标分组可能包含多个 OpenAI 兼容来源，健康记录必须按账号真实平台读取。
 	observationPlatforms := modelHealthObservationPlatforms(platform, accounts)
 	observations := make([]ModelHealthObservation, 0)
 	for _, observationPlatform := range observationPlatforms {

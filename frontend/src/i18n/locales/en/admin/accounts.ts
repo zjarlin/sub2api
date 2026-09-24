@@ -787,8 +787,8 @@ export default {
         testMode: 'Test mode',
         testModeDefault: 'Default request',
         testModeCompact: 'Compact probe',
+        modelRestrictionDisabledByPassthrough: 'Automatic passthrough is enabled: model whitelist/mapping will not take effect.',
         passthroughModelRestrictionHint: 'Passthrough still checks model support. Sync upstream models or configure a whitelist. Mapping keys control scheduling; model names are forwarded unchanged.',
-        modelRestrictionDisabledByPassthrough: 'Model whitelist/mapping cannot be edited in bulk while automatic passthrough is enabled.',
         modelSupportRequired: '(Only models confirmed by the upstream catalog are eligible. Sync models or configure a whitelist if no catalog is available.)',
       },
       grok: {

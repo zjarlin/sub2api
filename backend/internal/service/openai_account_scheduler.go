@@ -2879,7 +2879,7 @@ func buildOpenAIAccountSchedulerScoreSnapshot(
 		}
 		loadFactor := 1 - clamp01(float64(candidate.loadInfo.LoadRate)/100.0)
 		queueFactor := 1 - clamp01(float64(candidate.loadInfo.WaitingCount)/float64(maxWaiting))
-		errorFactor := 1.0
+		errorFactor := openAIModelSuccessAffinity(candidate.errorRate, candidate.samples)
 		ttftFactor := 0.5
 		resetFactor := 0.0
 		if weights.Reset > 0 && hasResetSample {
