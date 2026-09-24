@@ -1,0 +1,1 @@
+laya[serve] @ https://github.com/NandhaKishorM/laya/archive/d211a50dd816280e01f7782668f23000664c8a32.tar.gz

@@ -209,6 +209,15 @@ security:
 # 网关配置
 # =============================================================================
 gateway:
+  # 边缘视觉仅在内网容器就绪后启用；公网请求统一经网关鉴权及按次计费。
+  vision:
+    enabled: false
+    url: "http://edge-vision:18081"
+    timeout_seconds: 300
+  # 本地 Laya 决策模型；仅在权重已预置且内部服务健康后启用。
+  laya:
+    enabled: false
+    url: "http://edge-laya:18082"
   # Timeout for waiting upstream response headers (seconds)
   # 等待上游响应头超时时间（秒）
   response_header_timeout: 600

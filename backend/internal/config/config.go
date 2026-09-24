@@ -997,6 +997,8 @@ type GatewayConfig struct {
 	VisionFallback GatewayVisionFallbackConfig `mapstructure:"vision_fallback"`
 	// Vision 是离线边缘计算视觉服务（edge-vision）的上游接入配置。
 	Vision GatewayVisionConfig `mapstructure:"vision"`
+	// Laya 是本地 System One 推理服务，复用 /v1/systemone 入口。
+	Laya GatewayLayaConfig `mapstructure:"laya"`
 	// 等待上游响应头的超时时间（秒），0表示无超时
 	// 注意：这不影响流式数据传输，只控制等待响应头的时间
 	ResponseHeaderTimeout int `mapstructure:"response_header_timeout"`
@@ -1162,6 +1164,19 @@ type GatewayVisionConfig struct {
 	TimeoutSeconds int `mapstructure:"timeout_seconds"`
 	// Enabled 控制 /v1/vision/* 端点是否开放。默认关闭，避免未部署服务时暴露空端点。
 	Enabled bool `mapstructure:"enabled"`
+}
+
+// GatewayLayaConfig 配置内部 Laya 推理地址，默认关闭。
+type GatewayLayaConfig struct {
+	Enabled bool   `mapstructure:"enabled"`
+	URL     string `mapstructure:"url"`
+}
+
+func (c GatewayLayaConfig) BaseURL() string {
+	if strings.TrimSpace(c.URL) != "" {
+		return strings.TrimRight(strings.TrimSpace(c.URL), "/")
+	}
+	return "http://edge-laya:18082"
 }
 
 // BaseURL 返回视觉服务的内部基地址，未显式配置时使用编排内的服务名。

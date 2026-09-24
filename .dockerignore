@@ -85,3 +85,4 @@ deploy/redis_data/
 .claude/
 issues/
 CLAUDE.md
+edge-laya/models/

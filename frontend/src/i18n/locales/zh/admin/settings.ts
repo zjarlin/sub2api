@@ -1424,5 +1424,36 @@ export default {
       loadFailed: '加载模板失败',
       saveFailed: '保存模板失败',
       deleteFailed: '删除模板失败'
-    }
+    },
+
+  vision: {
+    title: '边缘计算视觉服务',
+    description: '离线 YOLO、OCR 接口与 TypeSafe JEV 中继。',
+    localService: '离线视觉推理',
+    statusEnabled: '已启用',
+    statusDisabled: '未启用',
+    disabledHint: '请在 gateway.vision.enabled 中启用此功能，并设置正确的 edge-vision 地址。',
+    endpoints: '可用端点',
+    colEndpoint: '端点路径',
+    colMethod: '方法',
+    colDescription: '说明',
+    usage: '使用示例',
+    billingTitle: '计费说明',
+    billingDesc: '边缘视觉仅对成功推理按次计费。余额与订阅均按分组费率计入用量。',
+    billingPoint1: '默认价格：$0.002/次（可在分组配置中覆盖）',
+    billingPoint2: '在分组配置中设置 vision_price_per_call=0 可设为免费',
+    statusError: '读取边缘计算状态失败',
+    jevTitle: 'TypeSafe JEV 决策模型',
+    jevDescription: '使用已有 Codex/OpenAI 分组的 API Key，通过 model=typesafe/jev 调用 /v1/systemone。',
+    jevConfig: '在后台配置 CommandCode 上游：Base URL 填 https://api.commandcode.ai，API Key 填 CommandCode 的提供商密钥。配置位置：',
+    jevBilling: 'JEV 透传目前不写入 Sub2API 用量账单；请以 CommandCode 上游账单为准。',
+    layaTitle: 'Laya 本地决策模型',
+    layaDescription: '使用同一 Codex/OpenAI 分组 Key，以 model=laya 调用 /v1/systemone；无需在账号管理添加 Laya 账号。请先预置模型权重并启用 gateway.laya.enabled。',
+    layaBilling: 'Laya 当前不写入 Sub2API 用量账单；启用前请确定计费策略。',
+    endpointDetect: 'YOLO 目标检测（支持 YOLOv8n/s/m/l/x）',
+    endpointSegment: 'YOLO 实例分割',
+    endpointPose: 'YOLO 姿态估计',
+    endpointClassify: 'YOLO 图像分类',
+    endpointOcr: 'OCR 文字识别（中英文）',
+  }
 }

@@ -34,13 +34,13 @@ func TestRelayForwardsSystemOneAndInjectsKey(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-	request := []byte(`{"model":"jev-latest","state":{"request":"推送代码"},"questions":{"push":{"type":"noul","instructions":"是否推送"}}}`)
+	request := []byte(`{"model":"typesafe/jev","state":{"request":"推送代码"},"questions":{"push":{"type":"noul","instructions":"是否推送"}}}`)
 	status, payload, err := Relay(context.Background(), stubProvider{baseURL: upstream.URL, apiKey: "relay-secret", client: upstream.Client()}, request)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, status)
 	require.Equal(t, "/v1/systemone", gotPath)
 	require.Equal(t, "Bearer relay-secret", gotAuth)
-	require.Equal(t, "jev-latest", gotBody["model"])
+	require.Equal(t, ModelID, gotBody["model"])
 	require.NotNil(t, gotBody["questions"])
 
 	var decoded struct {
@@ -55,6 +55,26 @@ func TestRelayForwardsSystemOneAndInjectsKey(t *testing.T) {
 	require.NoError(t, json.Unmarshal(payload, &decoded))
 	require.Equal(t, "jev-1.13.0", decoded.Model)
 	require.Equal(t, 0.98, decoded.Answers.Push.Noul)
+}
+
+func TestRelayCommandCodePath(t *testing.T) {
+	for _, suffix := range []string{"/provider", "/provider/v1/systemone"} {
+		t.Run(suffix, func(t *testing.T) {
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				require.Equal(t, "/provider/v1/systemone", r.URL.Path)
+				_, _ = w.Write([]byte(`{"answers":{}}`))
+			}))
+			defer upstream.Close()
+			status, _, err := Relay(context.Background(), stubProvider{baseURL: upstream.URL + suffix, apiKey: "key", client: upstream.Client()}, []byte(`{"model":"typesafe/jev"}`))
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, status)
+		})
+	}
+}
+
+func TestCommandCodeHostSelectsProviderPath(t *testing.T) {
+	require.Equal(t, commandCodePath, resolveSystemOnePath("api.commandcode.ai", ""))
+	require.Equal(t, systemOnePath, resolveSystemOnePath("api.typesafe.ai", ""))
 }
 
 func TestRelayRejectsMissingKey(t *testing.T) {
@@ -85,7 +105,17 @@ func TestHandlerRejectsNonObjectBody(t *testing.T) {
 func TestHandlerReturnsUnavailableWithoutKey(t *testing.T) {
 	h := NewHandler(stubProvider{apiKey: "", client: http.DefaultClient})
 	rec := httptest.NewRecorder()
-	c, _ := newTestContext(rec, []byte(`{}`))
+	c, _ := newTestContext(rec, []byte(`{"model":"typesafe/jev"}`))
 	h.Relay(c)
 	require.Equal(t, http.StatusServiceUnavailable, rec.Code)
+}
+
+func TestHandlerRejectsUnrelatedModel(t *testing.T) {
+	h := NewHandler(stubProvider{apiKey: "key", client: http.DefaultClient})
+	for _, body := range [][]byte{[]byte(`{"model":"gpt-5"}`), []byte(`{"model":"jev-latest"}`), []byte(`{"model":"typesafe/jev","model":"gpt-5"}`), []byte(`{"model":"typesafe/jev","MODEL":"gpt-5"}`)} {
+		rec := httptest.NewRecorder()
+		c, _ := newTestContext(rec, body)
+		h.Relay(c)
+		require.Equal(t, http.StatusBadRequest, rec.Code)
+	}
 }

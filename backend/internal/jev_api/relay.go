@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"time"
 )
@@ -19,6 +20,12 @@ import (
 const (
 	// systemOnePath 是 TypeSafe System One 的固定上游路径。
 	systemOnePath = "/v1/systemone"
+	// commandCodePath 是 CommandCode 兼容入口。
+	commandCodePath = "/provider/v1/systemone"
+	// ModelID 是本地显式允许的唯一 System One 模型。
+	ModelID = "typesafe/jev"
+	// LayaModelID 是本地离线决策模型的公开名称。
+	LayaModelID = "laya"
 	// defaultBaseURL 在上游档案未配置地址时使用。
 	defaultBaseURL = "https://api.typesafe.ai"
 	// maxRequestBytes 限制中继请求体大小，System One 请求应远小于此上限。
@@ -59,10 +66,26 @@ func Relay(ctx context.Context, provider TargetProvider, body []byte) (int, []by
 	if base == "" {
 		base = defaultBaseURL
 	}
-	endpoint, err := url.JoinPath(strings.TrimRight(base, "/"), systemOnePath)
+	parsed, err := url.Parse(base)
 	if err != nil {
 		return 0, nil, errors.New("typesafe invalid endpoint")
 	}
+	if parsed.Scheme != "https" && !(parsed.Scheme == "http" && (parsed.Hostname() == "localhost" || parsed.Hostname() == "127.0.0.1")) {
+		return 0, nil, errors.New("typesafe invalid endpoint")
+	}
+	if parsed.Host == "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return 0, nil, errors.New("typesafe invalid endpoint")
+	}
+	// CommandCode 使用 /provider/v1/systemone；旧 TypeSafe 配置仍沿用 /v1/systemone。
+	endpointPath := resolveSystemOnePath(parsed.Hostname(), parsed.Path)
+	if strings.HasSuffix(parsed.Path, endpointPath) {
+		parsed.Path = path.Clean(parsed.Path)
+	} else if endpointPath == commandCodePath && strings.HasSuffix(parsed.Path, "/provider") {
+		parsed.Path = path.Join(parsed.Path, systemOnePath)
+	} else {
+		parsed.Path = path.Join(parsed.Path, endpointPath)
+	}
+	endpoint := parsed.String()
 	reqCtx, cancel := context.WithTimeout(ctx, relayTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, endpoint, bytes.NewReader(body))
@@ -85,6 +108,13 @@ func Relay(ctx context.Context, provider TargetProvider, body []byte) (int, []by
 		return 0, nil, errors.New("typesafe invalid response")
 	}
 	return resp.StatusCode, out, nil
+}
+
+func resolveSystemOnePath(host, configuredPath string) string {
+	if strings.EqualFold(host, "api.commandcode.ai") || strings.HasSuffix(configuredPath, "/provider") || strings.HasSuffix(configuredPath, commandCodePath) {
+		return commandCodePath
+	}
+	return systemOnePath
 }
 
 // MaxRequestBytes 暴露请求体上限，供 handler 层做早期拒绝。

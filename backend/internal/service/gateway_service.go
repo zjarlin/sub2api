@@ -646,6 +646,7 @@ type ForwardResult struct {
 	ImageSizeSource    string
 	ImageSizeBreakdown map[string]int
 	SearchCount        int
+	VisionCount        int
 	AudioUsage         *AudioUsage
 }
 

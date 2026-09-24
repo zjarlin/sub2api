@@ -228,6 +228,7 @@ func resolveUsageBillingRequestID(ctx context.Context, upstreamRequestID string)
 func isForcedUsageBillingRequestID(requestID string) bool {
 	id := strings.TrimSpace(requestID)
 	return strings.HasPrefix(id, "web_search:") ||
+		strings.HasPrefix(id, "vision:") ||
 		strings.HasPrefix(id, "vision_helper:") ||
 		strings.HasPrefix(id, "grok-video:") ||
 		strings.HasPrefix(id, "grok_audio:") ||
@@ -797,7 +798,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 		input.BillingModelSource,
 		result.UpstreamResponseModel,
 		result.UpstreamResponseModelConflict,
-		result.ImageCount > 0 || result.AudioUsage != nil || result.SearchCount > 0,
+		result.ImageCount > 0 || result.AudioUsage != nil || result.SearchCount > 0 || result.VisionCount > 0,
 	); responseModel != "" && !strings.EqualFold(responseModel, strings.TrimSpace(billingModel)) {
 		if identified, responseChannelPriced := s.hasIdentifiedResponseModelPricing(ctx, responseModel, apiKey); identified {
 			responseCost := s.calculateRecordUsageCost(ctx, result, apiKey, responseModel, multiplier, imageMultiplier, pricingAt)
@@ -891,6 +892,9 @@ func (s *GatewayService) calculateRecordUsageCost(
 	imageMultiplier float64,
 	pricingAt time.Time,
 ) *CostBreakdown {
+	if result.VisionCount > 0 {
+		return s.billingService.CalculateVisionCost(result.VisionCount, visionPricePerCallFromAPIKey(apiKey), imageMultiplier)
+	}
 	// 图片生成：渠道定价为 token 计费时走 token 路径，否则走图片计费
 	if result.ImageCount > 0 {
 		if resolved := s.resolveChannelPricing(ctx, billingModel, apiKey); resolved != nil && resolved.Mode == BillingModeToken {

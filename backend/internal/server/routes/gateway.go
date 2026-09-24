@@ -192,7 +192,14 @@ func RegisterGatewayRoutes(
 	gateway.Use(gin.HandlerFunc(apiKeyAuth))
 	gateway.GET("/sub2api/billing", h.Gateway.KeyBillingInfo)
 	// TypeSafe / JEV System One 中继：实现与配置读取都在 internal/jev_api。
-	h.Gateway.RegisterJevRelay(gateway)
+	jevGroup := gateway.Group("")
+	jevGroup.Use(groupModelAllowlist)
+	h.Gateway.RegisterJevRelay(jevGroup)
+	// 边缘计算视觉服务：鉴权+计费+反代 edge-vision。
+	visionGroup := gateway.Group("/vision")
+	{
+		visionGroup.Any("/*proxyPath", h.Gateway.VisionProxy)
+	}
 	gateway.Use(modelAliases)
 	gateway.Use(groupModelAllowlist)
 	gateway.Use(compositeTarget)

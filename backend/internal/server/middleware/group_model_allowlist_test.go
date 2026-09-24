@@ -41,6 +41,7 @@ func newGroupModelAllowlistTestRouter(apiKey *service.APIKey, pathPrefix string)
 	register(http.MethodGet, pathPrefix+"/realtime")
 	register(http.MethodPost, pathPrefix+"/images/edits")
 	register(http.MethodPost, pathPrefix+"/live")
+	register(http.MethodPost, pathPrefix+"/systemone")
 	return router, &calls
 }
 
@@ -158,6 +159,25 @@ func TestGroupModelAllowlistJSONBodyAllowed(t *testing.T) {
 	}
 	if len(*calls) != 1 {
 		t.Fatalf("expected handler to run once, got %v", *calls)
+	}
+}
+
+func TestGroupModelAllowlistSystemOne(t *testing.T) {
+	router, calls := newGroupModelAllowlistTestRouter(allowlistAPIKey(true, "typesafe/jev"), "/v1")
+	response := doJSON(t, router, http.MethodPost, "/v1/systemone", `{"model":"typesafe/jev"}`)
+	if response.Code != http.StatusOK || len(*calls) != 1 {
+		t.Fatalf("expected allowed System One call, got %d and %v", response.Code, *calls)
+	}
+
+	router, calls = newGroupModelAllowlistTestRouter(allowlistAPIKey(true, "gpt-5"), "/v1")
+	response = doJSON(t, router, http.MethodPost, "/v1/systemone", `{"model":"typesafe/jev"}`)
+	if response.Code != http.StatusNotFound || len(*calls) != 0 {
+		t.Fatalf("expected denied System One call, got %d and %v", response.Code, *calls)
+	}
+	router, calls = newGroupModelAllowlistTestRouter(allowlistAPIKey(true, "laya"), "/v1")
+	response = doJSON(t, router, http.MethodPost, "/v1/systemone", `{"model":"laya"}`)
+	if response.Code != http.StatusOK || len(*calls) != 1 {
+		t.Fatalf("expected allowed Laya call, got %d and %v", response.Code, *calls)
 	}
 }
 

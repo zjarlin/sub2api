@@ -217,6 +217,7 @@ export default {
     contentModeration: '内容审计',
     promptAudit: '提示词审计',
     auditLogs: '操作日志',
+    edgeVision: '边缘计算',
   },
 
   // Auth

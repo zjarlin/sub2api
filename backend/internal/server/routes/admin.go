@@ -121,6 +121,7 @@ func RegisterAdminRoutes(
 
 		// 风控中心
 		registerContentModerationRoutes(admin, h)
+		admin.GET("/vision/status", h.Admin.Vision.GetStatus)
 
 		// 独立提示词输入审计
 		registerPromptAuditRoutes(admin, h)

@@ -1,6 +1,8 @@
 package jev_api
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -34,7 +36,8 @@ func (h *Handler) Relay(c *gin.Context) {
 		c.JSON(http.StatusRequestEntityTooLarge, gin.H{"error": gin.H{"type": "invalid_request_error", "message": "request body too large"}})
 		return
 	}
-	if !strings.HasPrefix(strings.TrimSpace(string(body)), "{") {
+	model, err := ReadModel(body)
+	if err != nil || model != ModelID {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": "request body must be a JSON object"}})
 		return
 	}
@@ -55,6 +58,47 @@ func (h *Handler) Relay(c *gin.Context) {
 		return
 	}
 	c.Data(status, "application/json", payload)
+}
+
+// ReadModel 只读取单一、明确的顶层模型 ID；拒绝大小写变体和重复键。
+func ReadModel(body []byte) (string, error) {
+	trimmed := bytes.TrimSpace(body)
+	var request struct {
+		Model string `json:"model"`
+	}
+	if len(trimmed) == 0 || trimmed[0] != '{' || json.Unmarshal(trimmed, &request) != nil || hasDuplicateModelKey(trimmed) {
+		return "", errors.New("invalid System One request body")
+	}
+	if request.Model != ModelID && request.Model != LayaModelID {
+		return "", errors.New("unsupported System One model")
+	}
+	return request.Model, nil
+}
+
+func hasDuplicateModelKey(body []byte) bool {
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	if _, err := decoder.Token(); err != nil {
+		return true
+	}
+	count := 0
+	for decoder.More() {
+		key, err := decoder.Token()
+		if err != nil {
+			return true
+		}
+		if strings.EqualFold(key.(string), "model") {
+			if key.(string) != "model" {
+				return true
+			}
+			count++
+		}
+		var value json.RawMessage
+		if decoder.Decode(&value) != nil {
+			return true
+		}
+	}
+	closing, err := decoder.Token()
+	return err != nil || closing != json.Delim('}') || count != 1
 }
 
 // Register 把中继端点挂到已鉴权的 /v1 路由组上。

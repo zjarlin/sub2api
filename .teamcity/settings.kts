@@ -26,6 +26,8 @@ object Deploy252Cluster : BuildType({
         param("env.SUB2API_REPLICAS", "2")
         param("env.IMAGE_REPOSITORY", "zjarlin/sub2api")
         param("env.EDGE_VISION_IMAGE_REPOSITORY", "zjarlin/edge-vision")
+        param("env.EDGE_LAYA_IMAGE_REPOSITORY", "zjarlin/edge-laya")
+        param("env.EDGE_LAYA_ENABLED", "0")
     }
 
     maxRunningBuilds = 1
@@ -56,6 +58,10 @@ object Deploy252Cluster : BuildType({
                 test -x deploy/cluster/deploy-252.sh
                 test -f "${'$'}DEPLOY_DIR/.env"
                 test -f "${'$'}DEPLOY_DIR/docker-compose.override.yml"
+                if [ "%env.EDGE_LAYA_ENABLED%" = "1" ]; then
+                  test -s "${'$'}DEPLOY_DIR/edge-laya/models/checkpoint/model.safetensors"
+                  test -s "${'$'}DEPLOY_DIR/edge-laya/models/checkpoint/multilingual/model.safetensors"
+                fi
                 SUB2API_IMAGE="validation" docker compose \
                   --project-name sub2api \
                   --project-directory "${'$'}DEPLOY_DIR" \
@@ -79,6 +85,7 @@ object Deploy252Cluster : BuildType({
                 git archive "${'$'}SHA" | tar -x -C "${'$'}DEPLOY_DIR"
                 chmod +x "${'$'}DEPLOY_DIR/deploy/cluster/deploy-252.sh"
                 chmod +x "${'$'}DEPLOY_DIR/deploy/cluster/deploy-edge-vision.sh"
+                chmod +x "${'$'}DEPLOY_DIR/deploy/cluster/deploy-laya.sh"
                 echo "##teamcity[progressFinish '同步部署文件']"
 
                 echo "##teamcity[progressStart '部署双副本']"
@@ -96,9 +103,20 @@ object Deploy252Cluster : BuildType({
                   "${'$'}DEPLOY_DIR/deploy/cluster/deploy-edge-vision.sh"
                 echo "##teamcity[progressFinish '部署边缘视觉服务']"
 
+                if [ "%env.EDGE_LAYA_ENABLED%" = "1" ]; then
+                  echo "##teamcity[progressStart '部署 Laya 决策模型']"
+                  EDGE_LAYA_IMAGE="%env.EDGE_LAYA_IMAGE_REPOSITORY%:${'$'}SHORT_SHA" \
+                    DEPLOY_DIR="${'$'}DEPLOY_DIR" \
+                    "${'$'}DEPLOY_DIR/deploy/cluster/deploy-laya.sh"
+                  echo "##teamcity[progressFinish '部署 Laya 决策模型']"
+                fi
+
                 echo "##teamcity[progressStart '验证 252 入口']"
                 curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18080/health >/dev/null
-                curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18080/vision/health >/dev/null
+                docker exec edge-vision curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18081/health >/dev/null
+                if [ "%env.EDGE_LAYA_ENABLED%" = "1" ]; then
+                  docker exec edge-laya curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18082/health >/dev/null
+                fi
                 test "${'$'}(docker ps --filter name=sub2api-gateway --filter status=running -q | wc -l | tr -d ' ')" = "1"
                 test "${'$'}(docker ps --filter name=edge-vision --filter health=healthy -q | wc -l | tr -d ' ')" = "1"
                 test "${'$'}(docker ps --filter label=com.docker.compose.service=sub2api --filter status=running -q | wc -l | tr -d ' ')" -ge "%env.SUB2API_REPLICAS%"

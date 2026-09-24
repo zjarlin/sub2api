@@ -652,6 +652,18 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/admin/vision',
+    name: 'AdminVision',
+    component: () => import('@/views/admin/VisionEdgeView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Edge Vision',
+      titleKey: 'nav.edgeVision',
+      descriptionKey: 'admin.vision.description'
+    }
+  },
+  {
     path: '/admin/usage',
     name: 'AdminUsage',
     component: () => import('@/views/admin/UsageView.vue'),

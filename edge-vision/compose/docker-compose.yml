@@ -18,8 +18,8 @@ services:
       - "18081"
     environment:
       MODEL_DIR: /models
-      # 对外经网关 /vision 前缀访问，Swagger/OpenAPI 链接需要该前缀
-      ROOT_PATH: ${EDGE_VISION_ROOT_PATH:-/vision}
+      # Swagger/OpenAPI 仅供容器内部诊断，公网网关只放行推理路由
+      ROOT_PATH: ${EDGE_VISION_ROOT_PATH:-}
       WORKERS: ${EDGE_VISION_WORKERS:-1}
       ORT_NUM_THREADS: ${EDGE_VISION_THREADS:-4}
       LOG_LEVEL: ${EDGE_VISION_LOG_LEVEL:-info}

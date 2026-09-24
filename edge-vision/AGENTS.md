@@ -11,9 +11,9 @@
 
 - **不占用任何宿主端口**。容器只在内部网络暴露 `18081`
 - 对外统一走 Sub2API 网关：`http://<host>:18080/vision/<endpoint>`
-- 网关通过 `deploy/cluster/nginx.conf` 的 `location /vision/` 反代到 `edge-vision:18081`
+- 网关通过 `deploy/cluster/nginx.conf` 的 `location /vision/` 转交 Sub2API 鉴权与计费，再由 Go 后端代理到 `edge-vision:18081`
 - edge-vision 加入 sub2api 的 Compose 网络 `sub2api_sub2api-network`
-- 全部业务代码集中在 `edge-vision/`，只新增一个网关 location，不动其它后端代码
+- 推理代码集中在 `edge-vision/`；鉴权与用量计费由 Sub2API 后端负责
 
 ## 目录结构
 
@@ -40,14 +40,10 @@ edge-vision/
 
 ## API
 
-| 路径 | 方法 | 说明 |
-|------|------|------|
-对外路径以 `/vision` 为前缀（网关去前缀后转发）：
+对外路径以 `/vision` 为前缀（网关去前缀后转发），所有请求需携带 Sub2API API Key：
 
 | 对外路径 | 方法 | 说明 |
 |------|------|------|
-| `/vision/health` | GET | 健康检查，返回已加载能力 |
-| `/vision/docs` | GET | Swagger UI |
 | `/vision/detect` | POST | YOLOv8n 目标检测，返回 bbox/class/confidence |
 | `/vision/segment` | POST | YOLOv8n-seg 实例分割，返回 bbox + 轮廓多边形 + 面积 |
 | `/vision/pose` | POST | YOLOv8n-pose 人体姿态，返回 17 个 COCO 关键点 |
@@ -93,8 +89,8 @@ docker save zjarlin/edge-vision:1.0.0 -o edge-vision-1.0.0.tar
 验证（统一入口 18080）：
 
 ```bash
-curl -fsS http://192.168.31.252:18080/vision/health
 curl -fsS -X POST http://192.168.31.252:18080/vision/detect \
+  -H "Authorization: Bearer $CODEX_GROUP_KEY" \
   -F image=@sample.jpg -F confidence_threshold=0.3
 ```
 

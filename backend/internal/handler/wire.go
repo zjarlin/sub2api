@@ -49,6 +49,7 @@ func ProvideAdminHandlers(
 	auditLogHandler *admin.AuditLogHandler,
 	upstreamBillingProbe *service.UpstreamBillingProbeService,
 	ollamaCloudUsage *service.OllamaCloudUsageService,
+	cfg *config.Config,
 ) *AdminHandlers {
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
 	accountHandler.SetOllamaCloudUsageService(ollamaCloudUsage)
@@ -84,6 +85,7 @@ func ProvideAdminHandlers(
 		ChannelMonitor:         channelMonitorHandler,
 		ChannelMonitorTemplate: channelMonitorTemplateHandler,
 		ContentModeration:      contentModerationHandler,
+		Vision:                 admin.NewVisionHandler(cfg),
 		PromptAudit:            promptAuditHandler,
 		Payment:                paymentHandler,
 		Affiliate:              affiliateHandler,

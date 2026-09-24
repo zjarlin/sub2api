@@ -1,0 +1,33 @@
+services:
+  edge-laya:
+    image: ${EDGE_LAYA_IMAGE:?EDGE_LAYA_IMAGE is required}
+    container_name: edge-laya
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    expose:
+      - "18082"
+    environment:
+      HF_HOME: /models
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      LAYA_PORT: "18082"
+      LAYA_DEVICE: cpu
+      LAYA_MODELS: english,multilingual
+      LAYA_PRELOAD: "1"
+      LAYA_THREADS: ${LAYA_THREADS:-4}
+    volumes:
+      - ${EDGE_LAYA_MODELS_DIR:?EDGE_LAYA_MODELS_DIR is required}:/models:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18082/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    networks:
+      - sub2api-network
+
+networks:
+  sub2api-network:
+    external: true
+    name: ${SUB2API_NETWORK:-sub2api_sub2api-network}

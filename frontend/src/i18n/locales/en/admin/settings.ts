@@ -1430,5 +1430,36 @@ export default {
       loadFailed: 'Failed to load profiles',
       saveFailed: 'Failed to save profile',
       deleteFailed: 'Failed to delete profile'
-    }
+    },
+
+  vision: {
+    title: 'Edge Vision',
+    description: 'Offline YOLO and OCR APIs, plus the TypeSafe JEV relay.',
+    localService: 'Offline inference',
+    statusEnabled: 'Enabled',
+    statusDisabled: 'Disabled',
+    disabledHint: 'Enable this feature in gateway.vision.enabled config and set the correct edge-vision URL.',
+    endpoints: 'Available Endpoints',
+    colEndpoint: 'Endpoint Path',
+    colMethod: 'Method',
+    colDescription: 'Description',
+    usage: 'Usage Example',
+    billingTitle: 'Billing',
+    billingDesc: 'Successful offline vision inferences are billed per call to balance or subscription usage.',
+    billingPoint1: 'Default price: $0.002/call (configurable per group)',
+    billingPoint2: 'Set vision_price_per_call=0 in group config to make it free',
+    statusError: 'Failed to load edge vision status',
+    jevTitle: 'TypeSafe JEV decision model',
+    jevDescription: 'Reuse your existing Codex/OpenAI group API key with model=typesafe/jev on /v1/systemone.',
+    jevConfig: 'Configure the CommandCode upstream with Base URL https://api.commandcode.ai and a CommandCode provider key in:',
+    jevBilling: 'The JEV relay does not write Sub2API usage records yet. Refer to CommandCode billing.',
+    layaTitle: 'Local Laya decision model',
+    layaDescription: 'Use the same Codex/OpenAI group key with model=laya on /v1/systemone. No account entry is needed. Prepare model weights and enable gateway.laya.enabled first.',
+    layaBilling: 'Laya currently does not write Sub2API usage records. Define a billing policy before enabling it.',
+    endpointDetect: 'YOLO object detection (YOLOv8n/s/m/l/x)',
+    endpointSegment: 'YOLO instance segmentation',
+    endpointPose: 'YOLO pose estimation',
+    endpointClassify: 'YOLO image classification',
+    endpointOcr: 'OCR text recognition (Chinese/English)',
+  }
 }
