@@ -1,0 +1,39 @@
+# =============================================================================
+# 方案 A：天津自建 cloudflared 隧道，把 GPU 媒体服务发布成 HTTPS 主机名。
+# =============================================================================
+# 相比 FRP 方案，这条路径不依赖 252 的 frps 和公网 IPv4，只要天津能出公网即可。
+# 天津机器已有 cloudflared 与隧道凭据（/etc/cloudflared/<uuid>.json）。
+#
+# 使用前需要在 Cloudflare Zero Trust 控制台为以下主机名创建 CNAME 指向该隧道：
+#   media-tj.addzero.site  -> edge-media (18083)
+#   tts-tj.addzero.site    -> gpt-sovits (9880)
+#   dub-tj.addzero.site    -> edge-dub (18084)
+#
+# 部署：
+#   cp deploy/tianjin/cloudflared-media-config.yml.template /etc/cloudflared/config.yml
+#   # 合并原有 ingress（ssh / ai.addzero.site）后再 systemctl enable --now cloudflared
+#   在 252 上：
+#     MEDIA_TTS_UPSTREAM_URL=https://tts-tj.addzero.site \
+#     MEDIA_VIDEO_UPSTREAM_URL=https://dub-tj.addzero.site ... deploy-edge-media.sh
+#
+# 注意：edge-media 的 /videos/dub 会上传最大 512MB 视频，cloudflared 免费隧道
+# 对单请求体积与长连接有限制，大文件配音优先走 FRP 方案。
+# =============================================================================
+
+tunnel: 93ebc1e6-d9c5-4a5a-8a9a-4818c8baca44
+credentials-file: /etc/cloudflared/93ebc1e6-d9c5-4a5a-8a9a-4818c8baca44.json
+
+ingress:
+  # 原有入口，保留。
+  - hostname: ai.addzero.site
+    service: http://localhost:18080
+  - hostname: tianjin.addzero.site
+    service: ssh://localhost:22
+  # 边缘媒体（天津 GPU）。
+  - hostname: media-tj.addzero.site
+    service: http://localhost:18083
+  - hostname: tts-tj.addzero.site
+    service: http://localhost:9880
+  - hostname: dub-tj.addzero.site
+    service: http://localhost:18084
+  - service: http_status:404

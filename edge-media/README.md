@@ -44,7 +44,60 @@ EDGE_MEDIA_IMAGE=zjarlin/edge-media:local \
   ./deploy/cluster/deploy-edge-media.sh
 ```
 
-默认媒体容器健康但不启用 TTS/视频生成。准备 GPT-SoVITS 后：
+默认媒体容器健康但不启用 TTS/视频生成。
+
+### 天津 GPU 部署（曼波 TTS + 视频配音）
+
+252 无 GPU，只做编排与公网入口；曼波 TTS 与视频配音流水线跑在天津海光 DCU 机器上。
+天津是三套重模型服务（`gpt-sovits` 9880 / `edge-dub` 18084 / `edge-media` 18083），
+通过 FRP 或 cloudflared 把内网端口暴露给 252：
+
+```bash
+# 需要先在天津机器准备好 /opt/gptsovits-models/manbo 权重与参考音频
+./edge-media/scripts/deploy-tianjin-gpu.sh
+```
+
+三件套：`gpt-sovits`(9880) 曼波推理、`edge-dub`(18084) 视频配音流水线、
+`edge-media`(18083) 编排。详见 [gptsovits/README.md](gptsovits/README.md) 与
+[dub/README.md](dub/README.md)。
+
+#### 252 → 天津连接（二选一，或都配）
+
+252 与天津不在同一内网，且都无法直连对方私网。两条可用路径：
+
+1. **FRP（推荐，适合大视频）**：天津（或能访问 GPU 机器的中控机）跑 `frpc`
+   连到 252 的 `frps`（公网 `61.163.60.12:7000`，需把 `28084/28085` 加入
+   `allowPorts`），把 `edge-media:18083`、`gpt-sovits:9880` 映射出去。
+   模板见 [../deploy/tianjin/frpc-media.toml.template](../deploy/tianjin/frpc-media.toml.template)。
+2. **cloudflared**：天津本机 cloudflared 隧道加 `media-tj` / `tts-tj` / `dub-tj`
+   主机名，252 走 HTTPS 调用。模板见
+   [../deploy/tianjin/cloudflared-media-config.yml.template](../deploy/tianjin/cloudflared-media-config.yml.template)。
+
+252 侧只需把 upstream 指向对应地址：
+
+```bash
+MEDIA_TTS_ENABLED=true \
+MEDIA_TTS_UPSTREAM_URL=http://61.163.60.12:28085 \
+MEDIA_VIDEO_ENABLED=true \
+MEDIA_VIDEO_UPSTREAM_URL=http://61.163.60.12:28084 \
+SUB2API_EDGE_MEDIA=1 \
+  ./deploy/cluster/deploy-edge-media.sh
+```
+
+### 视频生成（网络 API）
+
+视频生成**不用离线模型**，直接走平台的 Seedance / Ark 异步任务协议：
+
+```
+POST /v1/contents/generations/tasks        # 创建任务
+GET  /v1/contents/generations/tasks/{id}   # 轮询状态
+```
+
+账号侧在「账号 → OpenAI 能力」勾选 `Seedance (Ark)` 并填 Ark 基地址与 Key 即可，
+网关会按 Ark 的实际 completion tokens 计费。`MEDIA_VIDEO_GENERATION_ENABLED`
+保持 `0`：视频生成不经过 edge-media 的离线转发，而是直接调用上面的原生端点。
+
+### 252 接入 GPT-SoVITS 后
 
 ```bash
 ./edge-media/scripts/prepare-models.sh

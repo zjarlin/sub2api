@@ -1,0 +1,48 @@
+# =============================================================================
+# 天津 → 252 FRP 隧道：把天津 GPU 媒体服务暴露给 252 的 /media/* 编排。
+# =============================================================================
+# 252 上的 frps 监听 7000，公网入口是 61.163.60.12:7000，allowPorts 需要新增
+# 28084 / 28085 两个端口（当前 allowlist：22024、25432、26379、28080-28083、29100）。
+#
+# 这份模板放在天津一侧（tianjin-ai，或能访问 192.168.9.97 的 tianjin-server），
+# token 从 252 的 /etc/frp/token 取，不要提交到 git。
+#
+# 部署步骤（天津中控机执行）：
+#   1. 在 252 上把 28084、28085 加入 /etc/frp/frps.toml 的 allowPorts 并重启 frps；
+#   2. 在天津写 /etc/frp/frpc-media.toml（内容如下，token 填真实值）；
+#   3. systemctl enable --now frpc-media；
+#   4. 在 252 上执行：
+#        EDGE_MEDIA_UPSTREAM_URL=http://61.163.60.12:28084 \
+#        TTS_UPSTREAM_URL=http://61.163.60.12:28085 ... deploy-edge-media.sh
+#
+# 说明：tianjin-ai 没有公网 IPv6，无法直连 252 的 frps v6 监听，所以 frpc 建议
+# 跑在与 tianjin-ai 同网段、且能访问 61.163.60.12:7000 的 tianjin-server 上，
+# 通过 localIP=192.168.9.97 把流量转发到 GPU 机器。
+# =============================================================================
+
+serverAddr = "61.163.60.12"
+serverPort = 7000
+auth.method = "token"
+auth.token = "__FRP_TOKEN__"
+
+transport.tls.enable = true
+transport.heartbeatInterval = 30
+transport.heartbeatTimeout = 180
+log.to = "console"
+log.level = "info"
+
+# 天津 GPU 机器内网地址；frpc 跑在 tianjin-server 时填 192.168.9.97，
+# 跑在 tianjin-ai 上时填 127.0.0.1。
+[[proxies]]
+name = "tianjin-media-edge"
+type = "tcp"
+localIP = "__TIANJIN_GPU_ADDR__"
+localPort = 18083
+remotePort = 28084
+
+[[proxies]]
+name = "tianjin-media-tts"
+type = "tcp"
+localIP = "__TIANJIN_GPU_ADDR__"
+localPort = 9880
+remotePort = 28085

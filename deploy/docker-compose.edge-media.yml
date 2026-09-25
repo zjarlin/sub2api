@@ -1,0 +1,18 @@
+# =============================================================================
+# 边缘媒体 / 视觉网关接入：把 GATEWAY_MEDIA_*、GATEWAY_VISION_* 注入 Sub2API。
+# =============================================================================
+# 由 deploy/cluster/deploy-252.sh 在 SUB2API_EDGE_MEDIA=1 时通过 -f 叠加。
+# 这些键必须同时出现在这里，否则 Sub2API 只会读 config.yaml，环境变量会被忽略。
+#
+# 上游地址默认指向 252 本地编排内的 edge-media；天津 GPU 上的实际推理由
+# edge-media 自己的 MEDIA_*_UPSTREAM_URL 决定（配置在 edge-media 容器上）。
+# =============================================================================
+services:
+  sub2api:
+    environment:
+      - GATEWAY_MEDIA_ENABLED=${GATEWAY_MEDIA_ENABLED:-1}
+      - GATEWAY_MEDIA_URL=${GATEWAY_MEDIA_URL:-http://edge-media:18083}
+      - GATEWAY_MEDIA_TIMEOUT_SECONDS=${GATEWAY_MEDIA_TIMEOUT_SECONDS:-7200}
+      - GATEWAY_VISION_ENABLED=${GATEWAY_VISION_ENABLED:-1}
+      - GATEWAY_VISION_URL=${GATEWAY_VISION_URL:-http://edge-vision:18081}
+      - GATEWAY_VISION_TIMEOUT_SECONDS=${GATEWAY_VISION_TIMEOUT_SECONDS:-300}

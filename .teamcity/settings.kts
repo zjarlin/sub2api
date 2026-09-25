@@ -3,8 +3,9 @@ import jetbrains.buildServer.configs.kotlin.*
 version = "2025.11"
 
 project {
-    description = "Sub2API 252 集群部署：构建不可变镜像，双副本切换，保留回滚记录并验证 18080；同时构建并上线边缘计算视觉服务 /vision。"
+    description = "Sub2API 双端部署：252 承载公网入口与编排（构建不可变镜像、双副本切换并验证 18080），天津海光 DCU 承载曼波 TTS / 视频配音 / 视频生成等重模型服务。"
     buildType(Deploy252Cluster)
+    buildType(DeployTianjinMedia)
 }
 
 object Deploy252Cluster : BuildType({
@@ -29,11 +30,17 @@ object Deploy252Cluster : BuildType({
         param("env.EDGE_LAYA_IMAGE_REPOSITORY", "zjarlin/edge-laya")
         param("env.EDGE_MEDIA_IMAGE_REPOSITORY", "zjarlin/edge-media")
         param("env.EDGE_MEDIA_ENABLED", "1")
-        param("env.MEDIA_TTS_ENABLED", "0")
-        param("env.MEDIA_TTS_UPSTREAM_URL", "http://gpt-sovits:9880")
+        // 边缘媒体走网关：GATEWAY_MEDIA_ENABLED=1 让子服务通过 /media/* 暴露。
+        param("env.SUB2API_EDGE_MEDIA", "1")
+        // 252 只做编排：TTS / 视频配音都转发到天津 GPU 机器。
+        // 天津通过 FRP 把 edge-media(28084) 与 gpt-sovits(28085) 暴露到 252 的 frps。
+        param("env.MEDIA_TTS_ENABLED", "1")
+        param("env.MEDIA_TTS_UPSTREAM_URL", "http://61.163.60.12:28085")
         param("env.MEDIA_DUBBING_ENABLED", "1")
         param("env.MEDIA_DUBBING_COMMAND", "")
-        param("env.MEDIA_VIDEO_UPSTREAM_URL", "")
+        param("env.MEDIA_VIDEO_UPSTREAM_URL", "http://61.163.60.12:28084")
+        // 视频生成走网络 API（Seedance 2.0 等），在网关侧账号池配置，不用离线模型。
+        // 平台已原生支持 Ark 异步任务协议：/v3/contents/generations/tasks。
         param("env.MEDIA_VIDEO_GENERATION_ENABLED", "0")
         param("env.MEDIA_VIDEO_GENERATION_UPSTREAM_URL", "")
         param("env.EDGE_LAYA_ENABLED", "0")
@@ -104,6 +111,7 @@ object Deploy252Cluster : BuildType({
                   DEPLOY_DIR="${'$'}DEPLOY_DIR" \
                   CANARY_REPLICAS="%env.CANARY_REPLICAS%" \
                   SUB2API_REPLICAS="%env.SUB2API_REPLICAS%" \
+                  SUB2API_EDGE_MEDIA="%env.SUB2API_EDGE_MEDIA%" \
                   "${'$'}DEPLOY_DIR/deploy/cluster/deploy-252.sh"
                 echo "##teamcity[progressFinish '部署双副本']"
 
@@ -153,6 +161,96 @@ object Deploy252Cluster : BuildType({
                 test "${'$'}(docker ps --filter label=com.docker.compose.service=sub2api --filter status=running -q | wc -l | tr -d ' ')" -ge "%env.SUB2API_REPLICAS%"
                 echo "##teamcity[progressFinish '验证 252 入口']"
                 echo "DEPLOYED ${'$'}IMAGE EDGE_VISION=%env.EDGE_VISION_IMAGE_REPOSITORY%:${'$'}SHORT_SHA EDGE_MEDIA=%env.EDGE_MEDIA_IMAGE_REPOSITORY%:${'$'}SHORT_SHA"
+            """.trimIndent())
+        }
+    }
+})
+
+// 天津海光 DCU 机器：曼波 TTS + 视频配音 + edge-media 编排。
+//
+// 镜像在天津本机构建：海光 DTK 基础镜像与曼波权重体积很大，跨公网搬运不现实，
+// 而源码只有几百 KB，所以这里同步源码后在 agent 上直接 docker build。
+//
+// 需要在天津内网注册一个 TeamCity agent，名字与 AGENT_NAME 参数一致；
+// 若使用同一台 TeamCity server，把它加入 agent pool 后本 build type 即可运行。
+object DeployTianjinMedia : BuildType({
+    name = "Deploy Tianjin Media (GPU)"
+    description = "在天津海光 DCU 机器上构建并启动曼波 GPT-SoVITS、视频配音流水线与 edge-media 编排，发布内网端口供 252 的 /media/* 调用。"
+
+    vcs {
+        root(DslContext.settingsRoot)
+        checkoutMode = CheckoutMode.ON_AGENT
+    }
+
+    requirements {
+        // 天津 agent 的注册名；与 .teamcity 的 AGENT_NAME 参数保持一致。
+        equals("teamcity.agent.name", "%env.TIANJIN_AGENT_NAME%")
+    }
+
+    params {
+        param("env.TIANJIN_AGENT_NAME", "tianjin-media-agent")
+        param("env.GPT_SOVITS_MODELS_DIR", "/opt/gptsovits-models")
+        param("env.GPT_SOVITS_IMAGE", "gpt-sovits:manbo-v6")
+        param("env.EDGE_DUB_IMAGE", "edge-dub:tianjin")
+        param("env.EDGE_MEDIA_IMAGE", "edge-media:tianjin")
+        param("env.EDGE_MEDIA_DATA_DIR", "/opt/edge-media/data")
+        param("env.EDGE_DUB_DATA_DIR", "/opt/edge-dub/data")
+        param("env.SUB2API_NETWORK", "sub2api_sub2api-network")
+        param("env.MEDIA_TIANJIN_BIND", "0.0.0.0")
+        // 网络视频生成（Seedance 2.0 等）由 252 网关侧账号池承接，天津默认关闭。
+        param("env.MEDIA_VIDEO_GENERATION_ENABLED", "0")
+        param("env.MEDIA_VIDEO_GENERATION_UPSTREAM_URL", "")
+    }
+
+    maxRunningBuilds = 1
+
+    triggers {
+        trigger {
+            type = "vcsTrigger"
+            param("branchFilter", "+:<default>")
+        }
+    }
+
+    steps {
+        step {
+            name = "Build and deploy Tianjin GPU media stack"
+            type = "simpleRunner"
+            param("use.custom.script", "true")
+            param("script.content", """
+                set -euo pipefail
+
+                CHECKOUT="%teamcity.build.checkoutDir%"
+                SHA="%build.vcs.number%"
+                SHORT_SHA="${'$'}{SHA:0:12}"
+
+                cd "${'$'}CHECKOUT"
+                test -x deploy/tianjin/deploy-tianjin-media.sh
+
+                echo "##teamcity[progressStart '部署天津 GPU 媒体三件套']"
+                REPO_DIR="${'$'}CHECKOUT" \
+                  GPT_SOVITS_MODELS_DIR="%env.GPT_SOVITS_MODELS_DIR%" \
+                  GPT_SOVITS_IMAGE="%env.GPT_SOVITS_IMAGE%" \
+                  EDGE_DUB_IMAGE="%env.EDGE_DUB_IMAGE%" \
+                  EDGE_MEDIA_IMAGE="%env.EDGE_MEDIA_IMAGE%" \
+                  EDGE_MEDIA_DATA_DIR="%env.EDGE_MEDIA_DATA_DIR%" \
+                  EDGE_DUB_DATA_DIR="%env.EDGE_DUB_DATA_DIR%" \
+                  SUB2API_NETWORK="%env.SUB2API_NETWORK%" \
+                  MEDIA_TIANJIN_BIND="%env.MEDIA_TIANJIN_BIND%" \
+                  MEDIA_VIDEO_GENERATION_ENABLED="%env.MEDIA_VIDEO_GENERATION_ENABLED%" \
+                  MEDIA_VIDEO_GENERATION_UPSTREAM_URL="%env.MEDIA_VIDEO_GENERATION_UPSTREAM_URL%" \
+                  "${'$'}CHECKOUT/deploy/tianjin/deploy-tianjin-media.sh"
+                echo "##teamcity[progressFinish '部署天津 GPU 媒体三件套']"
+
+                echo "##teamcity[progressStart '验证天津媒体服务']"
+                docker exec edge-media curl --fail --silent --show-error --max-time 20 \
+                  http://127.0.0.1:18083/health >/dev/null
+                docker exec edge-media curl --fail --silent --show-error --max-time 60 \
+                  -X POST http://127.0.0.1:18083/tts \
+                  -H 'Content-Type: application/json' \
+                  -d '{"text":"你好，我是曼波。","language":"zh","response_format":"wav"}' \
+                  -o /dev/null
+                echo "##teamcity[progressFinish '验证天津媒体服务']"
+                echo "DEPLOYED tianjin edge-media=${'$'}SHORT_SHA"
             """.trimIndent())
         }
     }

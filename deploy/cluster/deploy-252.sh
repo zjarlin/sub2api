@@ -29,6 +29,26 @@ if [ "$BUILTIN_ADAPTERS_ENABLED" = "1" ]; then
   COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.builtin-adapters.yml")
 fi
 
+# 只读取编排开关，不执行 .env 中的 shell 内容；显式环境变量优先。
+EDGE_MEDIA_ENABLED="${SUB2API_EDGE_MEDIA:-}"
+if [ -z "$EDGE_MEDIA_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
+  EDGE_MEDIA_ENABLED="$(awk -F= '
+    $1 ~ /^[[:space:]]*(export[[:space:]]+)?SUB2API_EDGE_MEDIA[[:space:]]*$/ {
+      value=$2
+      sub(/#.*/, "", value)
+      gsub(/[[:space:]"\047]/, "", value)
+      result=value
+    }
+    END { if (result == "1") print "1"; else print "0" }
+  ' "$DEPLOY_DIR/.env")"
+fi
+
+# 显式开启后叠加 GATEWAY_MEDIA_* / GATEWAY_VISION_*；编排文件缺失立即报错。
+if [ "$EDGE_MEDIA_ENABLED" = "1" ]; then
+  test -f "$DEPLOY_DIR/deploy/docker-compose.edge-media.yml"
+  COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.edge-media.yml")
+fi
+
 cd "$DEPLOY_DIR"
 mkdir -p releases
 

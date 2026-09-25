@@ -1,0 +1,44 @@
+# 天津海光 DCU 机器上的 GPT-SoVITS（曼波音色）推理服务。
+# 与 sub2api 共用 sub2api_sub2api-network，供 edge-media 通过服务名访问。
+services:
+  gpt-sovits:
+    image: ${GPT_SOVITS_IMAGE:-gpt-sovits:manbo-v2}
+    container_name: gpt-sovits
+    restart: unless-stopped
+    devices:
+      - /dev/kfd
+      - /dev/mkfd
+      - /dev/dri
+    group_add:
+      - "39"
+    volumes:
+      - ${GPT_SOVITS_MODELS_DIR:-/opt/gptsovits-models}:/models:ro
+      - /usr/local/hyhal:/opt/hyhal:ro
+    shm_size: 8gb
+    environment:
+      - CUDA_VISIBLE_DEVICES=${DCU_VISIBLE_DEVICES:-0}
+      - HIP_VISIBLE_DEVICES=${DCU_VISIBLE_DEVICES:-0}
+      - GPT_SOVITS_GPT_WEIGHT=/models/manbo/GPT_weights_v2ProPlus/manbo-e15.ckpt
+      - GPT_SOVITS_SOVITS_WEIGHT=/models/manbo/SoVITS_weights_v2ProPlus/manbo_e8_s904.pth
+      - GPT_SOVITS_REFER_WAV=/models/manbo/reference/reference.mp3
+      - GPT_SOVITS_REFER_SECONDS=${GPT_SOVITS_REFER_SECONDS:-6}
+      - GPT_SOVITS_PROMPT_TEXT=${GPT_SOVITS_PROMPT_TEXT:-清晨的公园被一层薄薄的雾气笼罩着，柳树的枝条刚刚抽出嫩绿的新芽}
+      - GPT_SOVITS_PROMPT_LANGUAGE=${GPT_SOVITS_PROMPT_LANGUAGE:-zh}
+      - GPT_SOVITS_PRECISION_FLAG=${GPT_SOVITS_PRECISION_FLAG:--fp}
+    networks:
+      - sub2api
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "curl -sf -o /dev/null 'http://127.0.0.1:9880/?text=%E4%BD%A0%E5%A5%BD&text_language=zh' || exit 1",
+        ]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+      start_period: 180s
+
+networks:
+  sub2api:
+    external: true
+    name: ${SUB2API_NETWORK:-sub2api_sub2api-network}

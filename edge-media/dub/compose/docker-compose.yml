@@ -1,0 +1,34 @@
+# 天津 GPU 机器上的开源视频配音服务（ASR + 曼波 TTS + 对齐 + 回封）。
+# edge-media 通过 MEDIA_VIDEO_UPSTREAM_URL=http://edge-dub:18084 调用 /dub。
+services:
+  edge-dub:
+    image: ${EDGE_DUB_IMAGE:-edge-dub:tianjin}
+    container_name: edge-dub
+    restart: unless-stopped
+    environment:
+      - PORT=18084
+      - MEDIA_TTS_UPSTREAM_URL=${MEDIA_TTS_UPSTREAM_URL:-http://gpt-sovits:9880}
+      - MEDIA_DUB_LANGUAGE=${MEDIA_DUB_LANGUAGE:-zh}
+      - MEDIA_DUB_WHISPER_MODEL=${MEDIA_DUB_WHISPER_MODEL:-medium}
+      - MEDIA_DUB_WHISPER_COMPUTE=${MEDIA_DUB_WHISPER_COMPUTE:-int8}
+      - MEDIA_DUB_KEEP_ORIGINAL=${MEDIA_DUB_KEEP_ORIGINAL:-false}
+      - OMP_NUM_THREADS=${MEDIA_DUB_THREADS:-16}
+    volumes:
+      - ${EDGE_DUB_DATA_DIR:-/opt/edge-dub/data}:/data
+    networks:
+      - sub2api
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18084/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: ${EDGE_DUB_MEMORY_LIMIT:-32g}
+
+networks:
+  sub2api:
+    external: true
+    name: ${SUB2API_NETWORK:-sub2api_sub2api-network}

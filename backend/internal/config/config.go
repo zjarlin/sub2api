@@ -2533,6 +2533,17 @@ func setDefaults() {
 	viper.SetDefault("gateway.vision_fallback.model", "")
 	viper.SetDefault("gateway.vision_fallback.candidate_timeout_seconds", 60)
 	viper.SetDefault("gateway.vision_fallback.timeout_seconds", 120)
+	// 边缘视觉 / 媒体服务：默认关闭，仅在容器就绪后显式开启。
+	// 必须注册键，否则 viper 只会读取 config.yaml，GATEWAY_VISION_* /
+	// GATEWAY_MEDIA_* 环境变量会被静默忽略。
+	viper.SetDefault("gateway.vision.enabled", false)
+	viper.SetDefault("gateway.vision.url", "")
+	viper.SetDefault("gateway.vision.timeout_seconds", 300)
+	viper.SetDefault("gateway.media.enabled", false)
+	viper.SetDefault("gateway.media.url", "")
+	viper.SetDefault("gateway.media.timeout_seconds", 3600)
+	viper.SetDefault("gateway.laya.enabled", false)
+	viper.SetDefault("gateway.laya.url", "")
 	viper.SetDefault("gateway.openai_passthrough_allow_timeout_headers", false)
 	viper.SetDefault("gateway.openai_compact_model", "gpt-5.5")
 	viper.SetDefault("gateway.live.max_session_duration_seconds", 3600)

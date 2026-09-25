@@ -47,3 +47,31 @@ curl -fsS -X POST http://192.168.31.252:18080/media/tts \
   -d '{"text":"你好，我是曼波。","language":"zh","response_format":"wav"}' \
   -o manbo.wav
 ```
+
+## 天津 GPU 部署（海光 DCU）
+
+- 252 无 GPU，只做编排与公开入口；重模型放在天津 `tianjin.addzero.site`（2× 海光 DCU）
+- `gptsovits/`：曼波 GPT-SoVITS 推理镜像，含 DTK 兼容的 torchaudio shim 与源码补丁
+- `dub/`：开源视频配音流水线（faster-whisper ASR + 曼波 TTS + 对齐 + ffmpeg 回封）
+- `scripts/deploy-tianjin-gpu.sh`：一键构建并启动三件套
+- 参考音频必须裁到 3~10 秒，且 `prompt_text` 与裁剪片段对应，否则合成接近静音
+- 天津访问 GitHub / HuggingFace 受限：GPT-SoVITS 走 gh-proxy，模型走 ModelScope，
+  whisper 模型走 hf-mirror 且需 `HF_HUB_DISABLE_XET=1`
+
+## 双端流水线
+
+- TeamCity 源在 `.teamcity/settings.kts`（versioned settings 的唯一事实源）：
+  - `Deploy252Cluster`：在 252 agent 上构建 sub2api 镜像并部署双副本 + edge-vision + edge-media
+  - `DeployTianjinMedia`：在天津 agent 上源码构建并启动曼波 TTS / 配音 / edge-media
+- 两边都挂 default 分支的 vcsTrigger，推送即同时部署
+- 天津镜像（GPT-SoVITS 基础镜像 + 权重）体积很大，**在天津本机构建**，不跨隧道搬运
+- 网关媒体开关（`GATEWAY_MEDIA_ENABLED` / `GATEWAY_VISION_ENABLED`）由
+  `deploy/docker-compose.edge-media.yml` 注入，`SUB2API_EDGE_MEDIA=1` 时叠加
+- 252 → 天津只走 FRP 或 cloudflared：两边私网互不可达，且天津无公网 IPv6
+
+## 视频生成
+
+- 不使用离线视频生成模型；走网络 API（Seedance 2.0 / Ark）
+- 平台原生实现：`backend/internal/service/seedance.go`、`handler/seedance.go`
+- 路由：`/v1|/api/v3/contents/generations/tasks`（POST 创建、GET 轮询、DELETE 取消）
+- 账号需勾选 `Seedance (Ark)` 能力并配置 Ark 地址与 Key
