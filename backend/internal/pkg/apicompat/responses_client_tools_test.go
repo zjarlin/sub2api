@@ -66,6 +66,51 @@ func TestAdaptResponsesClientTools_LowersDeclarationsHistoryChoiceAndNamespaces(
 	require.Equal(t, "team__send", namespaceCall["name"])
 }
 
+func TestAdaptResponsesClientTools_LowersCustomHistoryAfterToolDeclarationsChange(t *testing.T) {
+	for _, toolsJSON := range []string{
+		`{}`,
+		`{"tools":[]}`,
+		`{"tools":null}`,
+		`{"tools":[{"type":"function","name":"exec","parameters":{"type":"object"}}]}`,
+		`{"tools":[{"type":"custom","name":"apply_patch"}]}`,
+	} {
+		t.Run(toolsJSON, func(t *testing.T) {
+			var req map[string]any
+			require.NoError(t, json.Unmarshal([]byte(toolsJSON), &req))
+			req["input"] = []any{
+				map[string]any{"type": "custom_tool_call", "id": "ctc_old", "call_id": "call_old", "name": "exec", "input": "line 1\nline 2\n", "status": "completed"},
+				map[string]any{"type": "custom_tool_call_output", "id": "ctco_old", "call_id": "call_old", "output": []any{map[string]any{"type": "input_text", "text": "full result\n"}}},
+			}
+			mapping, changed, err := AdaptResponsesClientTools(req)
+			require.NoError(t, err)
+			require.True(t, changed)
+			require.False(t, mapping.CustomTools["exec"], "历史工具不能成为当前可调用的 custom 工具")
+			items := req["input"].([]any)
+			call := items[0].(map[string]any)
+			require.Equal(t, "function_call", call["type"])
+			require.Equal(t, "fc_old", call["id"])
+			require.Equal(t, "call_old", call["call_id"])
+			require.JSONEq(t, `{"input":"line 1\nline 2\n"}`, call["arguments"].(string))
+			require.NotContains(t, call, "input")
+			output := items[1].(map[string]any)
+			require.Equal(t, "function_call_output", output["type"])
+			require.Equal(t, "call_old", output["call_id"])
+			require.Equal(t, []any{map[string]any{"type": "input_text", "text": "full result\n"}}, output["output"])
+			require.NotContains(t, output, "id")
+			if !mapping.CustomTools["apply_patch"] {
+				delete(req, "input")
+				encoded, err := json.Marshal(req)
+				require.NoError(t, err)
+				require.JSONEq(t, toolsJSON, string(encoded), "不能为了重放历史重新启用工具")
+				req["input"] = items
+			}
+			_, changed, err = AdaptResponsesClientTools(req)
+			require.NoError(t, err)
+			require.False(t, changed)
+		})
+	}
+}
+
 func TestAdaptResponsesClientTools_RemovesDeferredFlagsWhenToolSearchIsLowered(t *testing.T) {
 	req := map[string]any{
 		"tools": []any{
@@ -566,11 +611,13 @@ func TestAdaptResponsesClientToolsWithInheritedMapping_ExplicitToolsReplaceInher
 	)
 
 	require.NoError(t, err)
-	require.False(t, changed)
+	require.True(t, changed)
 	require.Empty(t, mapping)
+	require.Empty(t, req["tools"])
 	items := requireResponsesClientToolValue[[]any](t, req["input"])
 	call := requireResponsesClientToolValue[map[string]any](t, items[0])
-	require.Equal(t, "custom_tool_call", call["type"])
+	require.Equal(t, "function_call", call["type"])
+	require.JSONEq(t, `{"input":"pwd"}`, call["arguments"].(string))
 }
 
 func TestAdaptResponsesClientToolsWithInheritedMapping_ExplicitToolResetDoesNotPromoteDiscovery(t *testing.T) {

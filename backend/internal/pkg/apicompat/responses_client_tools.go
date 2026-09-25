@@ -24,7 +24,7 @@ func AdaptResponsesClientTools(req map[string]any) (ResponsesClientToolMapping, 
 		return ResponsesClientToolMapping{}, false, nil
 	}
 	tools, ok := req["tools"].([]any)
-	if !ok || len(tools) == 0 {
+	if !ok && req["tools"] != nil {
 		return ResponsesClientToolMapping{}, false, nil
 	}
 	discovered, err := promoteResponsesToolSearchDiscoveries(req)
@@ -231,9 +231,11 @@ func rewriteClientToolHistory(value any, adapter *ResponsesClientToolMapping) (b
 			typ := strings.TrimSpace(stringValue(typed["type"]))
 			switch typ {
 			case "custom_tool_call":
-				if adapter.CustomTools[strings.TrimSpace(stringValue(typed["name"]))] {
+				// 切换模型后工具声明可能改变，历史调用按自身类型转换，不重新启用旧工具。
+				input, validInput := typed["input"].(string)
+				if validInput && strings.TrimSpace(stringValue(typed["name"])) != "" {
 					typed["type"] = "function_call"
-					typed["arguments"] = customToolCallArguments(stringValue(typed["input"]))
+					typed["arguments"] = customToolCallArguments(input)
 					delete(typed, "input")
 					normalizeLoweredFunctionItemID(typed)
 					changed = true

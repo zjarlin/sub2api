@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -111,6 +112,45 @@ func TestClearOpenAIResponsesClientToolMappingRemovesStaleContextState(t *testin
 
 	_, ok := openAIResponsesClientToolMapping(c)
 	require.False(t, ok)
+}
+
+// 错误 175701：切换模型后旧 exec 不再声明为 custom，仍须完整转换历史调用及结果。
+func TestOpenAIResponsesForwardCustomHistoryAfterModelSwitch(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		for _, tools := range []string{`[]`, `[{"type":"function","name":"exec","parameters":{"type":"object","properties":{"command":{"type":"string"}}}}]`} {
+			t.Run(fmt.Sprintf("stream_%t/tools_%s", stream, tools), func(t *testing.T) {
+				body := []byte(fmt.Sprintf(`{"model":"deepseek/deepseek-v4.1-flash","stream":%t,"tools":%s,"input":[{"type":"custom_tool_call","id":"ctc_old","call_id":"call_old","name":"exec","input":"line 1\nline 2\n"},{"type":"custom_tool_call_output","call_id":"call_old","output":"original tool output\n"},{"role":"user","content":"continue"}]}`, stream, tools))
+				resultJSON := `{"id":"resp_new","status":"completed","output":[{"type":"function_call","id":"fc_new","call_id":"call_new","name":"exec","arguments":"{\"command\":\"pwd\"}"}],"usage":{"input_tokens":3,"output_tokens":1}}`
+				response := newOpenAIRejectedFieldTestResponse(http.StatusOK, resultJSON)
+				if stream {
+					response = newOpenAIRejectedFieldTestResponse(http.StatusOK, "data: {\"type\":\"response.completed\",\"response\":"+resultJSON+"}\n\n")
+					response.Header.Set("Content-Type", "text/event-stream")
+				}
+				upstream := &httpUpstreamRecorder{resp: response}
+				account := newOpenAIRejectedFieldTestAccount()
+				account.Extra["openai_passthrough"] = true
+				recorder := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(recorder)
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+				result, err := newOpenAIRejectedFieldTestService(upstream).Forward(context.Background(), c, account, body)
+				require.NoError(t, err)
+				require.NotNil(t, result)
+				require.Len(t, upstream.bodies, 1)
+				sent := upstream.bodies[0]
+				require.Equal(t, "deepseek/deepseek-v4.1-flash", gjson.GetBytes(sent, "model").String())
+				require.Equal(t, "function_call", gjson.GetBytes(sent, "input.0.type").String())
+				require.JSONEq(t, `{"input":"line 1\nline 2\n"}`, gjson.GetBytes(sent, "input.0.arguments").String())
+				require.Equal(t, "function_call_output", gjson.GetBytes(sent, "input.1.type").String())
+				require.Equal(t, "call_old", gjson.GetBytes(sent, "input.1.call_id").String())
+				require.Equal(t, "original tool output\n", gjson.GetBytes(sent, "input.1.output").String())
+				require.JSONEq(t, tools, gjson.GetBytes(sent, "tools").Raw)
+				_, mapped := openAIResponsesClientToolMapping(c)
+				require.False(t, mapped)
+				require.Contains(t, recorder.Body.String(), `"function_call"`)
+				require.NotContains(t, recorder.Body.String(), `custom_tool_call`)
+			})
+		}
+	}
 }
 
 func TestDeepSeekResponsesForwardRestoresClientToolsStreaming(t *testing.T) {
