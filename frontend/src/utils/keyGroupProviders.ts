@@ -15,6 +15,7 @@ const PROVIDER_BY_PLATFORM: Record<GroupPlatform, KeyGroupProvider> = {
   traework: 'domestic',
   workbuddy: 'domestic',
   zcode: 'domestic',
+  qoder: 'domestic',
   laya: 'domestic',
   jev: 'domestic',
   minimax: 'domestic',

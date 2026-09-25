@@ -2867,6 +2867,23 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
+	// Handle Qoder accounts: return the Qoder model catalog used by the
+	// commit-message probe and the forwarding layer.
+	if account.Platform == service.PlatformQoder {
+		ids := service.DefaultQoderModelIDs()
+		models := make([]openai.Model, 0, len(ids))
+		for _, id := range ids {
+			models = append(models, openai.Model{
+				ID:          id,
+				Object:      "model",
+				Type:        "model",
+				DisplayName: id,
+			})
+		}
+		response.Success(c, models)
+		return
+	}
+
 	// Handle Gemini accounts
 	if account.IsGemini() {
 		// Consumer Google One OAuth still uses the legacy Gemini CLI / Code

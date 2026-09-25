@@ -11,6 +11,7 @@ export interface ModelTestEvent {
   audio_url?: string
   video_url?: string
   mime_type?: string
+  curl?: string
 }
 
 export interface ModelTestResult {
@@ -107,4 +108,3 @@ async function readModelTest(
   }
   return result
 }
-

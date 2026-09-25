@@ -1,0 +1,51 @@
+services:
+  edge-media:
+    image: ${EDGE_MEDIA_IMAGE:?EDGE_MEDIA_IMAGE is required}
+    container_name: edge-media
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    expose:
+      - "18083"
+    environment:
+      PORT: "18083"
+      WORKERS: "${EDGE_MEDIA_WORKERS:-1}"
+      MEDIA_DATA_DIR: /data
+      MEDIA_MAX_UPLOAD_BYTES: "${MEDIA_MAX_UPLOAD_BYTES:-536870912}"
+      MEDIA_TTS_ENABLED: "${MEDIA_TTS_ENABLED:-false}"
+      MEDIA_TTS_UPSTREAM_URL: "${MEDIA_TTS_UPSTREAM_URL:-}"
+      MEDIA_TTS_REFER_WAV: "${MEDIA_TTS_REFER_WAV:-}"
+      MEDIA_TTS_PROMPT_TEXT: "${MEDIA_TTS_PROMPT_TEXT:-}"
+      MEDIA_TTS_PROMPT_LANGUAGE: "${MEDIA_TTS_PROMPT_LANGUAGE:-zh}"
+      MEDIA_TTS_DEFAULT_LANGUAGE: "${MEDIA_TTS_DEFAULT_LANGUAGE:-zh}"
+      MEDIA_VIDEO_ENABLED: "${MEDIA_VIDEO_ENABLED:-true}"
+      MEDIA_VIDEO_UPSTREAM_URL: "${MEDIA_VIDEO_UPSTREAM_URL:-}"
+      MEDIA_DUBBING_COMMAND: "${MEDIA_DUBBING_COMMAND:-}"
+      MEDIA_TRANSCODE_COMMAND: "${MEDIA_TRANSCODE_COMMAND:-}"
+      MEDIA_VIDEO_GENERATION_ENABLED: "${MEDIA_VIDEO_GENERATION_ENABLED:-false}"
+      MEDIA_VIDEO_GENERATION_UPSTREAM_URL: "${MEDIA_VIDEO_GENERATION_UPSTREAM_URL:-}"
+      MEDIA_VIDEO_GENERATION_COMMAND: "${MEDIA_VIDEO_GENERATION_COMMAND:-}"
+      MEDIA_VIDEO_TIMEOUT_SECONDS: "${MEDIA_VIDEO_TIMEOUT_SECONDS:-3600}"
+      MEDIA_VIDEO_GENERATION_TIMEOUT_SECONDS: "${MEDIA_VIDEO_GENERATION_TIMEOUT_SECONDS:-3600}"
+      MEDIA_DUBBING_TIMEOUT_SECONDS: "${MEDIA_DUBBING_TIMEOUT_SECONDS:-7200}"
+      TZ: "${TZ:-Asia/Shanghai}"
+    volumes:
+      - ${EDGE_MEDIA_DATA_DIR:-./data}:/data
+      - ${EDGE_MEDIA_MODELS_DIR:-./models}:/models:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18083/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          memory: ${EDGE_MEDIA_MEMORY_LIMIT:-8g}
+    networks:
+      - sub2api-network
+
+networks:
+  sub2api-network:
+    external: true
+    name: ${SUB2API_NETWORK:-sub2api_sub2api-network}

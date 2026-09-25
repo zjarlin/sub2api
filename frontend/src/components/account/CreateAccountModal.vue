@@ -300,6 +300,11 @@
             <PlatformIcon platform="zcode" size="sm" />
             {{ t('admin.accounts.zcode.title') }}
           </button>
+          <button type="button" data-testid="platform-qoder" @click="selectQoderPlatform"
+            :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'qoder' ? 'bg-white text-teal-600 shadow-sm dark:bg-dark-600 dark:text-teal-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
+            <PlatformIcon platform="qoder" size="sm" />
+            {{ t('admin.accounts.qoder.title') }}
+          </button>
           <button type="button" data-testid="platform-laya" @click="selectLayaPlatform"
             :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'laya' ? 'bg-white text-violet-600 shadow-sm dark:bg-dark-600 dark:text-violet-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
             <PlatformIcon platform="laya" size="sm" />
@@ -4442,6 +4447,18 @@ function selectZcodePlatform() {
   form.platform = 'zcode'
 }
 
+// Qoder 使用官方 Model Server，用户令牌存 api_key。
+function selectQoderPlatform() {
+  upstreamBillingAutoProbeEnabled.value = false
+  form.platform = 'qoder'
+  accountCategory.value = 'apikey'
+  form.type = 'apikey'
+  apiProtocol.value = 'chat_completions'
+  apiKeyBaseUrl.value = ''
+  apiKeyValue.value = ''
+  form.concurrency = 1
+}
+
 // Laya / JEV 是 System One 决策模型：属内置适配器平台，地址与共享密钥由后端注入。
 // 协议由平台固定为 systemone（见 buildCredentials），表单不提供协议选择——
 // 决策模型不生成文本，不存在 chat / anthropic / responses 变体。
@@ -4466,7 +4483,7 @@ function selectJevPlatform() {
 
 // 内置适配器平台（地址与共享密钥由后端注入）的单一权威列表。
 // 新增此类平台时只改这里，避免平台按钮 / base_url 复位 / 密钥必填等分支各漏一处。
-const BUILTIN_ADAPTER_PLATFORMS = ['doubao', 'traework', 'workbuddy', 'zcode', 'laya', 'jev'] as const
+const BUILTIN_ADAPTER_PLATFORMS = ['doubao', 'traework', 'workbuddy', 'zcode', 'qoder', 'laya', 'jev'] as const
 const isBuiltinAdapterPlatform = computed(() =>
   (BUILTIN_ADAPTER_PLATFORMS as readonly string[]).includes(form.platform)
 )
@@ -6130,7 +6147,7 @@ const handleSubmit = async () => {
   if (form.platform === 'gemini') {
     credentials.tier_id = geminiTierAIStudio.value
   }
-  if (form.platform === 'doubao' || form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'zcode') {
+  if (form.platform === 'doubao' || form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'zcode' || form.platform === 'qoder') {
     credentials.api_protocol = 'chat_completions'
     credentials.openai_capabilities = ['chat_completions']
   }

@@ -1479,6 +1479,8 @@ func defaultModelIDsForPlatform(platform string) []string {
 		return service.DefaultWorkbuddyModelIDs()
 	case service.PlatformZcode:
 		return service.DefaultZcodeModelIDs()
+	case service.PlatformQoder:
+		return service.DefaultQoderModelIDs()
 	case service.PlatformLaya:
 		// Laya / JEV 是 System One 决策模型，不生成文本；模型列表仍供平台选择器展示。
 		return service.DefaultLayaModelIDs()
@@ -1489,7 +1491,7 @@ func defaultModelIDsForPlatform(platform string) []string {
 	case service.PlatformComposite:
 		ids := make([]string, 0)
 		seen := make(map[string]struct{})
-		for _, concretePlatform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformOpenAI, service.PlatformAntigravity, service.PlatformGrok, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformDoubao, service.PlatformTraework, service.PlatformWorkbuddy, service.PlatformZcode, service.PlatformLaya, service.PlatformJev} {
+		for _, concretePlatform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformOpenAI, service.PlatformAntigravity, service.PlatformGrok, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformDoubao, service.PlatformTraework, service.PlatformWorkbuddy, service.PlatformZcode, service.PlatformQoder, service.PlatformLaya, service.PlatformJev} {
 			for _, id := range defaultModelIDsForPlatform(concretePlatform) {
 				if _, ok := seen[id]; ok {
 					continue

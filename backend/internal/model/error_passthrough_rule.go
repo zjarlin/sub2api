@@ -50,6 +50,7 @@ const (
 	PlatformTraework    = domain.PlatformTraework
 	PlatformWorkbuddy   = domain.PlatformWorkbuddy
 	PlatformZcode       = domain.PlatformZcode
+	PlatformQoder       = domain.PlatformQoder
 	PlatformLaya        = domain.PlatformLaya
 	PlatformJev         = domain.PlatformJev
 )
@@ -71,6 +72,7 @@ func AllPlatforms() []string {
 		PlatformTraework,
 		PlatformWorkbuddy,
 		PlatformZcode,
+		PlatformQoder,
 		PlatformLaya,
 		PlatformJev,
 	}

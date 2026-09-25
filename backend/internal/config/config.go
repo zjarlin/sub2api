@@ -1018,6 +1018,8 @@ type GatewayConfig struct {
 	VisionFallback GatewayVisionFallbackConfig `mapstructure:"vision_fallback"`
 	// Vision 是离线边缘计算视觉服务（edge-vision）的上游接入配置。
 	Vision GatewayVisionConfig `mapstructure:"vision"`
+	// Media 是离线/内网边缘媒体服务（edge-media）的上游接入配置，覆盖配音与视频任务。
+	Media GatewayMediaConfig `mapstructure:"media"`
 	// Laya 是本地 System One 推理服务，复用 /v1/systemone 入口。
 	Laya GatewayLayaConfig `mapstructure:"laya"`
 	// 等待上游响应头的超时时间（秒），0表示无超时
@@ -1191,6 +1193,25 @@ type GatewayVisionConfig struct {
 type GatewayLayaConfig struct {
 	Enabled bool   `mapstructure:"enabled"`
 	URL     string `mapstructure:"url"`
+}
+
+// GatewayMediaConfig 指向边缘配音与视频服务（edge-media）的内部地址。
+// 与 edge-vision 一样，服务本身不暴露宿主端口，所有公网访问统一经网关鉴权。
+type GatewayMediaConfig struct {
+	// URL 是 edge-media 的内部基地址；为空时使用编排内的服务名。
+	URL string `mapstructure:"url"`
+	// TimeoutSeconds 是单次媒体任务的等待上限（秒），0 表示默认 3600 秒。
+	TimeoutSeconds int `mapstructure:"timeout_seconds"`
+	// Enabled 控制 /v1/media/* 端点是否开放。默认关闭，避免未部署服务时暴露空端点。
+	Enabled bool `mapstructure:"enabled"`
+}
+
+// BaseURL 返回媒体服务的内部基地址，未显式配置时使用编排内的服务名。
+func (c GatewayMediaConfig) BaseURL() string {
+	if strings.TrimSpace(c.URL) != "" {
+		return strings.TrimRight(strings.TrimSpace(c.URL), "/")
+	}
+	return "http://edge-media:18083"
 }
 
 func (c GatewayLayaConfig) BaseURL() string {

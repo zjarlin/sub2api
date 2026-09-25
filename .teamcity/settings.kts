@@ -27,6 +27,15 @@ object Deploy252Cluster : BuildType({
         param("env.IMAGE_REPOSITORY", "zjarlin/sub2api")
         param("env.EDGE_VISION_IMAGE_REPOSITORY", "zjarlin/edge-vision")
         param("env.EDGE_LAYA_IMAGE_REPOSITORY", "zjarlin/edge-laya")
+        param("env.EDGE_MEDIA_IMAGE_REPOSITORY", "zjarlin/edge-media")
+        param("env.EDGE_MEDIA_ENABLED", "1")
+        param("env.MEDIA_TTS_ENABLED", "0")
+        param("env.MEDIA_TTS_UPSTREAM_URL", "http://gpt-sovits:9880")
+        param("env.MEDIA_DUBBING_ENABLED", "1")
+        param("env.MEDIA_DUBBING_COMMAND", "")
+        param("env.MEDIA_VIDEO_UPSTREAM_URL", "")
+        param("env.MEDIA_VIDEO_GENERATION_ENABLED", "0")
+        param("env.MEDIA_VIDEO_GENERATION_UPSTREAM_URL", "")
         param("env.EDGE_LAYA_ENABLED", "0")
     }
 
@@ -85,6 +94,7 @@ object Deploy252Cluster : BuildType({
                 git archive "${'$'}SHA" | tar -x -C "${'$'}DEPLOY_DIR"
                 chmod +x "${'$'}DEPLOY_DIR/deploy/cluster/deploy-252.sh"
                 chmod +x "${'$'}DEPLOY_DIR/deploy/cluster/deploy-edge-vision.sh"
+                chmod +x "${'$'}DEPLOY_DIR/deploy/cluster/deploy-edge-media.sh"
                 chmod +x "${'$'}DEPLOY_DIR/deploy/cluster/deploy-laya.sh"
                 echo "##teamcity[progressFinish '同步部署文件']"
 
@@ -103,6 +113,21 @@ object Deploy252Cluster : BuildType({
                   "${'$'}DEPLOY_DIR/deploy/cluster/deploy-edge-vision.sh"
                 echo "##teamcity[progressFinish '部署边缘视觉服务']"
 
+                if [ "%env.EDGE_MEDIA_ENABLED%" = "1" ]; then
+                  echo "##teamcity[progressStart '部署边缘媒体服务']"
+                  EDGE_MEDIA_IMAGE="%env.EDGE_MEDIA_IMAGE_REPOSITORY%:${'$'}SHORT_SHA" \
+                    MEDIA_TTS_ENABLED="%env.MEDIA_TTS_ENABLED%" \
+                    MEDIA_TTS_UPSTREAM_URL="%env.MEDIA_TTS_UPSTREAM_URL%" \
+                    MEDIA_DUBBING_ENABLED="%env.MEDIA_DUBBING_ENABLED%" \
+                    MEDIA_DUBBING_COMMAND="%env.MEDIA_DUBBING_COMMAND%" \
+                    MEDIA_VIDEO_UPSTREAM_URL="%env.MEDIA_VIDEO_UPSTREAM_URL%" \
+                    MEDIA_VIDEO_GENERATION_ENABLED="%env.MEDIA_VIDEO_GENERATION_ENABLED%" \
+                    MEDIA_VIDEO_GENERATION_UPSTREAM_URL="%env.MEDIA_VIDEO_GENERATION_UPSTREAM_URL%" \
+                    DEPLOY_DIR="${'$'}DEPLOY_DIR" \
+                    "${'$'}DEPLOY_DIR/deploy/cluster/deploy-edge-media.sh"
+                  echo "##teamcity[progressFinish '部署边缘媒体服务']"
+                fi
+
                 if [ "%env.EDGE_LAYA_ENABLED%" = "1" ]; then
                   echo "##teamcity[progressStart '部署 Laya 决策模型']"
                   EDGE_LAYA_IMAGE="%env.EDGE_LAYA_IMAGE_REPOSITORY%:${'$'}SHORT_SHA" \
@@ -114,14 +139,20 @@ object Deploy252Cluster : BuildType({
                 echo "##teamcity[progressStart '验证 252 入口']"
                 curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18080/health >/dev/null
                 docker exec edge-vision curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18081/health >/dev/null
+                if [ "%env.EDGE_MEDIA_ENABLED%" = "1" ]; then
+                  docker exec edge-media curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18083/health >/dev/null
+                fi
                 if [ "%env.EDGE_LAYA_ENABLED%" = "1" ]; then
                   docker exec edge-laya curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18082/health >/dev/null
                 fi
                 test "${'$'}(docker ps --filter name=sub2api-gateway --filter status=running -q | wc -l | tr -d ' ')" = "1"
                 test "${'$'}(docker ps --filter name=edge-vision --filter health=healthy -q | wc -l | tr -d ' ')" = "1"
+                if [ "%env.EDGE_MEDIA_ENABLED%" = "1" ]; then
+                  test "${'$'}(docker ps --filter name=edge-media --filter health=healthy -q | wc -l | tr -d ' ')" = "1"
+                fi
                 test "${'$'}(docker ps --filter label=com.docker.compose.service=sub2api --filter status=running -q | wc -l | tr -d ' ')" -ge "%env.SUB2API_REPLICAS%"
                 echo "##teamcity[progressFinish '验证 252 入口']"
-                echo "DEPLOYED ${'$'}IMAGE EDGE_VISION=%env.EDGE_VISION_IMAGE_REPOSITORY%:${'$'}SHORT_SHA"
+                echo "DEPLOYED ${'$'}IMAGE EDGE_VISION=%env.EDGE_VISION_IMAGE_REPOSITORY%:${'$'}SHORT_SHA EDGE_MEDIA=%env.EDGE_MEDIA_IMAGE_REPOSITORY%:${'$'}SHORT_SHA"
             """.trimIndent())
         }
     }

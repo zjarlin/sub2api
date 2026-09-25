@@ -5,7 +5,7 @@
         <div class="grid gap-0 lg:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]">
           <div class="border-b-2 border-black p-6 dark:border-white lg:border-b-0 lg:border-r-2">
             <div class="flex flex-wrap items-center gap-2">
-              <span class="badge badge-primary">EDGE / DECISION / VISION</span>
+              <span class="badge badge-primary">EDGE / DECISION / VISION / MEDIA</span>
               <span :class="status?.enabled ? 'badge badge-success' : 'badge badge-gray'">
                 {{ status?.enabled ? t('admin.vision.statusEnabled') : t('admin.vision.statusDisabled') }}
               </span>
@@ -29,6 +29,18 @@
                 <Icon name="cpu" size="sm" />
                 {{ t('admin.vision.presets.laya') }}
               </button>
+              <button type="button" class="btn btn-secondary" @click="usePreset('manbo')">
+                <Icon name="play" size="sm" />
+                {{ t('admin.vision.presets.manbo') }}
+              </button>
+              <button type="button" class="btn btn-secondary" @click="usePreset('video-dub')">
+                <Icon name="play" size="sm" />
+                {{ t('admin.vision.presets.videoDub') }}
+              </button>
+              <button type="button" class="btn btn-secondary" @click="usePreset('video-generation')">
+                <Icon name="sparkles" size="sm" />
+                {{ t('admin.vision.presets.videoGeneration') }}
+              </button>
             </div>
           </div>
           <div class="grid content-start gap-3 bg-black/5 p-6 dark:bg-white/5">
@@ -44,6 +56,10 @@
               <div class="rounded-md border-2 border-black bg-white p-3 dark:border-white dark:bg-dark-900">
                 <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.vision.layaStatus') }}</span>
                 <strong class="mt-1 block text-lg">{{ status?.laya_enabled ? t('admin.vision.statusEnabled') : t('admin.vision.statusDisabled') }}</strong>
+              </div>
+              <div class="rounded-md border-2 border-black bg-white p-3 dark:border-white dark:bg-dark-900">
+                <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.vision.mediaStatus') }}</span>
+                <strong class="mt-1 block text-lg">{{ status?.media_enabled ? t('admin.vision.statusEnabled') : t('admin.vision.statusDisabled') }}</strong>
               </div>
             </div>
             <p v-if="error" role="alert" class="rounded-md border-2 border-red-700 bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/40 dark:text-red-200">{{ error }}</p>
@@ -282,9 +298,10 @@ import {
 interface VisionStatus {
   enabled: boolean
   laya_enabled: boolean
+  media_enabled: boolean
 }
 
-type Preset = 'vision' | 'jev' | 'laya'
+type Preset = 'vision' | 'jev' | 'laya' | 'manbo' | 'video-dub' | 'video-generation'
 
 const { t } = useI18n()
 const { copyToClipboard } = useClipboard()
@@ -338,6 +355,9 @@ const endpoints = computed(() => [
   { path: '/vision/pose', method: 'POST', description: t('admin.vision.endpointPose') },
   { path: '/vision/classify', method: 'POST', description: t('admin.vision.endpointClassify') },
   { path: '/vision/ocr', method: 'POST', description: t('admin.vision.endpointOcr') },
+  { path: '/media/tts', method: 'POST', description: t('admin.vision.endpointManboTts') },
+  { path: '/media/videos/dub', method: 'POST', description: t('admin.vision.endpointVideoDub') },
+  { path: '/media/videos/generations', method: 'POST', description: t('admin.vision.endpointVideoGeneration') },
 ])
 
 const generatedCurl = computed(() => buildEdgeCurl({
@@ -366,6 +386,42 @@ function presetRequest(preset: Preset) {
       body: 'image=@photo.jpg&confidence_threshold=0.5',
       bodyMode: 'form' as EdgeBodyMode,
       model: '',
+    }
+  }
+  if (preset === 'manbo') {
+    gatewayPath.value = '/media/tts'
+    return {
+      method: 'POST' as EdgeRequestMethod,
+      url: buildGatewayUrl('/media/tts'),
+      headers: [{ name: 'Content-Type', value: 'application/json' }],
+      query: [] as EdgeKeyValue[],
+      body: JSON.stringify({ text: '你好，我是曼波。', language: 'zh', response_format: 'wav' }, null, 2),
+      bodyMode: 'json' as EdgeBodyMode,
+      model: '',
+    }
+  }
+  if (preset === 'video-dub') {
+    gatewayPath.value = '/media/videos/dub'
+    return {
+      method: 'POST' as EdgeRequestMethod,
+      url: buildGatewayUrl('/media/videos/dub'),
+      headers: [] as EdgeKeyValue[],
+      query: [] as EdgeKeyValue[],
+      body: 'video=@input.mp4&options={}',
+      bodyMode: 'form' as EdgeBodyMode,
+      model: '',
+    }
+  }
+  if (preset === 'video-generation') {
+    gatewayPath.value = '/media/videos/generations'
+    return {
+      method: 'POST' as EdgeRequestMethod,
+      url: buildGatewayUrl('/media/videos/generations'),
+      headers: [{ name: 'Content-Type', value: 'application/json' }],
+      query: [] as EdgeKeyValue[],
+      body: JSON.stringify({ model: 'edge-video', prompt: '一台机器人在天津海边散步，电影感镜头' }, null, 2),
+      bodyMode: 'json' as EdgeBodyMode,
+      model: 'edge-video',
     }
   }
   const model = preset === 'jev' ? 'typesafe/jev' : 'laya'
@@ -431,6 +487,7 @@ function gatewayPathForUrl(urlText: string): string {
     const path = new URL(urlText).pathname
     if (path.startsWith('/v1/')) return path
     if (path.startsWith('/vision/')) return path
+    if (path.startsWith('/media/')) return path
   } catch {
     return ''
   }

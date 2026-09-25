@@ -214,6 +214,12 @@ gateway:
     enabled: false
     url: "http://edge-vision:18081"
     timeout_seconds: 300
+  # 边缘媒体服务（曼波/GPT-SoVITS TTS、视频配音、视频生成）。
+  # 仅在 edge-media 容器已部署且对应上游配置完成后启用。
+  media:
+    enabled: false
+    url: "http://edge-media:18083"
+    timeout_seconds: 3600
   # 本地 Laya 决策模型；仅在权重已预置且内部服务健康后启用。
   laya:
     enabled: false

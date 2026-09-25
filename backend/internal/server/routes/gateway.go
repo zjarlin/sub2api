@@ -50,7 +50,7 @@ func RegisterGatewayRoutes(
 		switch getGroupPlatform(c) {
 		case service.PlatformOpenAI, service.PlatformGrok,
 			service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek,
-			service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformDoubao, service.PlatformTraework, service.PlatformWorkbuddy, service.PlatformZcode,
+			service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformDoubao, service.PlatformTraework, service.PlatformWorkbuddy, service.PlatformZcode, service.PlatformQoder,
 			service.PlatformLaya, service.PlatformJev:
 			// 国产 OpenAI 兼容供应商与 openai/grok 一样经 OpenAI 网关转发。
 			return true
@@ -60,7 +60,7 @@ func RegisterGatewayRoutes(
 	}
 	countTokensHandler := func(c *gin.Context) {
 		switch getGroupPlatform(c) {
-		case service.PlatformOpenAI, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformDoubao, service.PlatformTraework, service.PlatformWorkbuddy, service.PlatformZcode, service.PlatformLaya, service.PlatformJev:
+		case service.PlatformOpenAI, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformDoubao, service.PlatformTraework, service.PlatformWorkbuddy, service.PlatformZcode, service.PlatformQoder, service.PlatformLaya, service.PlatformJev:
 			h.OpenAIGateway.CountTokens(c)
 		case service.PlatformGrok:
 			h.OpenAIGateway.GrokCountTokens(c)
@@ -207,6 +207,9 @@ func RegisterGatewayRoutes(
 	gateway.Use(compositeTarget)
 	gateway.Use(requireGroupAnthropic)
 	{
+		// 边缘媒体服务：曼波/GPT-SoVITS 配音、视频配音与视频生成任务。
+		// 放在统一中间件链之后，和模型入口一样经过鉴权、模型白名单策略与分组校验。
+		gateway.Any("/media/*proxyPath", h.Gateway.MediaProxy)
 		// /v1/messages: auto-route based on group platform
 		gateway.POST("/messages", func(c *gin.Context) {
 			if isOpenAIResponsesCompatibleGatewayPlatform(c) {

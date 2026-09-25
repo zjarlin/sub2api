@@ -1421,6 +1421,9 @@ func (a *Account) GetOpenAIBaseURL() string {
 	}
 	// 平台默认 base_url：CN 供应商按 account_mode 选择 payg / coding 默认值。
 	switch a.Platform {
+	case PlatformQoder:
+		// Qoder 直连官方 Model Server，不依赖内置适配器配置。
+		return QoderModelServerURL()
 	case PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformZcode, PlatformLaya, PlatformJev:
 		// 内置适配器模式下由部署注入地址，账号本身不存默认公网端点。
 		return builtinAdapterBaseURL(a.Platform)
@@ -1477,7 +1480,7 @@ func (a *Account) GetAPIProtocol() string {
 		// System One 决策模型共用 /v1/systemone，不生成文本，不存在 chat/responses 变体。
 		return APIProtocolSystemOne
 	}
-	if a.IsDoubao() || a.IsTraework() || a.IsWorkbuddy() || a.IsZcode() || !a.IsMultiProtocolAPIKey() {
+	if a.IsDoubao() || a.IsTraework() || a.IsWorkbuddy() || a.IsZcode() || a.IsQoder() || !a.IsMultiProtocolAPIKey() {
 		return APIProtocolChatCompletions
 	}
 	switch strings.TrimSpace(a.GetCredential("api_protocol")) {

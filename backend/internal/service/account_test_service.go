@@ -57,6 +57,9 @@ type TestEvent struct {
 	Status   string `json:"status,omitempty"`
 	Code     string `json:"code,omitempty"`
 	ImageURL string `json:"image_url,omitempty"`
+	// Curl carries the exact request an admin probe will send, with credential
+	// material redacted, so the UI can display a copyable reproduction.
+	Curl string `json:"curl,omitempty"`
 	// AudioURL / VideoURL are data: or https URLs for in-browser media players.
 	AudioURL string `json:"audio_url,omitempty"`
 	VideoURL string `json:"video_url,omitempty"`
@@ -461,6 +464,12 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.testOpenCodeGoAccountConnection(c, account, modelID, prompt)
 	}
 
+	// Qoder 的提交消息生成是独立的 Chat Completions 契约，管理员可用
+	// commit-message 模式复现 Qoder IDE / CLI 的真实请求。
+	if account.IsQoder() && normalizeAccountTestMode(mode) == AccountTestModeQoderCommitMessage {
+		return s.testQoderCommitMessageConnection(c, account, modelID, prompt)
+	}
+
 	return s.testClaudeAccountConnection(c, account, modelID)
 }
 
@@ -522,6 +531,9 @@ func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Cont
 		}
 		if account.IsZcode() {
 			testModelID = DefaultZcodeModel
+		}
+		if account.IsQoder() {
+			testModelID = DefaultQoderModel
 		}
 	}
 	testModelID = account.GetMappedModel(testModelID)

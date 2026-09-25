@@ -81,6 +81,20 @@
         />
       </div>
 
+      <div v-if="isQoderAccount" class="space-y-1.5">
+        <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+          {{ t('admin.accounts.qoder.testMode') }}
+        </label>
+        <Select
+          v-model="qoderTestMode"
+          :options="qoderTestModeOptions"
+          :disabled="status === 'connecting' || batchTesting"
+        />
+        <p class="text-xs text-gray-500 dark:text-gray-400">
+          {{ t('admin.accounts.qoder.testModeHint') }}
+        </p>
+      </div>
+
       <div v-if="supportsPromptInput" class="space-y-1.5">
         <TextArea
           v-model="testPrompt"
@@ -440,6 +454,7 @@ const generatedAudios = ref<PreviewMedia[]>([])
 const generatedVideos = ref<PreviewMedia[]>([])
 const previewImageUrl = ref('')
 const testMode = ref<'default' | 'compact'>('default')
+const qoderTestMode = ref<'default' | 'commit-message'>('commit-message')
 const grokTestMode = ref<'text' | 'image' | 'video' | 'search' | 'tts' | 'stt' | 'realtime'>('text')
 const uploadImageDataURL = ref('')
 const uploadImagePreview = ref('')
@@ -450,9 +465,14 @@ const imageFileInput = ref<HTMLInputElement | null>(null)
 const audioFileInput = ref<HTMLInputElement | null>(null)
 const isOpenAIAccount = computed(() => props.account?.platform === 'openai')
 const isGrokAccount = computed(() => props.account?.platform === 'grok')
+const isQoderAccount = computed(() => props.account?.platform === 'qoder')
 const openAITestModeOptions = computed(() => [
   { value: 'default', label: t('admin.accounts.openai.testModeDefault') },
   { value: 'compact', label: t('admin.accounts.openai.testModeCompact') }
+])
+const qoderTestModeOptions = computed(() => [
+  { value: 'commit-message', label: t('admin.accounts.qoder.testModeCommitMessage') },
+  { value: 'default', label: t('admin.accounts.qoder.testModeDefault') }
 ])
 const grokTestModeOptions = computed(() => [
   { value: 'text', label: t('admin.accounts.grok.testModeText') },
@@ -523,6 +543,9 @@ const modelOptionsForMode = computed(() => {
 })
 
 const supportsPromptInput = computed(() => {
+  if (isQoderAccount.value) {
+    return qoderTestMode.value === 'commit-message'
+  }
   if (!isGrokAccount.value) {
     return supportsImageTest.value
   }
@@ -623,6 +646,9 @@ const clearMediaUploads = () => {
 }
 
 const promptInputLabel = computed(() => {
+  if (isQoderAccount.value) {
+    return t('admin.accounts.qoder.diffLabel')
+  }
   if (supportsGrokVideoTest.value || grokTestMode.value === 'video') {
     return t('admin.accounts.videoPromptLabel')
   }
@@ -639,6 +665,9 @@ const promptInputLabel = computed(() => {
 })
 
 const promptInputPlaceholder = computed(() => {
+  if (isQoderAccount.value) {
+    return t('admin.accounts.qoder.diffPlaceholder')
+  }
   if (grokTestMode.value === 'video') {
     return t('admin.accounts.videoPromptPlaceholder')
   }
@@ -655,6 +684,9 @@ const promptInputPlaceholder = computed(() => {
 })
 
 const promptInputHint = computed(() => {
+  if (isQoderAccount.value) {
+    return t('admin.accounts.qoder.diffHint')
+  }
   if (grokTestMode.value === 'video') {
     return t('admin.accounts.videoTestHint')
   }
@@ -677,6 +709,9 @@ const promptInputHint = computed(() => {
 })
 
 const testModeSummary = computed(() => {
+  if (isQoderAccount.value && qoderTestMode.value === 'commit-message') {
+    return t('admin.accounts.qoder.testModeCommitMessage')
+  }
   if (isGrokAccount.value) {
     switch (grokTestMode.value) {
       case 'video':
@@ -767,6 +802,7 @@ watch(
     if (show && props.account) {
       testPrompt.value = ''
       testMode.value = 'default'
+      qoderTestMode.value = 'commit-message'
       grokTestMode.value = 'text'
       resetState()
       await loadAvailableModels()
@@ -906,6 +942,9 @@ const startTest = async () => {
     if (isOpenAIAccount.value) {
       requestBody.mode = testMode.value
     }
+    if (isQoderAccount.value) {
+      requestBody.mode = qoderTestMode.value
+    }
     if (isGrokAccount.value) {
       // Always send explicit Grok mode. search/tts/stt/realtime are standalone
       // endpoints (no free-form model select). text/image/video use optional model.
@@ -1017,6 +1056,16 @@ const handleEvent = (event: ModelTestEvent) => {
     case 'status':
       if (event.text) {
         addLine(event.text, 'text-cyan-300')
+      }
+      break
+
+    case 'curl':
+      if (event.curl) {
+        addLine(t('admin.accounts.requestCurl'), 'text-yellow-400')
+        for (const line of event.curl.split('\n')) {
+          addLine(line, 'text-gray-400')
+        }
+        addLine('', 'text-gray-300')
       }
       break
 

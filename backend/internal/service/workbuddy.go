@@ -20,6 +20,9 @@ func validateBuiltinChatCredentials(platform, accountType string, credentials ma
 	if platform == PlatformZcode {
 		return validateZcodeCredentials(platform, accountType, credentials)
 	}
+	if platform == PlatformQoder {
+		return validateQoderCredentials(platform, accountType, credentials)
+	}
 	// System One 决策模型（Laya / JEV）与上述适配器同属内置账号池。
 	if IsSystemOneDecisionPlatform(platform) {
 		return validateSystemOneDecisionCredentials(platform, accountType, credentials)

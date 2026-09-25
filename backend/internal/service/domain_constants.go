@@ -53,6 +53,7 @@ const (
 	PlatformTraework   = domain.PlatformTraework
 	PlatformWorkbuddy  = domain.PlatformWorkbuddy
 	PlatformZcode      = domain.PlatformZcode
+	PlatformQoder      = domain.PlatformQoder
 	PlatformLaya       = domain.PlatformLaya
 	PlatformJev        = domain.PlatformJev
 	PlatformOpenCodeGo = domain.PlatformOpenCodeGo
@@ -111,7 +112,7 @@ const (
 // IsCNProvider 报告 platform 是否为国产 OpenAI 兼容供应商（含豆包桌面会话适配器）。
 func IsCNProvider(platform string) bool {
 	switch platform {
-	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformZcode, PlatformLaya, PlatformJev:
+	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformZcode, PlatformQoder, PlatformLaya, PlatformJev:
 		return true
 	default:
 		return false

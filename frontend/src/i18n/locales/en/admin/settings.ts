@@ -1439,6 +1439,7 @@ export default {
     gatewayBase: 'Gateway base',
     visualStatus: 'Vision service',
     layaStatus: 'Laya service',
+    mediaStatus: 'Media service',
     statusEnabled: 'Enabled',
     statusDisabled: 'Disabled',
     disabledHint: 'Enable this feature in gateway.vision.enabled config and set the correct edge-vision URL.',
@@ -1446,6 +1447,9 @@ export default {
       vision: 'Vision request',
       jev: 'JEV request',
       laya: 'Laya request',
+      manbo: 'Manbo voice',
+      videoDub: 'Video dubbing',
+      videoGeneration: 'Video generation',
     },
     curl: {
       title: 'Paste and parse curl',
@@ -1535,5 +1539,8 @@ export default {
     endpointPose: 'YOLO pose estimation',
     endpointClassify: 'YOLO image classification',
     endpointOcr: 'OCR text recognition (Chinese/English)',
+    endpointManboTts: 'Manbo/GPT-SoVITS text-to-speech',
+    endpointVideoDub: 'Video dubbing task (ASR, TTS, and audio mix)',
+    endpointVideoGeneration: 'Video generation task (local or private upstream)',
   }
 }

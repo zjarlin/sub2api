@@ -23,7 +23,9 @@ const (
 	DefaultJevModel  = "typesafe/jev"
 )
 
-func DefaultLayaModelIDs() []string { return []string{DefaultLayaModel, "laya-english", "laya-multilingual"} }
+func DefaultLayaModelIDs() []string {
+	return []string{DefaultLayaModel, "laya-english", "laya-multilingual"}
+}
 
 func DefaultJevModelIDs() []string { return []string{DefaultJevModel} }
 

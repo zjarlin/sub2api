@@ -344,6 +344,7 @@ func codexCatalogCandidatePlatforms(targetPlatform string) []string {
 			PlatformTraework,
 			PlatformWorkbuddy,
 			PlatformZcode,
+			PlatformQoder,
 			PlatformLaya,
 			PlatformJev,
 		}

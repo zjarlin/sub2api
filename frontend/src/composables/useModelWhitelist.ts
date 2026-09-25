@@ -448,6 +448,7 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'traework': return ['glm-5.2']
     case 'workbuddy': return ['glm-5.2']
     case 'zcode': return ['glm-5.3', 'glm-5.3-flash']
+    case 'qoder': return ['auto', 'claude-sonnet-4-5', 'claude-opus-4-5', 'qwen3.8-max']
     // Laya / JEV 是 System One 决策模型，不生成文本；模型名只用于选择决策检查点。
     case 'laya': return ['laya', 'laya-english', 'laya-multilingual']
     case 'jev': return ['typesafe/jev']

@@ -30,6 +30,8 @@ const (
 	PlatformWorkbuddy = "workbuddy"
 	// ZCode (z.ai / 智谱 GLM Coding Plan) Anthropic 协议反向代理适配器。
 	PlatformZcode = "zcode"
+	// Qoder 官方 Model Server（OpenAI 兼容 Chat Completions）。
+	PlatformQoder = "qoder"
 	// Laya 离线决策模型（本地 edge-laya 适配器，System One 协议）。
 	PlatformLaya = "laya"
 	// JEV / TypeSafe System One 决策模型（远端或内网适配器）。

@@ -25,6 +25,7 @@ export const CONCRETE_PLATFORM_OPTIONS = [
   { value: 'traework', label: 'TRAE Work' },
   { value: 'workbuddy', label: 'WorkBuddy' },
   { value: 'zcode', label: 'ZCode' },
+  { value: 'qoder', label: 'Qoder' },
   { value: 'laya', label: 'Laya' },
   { value: 'jev', label: 'JEV' }
 ] as const satisfies readonly PlatformOption<AccountPlatform>[]
@@ -51,6 +52,7 @@ export const MIXED_SCHEDULING_TARGETS: Partial<Record<AccountPlatform, GroupPlat
   traework: ['openai'],
   workbuddy: ['openai'],
   zcode: ['openai'],
+  qoder: ['openai'],
   laya: ['openai'],
   jev: ['openai'],
 }

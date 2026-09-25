@@ -1433,6 +1433,7 @@ export default {
     gatewayBase: '网关地址',
     visualStatus: '视觉服务',
     layaStatus: 'Laya 服务',
+    mediaStatus: '媒体服务',
     statusEnabled: '已启用',
     statusDisabled: '未启用',
     disabledHint: '请在 gateway.vision.enabled 中启用此功能，并设置正确的 edge-vision 地址。',
@@ -1440,6 +1441,9 @@ export default {
       vision: '视觉请求',
       jev: 'JEV 请求',
       laya: 'Laya 请求',
+      manbo: '曼波配音',
+      videoDub: '视频配音',
+      videoGeneration: '视频生成',
     },
     curl: {
       title: '粘贴并解析 curl',
@@ -1529,5 +1533,8 @@ export default {
     endpointPose: 'YOLO 姿态估计',
     endpointClassify: 'YOLO 图像分类',
     endpointOcr: 'OCR 文字识别（中英文）',
+    endpointManboTts: '曼波/GPT-SoVITS 文本转语音',
+    endpointVideoDub: '视频配音任务（语音识别、TTS、音轨混音）',
+    endpointVideoGeneration: '视频生成任务（可接本地或内网生成模型）',
   }
 }

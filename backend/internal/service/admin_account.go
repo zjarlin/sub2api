@@ -349,7 +349,7 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 }
 
 func normalizeAccountConcurrency(platform, accountType string, concurrency int) int {
-	if platform == PlatformDoubao || platform == PlatformTraework || platform == PlatformWorkbuddy || platform == PlatformZcode || IsSystemOneDecisionPlatform(platform) {
+	if platform == PlatformDoubao || platform == PlatformTraework || platform == PlatformWorkbuddy || platform == PlatformZcode || platform == PlatformQoder || IsSystemOneDecisionPlatform(platform) {
 		return 1
 	}
 	if platform == PlatformGrok && accountType == AccountTypeOAuth {
