@@ -1,12 +1,14 @@
 package handler
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/jev_api"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -27,6 +29,11 @@ func systemOnePlatformForModel(model string) string {
 		return service.PlatformLaya
 	}
 	return service.PlatformJev
+}
+
+// systemOneSchedulingContext 为调度器指定模型所属平台。
+func systemOneSchedulingContext(ctx context.Context, platform string) context.Context {
+	return context.WithValue(ctx, ctxkey.ForcePlatform, platform)
 }
 
 // RegisterSystemOneAccountRelay 把 System One 挂到账号池上。
@@ -79,9 +86,10 @@ func (h *GatewayHandler) SystemOneRelay(c *gin.Context) {
 	}
 	platform := systemOnePlatformForModel(model)
 
-	// 按平台选号：请求模型名直接参与调度，与其它平台的可用性/健康检查一致。
+	// 按模型指定平台，避免混合分组默认平台把请求调度到其它账号。
+	selectionCtx := systemOneSchedulingContext(c.Request.Context(), platform)
 	selection, err := h.gatewayService.SelectAccountWithLoadAwareness(
-		c.Request.Context(), apiKey.GroupID, "", model, nil, "", apiKey.UserID,
+		selectionCtx, apiKey.GroupID, "", model, nil, "", apiKey.UserID,
 	)
 	if err != nil || selection == nil || selection.Account == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
@@ -137,16 +145,16 @@ func (h *GatewayHandler) SystemOneRelay(c *gin.Context) {
 			RequestID: requestID,
 			Model:     model,
 		},
-		APIKey:           apiKey,
-		User:             apiKey.User,
-		Account:          account,
-		Subscription:     subscription,
-		InboundEndpoint:  GetInboundEndpoint(c),
-		UpstreamEndpoint: "/v1/systemone",
-		UserAgent:        c.GetHeader("User-Agent"),
-		IPAddress:        ip.GetClientIP(c),
-		APIKeyService:    h.apiKeyService,
-		QuotaPlatform:    quotaPlatform,
+		APIKey:             apiKey,
+		User:               apiKey.User,
+		Account:            account,
+		Subscription:       subscription,
+		InboundEndpoint:    GetInboundEndpoint(c),
+		UpstreamEndpoint:   "/v1/systemone",
+		UserAgent:          c.GetHeader("User-Agent"),
+		IPAddress:          ip.GetClientIP(c),
+		APIKeyService:      h.apiKeyService,
+		QuotaPlatform:      quotaPlatform,
 		RequestPayloadHash: service.HashUsageRequestPayload(body),
 	}
 	if err := h.gatewayService.RecordUsage(c.Request.Context(), input); err != nil {

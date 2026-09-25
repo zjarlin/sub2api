@@ -688,6 +688,50 @@ func agentMessageText(raw json.RawMessage) string {
 	return b.String()
 }
 
+// NormalizeResponsesAgentMessage 复用 Chat 桥的任务正文语义，将纯文本任务转成标准
+// Responses 用户消息；出现未知片段时保留原条目，避免只提取文本后丢失其他内容。
+func NormalizeResponsesAgentMessage(item map[string]any) (map[string]any, bool) {
+	if item["type"] != "agent_message" {
+		return item, false
+	}
+	switch content := item["content"].(type) {
+	case string:
+	case []any:
+		for _, raw := range content {
+			part, ok := raw.(map[string]any)
+			if !ok {
+				return item, false
+			}
+			field := "text"
+			switch part["type"] {
+			case "input_text", "text":
+			case "encrypted_content":
+				field = "encrypted_content"
+			default:
+				return item, false
+			}
+			if _, ok := part[field].(string); !ok {
+				return item, false
+			}
+		}
+	default:
+		return item, false
+	}
+	raw, err := json.Marshal(item["content"])
+	if err != nil {
+		return item, false
+	}
+	text := agentMessageText(raw)
+	if text == "" {
+		return item, false
+	}
+	message := map[string]any{
+		"type": "message", "role": "user",
+		"content": []any{map[string]any{"type": "input_text", "text": text}},
+	}
+	return message, true
+}
+
 // extractToolOutputMedia rewrites only recognized image nodes. Media-free
 // outputs return rewritten=false so the caller can preserve their original
 // bytes and prompt-cache prefix.

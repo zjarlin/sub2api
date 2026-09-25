@@ -3,9 +3,7 @@
 # 默认路径：从官方 python 基础镜像安装固定的 laya[serve]。国内网络下 Docker Hub
 # 与 PyPI 可能不可达/极慢，因此基础镜像与 pip 源均可通过构建参数替换。
 #
-# 已有离线运行时的部署（例如权重与 torch 都已在本地缓存）可以改用
-# `--build-arg PYTHON_IMAGE=<已有带 laya[serve] 的镜像>`，此时依赖安装步骤会
-# 直接复用镜像里的版本，避免重复下载数 GB 的 torch。
+# CPU 推理镜像先安装 PyTorch CPU 版，避免通用索引拉取 CUDA 依赖。
 ARG PYTHON_IMAGE=python:3.12-slim-bookworm
 FROM ${PYTHON_IMAGE}
 
@@ -25,6 +23,10 @@ ARG LAYA_REF=d211a50dd816280e01f7782668f23000664c8a32
 ARG PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple
 # 基础镜像若已自带 laya[serve]（离线部署），把 SKIP_PIP_INSTALL 设为 1 直接复用。
 ARG SKIP_PIP_INSTALL=0
+ARG TORCH_CPU_INDEX=https://download.pytorch.org/whl/cpu
+RUN if [ "${SKIP_PIP_INSTALL}" != "1" ]; then \
+        pip install --no-cache-dir --index-url "${TORCH_CPU_INDEX}" --timeout 120 --retries 5 torch; \
+    fi
 RUN if [ "${SKIP_PIP_INSTALL}" != "1" ]; then \
         pip install --no-cache-dir --index-url "${PIP_INDEX_URL}" --timeout 120 --retries 5 \
             "laya[serve] @ https://github.com/NandhaKishorM/laya/archive/${LAYA_REF}.tar.gz"; \

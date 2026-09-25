@@ -24,6 +24,10 @@ services:
       - BUILTIN_ADAPTER_WORKBUDDY_KEY=${WORKBUDDY_ADAPTER_KEY:-}
       - BUILTIN_ADAPTER_ZCODE_URL=http://sub2api-zcode:7865
       - BUILTIN_ADAPTER_ZCODE_KEY=${ZCODE_ADAPTER_KEY:-}
+      - BUILTIN_ADAPTER_LAYA_URL=http://edge-laya:18082
+      - BUILTIN_ADAPTER_LAYA_KEY=${LAYA_API_KEY:-}
+      - BUILTIN_ADAPTER_JEV_URL=https://api.commandcode.ai/provider/v1
+      - BUILTIN_ADAPTER_JEV_KEY=${JEV_ADAPTER_KEY:-}
     depends_on:
       sub2api-desktop:
         condition: service_healthy

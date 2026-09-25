@@ -1,8 +1,10 @@
 package handler
 
 import (
+	"context"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/stretchr/testify/require"
@@ -22,4 +24,12 @@ func TestSystemOnePlatformForModelNonLayaFallsBackToJev(t *testing.T) {
 	// 非 laya 前缀一律按 JEV 处理；未知模型名已由 jev_api.ReadModel 在上游拒绝，
 	// 这里不再重复判断，避免两处白名单漂移。
 	require.Equal(t, service.PlatformJev, systemOnePlatformForModel("jev-1"))
+}
+
+func TestSystemOneSchedulingContextSelectsModelPlatform(t *testing.T) {
+	for _, model := range []string{"laya", "typesafe/jev"} {
+		platform := systemOnePlatformForModel(model)
+		ctx := systemOneSchedulingContext(context.Background(), platform)
+		require.Equal(t, platform, ctx.Value(ctxkey.ForcePlatform))
+	}
 }

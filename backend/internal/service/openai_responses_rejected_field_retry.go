@@ -119,6 +119,11 @@ func normalizeOpenAIResponsesRejectedFieldRetryBody(statusCode int, body, respon
 	code := strings.ToLower(strings.TrimSpace(extractUpstreamErrorCode(responseBody)))
 	message := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(responseBody)))
 	param := strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "error.param").String()))
+	if param == "input" && message == "invalid input" &&
+		(code == "" || code == "invalid_request_error") &&
+		gjson.GetBytes(responseBody, "error.type").String() == "invalid_request_error" {
+		return normalizeOpenAIResponsesRejectedInput(body)
+	}
 	// 仅在上游明确拒绝 none 时移除该值，重试使用原模型默认推理；有效配置保持透传。
 	if code == "unsupported_value" && param == "reasoning.effort" &&
 		strings.Contains(message, "unsupported value: 'none'") &&
