@@ -72,7 +72,7 @@ func TestSystemOneDecisionCredentialsRejectWrongProtocol(t *testing.T) {
 	))
 }
 
-func TestSystemOneDecisionCredentialsAcceptValidAPIKey(t *testing.T) {
+func TestSystemOneDecisionCredentialsAcceptLayaWithoutAPIKey(t *testing.T) {
 	SetBuiltinAdapterConfig(&config.BuiltinAdapterConfig{Enabled: true})
 	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
 
@@ -80,10 +80,26 @@ func TestSystemOneDecisionCredentialsAcceptValidAPIKey(t *testing.T) {
 		require.NoError(t, validateSystemOneDecisionCredentials(
 			platform, AccountTypeAPIKey, map[string]any{"api_key": "k"},
 		), "platform=%s", platform)
-		require.Error(t, validateSystemOneDecisionCredentials(
-			platform, AccountTypeAPIKey, map[string]any{"api_key": "  "},
-		), "platform=%s", platform)
 	}
+	require.NoError(t, validateSystemOneDecisionCredentials(
+		PlatformLaya, AccountTypeAPIKey, map[string]any{"api_protocol": APIProtocolSystemOne},
+	))
+	require.Error(t, validateSystemOneDecisionCredentials(
+		PlatformJev, AccountTypeAPIKey, map[string]any{"api_key": "  "},
+	))
+}
+
+func TestBuildLayaAccountWithoutAPIKeyUsesInternalAdapter(t *testing.T) {
+	SetBuiltinAdapterConfig(&config.BuiltinAdapterConfig{Enabled: true})
+	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
+
+	account, err := buildAccountForCreate(&CreateAccountInput{
+		Name: "Laya", Platform: PlatformLaya, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"api_protocol": APIProtocolSystemOne},
+	}, nil)
+	require.NoError(t, err)
+	require.Equal(t, "http://edge-laya:18082/v1", account.Credentials["base_url"])
+	require.Empty(t, account.Credentials["api_key"])
 }
 
 func TestSystemOneDecisionAccountsReportSystemOneProtocol(t *testing.T) {

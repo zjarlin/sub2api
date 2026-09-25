@@ -1082,6 +1082,12 @@ builtin_adapter:
   workbuddy_key: ""
   zcode_url: "http://sub2api-zcode:7865"
   zcode_key: ""
+  # Laya 仅在内网可达；默认无上游密钥。若设置 LAYA_API_KEY，此处须配置相同密钥。
+  laya_url: "http://edge-laya:18082"
+  laya_key: ""
+  # JEV 上游要求共享密钥；启用账号前须配置。
+  jev_url: "http://sub2api-jev:18083"
+  jev_key: ""
 
 plugins:
   # Empty means {{DATA_DIR}}/plugins, or ./data/plugins when DATA_DIR is unset.

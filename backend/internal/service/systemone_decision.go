@@ -60,7 +60,8 @@ func validateSystemOneDecisionCredentials(platform, accountType string, credenti
 		)
 	}
 	key, _ := credentials["api_key"].(string)
-	if strings.TrimSpace(key) == "" {
+	// 本地 Laya 默认仅接受内网请求，未配置 LAYA_API_KEY 时无需上游密钥。
+	if platform == PlatformJev && strings.TrimSpace(key) == "" {
 		return infraerrors.BadRequest(
 			"INVALID_SYSTEMONE_CREDENTIALS",
 			label+" requires the adapter API key",

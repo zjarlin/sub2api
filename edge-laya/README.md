@@ -1,6 +1,6 @@
 # Laya 离线决策模型
 
-Laya 与 JEV 共用 `POST /v1/systemone`。传 `model: "laya"` 走本地 Laya，`model: "typesafe/jev"` 走 CommandCode。客户端均使用现有 Codex/OpenAI 分组 API Key；Laya 无需添加上游账号。
+Laya 与 JEV 共用 `POST /v1/systemone`。传 `model: "laya"` 走本地 Laya，`model: "typesafe/jev"` 走 CommandCode。客户端均使用现有 Codex/OpenAI 分组 API Key；网关按模型从账号池选择对应平台。启用内置适配器后需创建 Laya 账号，默认内网上游不要求共享密钥；若为 edge-laya 配置了 `LAYA_API_KEY`，账号侧的 `builtin_adapter.laya_key` 必须与之相同。
 
 ## 两个对外面
 
