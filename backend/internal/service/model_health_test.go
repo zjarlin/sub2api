@@ -74,20 +74,52 @@ func TestGetAvailableModelsFailsClosedWhenHealthEvidenceCannotBeRead(t *testing.
 	require.Empty(t, svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI))
 }
 
-func TestGetAvailableModelsOpenAIPassthroughAdvertisesDefaultModelsWithoutHealthHistory(t *testing.T) {
+func TestGetAvailableModelsOpenAIPassthroughUsesHealthEvidence(t *testing.T) {
 	groupID := int64(6)
-	svc := &GatewayService{
-		accountRepo: &modelHealthAccountRepoStub{accounts: []Account{{
-			ID:       820,
-			Platform: PlatformOpenAI,
-			Extra:    map[string]any{"openai_passthrough": true},
-		}}},
-		usageLogRepo: &modelHealthUsageRepoStub{err: errors.New("health query must be bypassed")},
+	account := Account{
+		ID:       851,
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Extra:    map[string]any{"openai_passthrough": true},
+		Credentials: map[string]any{"model_mapping": map[string]any{
+			"deepseek/deepseek-v4.1-flash": "deepseek/deepseek-v4.1-flash",
+			"gpt-6-astra":                  "gpt-6-astra",
+		}},
 	}
+	account.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
+		Source: "upstream", SyncedAt: time.Now().UTC().Format(time.RFC3339),
+		Models: []string{"deepseek/deepseek-v4.1-flash", "gpt-6-astra"},
+	})
+	for _, tc := range []struct {
+		name         string
+		observations []ModelHealthObservation
+		err          error
+		want         []string
+	}{
+		{
+			name: "verified custom model remains discoverable",
+			observations: []ModelHealthObservation{
+				{AccountID: account.ID, Model: "deepseek/deepseek-v4.1-flash"},
+				{AccountID: account.ID, Model: "deepseek/deepseek-v4.1-flash"},
+				{AccountID: account.ID, Model: "retired-model"},
+				{AccountID: 999, Model: "gpt-6-astra"},
+			},
+			want: []string{"deepseek/deepseek-v4.1-flash"},
+		},
+		{name: "no health evidence"},
+		{name: "health query fails closed", err: errors.New("health query failed")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &GatewayService{
+				accountRepo: &modelHealthAccountRepoStub{accounts: []Account{account}},
+				usageLogRepo: &modelHealthUsageRepoStub{
+					observations: tc.observations, err: tc.err,
+				},
+			}
 
-	models := svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI)
-
-	require.Contains(t, models, "gpt-6-astra")
+			require.Equal(t, tc.want, svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI))
+		})
+	}
 }
 
 func TestGetAvailableModelsIncludesHistoricallyVerifiedUnusedModels(t *testing.T) {
@@ -138,6 +170,7 @@ func TestGetAvailableModelsReadsHealthFromBoundCompatibleSourcePlatforms(t *test
 		ID:       821,
 		Platform: PlatformOpenAI,
 		Type:     AccountTypeAPIKey,
+		Extra:    map[string]any{"openai_passthrough": true},
 		Credentials: map[string]any{"model_mapping": map[string]any{
 			"gpt-healthy": "gpt-healthy",
 		}},
