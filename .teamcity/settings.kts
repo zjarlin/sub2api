@@ -170,13 +170,13 @@ object Deploy252Cluster : BuildType({
 // 天津海光 DCU 机器：曼波 TTS + 视频配音 + edge-media 编排。
 //
 // 镜像在天津本机构建：海光 DTK 基础镜像与曼波权重体积很大，跨公网搬运不现实，
-// 而源码只有几百 KB，所以这里同步源码后在 agent 上直接 docker build。
+// 而源码只有几百 KB，所以这里把源码同步过去后在天津直接 docker build。
 //
-// 需要在天津内网注册一个 TeamCity agent，名字与 AGENT_NAME 参数一致；
-// 若使用同一台 TeamCity server，把它加入 agent pool 后本 build type 即可运行。
+// 252 与天津私网互不可达，但 252 已配置 cloudflared ProxyCommand 的
+// `ssh tianjin-media` 别名。该 build type 复用 252 agent，通过 SSH 在天津执行部署。
 object DeployTianjinMedia : BuildType({
     name = "Deploy Tianjin Media (GPU)"
-    description = "在天津海光 DCU 机器上构建并启动曼波 GPT-SoVITS、视频配音流水线与 edge-media 编排，发布内网端口供 252 的 /media/* 调用。"
+    description = "把源码同步到天津海光 DCU 机器，本机构建并启动曼波 GPT-SoVITS、视频配音流水线与 edge-media 编排，发布内网端口供 252 的 /media/* 调用。"
 
     vcs {
         root(DslContext.settingsRoot)
@@ -184,12 +184,13 @@ object DeployTianjinMedia : BuildType({
     }
 
     requirements {
-        // 天津 agent 的注册名；与 .teamcity 的 AGENT_NAME 参数保持一致。
-        equals("teamcity.agent.name", "%env.TIANJIN_AGENT_NAME%")
+        // 复用 252 agent：它同时能访问公网与经 cloudflared 访问天津。
+        equals("teamcity.agent.name", "ip_172.19.0.1")
     }
 
     params {
-        param("env.TIANJIN_AGENT_NAME", "tianjin-media-agent")
+        param("env.TIANJIN_SSH_HOST", "tianjin-media")
+        param("env.TIANJIN_DEPLOY_DIR", "/opt/sub2api-tianjin-media")
         param("env.GPT_SOVITS_MODELS_DIR", "/opt/gptsovits-models")
         param("env.GPT_SOVITS_IMAGE", "gpt-sovits:manbo-v6")
         param("env.EDGE_DUB_IMAGE", "edge-dub:tianjin")
@@ -197,7 +198,8 @@ object DeployTianjinMedia : BuildType({
         param("env.EDGE_MEDIA_DATA_DIR", "/opt/edge-media/data")
         param("env.EDGE_DUB_DATA_DIR", "/opt/edge-dub/data")
         param("env.SUB2API_NETWORK", "sub2api_sub2api-network")
-        param("env.MEDIA_TIANJIN_BIND", "0.0.0.0")
+        // frpc 跑在天津本机，发布端口只需 loopback。
+        param("env.MEDIA_TIANJIN_BIND", "127.0.0.1")
         // 网络视频生成（Seedance 2.0 等）由 252 网关侧账号池承接，天津默认关闭。
         param("env.MEDIA_VIDEO_GENERATION_ENABLED", "0")
         param("env.MEDIA_VIDEO_GENERATION_UPSTREAM_URL", "")
@@ -214,7 +216,7 @@ object DeployTianjinMedia : BuildType({
 
     steps {
         step {
-            name = "Build and deploy Tianjin GPU media stack"
+            name = "Sync source and deploy Tianjin media stack over SSH"
             type = "simpleRunner"
             param("use.custom.script", "true")
             param("script.content", """
@@ -223,33 +225,41 @@ object DeployTianjinMedia : BuildType({
                 CHECKOUT="%teamcity.build.checkoutDir%"
                 SHA="%build.vcs.number%"
                 SHORT_SHA="${'$'}{SHA:0:12}"
+                REMOTE="%env.TIANJIN_SSH_HOST%"
+                RDIR="%env.TIANJIN_DEPLOY_DIR%"
 
                 cd "${'$'}CHECKOUT"
                 test -x deploy/tianjin/deploy-tianjin-media.sh
 
+                echo "##teamcity[progressStart '同步源码到天津']"
+                ssh -o BatchMode=yes "${'$'}REMOTE" "mkdir -p '${'$'}RDIR'"
+                git archive "${'$'}SHA" | ssh -o BatchMode=yes "${'$'}REMOTE" "tar -x -C '${'$'}RDIR'"
+                ssh -o BatchMode=yes "${'$'}REMOTE" "chmod +x '${'$'}RDIR/deploy/tianjin/deploy-tianjin-media.sh'"
+                echo "##teamcity[progressFinish '同步源码到天津']"
+
                 echo "##teamcity[progressStart '部署天津 GPU 媒体三件套']"
-                REPO_DIR="${'$'}CHECKOUT" \
-                  GPT_SOVITS_MODELS_DIR="%env.GPT_SOVITS_MODELS_DIR%" \
-                  GPT_SOVITS_IMAGE="%env.GPT_SOVITS_IMAGE%" \
-                  EDGE_DUB_IMAGE="%env.EDGE_DUB_IMAGE%" \
-                  EDGE_MEDIA_IMAGE="%env.EDGE_MEDIA_IMAGE%" \
-                  EDGE_MEDIA_DATA_DIR="%env.EDGE_MEDIA_DATA_DIR%" \
-                  EDGE_DUB_DATA_DIR="%env.EDGE_DUB_DATA_DIR%" \
-                  SUB2API_NETWORK="%env.SUB2API_NETWORK%" \
-                  MEDIA_TIANJIN_BIND="%env.MEDIA_TIANJIN_BIND%" \
-                  MEDIA_VIDEO_GENERATION_ENABLED="%env.MEDIA_VIDEO_GENERATION_ENABLED%" \
-                  MEDIA_VIDEO_GENERATION_UPSTREAM_URL="%env.MEDIA_VIDEO_GENERATION_UPSTREAM_URL%" \
-                  "${'$'}CHECKOUT/deploy/tianjin/deploy-tianjin-media.sh"
+                ssh -o BatchMode=yes "${'$'}REMOTE" \
+                  "REPO_DIR='${'$'}RDIR' \
+                   GPT_SOVITS_MODELS_DIR='%env.GPT_SOVITS_MODELS_DIR%' \
+                   GPT_SOVITS_IMAGE='%env.GPT_SOVITS_IMAGE%' \
+                   EDGE_DUB_IMAGE='%env.EDGE_DUB_IMAGE%' \
+                   EDGE_MEDIA_IMAGE='%env.EDGE_MEDIA_IMAGE%' \
+                   EDGE_MEDIA_DATA_DIR='%env.EDGE_MEDIA_DATA_DIR%' \
+                   EDGE_DUB_DATA_DIR='%env.EDGE_DUB_DATA_DIR%' \
+                   SUB2API_NETWORK='%env.SUB2API_NETWORK%' \
+                   MEDIA_TIANJIN_BIND='%env.MEDIA_TIANJIN_BIND%' \
+                   MEDIA_VIDEO_GENERATION_ENABLED='%env.MEDIA_VIDEO_GENERATION_ENABLED%' \
+                   MEDIA_VIDEO_GENERATION_UPSTREAM_URL='%env.MEDIA_VIDEO_GENERATION_UPSTREAM_URL%' \
+                   '${'$'}RDIR/deploy/tianjin/deploy-tianjin-media.sh'"
                 echo "##teamcity[progressFinish '部署天津 GPU 媒体三件套']"
 
                 echo "##teamcity[progressStart '验证天津媒体服务']"
-                docker exec edge-media curl --fail --silent --show-error --max-time 20 \
-                  http://127.0.0.1:18083/health >/dev/null
-                docker exec edge-media curl --fail --silent --show-error --max-time 60 \
-                  -X POST http://127.0.0.1:18083/tts \
-                  -H 'Content-Type: application/json' \
-                  -d '{"text":"你好，我是曼波。","language":"zh","response_format":"wav"}' \
-                  -o /dev/null
+                ssh -o BatchMode=yes "${'$'}REMOTE" "docker exec edge-media curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18083/health >/dev/null && \
+                  docker exec edge-media curl --fail --silent --show-error --max-time 90 \
+                    -X POST http://127.0.0.1:18083/tts \
+                    -H 'Content-Type: application/json' \
+                    -d '{\"text\":\"你好，我是曼波。\",\"language\":\"zh\",\"response_format\":\"wav\"}' \
+                    -o /dev/null"
                 echo "##teamcity[progressFinish '验证天津媒体服务']"
                 echo "DEPLOYED tianjin edge-media=${'$'}SHORT_SHA"
             """.trimIndent())
