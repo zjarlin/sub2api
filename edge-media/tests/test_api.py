@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+import httpx
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 os.environ.setdefault("MEDIA_DATA_DIR", "/tmp/edge-media-test-data")
@@ -42,6 +43,45 @@ def test_tts_validation_happens_before_upstream_check():
         response = test_client.post("/tts", json={})
     assert response is not None
     assert response.status_code == 400
+
+
+def test_tts_calls_gptsovits_root_endpoint(monkeypatch: pytest.MonkeyPatch):
+    """GPT-SoVITS api.py 的合成端点只有根路径，适配层应去掉可能出现的 /tts。"""
+    import app.main as main_module
+    import app.api.tts as tts_module
+
+    original = main_module.config
+    requested: dict[str, object] = {}
+
+    class FakeAsyncClient:
+        def __init__(self, **_: object) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_: object) -> None:
+            return None
+
+        async def get(self, url: str, params: dict[str, str]):
+            requested["url"] = url
+            requested["params"] = params
+            return httpx.Response(200, content=b"RIFFfake", headers={"content-type": "audio/wav"})
+
+    try:
+        main_module.config = original.__class__(**{
+            **original.__dict__,
+            "tts_enabled": True,
+            "tts_upstream_url": "http://gpt-sovits:9880/tts",
+        })
+        monkeypatch.setattr(tts_module.httpx, "AsyncClient", FakeAsyncClient)
+        with TestClient(app) as test_client:
+            response = test_client.post("/tts", json={"text": "你好", "language": "zh"})
+        assert response.status_code == 200, response.text
+        assert requested["url"] == "http://gpt-sovits:9880"
+        assert requested["params"]["text"] == "你好"
+    finally:
+        main_module.config = original
 
 
 def test_video_generation_disabled(client: TestClient):

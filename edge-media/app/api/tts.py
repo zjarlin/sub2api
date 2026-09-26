@@ -78,8 +78,13 @@ async def synthesize(cfg: MediaConfig, body: dict[str, Any]) -> Response:
         params["speed"] = str(speed)
 
     timeout = httpx.Timeout(cfg.tts_timeout_seconds)
+    # GPT-SoVITS api.py 的合成入口是根路径 `GET /?text=...`；edge-media 对外的
+    # `/tts` 只是适配层路径，不能原样追加到上游，否则会命中上游的 404。
+    upstream_url = cfg.tts_upstream_url
+    if upstream_url.rstrip("/").endswith("/tts"):
+        upstream_url = upstream_url.rstrip("/")[: -len("/tts")]
     async with httpx.AsyncClient(timeout=timeout) as client:
-        upstream = await client.get(cfg.tts_upstream_url, params=params)
+        upstream = await client.get(upstream_url, params=params)
     if upstream.status_code < 200 or upstream.status_code >= 300:
         detail = upstream.text[:1000] if upstream.text else "TTS upstream failed"
         raise HTTPException(status_code=502, detail=detail)

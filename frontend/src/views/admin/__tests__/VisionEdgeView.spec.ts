@@ -147,6 +147,15 @@ describe('VisionEdgeView workbench', () => {
     expect(wrapper.get('[data-testid="edge-request-editor"]').text()).not.toContain('upstream-secret')
   })
 
+  it('shows the request editor on first render', async () => {
+    const wrapper = mount(VisionEdgeView)
+    await flushPromises()
+
+    const editor = wrapper.get('[data-testid="edge-request-detail"]')
+    expect(editor.isVisible()).toBe(true)
+    expect(editor.get('[data-testid="edge-request-editor"]').exists()).toBe(true)
+  })
+
   it('sends the selected endpoint through the gateway with the chosen API key', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ detection: { label: 'person' } }), {
       status: 200,
