@@ -39,6 +39,8 @@ const messages: Record<string, string> = {
   'docs.codex.items.setupCommand.noKey': 'No available API key.',
   'docs.codex.items.setupCommand.createKey': 'Create API key',
   'docs.codex.items.setupCommand.usingKey': 'Using {name}',
+  'docs.codex.items.setupCommand.manualKeyLabel': 'Paste your API key',
+  'docs.codex.items.setupCommand.manualKeyPlaceholder': 'sk-...',
   'docs.codex.items.windows.title': 'Windows paths',
   'docs.codex.items.windows.body': 'Use PowerShell.',
   'docs.clients.title': 'Other Clients',
@@ -201,7 +203,44 @@ describe('DocsView', () => {
 
     expect(wrapper.text()).toContain('No available API key.')
     expect(wrapper.text()).toContain('Create API key')
+    expect(wrapper.text()).toContain('Paste your API key')
+    expect(wrapper.text()).toContain('--api-key sk-xxxx')
+    const input = wrapper.find('input')
+    expect(input.exists()).toBe(true)
+    await input.setValue('sk-pasted')
+    expect(wrapper.text()).toContain('--api-key sk-pasted')
     expect(wrapper.text()).not.toContain('Login required.')
     authState.isAuthenticated = false
+  })
+
+  it('lets anonymous users paste a key to build the setup command', async () => {
+    authState.isAuthenticated = false
+
+    const wrapper = mount(DocsView, {
+      global: {
+        stubs: {
+          RouterLink: {
+            props: ['to'],
+            template: '<a><slot /></a>',
+          },
+          LocaleSwitcher: {
+            template: '<div />',
+          },
+          Icon: {
+            template: '<span />',
+          },
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('Login required.')
+    expect(wrapper.text()).toContain('Paste your API key')
+
+    const input = wrapper.find('input')
+    expect(input.exists()).toBe(true)
+    await input.setValue('sk-manual')
+
+    expect(wrapper.text()).toContain('--api-key sk-manual')
   })
 })

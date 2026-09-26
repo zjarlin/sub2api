@@ -99,10 +99,12 @@ export default {
         setupCommand: {
           loading: 'Loading your API key...',
           error: 'Failed to load an API key. Open API Keys and copy the command manually.',
-          loginRequired: 'Sign in to auto-select your API key and generate the command.',
+          loginRequired: 'Sign in to auto-select your API key and generate the command, or paste your key below.',
           noKey: 'This account does not have an available API key yet. Create one and assign a group first.',
           createKey: 'Create API key',
-          usingKey: 'Using current account key: {name}'
+          usingKey: 'Using current account key: {name}',
+          manualKeyLabel: 'Paste your API key',
+          manualKeyPlaceholder: 'sk-...'
         },
         windows: {
           title: 'Windows paths',

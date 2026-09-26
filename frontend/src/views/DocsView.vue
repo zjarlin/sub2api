@@ -96,11 +96,11 @@
                   {{ t('docs.codex.items.setupCommand.error') }}
                 </p>
                 <template v-else-if="currentUserKey">
-                  <pre class="overflow-x-auto rounded-lg bg-slate-950 p-4 text-sm text-slate-100"><code>{{ currentUserKeySetupCommand }}</code></pre>
+                  <pre class="overflow-x-auto rounded-lg bg-slate-950 p-4 text-sm text-slate-100"><code>{{ setupCommand }}</code></pre>
                   <button
                     type="button"
                     class="inline-flex items-center gap-1.5 rounded-lg border border-primary-200 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700 transition-colors hover:border-primary-300 hover:bg-primary-100 dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-primary-200 dark:hover:bg-primary-500/20"
-                    @click="copyCurrentUserKeySetupCommand"
+                    @click="copySetupCommand"
                   >
                     <Icon :name="setupCommandCopied ? 'check' : 'document'" size="xs" />
                     <span>{{ setupCommandCopied ? t('common.copied') : t('common.copy') }}</span>
@@ -109,21 +109,46 @@
                     {{ t('docs.codex.items.setupCommand.usingKey', { name: currentUserKey.name }) }}
                   </p>
                 </template>
-                <template v-else-if="isAuthenticated">
-                  <p class="text-xs text-amber-600 dark:text-amber-400">
+                <template v-else>
+                  <p v-if="isAuthenticated" class="text-xs text-amber-600 dark:text-amber-400">
                     {{ t('docs.codex.items.setupCommand.noKey') }}
                   </p>
-                  <router-link
-                    to="/keys"
-                    class="inline-flex items-center gap-1.5 rounded-lg border border-primary-200 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700 transition-colors hover:border-primary-300 hover:bg-primary-100 dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-primary-200 dark:hover:bg-primary-500/20"
-                  >
-                    <Icon name="plus" size="xs" />
-                    <span>{{ t('docs.codex.items.setupCommand.createKey') }}</span>
-                  </router-link>
+                  <p v-else class="text-xs text-slate-500 dark:text-dark-400">
+                    {{ t('docs.codex.items.setupCommand.loginRequired') }}
+                  </p>
+                  <label class="block space-y-1.5">
+                    <span class="text-xs font-semibold text-slate-600 dark:text-dark-300">
+                      {{ t('docs.codex.items.setupCommand.manualKeyLabel') }}
+                    </span>
+                    <input
+                      v-model.trim="manualApiKey"
+                      type="text"
+                      spellcheck="false"
+                      autocomplete="off"
+                      :placeholder="t('docs.codex.items.setupCommand.manualKeyPlaceholder')"
+                      class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-950 placeholder:text-slate-400 focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-500/30 dark:border-dark-700 dark:bg-dark-950 dark:text-white dark:placeholder:text-dark-500"
+                    />
+                  </label>
+                  <pre class="overflow-x-auto rounded-lg bg-slate-950 p-4 text-sm text-slate-100"><code>{{ setupCommand }}</code></pre>
+                  <div class="flex flex-wrap items-center gap-3">
+                    <button
+                      type="button"
+                      class="inline-flex items-center gap-1.5 rounded-lg border border-primary-200 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700 transition-colors hover:border-primary-300 hover:bg-primary-100 dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-primary-200 dark:hover:bg-primary-500/20"
+                      @click="copySetupCommand"
+                    >
+                      <Icon :name="setupCommandCopied ? 'check' : 'document'" size="xs" />
+                      <span>{{ setupCommandCopied ? t('common.copied') : t('common.copy') }}</span>
+                    </button>
+                    <router-link
+                      v-if="isAuthenticated"
+                      to="/keys"
+                      class="inline-flex items-center gap-1.5 text-xs font-semibold text-primary-600 transition-colors hover:text-primary-700 dark:text-primary-300 dark:hover:text-primary-200"
+                    >
+                      <Icon name="plus" size="xs" />
+                      <span>{{ t('docs.codex.items.setupCommand.createKey') }}</span>
+                    </router-link>
+                  </div>
                 </template>
-                <p v-else class="text-xs text-slate-500 dark:text-dark-400">
-                  {{ t('docs.codex.items.setupCommand.loginRequired') }}
-                </p>
               </div>
             </div>
           </div>
@@ -175,11 +200,13 @@ const dashboardPath = computed(() => (authStore.isAdmin ? '/admin/dashboard' : '
 const currentUserKey = ref<ApiKey | null>(null)
 const currentUserKeyLoading = ref(false)
 const currentUserKeyError = ref(false)
+const manualApiKey = ref('')
 const setupCommandCopied = ref(false)
 
-const currentUserKeySetupCommand = computed(() => {
+const setupCommand = computed(() => {
   const baseUrl = window.location.origin.replace(/\/+$/, '')
-  return `npx -y sub2api-codex-setup --base-url ${baseUrl} --api-key ${currentUserKey.value?.key || 'sk-xxxx'}`
+  const apiKey = currentUserKey.value?.key || manualApiKey.value || 'sk-xxxx'
+  return `npx -y sub2api-codex-setup --base-url ${baseUrl} --api-key ${apiKey}`
 })
 
 async function loadCurrentUserKey() {
@@ -200,9 +227,9 @@ async function loadCurrentUserKey() {
   }
 }
 
-async function copyCurrentUserKeySetupCommand() {
+async function copySetupCommand() {
   try {
-    await navigator.clipboard.writeText(currentUserKeySetupCommand.value)
+    await navigator.clipboard.writeText(setupCommand.value)
     setupCommandCopied.value = true
     setTimeout(() => {
       setupCommandCopied.value = false

@@ -98,10 +98,12 @@ export default {
         setupCommand: {
           loading: '正在读取你的 API Key…',
           error: '读取 API Key 失败，请打开 API 密钥页面手动复制。',
-          loginRequired: '登录后会自动选择你的 API Key 并生成命令。',
+          loginRequired: '登录后会自动选择你的 API Key 并生成命令；也可以把你的 Key 粘贴到下方输入框生成命令。',
           noKey: '当前账号还没有可用的 API Key，请先创建并绑定分组。',
           createKey: '去创建 API Key',
-          usingKey: '将使用当前账号 Key：{name}'
+          usingKey: '将使用当前账号 Key：{name}',
+          manualKeyLabel: '粘贴你的 API Key',
+          manualKeyPlaceholder: 'sk-...'
         },
         windows: {
           title: 'Windows 路径',

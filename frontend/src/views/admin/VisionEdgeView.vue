@@ -130,18 +130,6 @@
                   {{ t('common.copy') }}
                 </button>
               </div>
-              <div class="grid gap-3 sm:grid-cols-[130px_minmax(0,1fr)]">
-                <label class="space-y-1.5">
-                  <span class="input-label">{{ t('admin.vision.workbench.method') }}</span>
-                  <select v-model="request.method" class="input font-mono" data-testid="edge-request-method">
-                    <option v-for="method in ['GET', 'POST', 'PUT', 'PATCH', 'DELETE']" :key="method" :value="method">{{ method }}</option>
-                  </select>
-                </label>
-                <label class="space-y-1.5">
-                  <span class="input-label">{{ t('admin.vision.workbench.url') }}</span>
-                  <input v-model.trim="request.url" class="input font-mono text-xs" data-testid="edge-request-url" spellcheck="false" />
-                </label>
-              </div>
               <EdgeRequestEditor
                 v-model:method="request.method"
                 v-model:url="request.url"
