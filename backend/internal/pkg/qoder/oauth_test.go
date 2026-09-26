@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -21,6 +22,26 @@ func TestGeneratePKCEChallengeMatchesVerifier(t *testing.T) {
 	want := base64.RawURLEncoding.EncodeToString(sum[:])
 	if pair.Challenge != want {
 		t.Fatalf("challenge = %q, want %q", pair.Challenge, want)
+	}
+}
+
+func TestAuthBaseIsQoderCom(t *testing.T) {
+	// qodercli 的 loginWithDeviceFlow 传入 lN("base") = https://qoder.com，
+	// 不是 center.qoder.sh（后者 /device/selectAccounts 返回 404）。
+	if ProdAuthBaseURL != "https://qoder.com" {
+		t.Fatalf("ProdAuthBaseURL = %q, want https://qoder.com", ProdAuthBaseURL)
+	}
+	t.Setenv(envAuthBaseURL, "")
+	t.Setenv(envCenterBaseURL, "")
+	if authBase() != "https://qoder.com" {
+		t.Fatalf("authBase() = %q", authBase())
+	}
+	raw, err := BuildAuthURL("c", "n", "m", DeviceFlowClientID)
+	if err != nil {
+		t.Fatalf("BuildAuthURL: %v", err)
+	}
+	if !strings.HasPrefix(raw, "https://qoder.com/device/selectAccounts?") {
+		t.Fatalf("auth url = %q", raw)
 	}
 }
 

@@ -28,8 +28,9 @@ import (
 //  4. 轮询到的 token 即模型服务 Bearer token；refresh_token 可用于
 //     POST {openapi}/api/v1/deviceToken/refresh 续期。
 const (
-	// ProdCenterBaseURL 是授权页面所在中心服务的生产地址。
-	ProdCenterBaseURL = "https://center.qoder.sh"
+	// ProdAuthBaseURL 是设备授权页面的生产地址。qodercli 的 loginWithDeviceFlow
+	// 传入的是 lN("base")（即 https://qoder.com），授权页会 302 到 qoder.com 登录页。
+	ProdAuthBaseURL = "https://qoder.com"
 	// ProdOpenAPIBaseURL 是设备令牌接口的生产地址。
 	ProdOpenAPIBaseURL = "https://openapi.qoder.sh"
 
@@ -45,13 +46,18 @@ const (
 
 	maxAuthBody = 1 << 20
 
+	envAuthBaseURL    = "QODER_AUTH_BASE_URL"
 	envCenterBaseURL  = "QODER_CENTER_BASE_URL"
 	envOpenAPIBaseURL = "QODER_OPENAPI_BASE_URL"
 	envRegion         = "QODER_REGION"
 )
 
-// CenterBaseURL 返回授权中心地址，可用 QODER_CENTER_BASE_URL 覆盖。
-func CenterBaseURL() string {
+// AuthBaseURL 返回设备授权页面地址，可用 QODER_AUTH_BASE_URL（或兼容的
+// QODER_CENTER_BASE_URL）覆盖。
+func AuthBaseURL() string {
+	if value := strings.TrimRight(strings.TrimSpace(os.Getenv(envAuthBaseURL)), "/"); value != "" {
+		return value
+	}
 	return strings.TrimRight(strings.TrimSpace(os.Getenv(envCenterBaseURL)), "/")
 }
 
@@ -60,11 +66,11 @@ func OpenAPIBaseURL() string {
 	return strings.TrimRight(strings.TrimSpace(os.Getenv(envOpenAPIBaseURL)), "/")
 }
 
-func centerBase() string {
-	if base := CenterBaseURL(); base != "" {
+func authBase() string {
+	if base := AuthBaseURL(); base != "" {
 		return base
 	}
-	return ProdCenterBaseURL
+	return ProdAuthBaseURL
 }
 
 func openAPIBase() string {
@@ -84,9 +90,9 @@ func ClientID() string {
 
 func authHostAllowed(host string) bool {
 	switch strings.ToLower(host) {
-	case "center.qoder.sh", "openapi.qoder.sh",
-		"test-center.qoder.sh", "test-openapi.qoder.sh",
-		"daily-center.qoder.sh", "daily-openapi.qoder.sh":
+	case "qoder.com", "www.qoder.com",
+		"openapi.qoder.sh", "openapi.qoder.com.cn",
+		"test-openapi.qoder.sh", "test-openapi.qoder.com.cn":
 		return true
 	default:
 		return false
@@ -98,7 +104,7 @@ func trustedURL(raw string) bool {
 	if err != nil || parsed.Host == "" {
 		return false
 	}
-	if os.Getenv(envCenterBaseURL) != "" || os.Getenv(envOpenAPIBaseURL) != "" {
+	if os.Getenv(envAuthBaseURL) != "" || os.Getenv(envCenterBaseURL) != "" || os.Getenv(envOpenAPIBaseURL) != "" {
 		// 允许部署方通过环境变量指向自建/代理端点（可为 http，供内网与测试使用）。
 		return parsed.Scheme == "https" || parsed.Scheme == "http"
 	}
@@ -187,7 +193,7 @@ func BuildAuthURL(challenge, nonce, machineID, clientID string) (string, error) 
 		"machine_id":       {machineID},
 		"client_id":        {clientID},
 	}
-	endpoint := centerBase() + "/device/selectAccounts?" + values.Encode()
+	endpoint := authBase() + "/device/selectAccounts?" + values.Encode()
 	if !trustedURL(endpoint) {
 		return "", fmt.Errorf("qoder auth url is not trusted: %s", endpoint)
 	}
