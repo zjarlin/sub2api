@@ -233,7 +233,9 @@ object DeployTianjinMedia : BuildType({
 
                 echo "##teamcity[progressStart '同步源码到天津']"
                 ssh -o BatchMode=yes "${'$'}REMOTE" "mkdir -p '${'$'}RDIR'"
-                git archive "${'$'}SHA" | ssh -o BatchMode=yes "${'$'}REMOTE" "tar -x -C '${'$'}RDIR'"
+                # 天津只需要 edge-media 与部署脚本；整仓库归档经慢速隧道要传 ~34MB，
+                # 只发这两个目录（<0.1MB）即可。
+                git archive "${'$'}SHA" edge-media deploy | ssh -o BatchMode=yes "${'$'}REMOTE" "tar -x -C '${'$'}RDIR'"
                 ssh -o BatchMode=yes "${'$'}REMOTE" "chmod +x '${'$'}RDIR/deploy/tianjin/deploy-tianjin-media.sh'"
                 echo "##teamcity[progressFinish '同步源码到天津']"
 
