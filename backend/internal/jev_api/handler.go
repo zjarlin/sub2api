@@ -75,6 +75,32 @@ func IsKnownSystemOneModel(model string) bool {
 	return model == LayaModelID || strings.HasPrefix(model, LayaModelID+"-")
 }
 
+// RewriteModel 只改写顶层 model 字段，保留其余请求语义不变。
+// 供网关在 JEV 不可用时把同一份请求转交给 Laya；调用方只传入已校验的模型名。
+func RewriteModel(body []byte, model string) ([]byte, error) {
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 || trimmed[0] != '{' || !IsKnownSystemOneModel(model) || hasDuplicateModelKey(trimmed) {
+		return nil, errors.New("invalid System One request body")
+	}
+	current, err := ReadModel(trimmed)
+	if err != nil {
+		return nil, err
+	}
+	if current == model {
+		return body, nil
+	}
+	var request map[string]json.RawMessage
+	if err := json.Unmarshal(trimmed, &request); err != nil {
+		return nil, err
+	}
+	encodedModel, err := json.Marshal(model)
+	if err != nil {
+		return nil, err
+	}
+	request["model"] = encodedModel
+	return json.Marshal(request)
+}
+
 // ReadModel 只读取单一、明确的顶层模型 ID；拒绝大小写变体和重复键。
 func ReadModel(body []byte) (string, error) {
 	trimmed := bytes.TrimSpace(body)

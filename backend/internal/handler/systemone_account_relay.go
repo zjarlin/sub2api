@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strconv"
@@ -34,6 +35,65 @@ func systemOnePlatformForModel(model string) string {
 // systemOneSchedulingContext 为调度器指定模型所属平台。
 func systemOneSchedulingContext(ctx context.Context, platform string) context.Context {
 	return context.WithValue(ctx, ctxkey.ForcePlatform, platform)
+}
+
+// selectSystemOneAccount 按模型所属平台调度账号，并拒绝跨平台命中。
+//
+// 返回的选择结果由调用方负责释放；platform 是模型要求的真实平台，
+// 不能沿用分组默认平台，否则混合分组可能把 JEV 请求打到 Laya 账号。
+func (h *GatewayHandler) selectSystemOneAccount(
+	ctx context.Context, groupID *int64, model, platform string, sub2apiUserID int64,
+) (*service.AccountSelectionResult, error) {
+	selectionCtx := systemOneSchedulingContext(ctx, platform)
+	selection, err := h.gatewayService.SelectAccountWithLoadAwareness(
+		selectionCtx, groupID, "", model, nil, "", sub2apiUserID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	if selection == nil || selection.Account == nil {
+		return nil, service.ErrNoAvailableAccounts
+	}
+	if selection.Account.Platform != platform {
+		if selection.ReleaseFunc != nil {
+			selection.ReleaseFunc()
+		}
+		return nil, service.ErrNoAvailableAccounts
+	}
+	return selection, nil
+}
+
+// systemOneFallbackPlatform 报告请求平台失败时是否应隐式回退，以及回退到哪个平台。
+// 只有 JEV 会回退到 Laya；Laya 永远不会反向回退，避免语义反转与无限回退。
+func systemOneFallbackPlatform(requestedPlatform string) (string, bool) {
+	if requestedPlatform == service.PlatformJev {
+		return service.PlatformLaya, true
+	}
+	return "", false
+}
+
+// systemOneRelayFailureShouldFallback 判断一次上游失败是否值得改用 Laya。
+// 只有可用性故障（网络错误、超时、5xx/429/408）才回退；4xx 请求错误直接透传，
+// 避免把「请求体不合法」误判成「JEV 不可用」并掩盖真实原因。
+func systemOneRelayFailureShouldFallback(requestedPlatform string, status int, relayErr error) bool {
+	if requestedPlatform != service.PlatformJev {
+		return false
+	}
+	if relayErr != nil {
+		return true
+	}
+	switch {
+	case status == http.StatusTooManyRequests,
+		status == http.StatusRequestTimeout,
+		status == http.StatusBadGateway,
+		status == http.StatusServiceUnavailable,
+		status == http.StatusGatewayTimeout:
+		return true
+	case status >= http.StatusInternalServerError:
+		return true
+	default:
+		return false
+	}
 }
 
 // RegisterSystemOneAccountRelay 把 System One 挂到账号池上。
@@ -85,57 +145,138 @@ func (h *GatewayHandler) SystemOneRelay(c *gin.Context) {
 		return
 	}
 	platform := systemOnePlatformForModel(model)
+	requestedPlatform := platform
+	fallbackUsed := false
 
-	// 按模型指定平台，避免混合分组默认平台把请求调度到其它账号。
-	selectionCtx := systemOneSchedulingContext(c.Request.Context(), platform)
-	selection, err := h.gatewayService.SelectAccountWithLoadAwareness(
-		selectionCtx, apiKey.GroupID, "", model, nil, "", apiKey.UserID,
-	)
+	selection, err := h.selectSystemOneAccount(c.Request.Context(), apiKey.GroupID, model, requestedPlatform, apiKey.UserID)
 	if err != nil || selection == nil || selection.Account == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"error": gin.H{"type": "scheduling_error", "message": "No available account for System One model " + model},
-		})
-		return
+		fallbackPlatform, canFallback := systemOneFallbackPlatform(requestedPlatform)
+		if !canFallback {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error": gin.H{"type": "scheduling_error", "message": "No available " + requestedPlatform + " account for System One model " + model},
+			})
+			return
+		}
+		// JEV 选号失败：隐式回退 Laya，客户端无感。
+		selection, err = h.selectSystemOneAccount(
+			c.Request.Context(), apiKey.GroupID, jev_api.LayaModelID, fallbackPlatform, apiKey.UserID,
+		)
+		if err != nil || selection == nil || selection.Account == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error": gin.H{"type": "scheduling_error", "message": "No available System One account for model " + model + " or fallback " + fallbackPlatform},
+			})
+			return
+		}
+		platform = fallbackPlatform
+		fallbackUsed = true
+		// 回退后用量归属实际服务平台，避免把 Laya 用量记到 JEV 名下。
+		quotaPlatform = fallbackPlatform
+	} else {
+		platform = requestedPlatform
 	}
+	var releaseSelection = func() {}
 	if selection.ReleaseFunc != nil {
-		defer selection.ReleaseFunc()
+		release := selection.ReleaseFunc
+		var released bool
+		releaseSelection = func() {
+			if released {
+				return
+			}
+			released = true
+			release()
+		}
+		defer func() { releaseSelection() }()
 	}
 	if !selection.Acquired && selection.ReleaseFunc == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "scheduling_error", "message": "System One account is busy"}})
 		return
 	}
 	account := selection.Account
-	if account.Platform != platform {
-		// 选到的账号平台与 model 要求的平台不符时直接拒绝，避免把 JEV 请求打到 Laya 账号。
+	relay := func(selection *service.AccountSelectionResult, selectedPlatform string) (int, []byte, error, error) {
+		account := selection.Account
+		upstreamModel := model
+		if selectedPlatform == service.PlatformLaya {
+			// Laya 的公开模型名可能带检查点后缀，回退时统一使用自动选检查点的 laya。
+			upstreamModel = jev_api.LayaModelID
+		}
+		baseURL := account.GetOpenAIBaseURL()
+		if baseURL == "" {
+			baseURL = systemOneAccountBaseURL(account)
+		}
+		if baseURL == "" {
+			return 0, nil, nil, errors.New("System One account has no upstream address")
+		}
+		apiKeyValue, _ := account.Credentials["api_key"].(string)
+		relayBody := body
+		if upstreamModel != model {
+			var rewriteErr error
+			relayBody, rewriteErr = jev_api.RewriteModel(body, upstreamModel)
+			if rewriteErr != nil {
+				return 0, nil, nil, rewriteErr
+			}
+		}
+		status, payload, err := jev_api.RelaySystemOne(c.Request.Context(), baseURL, apiKeyValue, relayBody, http.DefaultClient)
+		return status, payload, err, nil
+	}
+
+	status, payload, relayErr, setupErr := relay(selection, platform)
+	if setupErr != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"error": gin.H{"type": "scheduling_error", "message": "No available " + platform + " account for System One model " + model},
+			"error": gin.H{"type": "service_unavailable", "message": setupErr.Error()},
 		})
 		return
 	}
-
-	baseURL := account.GetOpenAIBaseURL()
-	if baseURL == "" {
-		baseURL = systemOneAccountBaseURL(account)
+	upstreamFailed := relayErr != nil || status < http.StatusOK || status >= http.StatusMultipleChoices
+	// 只有 JEV 请求才回退，且必须是因为可用性故障；4xx 属于请求问题，回退会掩盖真实错误。
+	if upstreamFailed && !fallbackUsed && systemOneRelayFailureShouldFallback(requestedPlatform, status, relayErr) {
+		logger.L().With(zap.String("component", "handler.systemone")).Warn("systemone_relay_failed_fallback_laya",
+			zap.Int64("account_id", account.ID), zap.Int("upstream_status", status), zap.Error(relayErr))
+		// 释放 JEV 槽位后再尝试 Laya；releaseSelection 保证不会重复释放。
+		releaseSelection()
+		fallback, fallbackErr := h.selectSystemOneAccount(c.Request.Context(), apiKey.GroupID, jev_api.LayaModelID, service.PlatformLaya, apiKey.UserID)
+		if fallbackErr == nil && fallback != nil && fallback.Account != nil {
+			if fallback.ReleaseFunc != nil {
+				fallbackRelease := fallback.ReleaseFunc
+				var fallbackReleased bool
+				releaseSelection = func() {
+					if fallbackReleased {
+						return
+					}
+					fallbackReleased = true
+					fallbackRelease()
+				}
+			}
+			if !fallback.Acquired && fallback.ReleaseFunc == nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "scheduling_error", "message": "System One account is busy"}})
+				return
+			}
+			selection = fallback
+			platform = service.PlatformLaya
+			fallbackUsed = true
+			// 回退后用量归属实际服务平台，避免把 Laya 用量记到 JEV 名下。
+			quotaPlatform = service.PlatformLaya
+			status, payload, relayErr, setupErr = relay(fallback, platform)
+			if setupErr != nil {
+				c.JSON(http.StatusServiceUnavailable, gin.H{
+					"error": gin.H{"type": "service_unavailable", "message": setupErr.Error()},
+				})
+				return
+			}
+			upstreamFailed = relayErr != nil || status < http.StatusOK || status >= http.StatusMultipleChoices
+		}
 	}
-	if baseURL == "" {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"error": gin.H{"type": "service_unavailable", "message": "System One account has no upstream address"},
-		})
-		return
-	}
-	apiKeyValue, _ := account.Credentials["api_key"].(string)
-
-	status, payload, err := jev_api.RelaySystemOne(c.Request.Context(), baseURL, apiKeyValue, body, http.DefaultClient)
-	if err != nil {
-		logger.L().With(zap.String("component", "handler.systemone")).Warn("relay_error",
-			zap.Int64("account_id", account.ID), zap.String("platform", platform), zap.Error(err))
+	if upstreamFailed {
+		logger.L().With(zap.String("component", "handler.systemone")).Warn("relay_failed",
+			zap.Int64("account_id", selection.Account.ID), zap.String("platform", platform),
+			zap.Int("upstream_status", status), zap.Bool("fallback_used", fallbackUsed), zap.Error(relayErr))
+		if status < http.StatusOK || status >= http.StatusMultipleChoices {
+			c.JSON(status, gin.H{"error": gin.H{"type": "upstream_error", "message": "System One upstream returned an error"}})
+			return
+		}
 		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"type": "upstream_error", "message": "System One service unavailable"}})
 		return
 	}
-	if status < http.StatusOK || status >= http.StatusMultipleChoices {
-		c.JSON(status, gin.H{"error": gin.H{"type": "upstream_error", "message": "System One upstream returned an error"}})
-		return
-	}
+	account = selection.Account
 
 	// 决策模型不生成 token，也没有可用的按次单价；这里只记录调用与真实账号关联，
 	// 不写入任何计费量（沿用仓库既有约定：未定义定价前不宣称已计费）。

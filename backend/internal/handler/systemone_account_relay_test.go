@@ -2,6 +2,8 @@ package handler
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -32,4 +34,31 @@ func TestSystemOneSchedulingContextSelectsModelPlatform(t *testing.T) {
 		ctx := systemOneSchedulingContext(context.Background(), platform)
 		require.Equal(t, platform, ctx.Value(ctxkey.ForcePlatform))
 	}
+}
+
+func TestSystemOneFallbackPlatformOnlyForJev(t *testing.T) {
+	// 默认 JEV 不可用时隐式回退 Laya；显式 Laya 请求永不反向回退。
+	fallback, ok := systemOneFallbackPlatform(service.PlatformJev)
+	require.True(t, ok)
+	require.Equal(t, service.PlatformLaya, fallback)
+
+	_, ok = systemOneFallbackPlatform(service.PlatformLaya)
+	require.False(t, ok)
+	_, ok = systemOneFallbackPlatform(service.PlatformOpenAI)
+	require.False(t, ok)
+}
+
+func TestSystemOneRelayFailureShouldFallback(t *testing.T) {
+	// 仅 JEV 请求、且属于可用性故障时才回退。
+	require.True(t, systemOneRelayFailureShouldFallback(service.PlatformJev, 0, errors.New("timeout")))
+	require.True(t, systemOneRelayFailureShouldFallback(service.PlatformJev, http.StatusBadGateway, nil))
+	require.True(t, systemOneRelayFailureShouldFallback(service.PlatformJev, http.StatusInternalServerError, nil))
+	require.True(t, systemOneRelayFailureShouldFallback(service.PlatformJev, http.StatusServiceUnavailable, nil))
+	require.True(t, systemOneRelayFailureShouldFallback(service.PlatformJev, http.StatusTooManyRequests, nil))
+
+	// 4xx 是请求本身的问题，回退会掩盖真实错误。
+	require.False(t, systemOneRelayFailureShouldFallback(service.PlatformJev, http.StatusBadRequest, nil))
+	require.False(t, systemOneRelayFailureShouldFallback(service.PlatformJev, http.StatusUnauthorized, nil))
+	// 显式 Laya 请求永不触发回退。
+	require.False(t, systemOneRelayFailureShouldFallback(service.PlatformLaya, http.StatusBadGateway, nil))
 }
