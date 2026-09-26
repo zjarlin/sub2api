@@ -1,0 +1,5 @@
+# 天津 GPU：把开源视频配音服务发布到内网。
+services:
+  edge-dub:
+    ports:
+      - "${MEDIA_TIANJIN_BIND:-0.0.0.0}:18084:18084"

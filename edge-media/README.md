@@ -77,12 +77,15 @@ EDGE_MEDIA_IMAGE=zjarlin/edge-media:local \
 
 ```bash
 MEDIA_TTS_ENABLED=true \
-MEDIA_TTS_UPSTREAM_URL=http://61.163.60.12:28085 \
+MEDIA_TTS_UPSTREAM_URL=http://127.0.0.1:28085 \
 MEDIA_VIDEO_ENABLED=true \
-MEDIA_VIDEO_UPSTREAM_URL=http://61.163.60.12:28084 \
+MEDIA_VIDEO_UPSTREAM_URL=http://127.0.0.1:28084 \
 SUB2API_EDGE_MEDIA=1 \
   ./deploy/cluster/deploy-edge-media.sh
 ```
+
+FRP 端口在 252 的 loopback 上侦听，所以 252 侧用 `127.0.0.1` 调用（公网出口
+`61.163.60.12` 不支持 hairpin NAT）。
 
 ### 视频生成（网络 API）
 

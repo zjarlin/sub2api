@@ -31,7 +31,10 @@ DUB_IMAGE="${EDGE_DUB_IMAGE:-edge-dub:tianjin}"
 MEDIA_IMAGE="${EDGE_MEDIA_IMAGE:-edge-media:tianjin}"
 BIND="${MEDIA_TIANJIN_BIND:-0.0.0.0}"
 
-PUBLISH_OVERLAY="$REPO_DIR/deploy/tianjin/docker-compose.edge-media-publish.yml"
+PUBLISH_DIR="$REPO_DIR/deploy/tianjin"
+PUBLISH_GPT="$PUBLISH_DIR/docker-compose.publish-gpt-sovits.yml"
+PUBLISH_DUB="$PUBLISH_DIR/docker-compose.publish-edge-dub.yml"
+PUBLISH_MEDIA="$PUBLISH_DIR/docker-compose.publish-edge-media.yml"
 
 docker network inspect "$NETWORK" >/dev/null 2>&1 || {
   echo "缺少 sub2api 网络 $NETWORK，请先在天津启动 sub2api 集群" >&2
@@ -64,7 +67,7 @@ echo "==> 启动曼波 GPT-SoVITS（发布 $BIND:9880）"
 GPT_SOVITS_IMAGE="$GPT_IMAGE" GPT_SOVITS_MODELS_DIR="$MODELS_DIR" SUB2API_NETWORK="$NETWORK" \
   MEDIA_TIANJIN_BIND="$BIND" \
   docker compose -f "$REPO_DIR/edge-media/gptsovits/compose/docker-compose.yml" \
-                 -f "$PUBLISH_OVERLAY" up -d
+                 -f "$PUBLISH_GPT" up -d
 
 echo "等待 GPT-SoVITS 就绪（首次加载 DTK 模型可能 3~5 分钟）"
 ready=0
@@ -88,7 +91,7 @@ mkdir -p "$DUB_DATA_DIR"
 EDGE_DUB_IMAGE="$DUB_IMAGE" MEDIA_TTS_UPSTREAM_URL=http://gpt-sovits:9880 SUB2API_NETWORK="$NETWORK" \
   EDGE_DUB_DATA_DIR="$DUB_DATA_DIR" MEDIA_TIANJIN_BIND="$BIND" \
   docker compose -f "$REPO_DIR/edge-media/dub/compose/docker-compose.yml" \
-                 -f "$PUBLISH_OVERLAY" up -d
+                 -f "$PUBLISH_DUB" up -d
 
 echo "==> 启动 edge-media 编排（发布 $BIND:18083，转发到本机 gpt-sovits / edge-dub）"
 mkdir -p "$DATA_DIR"
@@ -102,7 +105,7 @@ EDGE_MEDIA_IMAGE="$MEDIA_IMAGE" EDGE_MEDIA_DATA_DIR="$DATA_DIR" EDGE_MEDIA_MODEL
   MEDIA_TRANSCODE_COMMAND='ffmpeg -hide_banner -y -i {input} -c:v libx264 -preset veryfast -c:a aac -movflags +faststart {output}' \
   SUB2API_NETWORK="$NETWORK" MEDIA_TIANJIN_BIND="$BIND" \
   docker compose -f "$REPO_DIR/edge-media/compose/docker-compose.yml" \
-                 -f "$PUBLISH_OVERLAY" up -d --force-recreate
+                 -f "$PUBLISH_MEDIA" up -d --force-recreate
 
 echo "==> 验证"
 for _ in $(seq 1 30); do

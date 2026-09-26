@@ -11,9 +11,9 @@
 #   1. 在 252 上把 28084、28085 加入 /etc/frp/frps.toml 的 allowPorts 并重启 frps；
 #   2. 在天津写 /etc/frp/frpc-media.toml（内容如下，token 填真实值）；
 #   3. systemctl enable --now frpc-media；
-#   4. 在 252 上执行：
-#        EDGE_MEDIA_UPSTREAM_URL=http://61.163.60.12:28084 \
-#        TTS_UPSTREAM_URL=http://61.163.60.12:28085 ... deploy-edge-media.sh
+#   4. 在 252 上执行（FRP 端口映射在本机 loopback，公网出口不支持 hairpin NAT）：
+#        MEDIA_VIDEO_UPSTREAM_URL=http://127.0.0.1:28084 \
+#        MEDIA_TTS_UPSTREAM_URL=http://127.0.0.1:28085 ... deploy-edge-media.sh
 #
 # 说明：tianjin-ai 没有公网 IPv6，无法直连 252 的 frps v6 监听，所以 frpc 建议
 # 跑在与 tianjin-ai 同网段、且能访问 61.163.60.12:7000 的 tianjin-server 上，
