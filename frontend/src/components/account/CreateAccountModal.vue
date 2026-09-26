@@ -583,6 +583,66 @@
         </div>
       </div>
 
+      <!-- Account Type Selection (Qoder) -->
+      <div v-if="form.platform === 'qoder'">
+        <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-tour="account-form-type">
+          <button
+            type="button"
+            data-testid="qoder-account-type-oauth"
+            @click="accountCategory = 'oauth-based'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'oauth-based'
+                ? 'border-teal-500 bg-teal-50 dark:bg-teal-900/20'
+                : 'border-gray-200 hover:border-teal-300 dark:border-dark-600 dark:hover:border-teal-700'
+            ]"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'oauth-based'
+                  ? 'bg-teal-500 text-white'
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="sparkles" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">OAuth</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.qoder.oauthHint') }}</span>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            data-testid="qoder-account-type-api-key"
+            @click="accountCategory = 'apikey'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'apikey'
+                ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
+                : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
+            ]"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'apikey'
+                  ? 'bg-purple-500 text-white'
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="key" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">API Key</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.qoder.apiKeyHint') }}</span>
+            </div>
+          </button>
+        </div>
+      </div>
+
       <!-- OpenCode Zen vs Go -->
       <div v-if="isOpenCodeGoPlatform">
         <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
@@ -3655,7 +3715,27 @@
 
     <!-- Step 2: OAuth Authorization -->
     <div v-else class="space-y-5">
+      <!-- Qoder 设备流授权：生成链接 → 浏览器选择账号 → 自动轮询完成 -->
+      <div v-if="form.platform === 'qoder'" class="space-y-4">
+        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+          <p class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.accounts.qoder.oauthDesc') }}</p>
+          <div class="mt-3 flex flex-wrap items-center gap-3">
+            <button type="button" class="btn btn-primary" :disabled="qoderOAuthLoading" @click="startQoderAuth">
+              {{ qoderAuthUrl ? t('admin.accounts.qoder.reopenAuthPage') : t('admin.accounts.qoder.openAuthPage') }}
+            </button>
+            <span v-if="qoderPolling" class="text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.qoder.waitingAuthorization') }}
+            </span>
+          </div>
+          <p v-if="qoderAuthUrl" class="mt-3 break-all text-xs text-gray-500 dark:text-gray-400">
+            {{ qoderAuthUrl }}
+          </p>
+          <p v-if="qoderOAuthError" class="mt-3 text-sm text-red-600 dark:text-red-400">{{ qoderOAuthError }}</p>
+        </div>
+      </div>
+
       <OAuthAuthorizationFlow
+        v-if="form.platform !== 'qoder'"
         ref="oauthFlowRef"
         :add-method="form.platform === 'anthropic' ? addMethod : 'oauth'"
         :auth-url="currentAuthUrl"
@@ -3738,7 +3818,7 @@
           {{ t('common.back') }}
         </button>
         <button
-          v-if="isManualInputMethod"
+          v-if="isManualInputMethod && form.platform !== 'qoder'"
           type="button"
           :disabled="!canExchangeCode"
           class="btn btn-primary"
@@ -4237,12 +4317,21 @@ const geminiOAuth = useGeminiOAuth() // For Gemini OAuth
 const antigravityOAuth = useAntigravityOAuth() // For Antigravity OAuth
 const grokOAuth = useGrokOAuth() // For Grok OAuth
 
+// ── Qoder 设备流授权（Device Flow）状态 ──
+const qoderAuthUrl = ref('')
+const qoderSessionId = ref('')
+const qoderOAuthLoading = ref(false)
+const qoderOAuthError = ref('')
+const qoderPolling = ref(false)
+const qoderPollTimer = ref<number | null>(null)
+
 // Computed: current OAuth state for template binding
 const currentAuthUrl = computed(() => {
   if (form.platform === 'openai') return openaiOAuth.authUrl.value
   if (form.platform === 'gemini') return geminiOAuth.authUrl.value
   if (form.platform === 'antigravity') return antigravityOAuth.authUrl.value
   if (form.platform === 'grok') return grokOAuth.authUrl.value
+  if (form.platform === 'qoder') return qoderAuthUrl.value
   return oauth.authUrl.value
 })
 
@@ -4251,6 +4340,7 @@ const currentSessionId = computed(() => {
   if (form.platform === 'gemini') return geminiOAuth.sessionId.value
   if (form.platform === 'antigravity') return antigravityOAuth.sessionId.value
   if (form.platform === 'grok') return grokOAuth.sessionId.value
+  if (form.platform === 'qoder') return qoderSessionId.value
   return oauth.sessionId.value
 })
 
@@ -4259,6 +4349,7 @@ const currentOAuthLoading = computed(() => {
   if (form.platform === 'gemini') return geminiOAuth.loading.value
   if (form.platform === 'antigravity') return antigravityOAuth.loading.value
   if (form.platform === 'grok') return grokOAuth.loading.value
+  if (form.platform === 'qoder') return qoderOAuthLoading.value
   return oauth.loading.value
 })
 
@@ -4267,6 +4358,7 @@ const currentOAuthError = computed(() => {
   if (form.platform === 'gemini') return geminiOAuth.error.value
   if (form.platform === 'antigravity') return antigravityOAuth.error.value
   if (form.platform === 'grok') return grokOAuth.error.value
+  if (form.platform === 'qoder') return qoderOAuthError.value
   return oauth.error.value
 })
 
@@ -4449,12 +4541,12 @@ function selectZcodePlatform() {
   form.platform = 'zcode'
 }
 
-// Qoder 使用官方 Model Server，用户令牌存 api_key。
+// Qoder 使用官方 Model Server：默认走设备流 OAuth，也可手动粘贴访问令牌（apikey）。
 function selectQoderPlatform() {
   upstreamBillingAutoProbeEnabled.value = false
   form.platform = 'qoder'
-  accountCategory.value = 'apikey'
-  form.type = 'apikey'
+  accountCategory.value = 'oauth-based'
+  form.type = 'oauth'
   apiProtocol.value = 'chat_completions'
   apiKeyBaseUrl.value = ''
   apiKeyValue.value = ''
@@ -6270,6 +6362,7 @@ const goBackToBasicInfo = () => {
   geminiOAuth.resetState()
   antigravityOAuth.resetState()
   grokOAuth.resetState()
+  resetQoderOAuth()
   oauthFlowRef.value?.reset()
 }
 
@@ -7365,6 +7458,97 @@ const handleAnthropicExchange = async (authCode: string) => {
 }
 
 // 主入口：根据平台路由到对应处理函数
+// ── Qoder 设备流授权 ──
+const stopQoderPolling = () => {
+  qoderPolling.value = false
+  if (qoderPollTimer.value !== null) {
+    window.clearTimeout(qoderPollTimer.value)
+    qoderPollTimer.value = null
+  }
+}
+
+const resetQoderOAuth = () => {
+  stopQoderPolling()
+  qoderAuthUrl.value = ''
+  qoderSessionId.value = ''
+  qoderOAuthLoading.value = false
+  qoderOAuthError.value = ''
+}
+
+const startQoderAuth = async () => {
+  qoderOAuthLoading.value = true
+  qoderOAuthError.value = ''
+  qoderAuthUrl.value = ''
+  qoderSessionId.value = ''
+  try {
+    const result = await adminAPI.qoder.generateAuthURL()
+    qoderAuthUrl.value = result.auth_url
+    qoderSessionId.value = result.session_id
+    window.open(result.auth_url, '_blank', 'noopener,noreferrer')
+    scheduleQoderPoll()
+  } catch (error: any) {
+    qoderOAuthError.value =
+      error.response?.data?.detail || error.message || t('admin.accounts.qoder.failedToGenerateUrl')
+    appStore.showError(qoderOAuthError.value)
+  } finally {
+    qoderOAuthLoading.value = false
+  }
+}
+
+const scheduleQoderPoll = () => {
+  stopQoderPolling()
+  qoderPolling.value = true
+  const deadline = Date.now() + 5 * 60 * 1000
+  const poll = async () => {
+    if (!qoderPolling.value) return
+    if (!qoderSessionId.value) {
+      stopQoderPolling()
+      return
+    }
+    try {
+      const result = await adminAPI.qoder.pollToken(qoderSessionId.value)
+      if (result.done && result.token) {
+        stopQoderPolling()
+        await finishQoderOAuth(result.token)
+        return
+      }
+    } catch (error: any) {
+      stopQoderPolling()
+      qoderOAuthError.value =
+        error.response?.data?.detail || error.message || t('admin.accounts.qoder.pollFailed')
+      appStore.showError(qoderOAuthError.value)
+      return
+    }
+    if (Date.now() > deadline) {
+      stopQoderPolling()
+      qoderOAuthError.value = t('admin.accounts.qoder.authorizationTimeout')
+      return
+    }
+    qoderPollTimer.value = window.setTimeout(poll, 1500)
+  }
+  qoderPollTimer.value = window.setTimeout(poll, 1500)
+}
+
+const finishQoderOAuth = async (token: { access_token: string; refresh_token?: string; expires_at?: number }) => {
+  const credentials: Record<string, unknown> = {
+    access_token: token.access_token,
+    api_protocol: 'chat_completions',
+    openai_capabilities: ['chat_completions']
+  }
+  if (token.refresh_token) credentials.refresh_token = token.refresh_token
+  if (token.expires_at) {
+    credentials.expires_at = new Date(token.expires_at * 1000).toISOString()
+  }
+  const modelMapping = buildModelMappingObject(
+    modelRestrictionMode.value,
+    allowedModels.value,
+    modelMappings.value
+  )
+  if (modelMapping) credentials.model_mapping = modelMapping
+
+  await createAccountAndFinish('qoder', 'oauth' as AccountType, credentials)
+}
+
 const handleExchangeCode = async () => {
   const authCode = oauthFlowRef.value?.authCode || ''
 

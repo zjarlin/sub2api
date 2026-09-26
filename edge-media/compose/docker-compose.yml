@@ -32,6 +32,8 @@ services:
     volumes:
       - ${EDGE_MEDIA_DATA_DIR:-./data}:/data
       - ${EDGE_MEDIA_MODELS_DIR:-./models}:/models:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:18083/health"]
       interval: 30s

@@ -2647,6 +2647,11 @@ func (s *GatewayService) isModelSupportedByAccount(account *Account, requestedMo
 		}
 		return mapAntigravityModel(account, requestedModel) != ""
 	}
+	// System One 使用 model_mapping 选择决策模型；上游 /models 目录是聊天模型能力表，
+	// 不能反过来限制 typesafe/jev 或 laya* 这类协议模型。
+	if IsSystemOneDecisionPlatform(account.Platform) {
+		return mappingSupportsRequestedModel(account.GetModelMapping(), requestedModel)
+	}
 	if account.IsBedrock() {
 		_, ok := ResolveBedrockModelID(account, requestedModel)
 		return ok

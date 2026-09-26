@@ -58,6 +58,9 @@ func RegisterAdminRoutes(
 		// Antigravity OAuth
 		registerAntigravityOAuthRoutes(admin, h)
 
+		// Qoder OAuth（设备流授权）
+		registerQoderOAuthRoutes(admin, h)
+
 		// Grok OAuth
 		registerGrokOAuthRoutes(admin, h)
 
@@ -477,6 +480,15 @@ func registerAntigravityOAuthRoutes(admin *gin.RouterGroup, h *handler.Handlers)
 		antigravity.POST("/oauth/auth-url", h.Admin.AntigravityOAuth.GenerateAuthURL)
 		antigravity.POST("/oauth/exchange-code", h.Admin.AntigravityOAuth.ExchangeCode)
 		antigravity.POST("/oauth/refresh-token", h.Admin.AntigravityOAuth.RefreshToken)
+	}
+}
+
+func registerQoderOAuthRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	qoder := admin.Group("/qoder")
+	{
+		qoder.POST("/oauth/auth-url", h.Admin.QoderOAuth.GenerateAuthURL)
+		qoder.POST("/oauth/poll-token", h.Admin.QoderOAuth.PollToken)
+		qoder.POST("/oauth/refresh-token", h.Admin.QoderOAuth.RefreshToken)
 	}
 }
 

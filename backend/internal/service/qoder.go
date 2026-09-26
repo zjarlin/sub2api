@@ -178,16 +178,24 @@ func QoderCommitMessageCurl(modelID, diff, token string) string {
 	return strings.Join(lines, "\n")
 }
 
-// qoderAccountToken 读取账号保存的 Qoder 用户令牌。Qoder 账号把用户令牌存在
-// api_key，兼容历史数据中的 access_token。
+// qoderAccountToken 读取账号保存的 Qoder 用户令牌。API Key 账号把用户令牌存在
+// api_key；设备流 OAuth 账号把设备令牌存在 access_token，均兼容历史字段。
 func qoderAccountToken(account *Account) string {
 	if account == nil {
 		return ""
 	}
-	if token := strings.TrimSpace(account.GetCredential("api_key")); token != "" {
+	if token := strings.TrimSpace(account.GetCredential("access_token")); token != "" {
 		return token
 	}
-	return strings.TrimSpace(account.GetCredential("access_token"))
+	return strings.TrimSpace(account.GetCredential("api_key"))
+}
+
+// qoderAccountRefreshToken 读取设备流 OAuth 账号保存的 refresh_token。
+func qoderAccountRefreshToken(account *Account) string {
+	if account == nil {
+		return ""
+	}
+	return strings.TrimSpace(account.GetCredential("refresh_token"))
 }
 
 // validateQoderCredentials 校验 Qoder 账号：只支持 apikey，令牌直连官方
@@ -196,15 +204,26 @@ func validateQoderCredentials(platform, accountType string, credentials map[stri
 	if platform != PlatformQoder {
 		return nil
 	}
-	if accountType != AccountTypeAPIKey {
-		return infraerrors.BadRequest("INVALID_QODER_CREDENTIALS", "qoder requires an API key account holding a Qoder access token")
-	}
-	token, _ := credentials["api_key"].(string)
-	if strings.TrimSpace(token) == "" {
-		token, _ = credentials["access_token"].(string)
-	}
-	if strings.TrimSpace(token) == "" {
-		return infraerrors.BadRequest("INVALID_QODER_CREDENTIALS", "qoder requires a Qoder access token")
+	// apikey：手动粘贴 Qoder 访问令牌；oauth：设备流授权得到的设备令牌 + refresh_token。
+	switch accountType {
+	case AccountTypeAPIKey:
+		token, _ := credentials["api_key"].(string)
+		if strings.TrimSpace(token) == "" {
+			token, _ = credentials["access_token"].(string)
+		}
+		if strings.TrimSpace(token) == "" {
+			return infraerrors.BadRequest("INVALID_QODER_CREDENTIALS", "qoder requires a Qoder access token")
+		}
+	case AccountTypeOAuth:
+		token, _ := credentials["access_token"].(string)
+		if strings.TrimSpace(token) == "" {
+			token, _ = credentials["api_key"].(string)
+		}
+		if strings.TrimSpace(token) == "" {
+			return infraerrors.BadRequest("INVALID_QODER_CREDENTIALS", "qoder oauth requires a device access token")
+		}
+	default:
+		return infraerrors.BadRequest("INVALID_QODER_CREDENTIALS", "qoder requires an API key or OAuth account holding a Qoder access token")
 	}
 	protocol, _ := credentials["api_protocol"].(string)
 	if protocol != "" && protocol != APIProtocolChatCompletions {

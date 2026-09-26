@@ -35,11 +35,11 @@ object Deploy252Cluster : BuildType({
         // 252 只做编排：TTS / 视频配音都转发到天津 GPU 机器。
         // 天津通过 FRP 把 edge-media(28084) 与 gpt-sovits(28085) 暴露到 252 的 frps。
         param("env.MEDIA_TTS_ENABLED", "1")
-        // FRP 端口在 252 本机 loopback 上侦听（公网出口不支持 hairpin NAT）。
-        param("env.MEDIA_TTS_UPSTREAM_URL", "http://127.0.0.1:28085")
+        // FRP 端口在 252 本机 loopback 上侦听；容器内通过 host.docker.internal 访问。
+        param("env.MEDIA_TTS_UPSTREAM_URL", "http://host.docker.internal:28085")
         param("env.MEDIA_DUBBING_ENABLED", "1")
         param("env.MEDIA_DUBBING_COMMAND", "")
-        param("env.MEDIA_VIDEO_UPSTREAM_URL", "http://127.0.0.1:28084")
+        param("env.MEDIA_VIDEO_UPSTREAM_URL", "http://host.docker.internal:28084")
         // 视频生成走网络 API（Seedance 2.0 等），在网关侧账号池配置，不用离线模型。
         // 平台已原生支持 Ark 异步任务协议：/v3/contents/generations/tasks。
         param("env.MEDIA_VIDEO_GENERATION_ENABLED", "0")

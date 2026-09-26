@@ -114,3 +114,22 @@ func TestSystemOneDecisionAccountsReportSystemOneProtocol(t *testing.T) {
 	zcode := &Account{Platform: PlatformZcode, Credentials: map[string]any{}}
 	require.Equal(t, APIProtocolChatCompletions, zcode.GetAPIProtocol())
 }
+
+func TestSystemOneDecisionSchedulingIgnoresUpstreamChatCatalog(t *testing.T) {
+	account := &Account{
+		Platform: PlatformJev,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{"model_mapping": map[string]any{
+			DefaultJevModel: DefaultJevModel,
+		}},
+	}
+	account.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
+		Source:   "upstream",
+		SyncedAt: "2099-01-01T00:00:00Z",
+		Models:   []string{"gpt-6-astra"},
+	})
+
+	svc := &GatewayService{}
+	require.True(t, svc.isModelSupportedByAccount(account, DefaultJevModel))
+	require.False(t, svc.isModelSupportedByAccount(account, "unknown-chat-model"))
+}

@@ -460,6 +460,7 @@ type OpenAIGatewayService struct {
 	deferredService       *DeferredService
 	openAITokenProvider   *OpenAITokenProvider
 	grokTokenProvider     *GrokTokenProvider
+	qoderTokenRefresher   *QoderTokenRefresher
 	toolCorrector         *CodexToolCorrector
 	openaiWSResolver      OpenAIWSProtocolResolver
 	resolver              *ModelPricingResolver
@@ -612,6 +613,14 @@ func NewOpenAIGatewayService(
 	}
 	svc.logOpenAIWSModeBootstrap()
 	return svc
+}
+
+// SetQoderTokenRefresher 注入 Qoder 设备流令牌刷新器。
+func (s *OpenAIGatewayService) SetQoderTokenRefresher(refresher *QoderTokenRefresher) {
+	if s == nil {
+		return
+	}
+	s.qoderTokenRefresher = refresher
 }
 
 // ResolveChannelMapping 解析渠道级模型映射（代理到 ChannelService）
@@ -1239,6 +1248,21 @@ func (s *OpenAIGatewayService) GetAccessToken(ctx context.Context, account *Acco
 		if account.IsOpenAIAgentIdentity() {
 			return "", OpenAIAuthModeAgentIdentity, nil
 		}
+		if account.Platform == PlatformQoder {
+			// Qoder 设备流账号：优先使用设备令牌，并按需用 refresh_token 续期。
+			token := qoderAccountToken(account)
+			if token == "" && qoderAccountRefreshToken(account) != "" && s.qoderTokenRefresher != nil {
+				refreshed, err := s.qoderTokenRefresher.Refresh(ctx, account)
+				if err != nil {
+					return "", "", err
+				}
+				token = qoderCredentialToken(refreshed)
+			}
+			if token == "" {
+				return "", "", errors.New("qoder access_token not found in credentials")
+			}
+			return token, "oauth", nil
+		}
 		if account.Platform == PlatformGrok {
 			if s.grokTokenProvider != nil {
 				accessToken, err := s.grokTokenProvider.GetAccessToken(ctx, account)
@@ -1279,6 +1303,13 @@ func (s *OpenAIGatewayService) GetAccessToken(ctx context.Context, account *Acco
 		}
 		return accessToken, "oauth", nil
 	case AccountTypeAPIKey:
+		if account.Platform == PlatformQoder {
+			token := qoderAccountToken(account)
+			if token == "" {
+				return "", "", errors.New("qoder access token not found in credentials")
+			}
+			return token, "apikey", nil
+		}
 		if account.Platform == PlatformGrok {
 			apiKey := strings.TrimSpace(account.GetCredential("api_key"))
 			if apiKey == "" {

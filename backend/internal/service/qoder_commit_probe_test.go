@@ -163,8 +163,15 @@ func TestValidateQoderCredentialsRequiresAccessToken(t *testing.T) {
 	if err := validateQoderCredentials(PlatformQoder, AccountTypeAPIKey, map[string]any{}); err == nil {
 		t.Fatal("missing qoder access token was accepted")
 	}
-	if err := validateQoderCredentials(PlatformQoder, AccountTypeOAuth, map[string]any{"api_key": "token"}); err == nil {
-		t.Fatal("non-apikey qoder account was accepted")
+	// 设备流 OAuth 账号：设备令牌存 access_token，允许 api_key 作为兼容回退。
+	if err := validateQoderCredentials(PlatformQoder, AccountTypeOAuth, map[string]any{"access_token": "device"}); err != nil {
+		t.Fatalf("valid qoder oauth credentials rejected: %v", err)
+	}
+	if err := validateQoderCredentials(PlatformQoder, AccountTypeOAuth, map[string]any{}); err == nil {
+		t.Fatal("missing qoder oauth device token was accepted")
+	}
+	if err := validateQoderCredentials(PlatformQoder, "service_account", map[string]any{"access_token": "device"}); err == nil {
+		t.Fatal("unsupported qoder account type was accepted")
 	}
 }
 
