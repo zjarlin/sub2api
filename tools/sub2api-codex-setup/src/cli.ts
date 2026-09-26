@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
 import { currentPlatformLabel, normalizeBaseUrl, writeCodexConfig } from './config.js';
-import { planClientInstall, runCommand } from './install.js';
+import {
+  DEFAULT_MODIFIED_INSTALL_REPO,
+  MODIFIED_INSTALL_URL_ENV,
+  MODIFIED_INSTALL_REPO_ENV,
+  parseCodexInstallSource,
+  planClientInstall,
+  runCommand
+} from './install.js';
 
 declare const PACKAGE_VERSION: string;
 
@@ -18,6 +25,11 @@ Options:
   --model <model>        Codex model (default: gpt-5.5)
   --provider-name <name> Provider name written to config.toml (default: Sub2API)
   --auth-mode <mode>     api-key or legacy (default: api-key)
+  --install-source <src> Codex client source: official or modified (default: official)
+  --modified-installer-url <url>
+                          Override the modified installer URL; default is the latest GitHub
+                          Release asset from ${DEFAULT_MODIFIED_INSTALL_REPO}
+                          (override repository with ${MODIFIED_INSTALL_REPO_ENV})
   --no-install           Only write configuration; do not install Codex
   --dry-run              Print actions without installing or writing files
   --help                 Show this help
@@ -33,6 +45,8 @@ function parseCli() {
       model: { type: 'string', default: 'gpt-5.5' },
       'provider-name': { type: 'string', default: 'Sub2API' },
       'auth-mode': { type: 'string', default: 'api-key' },
+      'install-source': { type: 'string', default: 'official' },
+      'modified-installer-url': { type: 'string' },
       'no-install': { type: 'boolean', default: false },
       'dry-run': { type: 'boolean', default: false }
     },
@@ -66,30 +80,43 @@ async function main(): Promise<void> {
 
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
   const platform = currentPlatformLabel();
-  const installPlan = planClientInstall();
+  const installSource = parseCodexInstallSource(values['install-source']);
 
   console.log(`Detected platform: ${platform}`);
+  console.log(`Codex install source: ${installSource}`);
   if (values['dry-run']) {
-    console.log(`Config directory: ${installPlan.platform === 'windows' ? '%USERPROFILE%\\.codex' : '~/.codex'}`);
+    console.log(`Config directory: ${platform === 'windows' ? '%USERPROFILE%\\.codex' : '~/.codex'}`);
     console.log(`Base URL: ${normalizedBaseUrl}`);
     console.log(`Model: ${values.model}`);
     console.log(`Auth mode: ${authMode}`);
-    if (installPlan.installed) console.log('Codex client: already installed; install step skipped');
-    else if (installPlan.install) {
-      for (const command of installPlan.install) {
-        console.log(`Codex client install: ${command.command} ${command.args.join(' ')}`);
+    if (values['no-install']) {
+      console.log('Codex client install: skipped by --no-install');
+    } else {
+      const installPlan = planClientInstall({
+        source: installSource,
+        modifiedInstallerUrl: values['modified-installer-url']
+      });
+      if (installPlan.installed) console.log('Codex client: already installed; install step skipped');
+      else if (installPlan.install) {
+        for (const command of installPlan.install) {
+          console.log(`Codex client install: ${formatInstallCommand(command)}`);
+        }
       }
+      else console.log('Codex client install: unsupported on this platform; configuration will still be written');
     }
-    else console.log('Codex client install: unsupported on this platform; configuration will still be written');
     return;
   }
 
   if (!values['no-install']) {
+    const installPlan = planClientInstall({
+      source: installSource,
+      modifiedInstallerUrl: values['modified-installer-url']
+    });
     if (installPlan.installed) {
       console.log('Codex client already installed; skipping install.');
     } else if (installPlan.install) {
       for (const command of installPlan.install) {
-        console.log(`Installing Codex client: ${command.command} ${command.args.join(' ')}`);
+        console.log(`Installing Codex client: ${formatInstallCommand(command)}`);
         await runCommand(command);
       }
     } else {
@@ -110,6 +137,15 @@ async function main(): Promise<void> {
   if (written.modelCatalogPath) console.log(`Wrote ${written.modelCatalogPath}`);
   if (written.authPath) console.log(`Wrote ${written.authPath}`);
   console.log('Codex setup complete. Restart Codex if it was already running.');
+}
+
+function formatInstallCommand(command: { command: string; args: string[] }): string {
+  if (command.command === 'bash' && command.args[0] === '-lc' && command.args[1]?.includes('installer_url=')) {
+    const match = command.args[1].match(/installer_url='((?:[^']|'\\'')*)'/);
+    if (match) return `download and run ${match[1].replace(/'\\''/g, "'")}`;
+  }
+  if (command.command === 'powershell.exe') return 'run modified PowerShell installer from --modified-installer-url';
+  return `${command.command} ${command.args.join(' ')}`;
 }
 
 main().catch((error: unknown) => {

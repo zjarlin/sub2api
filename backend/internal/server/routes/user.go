@@ -36,6 +36,8 @@ func RegisterUserRoutes(
 				accounts.PUT("/:id", h.UserAccount.Update)
 				accounts.DELETE("/:id", h.UserAccount.Delete)
 				accounts.POST("/:id/test", panelRateLimiter.Heavy(), h.UserAccount.Test)
+				accounts.POST("/check-mixed-channel", h.UserAccount.CheckMixedChannel)
+				accounts.POST("/:id/models/sync-upstream", h.UserAccount.SyncUpstreamModels)
 			}
 			user.GET("/profile", h.User.GetProfile)
 			user.PUT("/password", h.User.ChangePassword)

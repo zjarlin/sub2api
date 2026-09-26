@@ -96,7 +96,7 @@ func TestUserAccountCreateIgnoresForgedOwner(t *testing.T) {
 	result := ownedAccountRequest(h, "create", 11, `{"name":"owned","platform":"openai","type":"apikey","owner_user_id":999,"credentials":{"api_key":"secret-key"},"load_factor":5,"rate_multiplier":0.25}`)
 	require.Equal(t, http.StatusOK, result.Code)
 	require.Equal(t, int64(11), *admin.created.OwnerUserID)
-	require.True(t, admin.created.SkipDefaultGroupBind)
+	require.False(t, admin.created.SkipDefaultGroupBind)
 	require.NotNil(t, admin.created.LoadFactor)
 	require.Equal(t, 5, *admin.created.LoadFactor)
 	require.NotNil(t, admin.created.RateMultiplier)
@@ -123,6 +123,26 @@ func TestUserAccountUpdateForwardsSchedulingFields(t *testing.T) {
 	require.False(t, *admin.updated.AutoPauseOnExpired)
 }
 
+func TestUserAccountUpdateForwardsGroupAndBillingFields(t *testing.T) {
+	owner := int64(11)
+	groupIDs := []int64{7, 9}
+	repo := &ownedAccountRepoStub{account: &service.Account{ID: 3, OwnerUserID: &owner}}
+	admin := &ownedAccountAdminStub{}
+	h := &UserAccountHandler{accountRepo: repo, adminService: admin}
+
+	result := ownedAccountRequest(h, "update", owner, `{"group_ids":[7,9],"proxy_id":0,"upstream_billing_probe_enabled":true,"upstream_billing_rate_sync_enabled":false,"confirm_mixed_channel_risk":true}`)
+	require.Equal(t, http.StatusOK, result.Code)
+	require.NotNil(t, admin.updated.GroupIDs)
+	require.Equal(t, groupIDs, *admin.updated.GroupIDs)
+	require.NotNil(t, admin.updated.ProxyID)
+	require.Equal(t, int64(0), *admin.updated.ProxyID)
+	require.NotNil(t, admin.updated.ProbeEnabled)
+	require.True(t, *admin.updated.ProbeEnabled)
+	require.NotNil(t, admin.updated.RateSyncEnabled)
+	require.False(t, *admin.updated.RateSyncEnabled)
+	require.True(t, admin.updated.SkipMixedChannelCheck)
+}
+
 func TestUserAccountSharingRequiresExplicitOwnerChoice(t *testing.T) {
 	owner := int64(11)
 	repo := &ownedAccountRepoStub{account: &service.Account{
@@ -146,4 +166,61 @@ func TestUserAccountSharingRequiresExplicitOwnerChoice(t *testing.T) {
 	result = ownedAccountRequest(h, "update", 22, `{"shared":true}`)
 	require.Equal(t, http.StatusNotFound, result.Code)
 	require.Nil(t, admin.updated)
+}
+
+func userOwnedRouteRequest(h *UserAccountHandler, method, path, body string, user int64) *httptest.ResponseRecorder {
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		if user > 0 {
+			c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: user})
+		}
+		c.Next()
+	})
+	router.POST("/accounts/check-mixed-channel", h.CheckMixedChannel)
+	router.POST("/accounts/:id/models/sync-upstream", h.SyncUpstreamModels)
+	request := httptest.NewRequest(method, path, strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, request)
+	return rec
+}
+
+func TestUserAccountCheckMixedChannelRequiresOwnership(t *testing.T) {
+	owner := int64(11)
+	repo := &ownedAccountRepoStub{account: &service.Account{ID: 3, OwnerUserID: &owner}}
+	h := &UserAccountHandler{accountRepo: repo}
+
+	// Forged account_id owned by another user must not be accepted.
+	result := userOwnedRouteRequest(h, http.MethodPost, "/accounts/check-mixed-channel", `{"platform":"openai","group_ids":[7],"account_id":3}`, 22)
+	require.Equal(t, http.StatusNotFound, result.Code)
+	require.Equal(t, int64(22), repo.owner)
+
+	// Owner-scoped check succeeds and no account_id means an unowned (new) account.
+	before := repo.calls
+	result = userOwnedRouteRequest(h, http.MethodPost, "/accounts/check-mixed-channel", `{"platform":"openai","group_ids":[]}`, owner)
+	require.Equal(t, http.StatusOK, result.Code)
+	require.Equal(t, before, repo.calls)
+
+	// Unauthenticated callers are rejected before touching the repository.
+	result = userOwnedRouteRequest(h, http.MethodPost, "/accounts/check-mixed-channel", `{"platform":"openai","group_ids":[7]}`, 0)
+	require.Equal(t, http.StatusUnauthorized, result.Code)
+}
+
+func TestUserAccountSyncUpstreamModelsRequiresOwnership(t *testing.T) {
+	owner := int64(11)
+	repo := &ownedAccountRepoStub{account: &service.Account{ID: 3, OwnerUserID: &owner}}
+	h := &UserAccountHandler{accountRepo: repo}
+
+	result := userOwnedRouteRequest(h, http.MethodPost, "/accounts/3/models/sync-upstream", `{}`, 22)
+	require.Equal(t, http.StatusNotFound, result.Code)
+	require.Equal(t, int64(22), repo.owner)
+
+	result = userOwnedRouteRequest(h, http.MethodPost, "/accounts/3/models/sync-upstream", `{}`, 0)
+	require.Equal(t, http.StatusUnauthorized, result.Code)
+
+	// Owner passes the ownership gate and reaches the (unconfigured) test service.
+	result = userOwnedRouteRequest(h, http.MethodPost, "/accounts/3/models/sync-upstream", `{}`, owner)
+	require.Equal(t, http.StatusInternalServerError, result.Code)
+	require.Equal(t, owner, repo.owner)
 }

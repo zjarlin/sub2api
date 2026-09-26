@@ -181,7 +181,23 @@
       </template>
     </TablePageLayout>
 
-    <AccountEditor v-if="showAccountDialog" :account="editingAccount" :groups="groups" @close="showAccountDialog = false" @saved="handleSaved" />
+    <CreateAccountModal
+      :show="showAccountDialog && editingAccount === null"
+      :proxies="[]"
+      :groups="groups"
+      :account-api="userAccountsAPI"
+      @close="showAccountDialog = false"
+      @created="handleSaved"
+    />
+    <EditAccountModal
+      :show="showAccountDialog && editingAccount !== null"
+      :account="editingAccount"
+      :proxies="[]"
+      :groups="groups"
+      :account-api="userAccountsAPI"
+      @close="showAccountDialog = false"
+      @updated="handleAccountUpdated"
+    />
   </AppLayout>
 </template>
 
@@ -201,7 +217,8 @@ import AccountTableActions from '@/components/admin/account/AccountTableActions.
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
-import AccountEditor from './AccountEditor.vue'
+import CreateAccountModal from '@/components/account/CreateAccountModal.vue'
+import EditAccountModal from '@/components/account/EditAccountModal.vue'
 import userAccountsAPI from '@/api/user/accounts'
 import { userGroupsAPI } from '@/api/groups'
 import type { Account, Group } from '@/types'
@@ -314,6 +331,13 @@ function openEdit(account: Account) {
 function handleSaved() {
   showAccountDialog.value = false
   void loadAccounts()
+}
+function handleAccountUpdated(updated: Account) {
+  showAccountDialog.value = false
+  const index = accounts.value.findIndex(account => account.id === updated.id)
+  if (index >= 0) {
+    accounts.value[index] = { ...accounts.value[index], ...updated }
+  }
 }
 function getCredentialBaseURL(account: Account) { return String(account.credentials?.base_url || '') }
 async function testAccount(account: Account) {

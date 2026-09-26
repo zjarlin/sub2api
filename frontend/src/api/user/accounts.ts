@@ -1,6 +1,22 @@
 import { runModelTest } from '@/api/accountTest'
 import { apiClient } from '../client'
-import type { Account, AccountPlatform, AccountType, CreateAccountRequest, PaginatedResponse, UpdateAccountRequest } from '@/types'
+import type {
+  Account,
+  AccountListItem,
+  AccountPlatform,
+  AccountType,
+  CheckMixedChannelRequest,
+  CheckMixedChannelResponse,
+  CreateAccountRequest,
+  PaginatedResponse,
+  UpdateAccountRequest,
+} from '@/types'
+
+export interface UserSyncUpstreamModelsResult {
+  models: string[]
+  metadata?: Record<string, unknown>
+  warnings?: { code: string; message: string }[]
+}
 
 export interface UserAccountFilters {
   platform?: string
@@ -23,6 +39,18 @@ export async function list(
       ...filters,
     },
   })
+  return data
+}
+
+export async function checkMixedChannelRisk(
+  payload: CheckMixedChannelRequest,
+): Promise<CheckMixedChannelResponse> {
+  const { data } = await apiClient.post<CheckMixedChannelResponse>('/user/accounts/check-mixed-channel', payload)
+  return data
+}
+
+export async function syncUpstreamModels(id: number): Promise<UserSyncUpstreamModelsResult> {
+  const { data } = await apiClient.post<UserSyncUpstreamModelsResult>(`/user/accounts/${id}/models/sync-upstream`)
   return data
 }
 
@@ -58,12 +86,16 @@ export async function testAccount(
 
 export const userAccountsAPI = {
   list,
+  checkMixedChannelRisk,
+  syncUpstreamModels,
   getById,
   create,
   update,
   deleteAccount,
   testAccount,
 }
+
+export type { AccountListItem }
 
 export type { AccountPlatform, AccountType }
 

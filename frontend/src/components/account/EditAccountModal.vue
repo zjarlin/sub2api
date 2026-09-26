@@ -3062,7 +3062,6 @@ import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
 import type {
   Account,
   Proxy,
-  AdminGroup,
   Group,
   CheckMixedChannelResponse,
   OpenAICompactMode,
@@ -3153,7 +3152,8 @@ interface Props {
   show: boolean
   account: Account | null
   proxies: Proxy[]
-  groups: AdminGroup[]
+  groups: Group[]
+  accountAPI?: typeof adminAPI.accounts
 }
 
 const props = defineProps<Props>()
@@ -3169,6 +3169,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const accountAPI = computed(() => props.accountAPI ?? adminAPI.accounts)
 const browserTimeZone = getBrowserTimeZone()
 
 const selectableGroups = computed(() => {
@@ -3459,14 +3460,14 @@ const modeFromGrokMediaExtra = (extra: Record<string, unknown> | undefined): Gro
 }
 
 const loadGrokMediaEligibility = async (accountID: number): Promise<GrokMediaEligibilityState | null> => {
-  if (!isGrokOAuthAccount.value || typeof adminAPI.accounts.getGrokMediaEligibility !== 'function') {
+  if (!isGrokOAuthAccount.value || typeof accountAPI.value.getGrokMediaEligibility !== 'function') {
     return null
   }
   const requestVersion = ++grokMediaEligibilityRequestVersion
   grokMediaEligibilityLoading.value = true
   grokMediaEligibilityError.value = ''
   try {
-    const state = await adminAPI.accounts.getGrokMediaEligibility(accountID)
+    const state = await accountAPI.value.getGrokMediaEligibility(accountID)
     if (requestVersion !== grokMediaEligibilityRequestVersion) return null
     grokMediaEligibilityState.value = state
     grokMediaEligibilityMode.value = state.mode
@@ -3593,9 +3594,11 @@ const {
 } = useQuotaNotifyState()
 
 // Load global feature states once
-adminAPI.settings.getWebSearchEmulationConfig().then(cfg => {
-  webSearchGlobalEnabled.value = cfg?.enabled === true && (cfg?.providers?.length ?? 0) > 0
-}).catch(() => { webSearchGlobalEnabled.value = false })
+if (!props.accountAPI && typeof adminAPI.settings?.getWebSearchEmulationConfig === 'function') {
+  adminAPI.settings.getWebSearchEmulationConfig().then(cfg => {
+    webSearchGlobalEnabled.value = cfg?.enabled === true && (cfg?.providers?.length ?? 0) > 0
+  }).catch(() => { webSearchGlobalEnabled.value = false })
+}
 
 loadQuotaNotifyGlobal()
 const editQuotaLimit = ref<number | null>(null)
@@ -4423,6 +4426,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 
 async function loadTLSProfiles() {
   try {
+    if (props.accountAPI || typeof adminAPI.tlsFingerprintProfiles?.list !== 'function') {
+      tlsFingerprintProfiles.value = []
+      return
+    }
     const profiles = await adminAPI.tlsFingerprintProfiles.list()
     tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name }))
   } catch {
@@ -4492,7 +4499,10 @@ const syncAntigravityUpstreamModels = async () => {
 
   isSyncingAntigravityUpstream.value = true
   try {
-    const result = await adminAPI.accounts.syncUpstreamModels(props.account.id)
+    if (typeof accountAPI.value.syncUpstreamModels !== 'function') {
+      return
+    }
+    const result = await accountAPI.value.syncUpstreamModels(props.account.id)
     const upstreamModels = result.models.map((model) => model.trim()).filter(Boolean)
     if (upstreamModels.length === 0) {
       appStore.showInfo(t('admin.accounts.syncUpstreamModelsEmpty'))
@@ -4912,7 +4922,7 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
   }
 
   try {
-    const result = await adminAPI.accounts.checkMixedChannelRisk({
+    const result = await accountAPI.value.checkMixedChannelRisk({
       platform: props.account.platform,
       group_ids: form.group_ids,
       account_id: props.account.id
@@ -4948,13 +4958,13 @@ const persistGrokMediaEligibility = async (accountID: number, updatedAccount: Ac
   if (
     !isGrokOAuthAccount.value ||
     grokMediaEligibilityMode.value === grokMediaEligibilityInitialMode.value ||
-    typeof adminAPI.accounts.updateGrokMediaEligibility !== 'function'
+    typeof accountAPI.value.updateGrokMediaEligibility !== 'function'
   ) {
     return updatedAccount
   }
 
   try {
-    const state = await adminAPI.accounts.updateGrokMediaEligibility(accountID, grokMediaEligibilityMode.value)
+    const state = await accountAPI.value.updateGrokMediaEligibility(accountID, grokMediaEligibilityMode.value)
     grokMediaEligibilityState.value = state
     grokMediaEligibilityInitialMode.value = state.mode
     const nextExtra = { ...((updatedAccount.extra as Record<string, unknown> | undefined) || {}) }
@@ -4984,7 +4994,7 @@ const persistGrokMediaEligibility = async (accountID: number, updatedAccount: Ac
 const submitUpdateAccount = async (accountID: number, updatePayload: Record<string, unknown>) => {
   submitting.value = true
   try {
-    let updatedAccount = await adminAPI.accounts.update(accountID, withAntigravityConfirmFlag(updatePayload))
+    let updatedAccount = await accountAPI.value.update(accountID, withAntigravityConfirmFlag(updatePayload))
     updatedAccount = await persistGrokMediaEligibility(accountID, updatedAccount)
     appStore.showSuccess(t('admin.accounts.accountUpdated'))
     emit('updated', updatedAccount)

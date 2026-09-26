@@ -3,11 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import VisionEdgeView from '@/views/admin/VisionEdgeView.vue'
 
-const { getStatus, getAllGroups, getCandidates, updateGroup, showSuccess, showError } = vi.hoisted(() => ({
+const { getStatus, getAllGroups, getCandidates, updateGroup, listKeys, showSuccess, showError } = vi.hoisted(() => ({
   getStatus: vi.fn(),
   getAllGroups: vi.fn(),
   getCandidates: vi.fn(),
   updateGroup: vi.fn(),
+  listKeys: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn(),
 }))
@@ -28,6 +29,10 @@ vi.mock('@/api/admin', () => ({
       update: updateGroup,
     },
   },
+}))
+
+vi.mock('@/api', () => ({
+  keysAPI: { list: listKeys },
 }))
 
 vi.mock('@/stores/app', () => ({
@@ -115,12 +120,20 @@ describe('VisionEdgeView workbench', () => {
     getAllGroups.mockResolvedValue([group(7, 'Main')])
     getCandidates.mockResolvedValue(['existing-model', 'laya-multilingual'])
     updateGroup.mockResolvedValue(group(7, 'Main'))
+    listKeys.mockResolvedValue({
+      items: [{ id: 11, name: 'admin-key', key: 'sk-test-1234567890', status: 'active' }],
+      total: 1,
+      page: 1,
+      page_size: 100,
+      pages: 1,
+    })
   })
 
   it('imports a curl into editable fields and generates a gateway curl', async () => {
     const wrapper = mount(VisionEdgeView)
     await flushPromises()
 
+    await wrapper.get('[data-testid="edge-endpoint-detect"]').trigger('click')
     await wrapper.get('[data-testid="edge-curl-input"]').setValue(`curl -X POST https://upstream.example/v1/systemone \\
   -H 'authorization: Bearer upstream-secret' \\
   -H 'content-type: application/json' \\
@@ -132,6 +145,34 @@ describe('VisionEdgeView workbench', () => {
     expect(wrapper.text()).toContain('$SUB2API_KEY')
     expect(wrapper.text()).not.toContain('upstream-secret')
     expect(wrapper.get('[data-testid="edge-request-editor"]').text()).not.toContain('upstream-secret')
+  })
+
+  it('sends the selected endpoint through the gateway with the chosen API key', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ detection: { label: 'person' } }), {
+      status: 200,
+      statusText: 'OK',
+      headers: { 'content-type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const wrapper = mount(VisionEdgeView)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="edge-endpoint-detect"]').trigger('click')
+    await flushPromises()
+
+    const keySelect = wrapper.get('[data-testid="edge-api-key-select"]')
+    expect((keySelect.element as HTMLSelectElement).value).toBe('11')
+
+    await wrapper.findAll('button').find(button => button.text().includes('admin.vision.sendRequest'))!.trigger('click')
+    await flushPromises()
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [calledUrl, calledInit] = fetchMock.mock.calls[0]
+    expect(calledUrl).toContain('/vision/detect')
+    expect((calledInit.headers as Headers).get('Authorization')).toBe('Bearer sk-test-1234567890')
+    expect(wrapper.text()).toContain('person')
+    expect(wrapper.text()).toContain('200')
   })
 
   it('merges the selected model into the group model allowlist', async () => {

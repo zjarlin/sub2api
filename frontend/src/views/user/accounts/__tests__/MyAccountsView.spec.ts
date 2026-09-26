@@ -25,7 +25,7 @@ function mountView() {
       template: '<div><div v-for="row in data" :key="row.id"><slot name="cell-shared" :row="row" /></div></div>'
     },
     SearchInput: true, Select: true, AccountTableActions: true, Pagination: true,
-    AccountEditor: true, Icon: true
+    CreateAccountModal: true, EditAccountModal: true, Icon: true
   } } })
 }
 

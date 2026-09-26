@@ -4032,7 +4032,7 @@ import { useAntigravityOAuth } from '@/composables/useAntigravityOAuth'
 import { useGrokOAuth } from '@/composables/useGrokOAuth'
 import type {
   Proxy,
-  AdminGroup,
+  Group,
   AccountPlatform,
   AccountType,
   CheckMixedChannelResponse,
@@ -4213,7 +4213,8 @@ const apiKeyValuePlaceholder = computed(() => {
 interface Props {
   show: boolean
   proxies: Proxy[]
-  groups: AdminGroup[]
+  groups: Group[]
+  accountAPI?: typeof adminAPI.accounts
 }
 
 const props = defineProps<Props>()
@@ -4223,6 +4224,7 @@ const emit = defineEmits<{
 }>()
 
 const appStore = useAppStore()
+const accountAPI = computed(() => props.accountAPI ?? adminAPI.accounts)
 
 const hideAccountLongContextBilling = computed(() => {
   return allSelectedGroupsEnableLongContextPricing(form.group_ids, props.groups)
@@ -4680,9 +4682,11 @@ const {
 } = useQuotaNotifyState()
 
 // Load global feature states once
-adminAPI.settings.getWebSearchEmulationConfig().then(cfg => {
-  webSearchGlobalEnabled.value = cfg?.enabled === true && (cfg?.providers?.length ?? 0) > 0
-}).catch(() => { webSearchGlobalEnabled.value = false })
+if (!props.accountAPI && typeof adminAPI.settings?.getWebSearchEmulationConfig === 'function') {
+  adminAPI.settings.getWebSearchEmulationConfig().then(cfg => {
+    webSearchGlobalEnabled.value = cfg?.enabled === true && (cfg?.providers?.length ?? 0) > 0
+  }).catch(() => { webSearchGlobalEnabled.value = false })
+}
 
 loadQuotaNotifyGlobal()
 // Antigravity 账号需要显式开启跨平台分组调度。
@@ -5063,9 +5067,13 @@ watch(
     if (newVal) {
       loadQuickOpenAIDefaultGroup()
       // Load TLS fingerprint profiles
-      adminAPI.tlsFingerprintProfiles.list()
-        .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
-        .catch(() => { tlsFingerprintProfiles.value = [] })
+      if (!props.accountAPI && typeof adminAPI.tlsFingerprintProfiles?.list === 'function') {
+        adminAPI.tlsFingerprintProfiles.list()
+          .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
+          .catch(() => { tlsFingerprintProfiles.value = [] })
+      } else {
+        tlsFingerprintProfiles.value = []
+      }
       // Modal opened - fill related models
       allowedModels.value = [...getModelsByPlatform(form.platform)]
       // Antigravity: 默认使用映射模式并填充默认映射
@@ -5524,7 +5532,7 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
   }
 
   try {
-    const result = await adminAPI.accounts.checkMixedChannelRisk({
+    const result = await accountAPI.value.checkMixedChannelRisk({
       platform: form.platform,
       group_ids: form.group_ids
     })
@@ -5548,7 +5556,7 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
 const submitCreateAccount = async (payload: CreateAccountRequest) => {
   submitting.value = true
   try {
-    const account = await adminAPI.accounts.create(withAntigravityConfirmFlag(payload))
+    const account = await accountAPI.value.create(withAntigravityConfirmFlag(payload))
     const modelMapping = payload.credentials.model_mapping
     const hasConcreteMappedTarget = payload.type === 'apikey' &&
       typeof modelMapping === 'object' &&
@@ -5560,7 +5568,12 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
       (payload.type === 'apikey' || payload.extra?.openai_passthrough === true)
     if (upstreamModelsPreviewed.value || hasConcreteMappedTarget || needsModelCatalog) {
       try {
-        const result = await adminAPI.accounts.syncUpstreamModels(account.id)
+        const result = typeof accountAPI.value.syncUpstreamModels === 'function'
+          ? await accountAPI.value.syncUpstreamModels(account.id)
+          : null
+        if (!result) {
+          return
+        }
         const warnings = result.warnings ?? []
         if (warnings.some(warning => warning.code === 'upstream_model_metadata_incomplete')) {
           appStore.showWarning(t('admin.accounts.syncUpstreamModelsMetadataIncomplete'))
@@ -5576,7 +5589,9 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
       payload.upstream_billing_probe_enabled === true
     ) {
       try {
-        await adminAPI.accounts.probeUpstreamBilling(account.id)
+        if (typeof accountAPI.value.probeUpstreamBilling === 'function') {
+          await accountAPI.value.probeUpstreamBilling(account.id)
+        }
       } catch {
         appStore.showWarning(t('admin.accounts.upstreamBilling.probeFailed'))
       }
@@ -6425,7 +6440,7 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
           return
         }
 
-        await adminAPI.accounts.create({
+        await accountAPI.value.create({
           name: accountName,
           notes: form.notes,
           platform: 'grok',
@@ -6494,6 +6509,9 @@ const handleGrokImportSSO = async (ssoInput: string) => {
   }
 
   try {
+    if (props.accountAPI) {
+      throw new Error(t('admin.accounts.failedToCreate'))
+    }
     const result = await adminAPI.grok.createFromSSO({
       sso_tokens: ssoTokens,
       name: form.name || undefined,
@@ -6602,7 +6620,7 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
           return
         }
 
-        await adminAPI.accounts.create({
+        await accountAPI.value.create({
           name: accountName,
           notes: form.notes,
           platform: 'grok',
@@ -6701,7 +6719,7 @@ const handleOpenAIExchange = async (authCode: string) => {
     }
 
     if (shouldCreateOpenAI) {
-      await adminAPI.accounts.create({
+      await accountAPI.value.create({
         name: form.name,
         notes: form.notes,
         platform: 'openai',
@@ -6807,7 +6825,10 @@ const handleOpenAIImportCodexSession = async (content: string) => {
 
   try {
     const extra = buildOpenAICodexImportExtra()
-    const result = await adminAPI.accounts.importCodexSession({
+    if (typeof accountAPI.value.importCodexSession !== 'function') {
+      throw new Error(t('admin.accounts.failedToCreate'))
+    }
+    const result = await accountAPI.value.importCodexSession({
       content: trimmed,
       name: form.name,
       notes: form.notes || null,
@@ -6885,7 +6906,10 @@ const handleOpenAIImportCodexPAT = async (accessToken: string) => {
 
   try {
     const extra = buildOpenAICodexImportExtra()
-    await adminAPI.accounts.createOpenAICodexPAT({
+    if (typeof accountAPI.value.createOpenAICodexPAT !== 'function') {
+      throw new Error(t('admin.accounts.failedToCreate'))
+    }
+    await accountAPI.value.createOpenAICodexPAT({
       access_token: trimmed,
       name: form.name,
       notes: form.notes || null,
@@ -6980,7 +7004,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
         const accountName = refreshTokens.length > 1 ? `${baseName} #${i + 1}` : baseName
 
         if (shouldCreateOpenAI) {
-          await adminAPI.accounts.create({
+          await accountAPI.value.create({
             name: accountName,
             notes: form.notes,
             platform: 'openai',
@@ -7095,7 +7119,7 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
           expires_at: form.expires_at,
           auto_pause_on_expired: autoPauseOnExpired.value
         })
-        await adminAPI.accounts.create(createPayload)
+        await accountAPI.value.create(createPayload)
         successCount++
       } catch (error: any) {
         failedCount++
@@ -7262,7 +7286,10 @@ const handleAnthropicExchange = async (authCode: string) => {
         ? '/admin/accounts/exchange-code'
         : '/admin/accounts/exchange-setup-token-code'
 
-    const tokenInfo = await adminAPI.accounts.exchangeCode(endpoint, {
+    if (typeof accountAPI.value.exchangeCode !== 'function') {
+      throw new Error(t('admin.accounts.failedToCreate'))
+    }
+    const tokenInfo = await accountAPI.value.exchangeCode(endpoint, {
       session_id: oauth.sessionId.value,
       code: authCode.trim(),
       ...proxyConfig
@@ -7381,13 +7408,17 @@ const handleCookieAuth = async (sessionKey: string) => {
         ? '/admin/accounts/cookie-auth'
         : '/admin/accounts/setup-token-cookie-auth'
 
+    if (typeof accountAPI.value.exchangeCode !== 'function') {
+      throw new Error(t('admin.accounts.failedToCreate'))
+    }
+
     let successCount = 0
     let failedCount = 0
     const errors: string[] = []
 
     for (let i = 0; i < keys.length; i++) {
       try {
-        const tokenInfo = await adminAPI.accounts.exchangeCode(endpoint, {
+        const tokenInfo = await accountAPI.value.exchangeCode(endpoint, {
           session_id: '',
           code: keys[i],
           ...proxyConfig
@@ -7460,7 +7491,7 @@ const handleCookieAuth = async (sessionKey: string) => {
           credentials.temp_unschedulable_rules = tempUnschedPayload
         }
 
-        await adminAPI.accounts.create({
+        await accountAPI.value.create({
           name: accountName,
           notes: form.notes,
           platform: form.platform,

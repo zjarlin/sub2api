@@ -4,6 +4,17 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 export type Platform = 'macos' | 'windows' | 'linux';
+export type CodexInstallSource = 'official' | 'modified';
+
+export const MODIFIED_INSTALL_URL_ENV = 'SUB2API_CODEX_MODIFIED_INSTALL_URL';
+export const DEFAULT_MODIFIED_INSTALL_REPO = 'zjarlin/sub2api';
+export const MODIFIED_INSTALL_REPO_ENV = 'SUB2API_CODEX_MODIFIED_INSTALL_REPO';
+
+const MODIFIED_INSTALL_ASSETS: Record<Platform, string[]> = {
+  macos: ['codex-install.sh'],
+  linux: ['codex-install.sh'],
+  windows: ['codex-install.ps1']
+};
 
 export interface CommandPlan {
   command: string;
@@ -14,7 +25,14 @@ export interface InstallPlan {
   platform: Platform;
   supported: boolean;
   installed: boolean;
+  source: CodexInstallSource;
   install?: CommandPlan[];
+}
+
+export interface InstallOptions {
+  platform?: NodeJS.Platform;
+  source?: CodexInstallSource;
+  modifiedInstallerUrl?: string;
 }
 
 const CODEX_APP_CANDIDATES = [
@@ -50,10 +68,58 @@ export function isCodexInstalled(platform = process.platform): boolean {
   return false;
 }
 
-export function planClientInstall(platform = process.platform): InstallPlan {
+export function parseCodexInstallSource(value: string | undefined): CodexInstallSource {
+  const source = value || 'official';
+  if (source === 'official' || source === 'modified') return source;
+  throw new Error('--install-source must be official or modified');
+}
+
+export function modifiedInstallerUrl(explicitUrl?: string): string | undefined {
+  const url = (explicitUrl || process.env[MODIFIED_INSTALL_URL_ENV] || '').trim();
+  return url || undefined;
+}
+
+export function defaultModifiedInstallerUrl(
+  platform: Platform,
+  repo = process.env[MODIFIED_INSTALL_REPO_ENV] || DEFAULT_MODIFIED_INSTALL_REPO
+): string {
+  const asset = MODIFIED_INSTALL_ASSETS[platform][0];
+  return `https://github.com/${repo}/releases/latest/download/${asset}`;
+}
+
+export function assertInstallerUrl(value: string | undefined): string {
+  if (!value) throw new Error(`${MODIFIED_INSTALL_URL_ENV} is required`);
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error('Modified Codex installer URL must be an http(s) URL');
+  }
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    throw new Error('Modified Codex installer URL must be an http(s) URL');
+  }
+  return parsed.toString();
+}
+
+export function planClientInstall(options: InstallOptions = {}): InstallPlan {
+  const platform = options.platform || process.platform;
   const detected = detectPlatform(platform);
+
+  if (options.source === 'modified') {
+    const installerUrl = assertInstallerUrl(
+      modifiedInstallerUrl(options.modifiedInstallerUrl) || defaultModifiedInstallerUrl(detected)
+    );
+    return {
+      platform: detected,
+      supported: true,
+      installed: false,
+      source: 'modified',
+      install: [modifiedInstallCommand(installerUrl, detected)]
+    };
+  }
+
   if (isCodexInstalled(platform)) {
-    return { platform: detected, supported: true, installed: true };
+    return { platform: detected, supported: true, installed: true, source: 'official' };
   }
 
   if (detected === 'macos') {
@@ -61,6 +127,7 @@ export function planClientInstall(platform = process.platform): InstallPlan {
       platform: detected,
       supported: true,
       installed: false,
+      source: 'official',
       install: [
         {
           command: 'bash',
@@ -75,6 +142,7 @@ export function planClientInstall(platform = process.platform): InstallPlan {
       platform: detected,
       supported: true,
       installed: false,
+      source: 'official',
       install: [
         {
           command: 'winget',
@@ -84,7 +152,52 @@ export function planClientInstall(platform = process.platform): InstallPlan {
     };
   }
 
-  return { platform: detected, supported: false, installed: false };
+  return { platform: detected, supported: false, installed: false, source: 'official' };
+}
+
+function modifiedInstallCommand(installerUrl: string, platform: Platform): CommandPlan {
+  if (platform === 'windows') {
+    return {
+      command: 'powershell.exe',
+      args: [
+        '-NoProfile',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-Command',
+        `$ErrorActionPreference = 'Stop'; $u = $env:SUB2API_CODEX_MODIFIED_INSTALL_URL; if (-not $u) { $u = ${powerShellLiteral(installerUrl)} }; irm $u | iex`
+      ]
+    };
+  }
+
+  return {
+    command: 'bash',
+    args: [
+      '-lc',
+      `set -euo pipefail
+installer_url=${shellLiteral(installerUrl)}
+if [ -z "$installer_url" ]; then
+  echo "Modified Codex installer URL is required" >&2
+  exit 1
+fi
+case "$(uname -s)" in
+  Darwin|Linux) ;;
+  *) echo "Unsupported platform for modified Codex installer" >&2; exit 1 ;;
+esac
+tmp_installer="$(mktemp)"
+cleanup() { rm -f "$tmp_installer"; }
+trap cleanup EXIT
+curl -fL "$installer_url" -o "$tmp_installer"
+bash "$tmp_installer"`
+    ]
+  };
+}
+
+function shellLiteral(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function powerShellLiteral(value: string): string {
+  return `'${value.replace(/'/g, "''")}'`;
 }
 
 export function runCommand(plan: CommandPlan): Promise<void> {

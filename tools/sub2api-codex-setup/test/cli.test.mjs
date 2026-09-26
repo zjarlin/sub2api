@@ -32,6 +32,52 @@ test('dry-run prints the current platform plan without writing config', () => {
   assert.match(output, /Codex client/);
 });
 
+test('modified install source uses the provided installer URL in dry-run', () => {
+  const output = cli(
+    '--base-url', 'https://example.com/v1',
+    '--api-key', 'sk-test',
+    '--install-source', 'modified',
+    '--modified-installer-url', 'https://example.com/install-codex.sh',
+    '--dry-run'
+  );
+  assert.match(output, /Codex install source: modified/);
+  assert.match(output, /install-codex\.sh/);
+});
+
+test('modified install source defaults to the GitHub release asset', () => {
+  const output = cli(
+    '--base-url', 'https://example.com/v1',
+    '--api-key', 'sk-test',
+    '--install-source', 'modified',
+    '--dry-run'
+  );
+  assert.match(output, /github\.com\/zjarlin\/sub2api\/releases\/latest\/download\/codex-install\.(sh|ps1)/);
+});
+
+test('no-install skips modified installer resolution', () => {
+  const output = cli(
+    '--base-url', 'https://example.com/v1',
+    '--api-key', 'sk-test',
+    '--install-source', 'modified',
+    '--no-install',
+    '--dry-run'
+  );
+  assert.match(output, /Codex client install: skipped by --no-install/);
+});
+
+test('modified install source always plans its installer even when Codex exists', () => {
+  const output = cli(
+    '--base-url', 'https://example.com/v1',
+    '--api-key', 'sk-test',
+    '--install-source', 'modified',
+    '--modified-installer-url', 'https://example.com/install-codex.sh',
+    '--dry-run'
+  );
+  assert.match(output, /Codex install source: modified/);
+  assert.match(output, /install-codex\.sh/);
+  assert.doesNotMatch(output, /already installed; install step skipped/);
+});
+
 test('writes Codex config with inline API key under a custom HOME', () => {
   const home = mkdtempSync(join(tmpdir(), 'sub2api-codex-setup-'));
   try {
