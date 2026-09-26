@@ -175,7 +175,7 @@ object Deploy252Cluster : BuildType({
 // 252 与天津私网互不可达，但 252 已配置 cloudflared ProxyCommand 的
 // `ssh tianjin-media` 别名。该 build type 复用 252 agent，通过 SSH 在天津执行部署。
 object DeployTianjinMedia : BuildType({
-    name = "Deploy Tianjin Media (GPU)"
+    name = "Deploy Media (GPU)"
     description = "构建并启动曼波 GPT-SoVITS、视频配音流水线与 edge-media 编排，发布内网端口供 252 的 /media/* 调用。"
 
     vcs {
