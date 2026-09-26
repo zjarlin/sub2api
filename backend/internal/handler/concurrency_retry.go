@@ -27,7 +27,7 @@ type openAIAccountSwitchBudget struct {
 }
 
 func tryRemainingOpenAIAccounts(account *service.Account, err *service.UpstreamFailoverError) bool {
-	return account != nil && account.Platform == service.PlatformOpenAI &&
+	return account != nil && account.CanUseOpenAIAccount429SwitchBudget() &&
 		err.ShouldRetryNextAccount() && !err.IsCredentialFailure() &&
 		!err.RequestScopedTransient && err.Scope != service.GatewayFailureScopeRequest &&
 		(err.StatusCode == http.StatusTooManyRequests || err.IsUpstreamConcurrencyLimited())

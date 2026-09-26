@@ -111,4 +111,56 @@ func TestLocalCapacityRetryAndAccountSwitchBudget(t *testing.T) {
 	require.False(t, tryRemainingOpenAIAccounts(account, &service.UpstreamFailoverError{StatusCode: 429, NextAccountAction: service.NextAccountStop}))
 	require.False(t, tryRemainingOpenAIAccounts(account, &service.UpstreamFailoverError{StatusCode: 429, RequestScopedTransient: true}))
 	require.False(t, tryRemainingOpenAIAccounts(&service.Account{Platform: service.PlatformGrok}, &service.UpstreamFailoverError{StatusCode: 429}))
+	require.False(t, tryRemainingOpenAIAccounts(&service.Account{Platform: service.PlatformAnthropic}, &service.UpstreamFailoverError{StatusCode: 429}))
+	workbuddy := &service.Account{Platform: service.PlatformWorkbuddy}
+	require.True(t, tryRemainingOpenAIAccounts(workbuddy, &service.UpstreamFailoverError{StatusCode: 429}),
+		"OpenAI-compatible accounts in an OpenAI group must continue account failover on 429")
+}
+
+func TestMixedSchedulingAccount429ContinuesFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	groupID := int64(6)
+	repo := &grokCredentialHandlerRepo{accounts: []service.Account{
+		{
+			ID: 844, Name: "workbuddy-limited", Platform: service.PlatformWorkbuddy, Type: service.AccountTypeAPIKey,
+			Status: service.StatusActive, Schedulable: true, Concurrency: 1, Priority: 1,
+			Credentials:   map[string]any{"api_key": "first", "base_url": "https://first.example", "model_mapping": map[string]any{"deepseek-v4.1-flash": "cn:deepseek-v4.1-flash"}},
+			AccountGroups: []service.AccountGroup{{GroupID: groupID}},
+		},
+		{
+			ID: 849, Name: "zcode-healthy", Platform: service.PlatformZcode, Type: service.AccountTypeAPIKey,
+			Status: service.StatusActive, Schedulable: true, Concurrency: 1, Priority: 2,
+			Credentials:   map[string]any{"api_key": "second", "base_url": "https://second.example", "model_mapping": map[string]any{"deepseek-v4.1-flash": "cn:deepseek-v4.1-flash"}},
+			AccountGroups: []service.AccountGroup{{GroupID: groupID}},
+		},
+	}}
+	upstream := &grokCredentialHandlerUpstream{rateLimitIDs: map[int64]bool{844: true}}
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	cfg.Gateway.MaxAccountSwitches = 1
+	billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
+	defer billing.Stop()
+	gateway := service.NewOpenAIGatewayService(repo, nil, nil, nil, nil, nil, nil, cfg, nil, nil,
+		service.NewBillingService(cfg, nil), nil, billing, upstream, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil)
+	cache := &concurrencyCacheMock{
+		acquireUserSlotFn:    func(context.Context, int64, int, string) (bool, error) { return true, nil },
+		acquireAccountSlotFn: func(context.Context, int64, int, string) (bool, error) { return true, nil },
+	}
+	h := NewOpenAIGatewayHandler(gateway, service.NewConcurrencyService(cache), billing, &service.APIKeyService{}, nil, nil, nil, nil, cfg)
+	key := &service.APIKey{
+		ID: 1, GroupID: &groupID,
+		User:  &service.User{ID: 4, Status: service.StatusActive},
+		Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI, Status: service.StatusActive},
+	}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.ContextKeyAPIKey), key)
+		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: key.User.ID, Concurrency: 1})
+	})
+	router.POST("/responses", h.Responses)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/responses", strings.NewReader(`{"model":"deepseek-v4.1-flash","input":"hi","stream":false}`))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	require.Equal(t, []int64{844, 849}, upstream.accountHits())
 }

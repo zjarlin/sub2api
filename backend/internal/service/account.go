@@ -2143,6 +2143,20 @@ func (a *Account) IsMixedSchedulingEnabled() bool {
 	return false
 }
 
+// CanUseOpenAIAccount429SwitchBudget reports whether this account should defer
+// 429 recovery to the OpenAI account-switch path. Native OpenAI accounts and
+// OpenAI-compatible mixed-scheduling sources qualify; Grok keeps its dedicated
+// bounded OAuth 429 follow-up policy.
+func (a *Account) CanUseOpenAIAccount429SwitchBudget() bool {
+	if a == nil {
+		return false
+	}
+	if a.Platform == PlatformOpenAI {
+		return true
+	}
+	return a.Platform != PlatformGrok && openAIAccountMatchesPlatform(a, PlatformOpenAI)
+}
+
 // IsOveragesEnabled 检查 Antigravity 账号是否启用 AI Credits 超量请求。
 func (a *Account) IsOveragesEnabled() bool {
 	if a.Platform != PlatformAntigravity {
