@@ -101,6 +101,18 @@ func TestNormalizeOpenAIResponsesRejectedFieldRetryBodyRejectsAmbiguousErrors(t 
 	}
 }
 
+func TestNormalizeOpenAIResponsesRejectedFieldRetryBodyAllowsNullToolsRejection(t *testing.T) {
+	body := []byte(`{"model":"gpt-5.6-luna","input":[{"role":"user","content":"hello"}],"tools":null}`)
+	responseBody := []byte(`{"error":{"message":"Invalid input: expected array, received null","param":"tools","type":"invalid_request_error"}}`)
+
+	retryBody, reason, changed, err := normalizeOpenAIResponsesRejectedFieldRetryBody(http.StatusBadRequest, body, responseBody)
+
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Equal(t, "Responses input compatibility rejection", reason)
+	require.JSONEq(t, `{"model":"gpt-5.6-luna","input":[{"role":"user","content":"hello"}]}`, string(retryBody))
+}
+
 func TestNormalizeOpenAIResponsesRejectedFieldRetryBodyRepairsAutomationMissingRootType(t *testing.T) {
 	body := []byte(`{"tools":[{"type":"function","name":"automation_update","parameters":{"oneOf":[{"type":"object"},{"type":"object","properties":{}}]}}]}`)
 	responseBody := []byte(`{"error":{"code":"invalid_function_parameters","message":"Invalid schema for function 'automation_update': got 'type: \"None\"'.","param":"tools[0].parameters"}}`)

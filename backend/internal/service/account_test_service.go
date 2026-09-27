@@ -961,6 +961,13 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	req.Header.Set("Content-Type", "application/json")
 	if !isOAuth {
 		applyOpenAICodexProbeHeaders(req.Header)
+		// 与真实 Responses 转发保持相同的 UA 优先级，避免探测成功后真实请求再次被拦截。
+		if customUA := credentialAccount.GetOpenAIUserAgent(); customUA != "" {
+			req.Header.Set("User-Agent", customUA)
+		}
+		if s.cfg != nil && s.cfg.Gateway.ForceCodexCLI {
+			req.Header.Set("User-Agent", CodexCanonicalUserAgent())
+		}
 	}
 	if credentialAccount.IsOpenAIAgentIdentity() {
 		authHeaders, authErr := buildAgentIdentityAuthenticationHeaders(ctx, s.accountRepo, s.agentIdentityWS, &s.agentIdentityTaskMu, credentialAccount)
@@ -2198,6 +2205,9 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Authorization", "Bearer "+authToken)
+	if customUA := account.GetOpenAIUserAgent(); customUA != "" {
+		req.Header.Set("User-Agent", customUA)
+	}
 
 	// 账号级请求头覆写：测试请求与真实转发保持一致的最终头
 	account.ApplyHeaderOverrides(req.Header)

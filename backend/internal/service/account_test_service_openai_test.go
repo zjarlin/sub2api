@@ -562,6 +562,62 @@ func TestAccountTestService_OpenAIAPIKeyResponsesUsesCodexProbeHeaders(t *testin
 	requireOpenAICodexProbeHeaders(t, req.Header)
 }
 
+func TestAccountTestService_OpenAIAPIKeyRespectsConfiguredUserAgent(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, tt := range []struct {
+		name      string
+		responses bool
+		forceCLI  bool
+		override  string
+		wantUA    string
+	}{
+		{name: "responses custom UA", responses: true, wantUA: "sub2api"},
+		{name: "responses forced CLI", responses: true, forceCLI: true, wantUA: CodexCanonicalUserAgent()},
+		{name: "responses header override", responses: true, forceCLI: true, override: "configured-client", wantUA: "configured-client"},
+		{name: "chat completions custom UA", wantUA: "sub2api"},
+		{name: "chat completions header override", override: "configured-client", wantUA: "configured-client"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx, _ := newTestContext()
+			body := "data: {\"type\":\"response.completed\"}\n\n"
+			if !tt.responses {
+				body = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"OK\"},\"finish_reason\":null}]}\n\ndata: [DONE]\n\n"
+			}
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+				Body:       io.NopCloser(strings.NewReader(body)),
+			}}
+			cfg := &config.Config{Gateway: config.GatewayConfig{ForceCodexCLI: tt.forceCLI}}
+			svc := &AccountTestService{httpUpstream: upstream, cfg: cfg}
+			account := &Account{
+				ID: 851, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Concurrency: 1,
+				Credentials: map[string]any{
+					"api_key": "sk-test", "base_url": "https://compat-upstream.example/v1", "user_agent": "sub2api",
+				},
+				Extra: map[string]any{openai_compat.ExtraKeyResponsesSupported: tt.responses},
+			}
+			if tt.override != "" {
+				account.Credentials[credKeyHeaderOverrideEnabled] = true
+				account.Credentials[credKeyHeaderOverrides] = map[string]any{"user-agent": tt.override}
+			}
+
+			err := svc.testOpenAIAccountConnection(ctx, account, "deepseek/deepseek-v4-flash", "", "")
+
+			require.NoError(t, err)
+			require.NotNil(t, upstream.lastReq)
+			require.Equal(t, tt.wantUA, upstream.lastReq.Header.Get("User-Agent"))
+			if tt.responses {
+				ctx.Request.Header.Set("User-Agent", "Python-urllib/3.12")
+				gateway := &OpenAIGatewayService{cfg: cfg}
+				req, err := gateway.buildUpstreamRequestOpenAIPassthrough(ctx.Request.Context(), ctx, account, []byte(`{"model":"deepseek/deepseek-v4-flash"}`), "sk-test")
+				require.NoError(t, err)
+				require.Equal(t, req.Header.Get("User-Agent"), upstream.lastReq.Header.Get("User-Agent"))
+			}
+		})
+	}
+}
+
 func TestAccountTestService_OpenAIAPIKeyResponsesUnsupportedUsesChatCompletionsPath(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, recorder := newTestContext()

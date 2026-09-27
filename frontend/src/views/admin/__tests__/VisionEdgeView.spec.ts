@@ -144,20 +144,25 @@ describe('VisionEdgeView workbench', () => {
     expect((wrapper.get('[data-testid="edge-model-input"]').element as HTMLInputElement).value).toBe('laya-multilingual')
     expect(wrapper.text()).toContain('$SUB2API_KEY')
     expect(wrapper.text()).not.toContain('upstream-secret')
-    expect(wrapper.get('[data-testid="edge-request-editor"]').text()).not.toContain('upstream-secret')
+    expect(wrapper.get('[data-testid="edge-request-detail"]').text()).not.toContain('upstream-secret')
   })
 
-  it('shows the request editor on first render', async () => {
+  it('shows the Postman-style workspace on first render', async () => {
     const wrapper = mount(VisionEdgeView)
     await flushPromises()
 
     const editor = wrapper.get('[data-testid="edge-request-detail"]')
     expect(editor.isVisible()).toBe(true)
-    expect(editor.get('[data-testid="edge-request-editor"]').exists()).toBe(true)
+    expect(editor.get('[data-testid="edge-request-url"]').exists()).toBe(true)
+    expect(editor.find('[data-testid="edge-request-body"]').exists()).toBe(true)
+    expect(editor.find('[data-testid="edge-send-request"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('admin.vision.workbench.query')
+    expect(wrapper.text()).toContain('admin.vision.workbench.headers')
+    expect(wrapper.text()).toContain('admin.vision.workbench.body')
   })
 
-  it('sends the selected endpoint through the gateway with the chosen API key', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ detection: { label: 'person' } }), {
+  it('sends the Volcengine envelope through the gateway with the chosen API key', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ResponseMetadata: { RequestId: 'req-1' }, Result: { detections: [] } }), {
       status: 200,
       statusText: 'OK',
       headers: { 'content-type': 'application/json' },
@@ -172,16 +177,34 @@ describe('VisionEdgeView workbench', () => {
 
     const keySelect = wrapper.get('[data-testid="edge-api-key-select"]')
     expect((keySelect.element as HTMLSelectElement).value).toBe('11')
+    expect((wrapper.get('[data-testid="edge-request-url"]').element as HTMLInputElement).value).toContain('/vision/volcengine/detect')
+    expect((wrapper.get('[data-testid="edge-request-body"]').element as HTMLTextAreaElement).value).toContain('"Action": "Detect"')
 
-    await wrapper.findAll('button').find(button => button.text().includes('admin.vision.sendRequest'))!.trigger('click')
+    await wrapper.get('[data-testid="edge-send-request"]').trigger('click')
     await flushPromises()
 
     expect(fetchMock).toHaveBeenCalledTimes(1)
     const [calledUrl, calledInit] = fetchMock.mock.calls[0]
-    expect(calledUrl).toContain('/vision/detect')
+    expect(calledUrl).toContain('/vision/volcengine/detect')
     expect((calledInit.headers as Headers).get('Authorization')).toBe('Bearer sk-test-1234567890')
-    expect(wrapper.text()).toContain('person')
+    expect((calledInit.headers as Headers).get('Content-Type')).toBe('application/json')
+    expect(calledInit.body).toContain('"Version": "2022-08-31"')
+    expect(wrapper.text()).toContain('req-1')
     expect(wrapper.text()).toContain('200')
+  })
+
+  it('switches the Volcengine Action and endpoint with the selected vision operation', async () => {
+    const wrapper = mount(VisionEdgeView)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="edge-endpoint-classify"]').trigger('click')
+    await flushPromises()
+
+    expect((wrapper.get('[data-testid="edge-request-url"]').element as HTMLInputElement).value).toContain('/vision/volcengine/classify')
+    expect((wrapper.get('[data-testid="edge-request-body"]').element as HTMLTextAreaElement).value).toContain('"Action": "Classify"')
+    expect(wrapper.text()).toContain('cURL')
+    expect(wrapper.text()).toContain('JavaScript')
+    expect(wrapper.text()).toContain('Python')
   })
 
   it('merges the selected model into the group model allowlist', async () => {

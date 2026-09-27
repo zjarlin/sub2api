@@ -30,11 +30,23 @@ func (h *GatewayHandler) VisionProxy(c *gin.Context) {
 		return
 	}
 	endpoint := strings.TrimPrefix(c.Param("proxyPath"), "/")
-	switch endpoint {
-	case "detect", "segment", "pose", "classify", "ocr":
-	default:
-		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "Vision endpoint not found"}})
-		return
+	usageEndpoint := endpoint
+	if strings.HasPrefix(endpoint, "volcengine/") {
+		action := strings.TrimPrefix(endpoint, "volcengine/")
+		switch action {
+		case "detect", "segment", "pose", "classify", "ocr":
+			usageEndpoint = action
+		default:
+			c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "Vision endpoint not found"}})
+			return
+		}
+	} else {
+		switch endpoint {
+		case "detect", "segment", "pose", "classify", "ocr":
+		default:
+			c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "Vision endpoint not found"}})
+			return
+		}
 	}
 	if c.Request.Method != http.MethodPost {
 		c.Header("Allow", http.MethodPost)
@@ -111,7 +123,7 @@ func (h *GatewayHandler) VisionProxy(c *gin.Context) {
 	}
 	requestID := "vision:" + uuid.NewString()
 	input := &service.RecordUsageInput{
-		Result: &service.ForwardResult{RequestID: requestID, Model: "edge-vision-" + endpoint, VisionCount: 1},
+		Result: &service.ForwardResult{RequestID: requestID, Model: "edge-vision-" + usageEndpoint, VisionCount: 1},
 		APIKey: apiKey, User: apiKey.User, Account: selection.Account, Subscription: subscription,
 		InboundEndpoint: GetInboundEndpoint(c), UpstreamEndpoint: requestURL.Path,
 		UserAgent: c.GetHeader("User-Agent"), IPAddress: ip.GetClientIP(c),

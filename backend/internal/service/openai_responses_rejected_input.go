@@ -11,13 +11,26 @@ func normalizeOpenAIResponsesRejectedInput(body []byte) ([]byte, string, bool, e
 	if err := decodeOpenAIJSONUseNumber(body, &request); err != nil {
 		return nil, "", false, err
 	}
+	changed := false
+	// CommandCode's Responses-compatible endpoint rejects explicit null for
+	// optional request fields even though other OpenAI-compatible endpoints
+	// accept it. Remove only the null field; an absent tools/input field has the
+	// same default semantics and keeps the original request otherwise intact.
+	if tools, exists := request["tools"]; exists && tools == nil {
+		delete(request, "tools")
+		changed = true
+	}
+	if input, exists := request["input"]; exists && input == nil {
+		delete(request, "input")
+		changed = true
+	}
 	input, ok := request["input"].([]any)
 	if !ok {
-		return nil, "", false, nil
+		return finishOpenAIResponsesRejectedInputRetry(request, changed)
 	}
 	if tools, exists := request["tools"]; exists && tools != nil {
 		if _, ok := tools.([]any); !ok {
-			return nil, "", false, nil
+			return finishOpenAIResponsesRejectedInputRetry(request, changed)
 		}
 	}
 	for _, raw := range input {
@@ -26,13 +39,14 @@ func normalizeOpenAIResponsesRejectedInput(body []byte) ([]byte, string, bool, e
 			continue
 		}
 		if _, ok := item["tools"].([]any); !ok {
-			return nil, "", false, nil
+			return finishOpenAIResponsesRejectedInputRetry(request, changed)
 		}
 	}
-	changed, err := liftResponsesAdditionalTools(request)
+	lifted, err := liftResponsesAdditionalTools(request)
 	if err != nil {
 		return nil, "", false, err
 	}
+	changed = changed || lifted
 	input = request["input"].([]any)
 	for index, raw := range input {
 		item, ok := raw.(map[string]any)
@@ -49,6 +63,13 @@ func normalizeOpenAIResponsesRejectedInput(body []byte) ([]byte, string, bool, e
 			changed = normalizeRejectedResponsesMessageContent(item) || changed
 		}
 	}
+	if !changed {
+		return nil, "", false, nil
+	}
+	return finishOpenAIResponsesRejectedInputRetry(request, true)
+}
+
+func finishOpenAIResponsesRejectedInputRetry(request map[string]any, changed bool) ([]byte, string, bool, error) {
 	if !changed {
 		return nil, "", false, nil
 	}

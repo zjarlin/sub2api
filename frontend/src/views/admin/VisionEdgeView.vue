@@ -56,238 +56,251 @@
         </div>
       </header>
 
-      <section class="card min-w-0">
-        <div class="card-header flex flex-wrap items-end justify-between gap-3">
-          <div>
-            <span class="text-xs font-black uppercase text-primary-700 dark:text-primary-300">01 / MATRIX</span>
-            <h2 class="mt-1 text-xl font-bold text-gray-950 dark:text-white">{{ t('admin.vision.endpointMatrix') }}</h2>
-            <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">{{ t('admin.vision.endpointMatrixDescription') }}</p>
+      <section class="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900">
+        <div class="flex items-center gap-3 border-b border-gray-200 px-4 py-3 dark:border-dark-700">
+          <div class="flex min-w-0 flex-1 items-center overflow-x-auto">
+            <button
+              v-for="endpoint in endpoints"
+              :key="endpoint.key"
+              type="button"
+              class="flex shrink-0 items-center gap-2 border-b-2 px-3 py-2 text-xs font-semibold transition-colors"
+              :class="selectedEndpointKey === endpoint.key ? 'border-primary-500 text-primary-700 dark:text-primary-300' : 'border-transparent text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'"
+              :data-testid="`edge-endpoint-${endpoint.key}`"
+              @click="openEndpoint(endpoint)"
+            >
+              <span class="h-2 w-2 rounded-full" :class="endpointEnabled(endpoint) ? 'bg-emerald-500' : 'bg-gray-400'" />
+              {{ endpoint.method }}
+              <code class="max-w-48 truncate">{{ endpoint.path }}</code>
+            </button>
           </div>
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="loadStatus">
-            <Icon name="refresh" size="xs" :class="loading ? 'animate-spin' : ''" />
-            {{ t('common.refresh') }}
-          </button>
+          <span class="hidden shrink-0 items-center gap-1 text-xs text-gray-500 sm:flex dark:text-gray-400">
+            <span class="h-2 w-2 rounded-full" :class="status?.enabled ? 'bg-emerald-500' : 'bg-gray-400'" />
+            {{ status?.enabled ? t('admin.vision.statusEnabled') : t('admin.vision.statusDisabled') }}
+          </span>
         </div>
-        <div class="card-body space-y-8">
-          <div v-for="group in endpointGroups" :key="group.key" class="space-y-3">
-            <div class="flex flex-wrap items-end justify-between gap-2 border-b border-gray-200 pb-2 dark:border-dark-700">
-              <div>
-                <h3 class="text-sm font-black uppercase tracking-wide text-gray-950 dark:text-white">{{ group.title }}</h3>
-                <p class="text-xs text-gray-500 dark:text-gray-400">{{ group.description }}</p>
-              </div>
-              <span class="font-mono text-xs text-gray-400">{{ group.endpoints.length }} endpoints</span>
-            </div>
-            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              <button v-for="endpoint in group.endpoints" :key="endpoint.key" type="button" class="group flex min-h-40 min-w-0 flex-col justify-between rounded-lg border-2 p-4 text-left transition-colors" :class="[endpointEnabled(endpoint) ? 'border-gray-200 bg-white hover:border-primary-500 dark:border-dark-700 dark:bg-dark-900 dark:hover:border-primary-500' : 'border-gray-200 bg-gray-50 text-gray-500 dark:border-dark-700 dark:bg-dark-900/60 dark:text-gray-400', selectedEndpointKey === endpoint.key ? 'ring-2 ring-primary-500 ring-offset-2 dark:ring-offset-dark-950' : '']" :data-testid="`edge-endpoint-${endpoint.key}`" @click="openEndpoint(endpoint)">
-                <span class="flex w-full items-start justify-between gap-3">
-                  <span class="flex min-w-0 flex-col gap-2">
-                    <span class="badge badge-primary w-fit">{{ endpoint.method }}</span>
-                    <code class="break-all text-sm font-bold text-gray-950 dark:text-white">{{ endpoint.path }}</code>
-                  </span>
-                  <span class="h-3 w-3 shrink-0 rounded-full" :class="endpointEnabled(endpoint) ? 'bg-emerald-500' : 'bg-gray-400'" />
-                </span>
-                <span class="mt-4 flex min-w-0 flex-col gap-2">
-                  <span class="text-sm leading-5 text-gray-700 dark:text-gray-300">{{ endpoint.description }}</span>
-                  <span class="flex items-center justify-between gap-2 text-xs font-semibold text-primary-700 dark:text-primary-300">
-                    {{ endpointStatusLabel(endpoint) }}
-                    <Icon name="arrowRight" size="sm" class="transition-transform group-hover:translate-x-0.5" />
-                  </span>
-                </span>
+
+        <div class="grid min-h-[680px] lg:grid-cols-[260px_minmax(0,1fr)]">
+          <aside class="border-b border-gray-200 bg-gray-50/70 p-3 lg:border-b-0 lg:border-r dark:border-dark-700 dark:bg-dark-950/30">
+            <div class="flex items-center justify-between px-2 py-1">
+              <span class="text-xs font-black uppercase text-gray-500 dark:text-gray-400">{{ t('admin.vision.endpoints') }}</span>
+              <button type="button" class="btn btn-icon btn-secondary h-8 w-8" :title="t('common.refresh')" :disabled="loading" @click="loadStatus">
+                <Icon name="refresh" size="xs" :class="loading ? 'animate-spin' : ''" />
               </button>
             </div>
-          </div>
-        </div>
-      </section>
-
-      <section v-if="detailOpen" class="card min-w-0" data-testid="edge-request-detail">
-        <div class="card-header flex flex-wrap items-center justify-between gap-3">
-          <div class="min-w-0">
-            <span class="text-xs font-black uppercase text-primary-700 dark:text-primary-300">02 / REQUEST</span>
-            <div class="mt-1 flex flex-wrap items-center gap-2">
-              <span class="badge badge-primary">{{ selectedEndpoint.method }}</span>
-              <code class="break-all text-lg font-black text-gray-950 dark:text-white">{{ selectedEndpoint.path }}</code>
+            <div class="mt-2 space-y-4">
+              <div v-for="group in endpointGroups" :key="group.key">
+                <div class="px-2 text-xs font-bold uppercase text-gray-400">{{ group.title }}</div>
+                <div class="mt-1 space-y-1">
+                  <button
+                    v-for="endpoint in group.endpoints"
+                    :key="endpoint.key"
+                    type="button"
+                    class="flex w-full items-start gap-2 rounded-lg px-2 py-2 text-left transition-colors"
+                    :class="selectedEndpointKey === endpoint.key ? 'bg-primary-50 text-primary-800 dark:bg-primary-950/40 dark:text-primary-200' : 'text-gray-700 hover:bg-white dark:text-gray-300 dark:hover:bg-dark-800'"
+                    @click="openEndpoint(endpoint)"
+                  >
+                    <span class="mt-1 h-2 w-2 shrink-0 rounded-full" :class="endpointEnabled(endpoint) ? 'bg-emerald-500' : 'bg-gray-400'" />
+                    <span class="min-w-0">
+                      <code class="block break-all text-xs font-semibold">{{ endpoint.path }}</code>
+                      <span class="mt-0.5 block text-xs leading-4 text-gray-500 dark:text-gray-400">{{ endpoint.description }}</span>
+                    </span>
+                  </button>
+                </div>
+              </div>
             </div>
-            <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">{{ t('admin.vision.detailDescription') }}</p>
-          </div>
-          <button type="button" class="btn btn-secondary btn-icon" :title="t('admin.vision.closeDetail')" @click="closeDetail">
-            <Icon name="x" size="sm" />
-          </button>
-        </div>
-        <div class="card-body space-y-5">
-          <div class="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-            <section class="min-w-0 space-y-4">
+          </aside>
+
+          <main class="min-w-0" data-testid="edge-request-detail">
+            <div class="border-b border-gray-200 p-4 dark:border-dark-700">
               <div class="flex flex-wrap items-center gap-2">
-                <button type="button" class="btn btn-secondary btn-sm" @click="usePreset(selectedEndpoint.preset)">
-                  <Icon name="refresh" size="xs" />
-                  {{ t('admin.vision.exampleRequest') }}
-                </button>
-                <button type="button" class="btn btn-primary btn-sm" :disabled="sending || !selectedAPIKey" @click="sendRequest">
-                  <Icon name="play" size="xs" />
+                <span class="badge badge-primary">{{ request.method }}</span>
+                <input v-model.trim="request.url" class="input min-w-0 flex-1 font-mono text-xs" data-testid="edge-request-url" spellcheck="false" />
+                <button type="button" class="btn btn-primary" :disabled="sending || !selectedAPIKey" data-testid="edge-send-request" @click="sendRequest">
+                  <Icon name="play" size="sm" />
                   {{ sending ? t('admin.vision.sending') : t('admin.vision.sendRequest') }}
                 </button>
-                <button type="button" class="btn btn-secondary btn-sm" :disabled="!generatedCurl" @click="copyGeneratedCurl">
-                  <Icon name="document" size="xs" />
-                  {{ t('common.copy') }}
-                </button>
               </div>
-              <EdgeRequestEditor
-                v-model:method="request.method"
-                v-model:url="request.url"
-                v-model:headers="request.headers"
-                v-model:query="request.query"
-                v-model:body="request.body"
-                v-model:body-mode="request.bodyMode"
-              />
-            </section>
-            <aside class="min-w-0 space-y-4">
-              <section class="rounded-lg border border-gray-200 p-4 dark:border-dark-700">
-                <h3 class="text-sm font-bold text-gray-950 dark:text-white">{{ t('admin.vision.apiKeyLabel') }}</h3>
-                <select v-model.number="selectedAPIKeyID" class="input mt-2 w-full text-xs" data-testid="edge-api-key-select" :disabled="loadingKeys || apiKeys.length === 0">
+              <div class="mt-3 flex flex-wrap items-center gap-2">
+                <select v-model.number="selectedAPIKeyID" class="input max-w-72 text-xs" data-testid="edge-api-key-select" :disabled="loadingKeys || apiKeys.length === 0">
                   <option :value="0">{{ loadingKeys ? t('common.loading') : t('admin.vision.selectApiKey') }}</option>
                   <option v-for="apiKey in apiKeys" :key="apiKey.id" :value="apiKey.id">{{ apiKey.name }} · {{ apiKey.key.slice(0, 8) }}...{{ apiKey.key.slice(-4) }}</option>
                 </select>
-                <p v-if="!loadingKeys && apiKeys.length === 0" class="mt-2 text-xs text-amber-700 dark:text-amber-300">{{ t('admin.vision.noApiKeys') }}</p>
+                <label v-if="selectedEndpoint.category === 'vision'" class="btn btn-secondary cursor-pointer">
+                  <input class="sr-only" type="file" accept="image/*" data-testid="edge-vision-image" @change="selectVisionImage" />
+                  <Icon name="upload" size="sm" />
+                  {{ visionImageName || t('admin.vision.chooseImage') }}
+                </label>
+                <button type="button" class="btn btn-secondary" @click="usePreset(selectedEndpoint.preset)">
+                  <Icon name="refresh" size="sm" />
+                  {{ t('admin.vision.exampleRequest') }}
+                </button>
+              </div>
+              <p v-if="visionImageError" role="alert" class="mt-2 text-xs text-red-600 dark:text-red-400">{{ visionImageError }}</p>
+              <p v-if="!loadingKeys && apiKeys.length === 0" class="mt-2 text-xs text-amber-700 dark:text-amber-300">{{ t('admin.vision.noApiKeys') }}</p>
+            </div>
+
+            <div class="grid min-h-[520px] xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.8fr)]">
+              <section class="min-w-0 border-b border-gray-200 p-4 xl:border-b-0 xl:border-r dark:border-dark-700">
+                <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 dark:border-dark-700">
+                  <div class="flex gap-1">
+                    <button
+                      v-for="tab in requestTabs"
+                      :key="tab.value"
+                      type="button"
+                      class="border-b-2 px-3 py-2 text-xs font-semibold"
+                      :class="requestTab === tab.value ? 'border-primary-500 text-primary-700 dark:text-primary-300' : 'border-transparent text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'"
+                      @click="requestTab = tab.value"
+                    >
+                      {{ t(tab.label) }}
+                      <span v-if="tab.count" class="ml-1 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600 dark:bg-dark-700 dark:text-gray-300">{{ tab.count }}</span>
+                    </button>
+                  </div>
+                  <button type="button" class="btn btn-secondary btn-sm" :disabled="requestTab !== 'body' || request.bodyMode !== 'json' || !request.body.trim()" @click="formatRequestBody">
+                    <Icon name="terminal" size="xs" />
+                    {{ t('admin.vision.workbench.formatJson') }}
+                  </button>
+                </div>
+
+                <div v-if="requestTab === 'params'" class="mt-3 space-y-2">
+                  <KeyValueEditor v-model="request.query" :name-placeholder="t('admin.vision.workbench.queryName')" :value-placeholder="t('admin.vision.workbench.queryValue')" @add="addQuery" />
+                </div>
+
+                <div v-else-if="requestTab === 'headers'" class="mt-3 space-y-2">
+                  <KeyValueEditor v-model="request.headers" :name-placeholder="t('admin.vision.workbench.headerName')" :value-placeholder="t('admin.vision.workbench.headerValue')" @add="addHeader" />
+                </div>
+
+                <div v-else class="mt-3 space-y-3">
+                  <div class="flex flex-wrap gap-1">
+                    <button
+                      v-for="mode in bodyModes"
+                      :key="mode"
+                      type="button"
+                      class="btn btn-sm"
+                      :class="request.bodyMode === mode ? 'btn-primary' : 'btn-secondary'"
+                      @click="request.bodyMode = mode"
+                    >
+                      {{ t(`admin.vision.workbench.bodyMode.${mode}`) }}
+                    </button>
+                  </div>
+                  <textarea
+                    v-if="request.bodyMode !== 'none'"
+                    v-model="request.body"
+                    rows="18"
+                    class="input min-h-[360px] w-full whitespace-pre font-mono text-xs leading-5"
+                    data-testid="edge-request-body"
+                    spellcheck="false"
+                    :placeholder="request.bodyMode === 'form' ? t('admin.vision.workbench.formPlaceholder') : t('admin.vision.workbench.jsonPlaceholder')"
+                  />
+                </div>
               </section>
-              <section class="rounded-lg border border-gray-800 bg-gray-950 p-4 text-gray-100">
+
+              <section class="min-w-0 bg-gray-50/50 p-4 dark:bg-dark-950/20">
                 <div class="flex items-center justify-between gap-3">
                   <div>
-                    <span class="text-xs font-black uppercase text-primary-300">03 / RESPONSE</span>
-                    <h3 class="mt-1 text-sm font-bold">{{ t('admin.vision.responseTitle') }}</h3>
+                    <h2 class="text-sm font-bold text-gray-950 dark:text-white">{{ t('admin.vision.responseTitle') }}</h2>
+                    <p v-if="response" class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ response.durationMs }} ms · {{ response.size }} B</p>
                   </div>
-                  <Icon :name="response?.ok ? 'check' : response || sendError ? 'exclamationCircle' : 'terminal'" size="sm" :class="response?.ok ? 'text-emerald-400' : response || sendError ? 'text-red-400' : 'text-gray-400'" />
+                  <span v-if="response" class="badge" :class="response.ok ? 'badge-success' : 'badge-danger'">{{ response.status }} {{ response.statusText }}</span>
                 </div>
-                <div v-if="response" class="mt-3 grid grid-cols-3 gap-2 text-xs">
-                  <div class="rounded bg-white/5 p-2"><span class="block text-gray-400">{{ t('admin.vision.responseStatus') }}</span><strong>{{ response.status }} {{ response.statusText }}</strong></div>
-                  <div class="rounded bg-white/5 p-2"><span class="block text-gray-400">{{ t('admin.vision.responseDuration') }}</span><strong>{{ response.durationMs }} ms</strong></div>
-                  <div class="rounded bg-white/5 p-2"><span class="block text-gray-400">{{ t('admin.vision.responseSize') }}</span><strong>{{ response.size }} B</strong></div>
+                <p v-if="sendError" role="alert" class="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">{{ sendError }}</p>
+                <pre v-else-if="response" class="mt-3 max-h-[430px] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-gray-950 p-3 text-xs leading-5 text-gray-100">{{ response.body }}</pre>
+                <div v-else class="mt-3 flex min-h-64 items-center justify-center rounded-lg border border-dashed border-gray-300 text-xs text-gray-500 dark:border-dark-600 dark:text-gray-400">
+                  {{ t('admin.vision.responseEmpty') }}
                 </div>
-                <p v-if="sendError" role="alert" class="mt-3 rounded border border-red-800 bg-red-950/50 p-3 text-xs text-red-200">{{ sendError }}</p>
-                <pre v-else-if="response" class="mt-3 max-h-[520px] overflow-auto whitespace-pre-wrap break-words rounded bg-black/40 p-3 text-xs leading-5">{{ response.body }}</pre>
-                <p v-else class="mt-3 text-xs leading-5 text-gray-400">{{ t('admin.vision.responseEmpty') }}</p>
               </section>
-              <section v-if="response && Object.keys(response.headers).length" class="rounded-lg border border-gray-200 p-4 dark:border-dark-700">
-                <h3 class="text-sm font-bold text-gray-950 dark:text-white">{{ t('admin.vision.responseHeaders') }}</h3>
-                <dl class="mt-2 space-y-1 text-xs">
-                  <div v-for="(value, name) in response.headers" :key="name" class="grid grid-cols-[minmax(90px,0.8fr)_minmax(0,1fr)] gap-2">
-                    <dt class="break-all font-mono text-gray-500 dark:text-gray-400">{{ name }}</dt>
-                    <dd class="break-all font-mono text-gray-800 dark:text-gray-200">{{ value }}</dd>
-                  </div>
-                </dl>
-              </section>
-            </aside>
-          </div>
-          <details class="rounded-lg border border-gray-200 p-4 dark:border-dark-700">
-            <summary class="cursor-pointer text-sm font-bold text-gray-950 dark:text-white">{{ t('admin.vision.curl.title') }}</summary>
-            <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.vision.curl.description') }}</p>
-            <textarea v-model="curlInput" rows="4" class="input mt-3 w-full whitespace-pre font-mono text-xs" data-testid="edge-curl-input" spellcheck="false" :placeholder="t('admin.vision.curl.placeholder')" />
-            <div class="mt-2 flex flex-wrap items-center gap-2">
-              <button type="button" class="btn btn-secondary btn-sm" :disabled="!curlInput.trim()" @click="importCurl">{{ t('admin.vision.curl.parse') }}</button>
-              <button type="button" class="btn btn-secondary btn-sm" :disabled="!curlInput.trim()" @click="curlInput = ''">{{ t('common.clear') }}</button>
-              <span v-if="parsedFromCurl" class="text-xs text-emerald-700 dark:text-emerald-300">{{ t('admin.vision.curl.parsed') }}</span>
             </div>
-            <p v-if="parseError" role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{{ parseError }}</p>
-            <p v-if="parseWarnings.length" class="mt-2 text-xs text-amber-700 dark:text-amber-300">{{ t('admin.vision.curl.warnings', { count: parseWarnings.length }) }}</p>
-          </details>
+          </main>
         </div>
       </section>
 
-      <div class="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(360px,0.65fr)]">
-        <section class="card min-w-0">
-          <div class="card-header">
-            <span class="text-xs font-black uppercase text-primary-700 dark:text-primary-300">04 / REGISTER</span>
-            <h2 class="mt-1 text-xl font-bold text-gray-950 dark:text-white">{{ t('admin.vision.register.title') }}</h2>
-            <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">{{ t('admin.vision.register.description') }}</p>
+      <section class="card min-w-0">
+        <div class="card-header flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <span class="text-xs font-black uppercase text-primary-700 dark:text-primary-300">02 / CODE</span>
+            <h2 class="mt-1 text-xl font-bold text-gray-950 dark:text-white">{{ t('admin.vision.output.title') }}</h2>
+            <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">{{ t('admin.vision.output.description') }}</p>
           </div>
-          <div class="card-body space-y-5">
-            <div>
-              <label for="edge-group" class="input-label">{{ t('admin.vision.register.group') }}</label>
-              <select id="edge-group" v-model.number="selectedGroupID" class="input" data-testid="edge-group-select" @change="loadGroupModels">
-                <option :value="0">{{ t('admin.vision.register.selectGroup') }}</option>
-                <option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }} · {{ group.platform }} · #{{ group.id }}</option>
-              </select>
+          <div class="flex items-center gap-2">
+            <select v-model="codeLanguage" class="input w-40 text-xs">
+              <option v-for="language in EDGE_CODE_LANGUAGES" :key="language.value" :value="language.value">{{ language.label }}</option>
+            </select>
+            <button type="button" class="btn btn-secondary btn-sm" :disabled="!generatedCode" @click="copyGeneratedCode">
+              <Icon name="document" size="xs" />
+              {{ t('common.copy') }}
+            </button>
+          </div>
+        </div>
+        <div class="card-body">
+          <pre class="max-h-[480px] overflow-auto rounded-lg border border-gray-800 bg-gray-950 p-4 text-xs leading-5 text-gray-100"><code>{{ generatedCode || t('admin.vision.output.empty') }}</code></pre>
+        </div>
+      </section>
+
+      <details class="card min-w-0" open>
+        <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-6 py-4">
+          <span>
+            <span class="block text-xs font-black uppercase text-primary-700 dark:text-primary-300">03 / ADVANCED</span>
+            <span class="mt-1 block text-lg font-bold text-gray-950 dark:text-white">{{ t('admin.vision.curl.title') }}</span>
+          </span>
+          <Icon name="chevronDown" size="sm" />
+        </summary>
+        <div class="card-body grid gap-4 border-t border-gray-200 pt-4 dark:border-dark-700 lg:grid-cols-2">
+          <div>
+            <label class="input-label" for="edge-curl-input">{{ t('admin.vision.curl.title') }}</label>
+            <textarea id="edge-curl-input" v-model="curlInput" rows="8" class="input mt-2 w-full whitespace-pre font-mono text-xs" data-testid="edge-curl-input" :placeholder="t('admin.vision.curl.placeholder')" />
+            <div class="mt-2 flex items-center gap-2">
+              <button type="button" class="btn btn-secondary btn-sm" @click="importCurl">{{ t('admin.vision.curl.parse') }}</button>
+              <span v-if="parsedFromCurl" class="text-xs text-emerald-700 dark:text-emerald-300">{{ t('admin.vision.curl.parsed') }}</span>
             </div>
-            <div class="grid gap-3 sm:grid-cols-2">
+            <p v-if="parseError" class="mt-2 text-xs text-red-600 dark:text-red-400">{{ parseError }}</p>
+            <p v-if="parseWarnings.length" class="mt-2 text-xs text-amber-700 dark:text-amber-300">{{ t('admin.vision.curl.warnings', { count: parseWarnings.length }) }}</p>
+          </div>
+          <section>
+            <h3 class="text-sm font-bold text-gray-950 dark:text-white">{{ t('admin.vision.register.title') }}</h3>
+            <p class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.vision.register.description') }}</p>
+            <div class="mt-3 grid gap-3 sm:grid-cols-2">
               <label class="space-y-1.5">
-                <span class="input-label">{{ t('admin.vision.register.model') }}</span>
-                <input v-model.trim="selectedModel" class="input font-mono text-xs" data-testid="edge-model-input" spellcheck="false" :placeholder="t('admin.vision.register.modelPlaceholder')" />
-              </label>
-              <label class="space-y-1.5">
-                <span class="input-label">{{ t('admin.vision.register.gatewayPath') }}</span>
-                <select v-model="gatewayPath" class="input font-mono text-xs">
-                  <option value="">{{ t('admin.vision.register.keepImportedPath') }}</option>
-                  <option value="/v1/chat/completions">/v1/chat/completions</option>
-                  <option value="/v1/responses">/v1/responses</option>
-                  <option value="/v1/systemone">/v1/systemone</option>
-                  <option value="/vision/detect">/vision/detect</option>
+                <span class="input-label">{{ t('admin.vision.register.group') }}</span>
+                <select v-model.number="selectedGroupID" class="input w-full text-xs" data-testid="edge-group-select" @change="loadGroupModels">
+                  <option :value="0">{{ t('admin.vision.register.selectGroup') }}</option>
+                  <option v-for="candidateGroup in groups" :key="candidateGroup.id" :value="candidateGroup.id">{{ candidateGroup.name }}</option>
                 </select>
               </label>
+              <label class="space-y-1.5">
+                <span class="input-label">{{ t('admin.vision.register.model') }}</span>
+                <input v-model.trim="selectedModel" class="input w-full text-xs" data-testid="edge-model-input" :placeholder="t('admin.vision.register.modelPlaceholder')" />
+              </label>
             </div>
-            <div class="flex flex-wrap gap-2">
+            <div class="mt-3 flex flex-wrap gap-2">
               <button type="button" class="btn btn-secondary btn-sm" :disabled="!request.model" @click="selectedModel = request.model">{{ t('admin.vision.register.useImportedModel') }}</button>
               <button type="button" class="btn btn-secondary btn-sm" :disabled="!selectedModel || loadingModels" @click="loadGroupModels">
                 <Icon name="refresh" size="xs" :class="loadingModels ? 'animate-spin' : ''" />
                 {{ t('admin.vision.register.loadCandidates') }}
               </button>
             </div>
-            <div class="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-dark-700 dark:bg-dark-900">
-              <div class="flex items-center justify-between gap-3">
-                <span class="text-xs font-bold uppercase text-gray-700 dark:text-gray-300">{{ t('admin.vision.register.availableModels') }}</span>
-                <span class="text-xs text-gray-500 dark:text-gray-400">{{ candidateModels.length }}</span>
-              </div>
-              <div v-if="loadingModels" class="mt-3 text-sm text-gray-500">{{ t('common.loading') }}</div>
-              <p v-else-if="!selectedGroupID" class="mt-3 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.vision.register.chooseGroupFirst') }}</p>
-              <p v-else-if="candidateModels.length === 0" class="mt-3 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.vision.register.noCandidates') }}</p>
-              <div v-else class="mt-3 max-h-56 space-y-2 overflow-y-auto pr-1">
-                <label v-for="model in candidateModels" :key="model" class="flex items-center gap-2 rounded border border-gray-200 bg-white px-2.5 py-2 text-xs dark:border-dark-600 dark:bg-dark-800" :title="t('admin.vision.register.selectCandidateHint')" @click="selectCandidateModel(model)">
+            <div class="mt-3 max-h-44 space-y-1 overflow-y-auto rounded-lg border border-gray-200 p-2 dark:border-dark-700">
+              <p v-if="loadingModels" class="p-2 text-xs text-gray-500">{{ t('common.loading') }}</p>
+              <p v-else-if="!selectedGroupID" class="p-2 text-xs text-gray-500">{{ t('admin.vision.register.chooseGroupFirst') }}</p>
+              <p v-else-if="candidateModels.length === 0" class="p-2 text-xs text-gray-500">{{ t('admin.vision.register.noCandidates') }}</p>
+              <template v-else>
+                <label v-for="model in candidateModels" :key="model" class="flex items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-dark-800" @click="selectCandidateModel(model)">
                   <input v-model="selectedCandidateModels" type="checkbox" class="h-4 w-4 accent-primary-600" :value="model" />
-                  <code class="min-w-0 flex-1 break-all">{{ model }}</code>
+                  <code class="min-w-0 flex-1 truncate">{{ model }}</code>
                 </label>
-              </div>
+              </template>
             </div>
-            <label class="flex items-start gap-2 text-xs text-gray-600 dark:text-gray-400">
+            <label class="mt-3 flex items-start gap-2 text-xs text-gray-600 dark:text-gray-400">
               <input v-model="replaceAllowlist" type="checkbox" class="mt-0.5 h-4 w-4 accent-primary-600" />
               <span>{{ t('admin.vision.register.replaceHint') }}</span>
             </label>
-            <p v-if="registerError" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ registerError }}</p>
-            <p v-if="registerSuccess" role="status" class="text-sm text-emerald-700 dark:text-emerald-300">{{ registerSuccess }}</p>
-            <div class="flex flex-wrap gap-2">
-              <button type="button" class="btn btn-primary" :disabled="!canRegister || registering" @click="registerModels">
-                <Icon name="plus" size="sm" />
-                {{ registering ? t('common.saving') : t('admin.vision.register.register') }}
-              </button>
-              <button type="button" class="btn btn-secondary" :disabled="!generatedCurl" @click="copyGeneratedCurl">
-                <Icon name="document" size="sm" />
-                {{ t('admin.vision.register.copyCurl') }}
-              </button>
-            </div>
-          </div>
-        </section>
-
-        <section class="card min-w-0">
-          <div class="card-header flex flex-wrap items-center justify-between gap-3">
-            <div>
-              <span class="text-xs font-black uppercase text-primary-700 dark:text-primary-300">05 / OUTPUT</span>
-              <h2 class="mt-1 text-xl font-bold text-gray-950 dark:text-white">{{ t('admin.vision.output.title') }}</h2>
-              <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">{{ t('admin.vision.output.description') }}</p>
-            </div>
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="!generatedCurl" @click="copyGeneratedCurl">
-              <Icon name="document" size="xs" />
-              {{ t('common.copy') }}
+            <p v-if="registerError" class="mt-2 text-xs text-red-600 dark:text-red-400">{{ registerError }}</p>
+            <p v-if="registerSuccess" class="mt-2 text-xs text-emerald-700 dark:text-emerald-300">{{ registerSuccess }}</p>
+            <button type="button" class="btn btn-primary btn-sm mt-3" :disabled="!canRegister || registering" @click="registerModels">
+              <Icon name="plus" size="xs" />
+              {{ registering ? t('common.saving') : t('admin.vision.register.register') }}
             </button>
-          </div>
-          <div class="card-body space-y-5">
-            <pre class="max-h-64 overflow-auto rounded-lg border border-gray-800 bg-gray-950 p-4 text-xs leading-5 text-gray-100"><code>{{ generatedCurl || t('admin.vision.output.empty') }}</code></pre>
-            <div class="space-y-3 border-t border-gray-200 pt-4 text-sm text-gray-700 dark:border-dark-700 dark:text-gray-300">
-              <h3 class="font-bold text-gray-950 dark:text-white">{{ t('admin.vision.billingTitle') }}</h3>
-              <p>{{ t('admin.vision.billingDesc') }}</p>
-              <ul class="list-disc space-y-1 pl-5">
-                <li>{{ t('admin.vision.billingPoint1') }}</li>
-                <li>{{ t('admin.vision.billingPoint2') }}</li>
-              </ul>
-            </div>
-          </div>
-        </section>
-      </div>
+          </section>
+        </div>
+      </details>
     </div>
   </AppLayout>
 </template>
@@ -304,10 +317,9 @@ import { keysAPI } from '@/api'
 import { useClipboard } from '@/composables/useClipboard'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import type { AdminGroup, ApiKey } from '@/types'
-import EdgeRequestEditor from '@/features/edge/EdgeRequestEditor.vue'
+import KeyValueEditor from '@/features/edge/KeyValueEditor.vue'
 import {
   applyGatewayPath,
-  buildEdgeCurl,
   parseEdgeCurl,
   replaceBodyModel,
   sanitizeHeaders,
@@ -315,6 +327,11 @@ import {
   type EdgeKeyValue,
   type EdgeRequestMethod,
 } from '@/features/edge/curl'
+import {
+  EDGE_CODE_LANGUAGES,
+  generateEdgeCode,
+  type EdgeCodeLanguage,
+} from '@/features/edge/codegen'
 
 interface VisionStatus {
   enabled: boolean
@@ -373,6 +390,18 @@ const detailOpen = ref(true)
 const sending = ref(false)
 const response = ref<EndpointResponse | null>(null)
 const sendError = ref('')
+const visionImageName = ref('')
+const visionImageBase64 = ref('')
+const visionImageError = ref('')
+const requestTab = ref<'params' | 'headers' | 'body'>('body')
+const bodyModes: EdgeBodyMode[] = ['none', 'json', 'form']
+const codeLanguage = ref<EdgeCodeLanguage>('curl')
+
+const requestTabs = computed(() => [
+  { value: 'params' as const, label: 'admin.vision.workbench.query', count: request.query.filter(item => item.name.trim()).length },
+  { value: 'headers' as const, label: 'admin.vision.workbench.headers', count: request.headers.filter(item => item.name.trim()).length },
+  { value: 'body' as const, label: 'admin.vision.workbench.body', count: request.body.trim() ? 1 : 0 },
+])
 
 const request = reactive<{
   method: EdgeRequestMethod
@@ -399,11 +428,11 @@ const request = reactive<{
 })
 
 const endpoints = computed<EndpointDefinition[]>(() => [
-  { key: 'detect', path: '/vision/detect', method: 'POST', description: t('admin.vision.endpointDetect'), category: 'vision', preset: 'vision' },
-  { key: 'segment', path: '/vision/segment', method: 'POST', description: t('admin.vision.endpointSegment'), category: 'vision', preset: 'vision' },
-  { key: 'pose', path: '/vision/pose', method: 'POST', description: t('admin.vision.endpointPose'), category: 'vision', preset: 'vision' },
-  { key: 'classify', path: '/vision/classify', method: 'POST', description: t('admin.vision.endpointClassify'), category: 'vision', preset: 'vision' },
-  { key: 'ocr', path: '/vision/ocr', method: 'POST', description: t('admin.vision.endpointOcr'), category: 'vision', preset: 'vision' },
+  { key: 'detect', path: '/vision/volcengine/detect', method: 'POST', description: t('admin.vision.endpointDetect'), category: 'vision', preset: 'vision' },
+  { key: 'segment', path: '/vision/volcengine/segment', method: 'POST', description: t('admin.vision.endpointSegment'), category: 'vision', preset: 'vision' },
+  { key: 'pose', path: '/vision/volcengine/pose', method: 'POST', description: t('admin.vision.endpointPose'), category: 'vision', preset: 'vision' },
+  { key: 'classify', path: '/vision/volcengine/classify', method: 'POST', description: t('admin.vision.endpointClassify'), category: 'vision', preset: 'vision' },
+  { key: 'ocr', path: '/vision/volcengine/ocr', method: 'POST', description: t('admin.vision.endpointOcr'), category: 'vision', preset: 'vision' },
   { key: 'tts', path: '/media/tts', method: 'POST', description: t('admin.vision.endpointManboTts'), category: 'media', preset: 'manbo' },
   { key: 'dub', path: '/media/videos/dub', method: 'POST', description: t('admin.vision.endpointVideoDub'), category: 'media', preset: 'video-dub' },
   { key: 'generation', path: '/media/videos/generations', method: 'POST', description: t('admin.vision.endpointVideoGeneration'), category: 'media', preset: 'video-generation' },
@@ -426,7 +455,8 @@ const endpointGroups = computed(() => {
 const selectedEndpoint = computed(() => endpoints.value.find(endpoint => endpoint.key === selectedEndpointKey.value) ?? endpoints.value[0])
 const selectedAPIKey = computed(() => apiKeys.value.find(apiKey => apiKey.id === selectedAPIKeyID.value) ?? null)
 
-const generatedCurl = computed(() => buildEdgeCurl({
+const generatedCode = computed(() => generateEdgeCode({
+  language: codeLanguage.value,
   gatewayOrigin: baseUrl,
   method: request.method,
   url: gatewayPath.value ? applyGatewayPath(request.url, baseUrl, gatewayPath.value) : request.url,
@@ -448,9 +478,6 @@ function endpointEnabled(endpoint: EndpointDefinition): boolean {
   return status.value.laya_enabled
 }
 
-function endpointStatusLabel(endpoint: EndpointDefinition): string {
-  return endpointEnabled(endpoint) ? t('admin.vision.statusEnabled') : t('admin.vision.statusDisabled')
-}
 
 function openEndpoint(endpoint: EndpointDefinition) {
   selectedEndpointKey.value = endpoint.key
@@ -463,20 +490,46 @@ function openEndpoint(endpoint: EndpointDefinition) {
   sendError.value = ''
 }
 
-function closeDetail() {
-  detailOpen.value = false
+
+function visionActionForEndpoint(): string {
+  const endpoint = selectedEndpoint.value
+  if (!endpoint.path.startsWith('/vision/volcengine/')) return 'Detect'
+  return endpoint.path.slice('/vision/volcengine/'.length)
+}
+
+function visionActionName(action: string): string {
+  const names: Record<string, string> = {
+    detect: 'Detect',
+    segment: 'Segment',
+    pose: 'Pose',
+    classify: 'Classify',
+    ocr: 'OCR',
+  }
+  return names[action] ?? 'Detect'
+}
+
+function visionParamsForAction(action: string): Record<string, number> {
+  if (action === 'classify') return { TopK: 5 }
+  if (action === 'ocr') return {}
+  return { ConfidenceThreshold: 0.5 }
 }
 
 function presetRequest(preset: Preset) {
   if (preset === 'vision') {
-    gatewayPath.value = '/vision/detect'
+    const action = visionActionForEndpoint()
+    gatewayPath.value = `/vision/volcengine/${action}`
     return {
       method: 'POST' as EdgeRequestMethod,
-      url: buildGatewayUrl('/vision/detect'),
-      headers: [] as EdgeKeyValue[],
+      url: buildGatewayUrl(`/vision/volcengine/${action}`),
+      headers: [{ name: 'Content-Type', value: 'application/json' }],
       query: [] as EdgeKeyValue[],
-      body: 'image=@photo.jpg&confidence_threshold=0.5',
-      bodyMode: 'form' as EdgeBodyMode,
+      body: JSON.stringify({
+        Action: visionActionName(action),
+        Version: '2022-08-31',
+        ImageBase64: visionImageBase64.value || '$IMAGE_BASE64',
+        Params: visionParamsForAction(action),
+      }, null, 2),
+      bodyMode: 'json' as EdgeBodyMode,
       model: '',
     }
   }
@@ -587,6 +640,22 @@ function importCurl() {
   }
 }
 
+function addHeader() {
+  request.headers.push({ name: '', value: '' })
+}
+
+function addQuery() {
+  request.query.push({ name: '', value: '' })
+}
+
+function formatRequestBody() {
+  try {
+    request.body = JSON.stringify(JSON.parse(request.body), null, 2)
+  } catch {
+    return
+  }
+}
+
 function gatewayPathForUrl(urlText: string): string {
   try {
     const path = new URL(urlText).pathname
@@ -653,6 +722,42 @@ function buildRequestHeaders(): Headers {
   })
   headers.set('Authorization', `Bearer ${selectedAPIKey.value?.key ?? ''}`)
   return headers
+}
+
+async function selectVisionImage(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  visionImageError.value = ''
+  if (!file) return
+  if (!file.type.startsWith('image/')) {
+    visionImageError.value = t('admin.vision.imageTypeError')
+    visionImageName.value = ''
+    visionImageBase64.value = ''
+    input.value = ''
+    return
+  }
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    let binary = ''
+    const chunkSize = 0x8000
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize))
+    }
+    visionImageBase64.value = btoa(binary)
+    visionImageName.value = file.name
+    if (request.body.includes('$IMAGE_BASE64')) {
+      request.body = request.body.replace(/\$IMAGE_BASE64/g, visionImageBase64.value)
+    }
+    request.headers = request.headers.map(header => (
+      header.name.toLowerCase() === 'content-type' && !header.value
+        ? { ...header, value: 'application/json' }
+        : header
+    ))
+  } catch {
+    visionImageError.value = t('admin.vision.imageReadFailed')
+    visionImageName.value = ''
+    visionImageBase64.value = ''
+  }
 }
 
 function buildRequestBody(): BodyInit | undefined {
@@ -765,8 +870,8 @@ function selectCandidateModel(model: string) {
   }
 }
 
-async function copyGeneratedCurl() {
-  await copyToClipboard(generatedCurl.value, t('common.copiedToClipboard'))
+async function copyGeneratedCode() {
+  await copyToClipboard(generatedCode.value, t('common.copiedToClipboard'))
 }
 
 onMounted(async () => {

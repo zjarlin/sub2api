@@ -38,6 +38,16 @@ func TestResponsesRejectedInputCompatibility(t *testing.T) {
 			body: `{"input":[{"type":"message","role":"assistant","content":null},{"role":"user","content":"continue"}]}`,
 			want: `{"input":[{"type":"message","role":"assistant","content":""},{"role":"user","content":"continue"}]}`,
 		},
+		{
+			name: "null tools is removed",
+			body: `{"model":"gpt-5.6-luna","input":[{"role":"user","content":"hello"}],"tools":null}`,
+			want: `{"model":"gpt-5.6-luna","input":[{"role":"user","content":"hello"}]}`,
+		},
+		{
+			name: "null input is removed",
+			body: `{"model":"deepseek/deepseek-v4.1-flash","input":null,"stream":false}`,
+			want: `{"model":"deepseek/deepseek-v4.1-flash","stream":false}`,
+		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

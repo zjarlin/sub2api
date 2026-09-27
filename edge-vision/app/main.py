@@ -13,6 +13,7 @@ import logging
 import os
 
 from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -21,6 +22,7 @@ from app.api.classify import classify_endpoint
 from app.api.segment import segment_endpoint
 from app.api.pose import pose_endpoint
 from app.api.ocr import ocr_endpoint
+from app.api.volcengine import volcengine_route
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("edge-vision")
@@ -120,6 +122,11 @@ async def classify_route(
     top_k: int = Form(5),
 ):
     return await classify_endpoint(image=image, top_k=top_k)
+
+
+@app.post("/volcengine/{endpoint}")
+async def volcengine_endpoint(endpoint: str, request: Request):
+    return await volcengine_route(endpoint, request)
 
 
 @app.post("/ocr")

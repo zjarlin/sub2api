@@ -119,7 +119,10 @@ func normalizeOpenAIResponsesRejectedFieldRetryBody(statusCode int, body, respon
 	code := strings.ToLower(strings.TrimSpace(extractUpstreamErrorCode(responseBody)))
 	message := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(responseBody)))
 	param := strings.ToLower(strings.TrimSpace(gjson.GetBytes(responseBody, "error.param").String()))
-	if param == "input" && message == "invalid input" &&
+	invalidInputShape := param == "input" && message == "invalid input"
+	invalidNullTools := (param == "tools" || param == "") &&
+		message == "invalid input: expected array, received null"
+	if (invalidInputShape || invalidNullTools) &&
 		(code == "" || code == "invalid_request_error") &&
 		gjson.GetBytes(responseBody, "error.type").String() == "invalid_request_error" {
 		return normalizeOpenAIResponsesRejectedInput(body)
