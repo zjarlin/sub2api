@@ -1,7 +1,9 @@
-import { flushPromises, mount } from '@vue/test-utils'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import VisionEdgeView from '@/views/admin/VisionEdgeView.vue'
+
+enableAutoUnmount(afterEach)
 
 const { getStatus, getAllGroups, getCandidates, updateGroup, listKeys, showSuccess, showError } = vi.hoisted(() => ({
   getStatus: vi.fn(),
@@ -116,6 +118,8 @@ function group(id: number, name: string, platform = 'openai') {
 describe('VisionEdgeView workbench', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    URL.createObjectURL = vi.fn().mockReturnValue('blob:media-result')
+    URL.revokeObjectURL = vi.fn()
     getStatus.mockResolvedValue({ data: { enabled: true, laya_enabled: true } })
     getAllGroups.mockResolvedValue([group(7, 'Main')])
     getCandidates.mockResolvedValue(['existing-model', 'laya-multilingual'])
@@ -226,5 +230,106 @@ describe('VisionEdgeView workbench', () => {
         models: ['existing-model', 'laya-multilingual'],
       },
     })
+  })
+
+  it('uploads an actual video and timeline JSON, then previews the authenticated result', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ task_id: 'dub_test', status: 'succeeded', output: { path: '/media/tasks/dub_test/content' } }), { headers: { 'content-type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response(new Uint8Array([0, 255, 128, 10]), { headers: { 'content-type': 'video/mp4' } }))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(VisionEdgeView)
+    await flushPromises()
+    await wrapper.get('[data-testid="edge-endpoint-dub"]').trigger('click')
+    const input = wrapper.get('[data-testid="dub-file"]')
+    Object.defineProperty(input.element, 'files', { value: [new File(['video'], 'input.mp4', { type: 'video/mp4' })] })
+    await input.trigger('change')
+    await wrapper.get('[data-testid="dub-mode-timeline"]').trigger('click')
+    await wrapper.get('[data-testid="dub-start"]').setValue('0.5')
+    await wrapper.get('[data-testid="dub-end"]').setValue('3')
+    await wrapper.get('[data-testid="dub-text"]').setValue('你好 & hello')
+    await wrapper.get('[data-testid="edge-send-request"]').trigger('click')
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const body = fetchMock.mock.calls[0][1].body as FormData
+    expect(body.get('video')).toBeInstanceOf(File)
+    expect((body.get('video') as File).name).toBe('input.mp4')
+    expect(JSON.parse(body.get('options') as string)).toEqual({ mode: 'timeline', language: 'zh', keep_original_audio: false, segments: [{ start: 0.5, end: 3, text: '你好 & hello' }] })
+    expect(fetchMock.mock.calls[0][1].headers.has('Content-Type')).toBe(false)
+    expect(fetchMock.mock.calls[1][0]).toContain('/media/tasks/dub_test/content')
+    expect(fetchMock.mock.calls[1][1].headers.get('Authorization')).toBe('Bearer sk-test-1234567890')
+    expect(wrapper.get('[data-testid="edge-media-result"] video').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="edge-media-download"]').attributes('download')).toBe('result.mp4')
+    expect(wrapper.text()).toContain('4 B')
+    await wrapper.get('[data-testid="edge-endpoint-tts"]').trigger('click')
+    expect(URL.revokeObjectURL).toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="edge-media-result"]').exists()).toBe(false)
+  })
+
+  it('requires a video and validates the timeline before sending', async () => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(VisionEdgeView)
+    await flushPromises()
+    await wrapper.get('[data-testid="edge-endpoint-dub"]').trigger('click')
+    await wrapper.get('[data-testid="edge-send-request"]').trigger('click')
+    expect(wrapper.text()).toContain('admin.vision.dubbing.chooseVideo')
+    await wrapper.get('[data-testid="dub-mode-timeline"]').trigger('click')
+    await wrapper.get('[data-testid="dub-start"]').setValue('4')
+    await wrapper.get('[data-testid="dub-end"]').setValue('1')
+    expect(wrapper.text()).toContain('admin.vision.dubbing.invalidSegments')
+    expect(fetchMock).not.toHaveBeenCalled()
+    await wrapper.findAll('button').find(button => button.text() === 'admin.vision.mediaResult.docs')!.trigger('click')
+    expect(wrapper.find('[data-testid="dubbing-docs"]').exists()).toBe(true)
+  })
+
+  it('plays TTS bytes instead of rendering them as text', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(new Uint8Array([82, 73, 70, 70, 255, 128]), { headers: { 'content-type': 'audio/wav' } })))
+    const wrapper = mount(VisionEdgeView)
+    await flushPromises()
+    await wrapper.get('[data-testid="edge-endpoint-tts"]').trigger('click')
+    await wrapper.get('[data-testid="edge-send-request"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('audio').attributes('src')).toBe('blob:media-result')
+    expect(wrapper.text()).toContain('6 B')
+    expect(wrapper.get('[data-testid="edge-media-download"]').attributes('download')).toBe('result.wav')
+  })
+
+  it.each(['failed', 'blocked'])('shows %s task errors even with HTTP 200', async (status) => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ task_id: 'dub_failed', status, error: 'speech is too long' })))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(VisionEdgeView)
+    await flushPromises()
+    await wrapper.get('[data-testid="edge-send-request"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('speech is too long')
+    expect(wrapper.find('[data-testid="edge-media-download"]').exists()).toBe(false)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not send the key to a foreign request or task URL', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: 'succeeded', output: { path: 'https://other.example/content' } })))
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(VisionEdgeView)
+    await flushPromises()
+    await wrapper.get('[data-testid="edge-request-url"]').setValue('https://other.example/tts')
+    await wrapper.get('[data-testid="edge-send-request"]').trigger('click')
+    expect(fetchMock).not.toHaveBeenCalled()
+    await wrapper.get('[data-testid="edge-endpoint-tts"]').trigger('click')
+    await wrapper.get('[data-testid="edge-send-request"]').trigger('click')
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('admin.vision.mediaResult.invalidOutput')
+  })
+
+  it('ignores a response after switching endpoints', async () => {
+    let resolve!: (response: Response) => void
+    vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise<Response>(done => { resolve = done })))
+    const wrapper = mount(VisionEdgeView)
+    await flushPromises()
+    await wrapper.get('[data-testid="edge-send-request"]').trigger('click')
+    await wrapper.get('[data-testid="edge-endpoint-dub"]').trigger('click')
+    resolve(new Response('old-result'))
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('old-result')
   })
 })

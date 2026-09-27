@@ -1433,8 +1433,8 @@ export default {
     },
 
   vision: {
-    title: 'Edge Vision',
-    description: 'Use one request workbench for edge vision, JEV, and Laya: paste a curl, edit headers and parameters, generate a gateway curl, and register models into a group allowlist.',
+    title: 'Edge Services',
+    description: 'Vision, speech synthesis, video dubbing and network video generation',
     localService: 'Offline inference services',
     gatewayBase: 'Gateway base',
     chooseImage: 'Choose image',
@@ -1466,6 +1466,62 @@ export default {
     request: {
       title: 'Request Parameters and Headers',
       description: 'This is the source of truth for the generated curl. Edit method, URL, query, headers, and body directly after parsing.',
+    },
+    dubbing: {
+      "mode": "Dubbing mode",
+      "auto": "Dub original speech",
+      "timeline": "Dub a timeline",
+      "video": "Video file",
+      "chooseVideo": "Choose a video to dub.",
+      "language": "Speech language",
+      "languages": {
+        "zh": "Chinese",
+        "en": "English",
+        "ja": "Japanese",
+        "ko": "Korean",
+        "yue": "Cantonese"
+      },
+      "keepOriginal": "Mix original audio at 15%",
+      "start": "Start (seconds)",
+      "end": "End (seconds)",
+      "text": "Speech text",
+      "addSegment": "Add segment",
+      "removeSegment": "Remove segment",
+      "importOptions": "Import options JSON",
+      "exportOptions": "Export options JSON",
+      "fileSizeError": "Choose a nonempty video up to 512 MiB.",
+      "fileTypeError": "Choose a video file.",
+      "invalidOptions": "Options must include mode, language and keep_original_audio; timeline mode also requires segments. Check field names and types.",
+      "invalidSegments": "Provide 1–500 ordered, nonoverlapping segments in seconds: 0 ≤ start < end ≤ video duration, with 1–2000 characters each.",
+      "docs": {
+        "auto": "For video with one speaker: extract audio → transcribe text and timestamps → synthesize Manbo speech → align → output a complete MP4. Speech is resynthesized from text.",
+        "timeline": "For silent video or an existing script: upload video and start / end / text segments → synthesize → align to your timeline. Original audio is not transcribed.",
+        "multipart": "Use multipart/form-data: video is a file field; options is a JSON text field. Let the client set the Content-Type boundary. Request examples below follow the form.",
+        "fields": {
+          "video": "Required video upload, up to 512 MiB. Replace the cURL file path with a real local video.",
+          "mode": "auto (default) or timeline. auto requires recognizable speech; timeline requires segments.",
+          "language": "Defaults to zh; supports zh, en, ja, ko and yue. Sets speech and synthesis language; does not translate.",
+          "keep_original_audio": "Boolean, false by default: replaces the entire original track. true mixes the whole track at 15%, including speech. This does not separate vocals. Ignored for silent video.",
+          "segments": "Timeline only: an array of start, end and text objects. Times are seconds, including decimals. Segments must be ordered, nonoverlapping and within the video duration."
+        },
+        "alignment": "Short speech is padded with silence. Long speech speeds up to 1.6x; if it still cannot fit, the task fails. Shorten text or extend the segment. Gaps and the video tail are preserved.",
+        "result": "The request waits for completion and returns task JSON. Check status, not HTTP 200 alone: succeeded permits download; failed / blocked includes error. GET /media/tasks/TASK_ID queries; GET /media/tasks/TASK_ID/content downloads MP4. Both require a key from the same group.",
+        "auth": "Set SUB2API_KEY in the terminal. Use Bearer and double quotes so the shell expands the variable. Replace TASK_ID with the returned task_id.",
+        "limits": "Uses the configured Manbo voice. Speaker-specific voices, voice training, translation, vocal separation and lip synchronization are not included."
+      }
+    },
+    mediaResult: {
+      "docs": "API documentation",
+      "download": "Download media",
+      "loading": "Loading media…",
+      "load": "Load and preview result",
+      "task": "Task ID",
+      "query": "Look up task",
+      "taskFailed": "Task failed",
+      "invalidOutput": "The media URL is not a task path on this gateway.",
+      "sameOrigin": "Authenticated test requests must target this gateway.",
+      "unsupportedFormFile": "Select a file in the dubbing form. Browsers cannot read a local path from request text.",
+      "generationDocs": "Generation uses the Seedance / Ark network API. Enable Seedance (Ark) on an account and configure its URL and key. Replace model with an available model ID. After creation returns id, use a key from the same group for GET /v1/contents/generations/tasks/ID to check status or DELETE to cancel. Retrieve content.video_url on completion."
     },
     workbench: {
       method: 'Method',
@@ -1571,6 +1627,6 @@ export default {
     endpointOcr: 'OCR text recognition (Chinese/English)',
     endpointManboTts: 'Manbo/GPT-SoVITS text-to-speech',
     endpointVideoDub: 'Video dubbing task (ASR, TTS, and audio mix)',
-    endpointVideoGeneration: 'Video generation task (local or private upstream)',
+    endpointVideoGeneration: 'Seedance / Ark network video generation',
   }
 }

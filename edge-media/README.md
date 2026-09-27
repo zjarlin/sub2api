@@ -4,7 +4,7 @@
 
 - `POST /media/tts`：曼波 / GPT-SoVITS 文本转语音
 - `POST /media/videos/dub`：视频配音任务
-- `POST /media/videos/generations`：视频生成任务
+- `POST /v1/contents/generations/tasks`：Seedance / Ark 网络视频生成（由主网关接入）
 - `POST /media/videos/transcode`：基础视频转码
 
 ## 本地验证
@@ -23,6 +23,13 @@ python3 -m pytest -q edge-media/tests
 | `POST /videos/transcode` | `multipart/form-data`，字段 `video` 与 `options`，内置 ffmpeg H.264/AAC |
 | `GET /tasks/{task_id}` | 查询任务状态（状态持久化在 `/data/tasks/<id>/task.json`） |
 | `GET /tasks/{task_id}/content` | 下载任务产物 |
+
+## 视频配音用法
+
+支持有声视频自动识别配音（`mode=auto`）和视频加时间轴文字配音（`mode=timeline`）。
+网页提供视频上传、片段编辑、参数 JSON 导入导出、接口文档、结果播放和下载。
+见 [两种配音流程、完整参数和 cURL 示例](dub/README.md)。
+默认替换原音轨；可混入 15% 原声，不做人声分离。两种模式均保留完整画面时长。
 
 ## 配置
 
@@ -46,14 +53,12 @@ EDGE_MEDIA_IMAGE=zjarlin/edge-media:local \
 
 默认媒体容器健康但不启用 TTS/视频生成。
 
-### 天津 GPU 部署（曼波 TTS + 视频配音）
+### GPU 部署（曼波 TTS + 视频配音）
 
-252 无 GPU，只做编排与公网入口；曼波 TTS 与视频配音流水线跑在天津海光 DCU 机器上。
-天津是三套重模型服务（`gpt-sovits` 9880 / `edge-dub` 18084 / `edge-media` 18083），
-通过 FRP 或 cloudflared 把内网端口暴露给 252：
+构建并启动曼波 GPT-SoVITS、视频配音流水线与 edge-media 编排，发布内网端口供 252 的 `/media/*` 调用。
 
 ```bash
-# 需要先在天津机器准备好 /opt/gptsovits-models/manbo 权重与参考音频
+# 需要先在 GPU 主机准备好 /opt/gptsovits-models/manbo 权重与参考音频
 ./edge-media/scripts/deploy-tianjin-gpu.sh
 ```
 
@@ -61,15 +66,15 @@ EDGE_MEDIA_IMAGE=zjarlin/edge-media:local \
 `edge-media`(18083) 编排。详见 [gptsovits/README.md](gptsovits/README.md) 与
 [dub/README.md](dub/README.md)。
 
-#### 252 → 天津连接（二选一，或都配）
+#### 252 → GPU 服务连接
 
-252 与天津不在同一内网，且都无法直连对方私网。两条可用路径：
+两端不在同一内网时，可选以下路径：
 
-1. **FRP（推荐，适合大视频）**：天津（或能访问 GPU 机器的中控机）跑 `frpc`
+1. **FRP（适合大视频）**：GPU 主机（或可访问该主机的中控机）跑 `frpc`
    连到 252 的 `frps`（公网 `61.163.60.12:7000`，需把 `28084/28085` 加入
    `allowPorts`），把 `edge-media:18083`、`gpt-sovits:9880` 映射出去。
    模板见 [../deploy/tianjin/frpc-media.toml.template](../deploy/tianjin/frpc-media.toml.template)。
-2. **cloudflared**：天津本机 cloudflared 隧道加 `media-tj` / `tts-tj` / `dub-tj`
+2. **cloudflared**：GPU 主机 cloudflared 隧道加 `media-tj` / `tts-tj` / `dub-tj`
    主机名，252 走 HTTPS 调用。模板见
    [../deploy/tianjin/cloudflared-media-config.yml.template](../deploy/tianjin/cloudflared-media-config.yml.template)。
 
@@ -110,4 +115,5 @@ MEDIA_TTS_REFER_WAV=/models/manbo/reference/reference.mp3 \
   ./deploy/cluster/deploy-edge-media.sh
 ```
 
-视频配音需要在接入服务中实现 ASR、说话人/人声分离、TTS、时间轴对齐和混音。可参考 MamboVideo 的流程，但不要把其 Windows 桌面依赖直接搬进 Linux 容器。
+当前 `dub/` 实现 ASR、显式时间轴输入、TTS、时间轴对齐和可选原音轨混音；
+说话人区分、人声分离和翻译尚未实现。具体调用说明见 [配音文档](dub/README.md)。

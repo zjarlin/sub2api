@@ -166,6 +166,16 @@ export default defineConfig(({ mode }) => {
           target: backendUrl,
           changeOrigin: true
         },
+        '/media': {
+          target: backendUrl,
+          changeOrigin: true,
+          timeout: 7200000,
+          proxyTimeout: 7200000
+        },
+        '/vision': {
+          target: backendUrl,
+          changeOrigin: true
+        },
         '/setup': {
           target: backendUrl,
           changeOrigin: true

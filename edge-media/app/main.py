@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import os
 from typing import Any
 
@@ -71,12 +72,21 @@ async def tts_route(body: dict[str, Any]):
 @app.post("/videos/dub")
 async def dub_route(video: UploadFile = File(...), options: str = Form("{}")):
     try:
-        parsed = __import__("json").loads(options or "{}")
+        parsed = json.loads(options or "{}")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail="options must be a JSON object") from exc
     if not isinstance(parsed, dict):
         raise HTTPException(status_code=400, detail="options must be a JSON object")
     return await media_tasks.dub_video(config, video, parsed)
+
+
+@app.post("/dub", include_in_schema=False)
+async def internal_dub_route(video: UploadFile = File(...), options: str = Form("{}")):
+    """内网编排节点之间传 MP4；公开接口仍返回可查询的任务 JSON。"""
+    task = await dub_route(video, options)
+    if task["status"] != "succeeded":
+        raise HTTPException(status_code=502, detail=task.get("error", "dubbing failed"))
+    return media_tasks.task_content(config, task["task_id"])
 
 
 @app.post("/videos/generations")

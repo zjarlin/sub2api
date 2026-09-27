@@ -33,6 +33,8 @@ ARG WHISPER_MODEL=medium
 RUN python3 -c "from faster_whisper import WhisperModel; WhisperModel('${WHISPER_MODEL}', device='cpu', compute_type='int8')" && \
     python3 -c "import os, faster_whisper, glob; print('whisper cache', glob.glob(os.path.expanduser('~/.cache/huggingface/hub/*')))"
 
+RUN python3 -m pip install --no-cache-dir "python-multipart>=0.0.18,<1"
+
 COPY pipeline /opt/dub/pipeline
 
 ENV MEDIA_DUB_WHISPER_MODEL=${WHISPER_MODEL} \

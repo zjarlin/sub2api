@@ -1,64 +1,25 @@
 <template>
   <AppLayout>
     <div class="mx-auto min-w-0 max-w-7xl space-y-6 overflow-x-hidden pb-10">
-      <header class="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900">
-        <div class="grid gap-0 lg:grid-cols-[minmax(0,1.25fr)_minmax(320px,0.75fr)]">
-          <div class="border-b border-gray-200 p-6 dark:border-dark-700 lg:border-b-0 lg:border-r">
-            <div class="flex flex-wrap items-center gap-2">
-              <span class="badge badge-primary">EDGE / VISION / MEDIA / DECISION</span>
-              <span :class="status?.enabled ? 'badge badge-success' : 'badge badge-gray'">
-                {{ status?.enabled ? t('admin.vision.statusEnabled') : t('admin.vision.statusDisabled') }}
-              </span>
-            </div>
-            <h1 class="mt-4 text-3xl font-black tracking-tight text-gray-950 dark:text-white">{{ t('admin.vision.title') }}</h1>
-            <p class="mt-2 max-w-3xl text-sm leading-6 text-gray-700 dark:text-gray-300">{{ t('admin.vision.description') }}</p>
-            <div class="mt-5 flex flex-wrap gap-2">
-              <button type="button" class="btn btn-secondary" :disabled="loading" @click="loadStatus">
-                <Icon name="refresh" size="sm" :class="loading ? 'animate-spin' : ''" />
-                {{ t('common.refresh') }}
-              </button>
-              <button type="button" class="btn btn-primary" @click="openPreset('vision')">
-                <Icon name="eye" size="sm" />
-                {{ t('admin.vision.presets.vision') }}
-              </button>
-              <button type="button" class="btn btn-secondary" @click="openPreset('jev')">
-                <Icon name="brain" size="sm" />
-                {{ t('admin.vision.presets.jev') }}
-              </button>
-              <button type="button" class="btn btn-secondary" @click="openPreset('laya')">
-                <Icon name="cpu" size="sm" />
-                {{ t('admin.vision.presets.laya') }}
-              </button>
-            </div>
-          </div>
-          <div class="grid content-start gap-3 bg-gray-50 p-6 dark:bg-dark-950/40">
-            <div>
-              <span class="input-label">{{ t('admin.vision.gatewayBase') }}</span>
-              <code class="mt-1 block break-all rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs text-gray-900 dark:border-dark-700 dark:bg-dark-900 dark:text-gray-100">{{ baseUrl }}</code>
-            </div>
-            <div class="grid grid-cols-3 gap-2">
-              <div class="rounded-lg border border-gray-200 bg-white p-3 dark:border-dark-700 dark:bg-dark-900">
-                <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.vision.visualStatus') }}</span>
-                <strong class="mt-1 block text-sm">{{ status?.enabled ? t('admin.vision.statusEnabled') : t('admin.vision.statusDisabled') }}</strong>
-              </div>
-              <div class="rounded-lg border border-gray-200 bg-white p-3 dark:border-dark-700 dark:bg-dark-900">
-                <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.vision.layaStatus') }}</span>
-                <strong class="mt-1 block text-sm">{{ status?.laya_enabled ? t('admin.vision.statusEnabled') : t('admin.vision.statusDisabled') }}</strong>
-              </div>
-              <div class="rounded-lg border border-gray-200 bg-white p-3 dark:border-dark-700 dark:bg-dark-900">
-                <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.vision.mediaStatus') }}</span>
-                <strong class="mt-1 block text-sm">{{ status?.media_enabled ? t('admin.vision.statusEnabled') : t('admin.vision.statusDisabled') }}</strong>
-              </div>
-            </div>
-            <p v-if="error" role="alert" class="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">{{ error }}</p>
-            <p v-else-if="status && !status.enabled" class="text-xs leading-5 text-gray-600 dark:text-gray-400">{{ t('admin.vision.disabledHint') }}</p>
-          </div>
+      <header class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 pb-4 dark:border-dark-700">
+        <h1 class="text-xl font-bold text-gray-950 dark:text-white">{{ t('admin.vision.title') }}</h1>
+        <div class="flex flex-wrap items-center gap-2 text-xs">
+          <span class="badge" :class="status?.enabled ? 'badge-success' : 'badge-gray'">{{ t('admin.vision.visualStatus') }}</span>
+          <span class="badge" :class="status?.media_enabled ? 'badge-success' : 'badge-gray'">{{ t('admin.vision.mediaStatus') }}</span>
+          <span class="badge" :class="status?.laya_enabled ? 'badge-success' : 'badge-gray'">{{ t('admin.vision.layaStatus') }}</span>
+          <button type="button" class="btn btn-icon btn-secondary h-8 w-8" :title="t('common.refresh')" :aria-label="t('common.refresh')" :disabled="loading" @click="loadStatus">
+            <Icon name="refresh" size="sm" :class="loading ? 'animate-spin' : ''" />
+          </button>
         </div>
+        <p v-if="error" role="alert" class="w-full text-sm text-red-600">{{ error }}</p>
       </header>
 
-      <section class="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900">
+      <section class="overflow-hidden border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900">
         <div class="flex items-center gap-3 border-b border-gray-200 px-4 py-3 dark:border-dark-700">
-          <div class="flex min-w-0 flex-1 items-center overflow-x-auto">
+          <select class="input min-w-0 w-full text-xs sm:hidden" :value="selectedEndpointKey" :aria-label="t('admin.vision.endpoints')" @change="selectEndpointFromMenu">
+            <option v-for="endpoint in endpoints" :key="endpoint.key" :value="endpoint.key">{{ endpoint.path }}</option>
+          </select>
+          <div class="hidden min-w-0 flex-1 items-center overflow-x-auto sm:flex">
             <button
               v-for="endpoint in endpoints"
               :key="endpoint.key"
@@ -80,7 +41,7 @@
         </div>
 
         <div class="grid min-h-[680px] lg:grid-cols-[260px_minmax(0,1fr)]">
-          <aside class="border-b border-gray-200 bg-gray-50/70 p-3 lg:border-b-0 lg:border-r dark:border-dark-700 dark:bg-dark-950/30">
+          <aside class="hidden lg:block border-b border-gray-200 bg-gray-50/70 p-3 lg:border-b-0 lg:border-r dark:border-dark-700 dark:bg-dark-950/30">
             <div class="flex items-center justify-between px-2 py-1">
               <span class="text-xs font-black uppercase text-gray-500 dark:text-gray-400">{{ t('admin.vision.endpoints') }}</span>
               <button type="button" class="btn btn-icon btn-secondary h-8 w-8" :title="t('common.refresh')" :disabled="loading" @click="loadStatus">
@@ -155,7 +116,7 @@
                       <span v-if="tab.count" class="ml-1 rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] text-gray-600 dark:bg-dark-700 dark:text-gray-300">{{ tab.count }}</span>
                     </button>
                   </div>
-                  <button type="button" class="btn btn-secondary btn-sm" :disabled="requestTab !== 'body' || request.bodyMode !== 'json' || !request.body.trim()" @click="formatRequestBody">
+                  <button v-if="selectedEndpointKey !== 'dub'" type="button" class="btn btn-secondary btn-sm" :disabled="requestTab !== 'body' || request.bodyMode !== 'json' || !request.body.trim()" @click="formatRequestBody">
                     <Icon name="terminal" size="xs" />
                     {{ t('admin.vision.workbench.formatJson') }}
                   </button>
@@ -167,6 +128,15 @@
 
                 <div v-else-if="requestTab === 'headers'" class="mt-3 space-y-2">
                   <KeyValueEditor v-model="request.headers" :name-placeholder="t('admin.vision.workbench.headerName')" :value-placeholder="t('admin.vision.workbench.headerValue')" @add="addHeader" />
+                </div>
+
+                <div v-else-if="requestTab === 'docs'" class="mt-3">
+                  <DubbingDocs v-if="selectedEndpointKey === 'dub'" :base-url="baseUrl" />
+                  <p v-else class="text-sm leading-6">{{ t('admin.vision.mediaResult.generationDocs') }}</p>
+                </div>
+
+                <div v-else-if="selectedEndpointKey === 'dub'" class="mt-3">
+                  <DubbingForm v-model="dubbingOptions" v-model:file="dubbingFile" v-model:duration="dubbingDuration" />
                 </div>
 
                 <div v-else class="mt-3 space-y-3">
@@ -203,8 +173,19 @@
                   <span v-if="response" class="badge" :class="response.ok ? 'badge-success' : 'badge-danger'">{{ response.status }} {{ response.statusText }}</span>
                 </div>
                 <p v-if="sendError" role="alert" class="mt-3 rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-200">{{ sendError }}</p>
-                <pre v-else-if="response" class="mt-3 max-h-[430px] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-gray-950 p-3 text-xs leading-5 text-gray-100">{{ response.body }}</pre>
-                <div v-else class="mt-3 flex min-h-64 items-center justify-center rounded-lg border border-dashed border-gray-300 text-xs text-gray-500 dark:border-dark-600 dark:text-gray-400">
+                <div v-if="loadingMedia" class="mt-3 text-xs text-gray-500">{{ t('admin.vision.mediaResult.loading') }}</div>
+                <div v-if="media" class="mt-3 space-y-3" data-testid="edge-media-result">
+                  <video v-if="media.type.startsWith('video/')" :src="media.url" controls class="max-h-80 w-full bg-black" />
+                  <audio v-else-if="media.type.startsWith('audio/')" :src="media.url" controls class="w-full" />
+                  <a :href="media.url" :download="media.name" class="btn btn-secondary" data-testid="edge-media-download"><Icon name="download" size="sm" />{{ t('admin.vision.mediaResult.download') }}</a>
+                  <span class="ml-2 text-xs text-gray-500">{{ media.size }} B</span>
+                </div>
+                <div v-if="selectedEndpointKey === 'dub'" class="mt-3 flex flex-wrap gap-2">
+                  <input v-model.trim="taskID" :aria-label="t('admin.vision.mediaResult.task')" :placeholder="t('admin.vision.mediaResult.task')" class="input min-w-0 flex-1 text-xs" data-testid="edge-task-id" />
+                  <button type="button" class="btn btn-secondary btn-sm" :disabled="sending || !selectedAPIKey || !/^[a-zA-Z0-9_-]+$/.test(taskID)" @click="queryTask"><Icon name="refresh" size="xs" />{{ t('admin.vision.mediaResult.query') }}</button>
+                </div>
+                <pre v-if="response?.body" class="mt-3 max-h-[430px] overflow-auto whitespace-pre-wrap break-words rounded-lg bg-gray-950 p-3 text-xs leading-5 text-gray-100">{{ response.body }}</pre>
+                <div v-else-if="!response && !sendError" class="mt-3 flex min-h-64 items-center justify-center rounded-lg border border-dashed border-gray-300 text-xs text-gray-500 dark:border-dark-600 dark:text-gray-400">
                   {{ t('admin.vision.responseEmpty') }}
                 </div>
               </section>
@@ -235,7 +216,7 @@
         </div>
       </section>
 
-      <details class="card min-w-0" open>
+      <details class="card min-w-0">
         <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-6 py-4">
           <span>
             <span class="block text-xs font-black uppercase text-primary-700 dark:text-primary-300">03 / ADVANCED</span>
@@ -317,6 +298,10 @@ import { keysAPI } from '@/api'
 import { useClipboard } from '@/composables/useClipboard'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import type { AdminGroup, ApiKey } from '@/types'
+import DubbingForm from '@/features/edge/DubbingForm.vue'
+import DubbingDocs from '@/features/edge/DubbingDocs.vue'
+import { defaultDubbingOptions, dubbingOptionsError, videoFileError } from '@/features/edge/dubbing'
+import { useEdgeResponse } from '@/features/edge/useEdgeResponse'
 import KeyValueEditor from '@/features/edge/KeyValueEditor.vue'
 import {
   applyGatewayPath,
@@ -351,15 +336,6 @@ interface EndpointDefinition {
   preset: Preset
 }
 
-interface EndpointResponse {
-  status: number
-  statusText: string
-  durationMs: number
-  size: number
-  headers: Record<string, string>
-  body: string
-  ok: boolean
-}
 
 const { t } = useI18n()
 const { copyToClipboard } = useClipboard()
@@ -386,21 +362,22 @@ const parsedFromCurl = ref(false)
 const parseError = ref('')
 const parseWarnings = ref<string[]>([])
 const selectedEndpointKey = ref('detect')
-const detailOpen = ref(true)
-const sending = ref(false)
-const response = ref<EndpointResponse | null>(null)
-const sendError = ref('')
+const { sending, response, media, sendError, loadingMedia, taskID, execute, reset } = useEdgeResponse(baseUrl, t)
+const dubbingOptions = ref(defaultDubbingOptions())
+const dubbingFile = ref<File | null>(null)
+const dubbingDuration = ref(0)
 const visionImageName = ref('')
 const visionImageBase64 = ref('')
 const visionImageError = ref('')
-const requestTab = ref<'params' | 'headers' | 'body'>('body')
+const requestTab = ref<'params' | 'headers' | 'body' | 'docs'>('body')
 const bodyModes: EdgeBodyMode[] = ['none', 'json', 'form']
 const codeLanguage = ref<EdgeCodeLanguage>('curl')
 
 const requestTabs = computed(() => [
   { value: 'params' as const, label: 'admin.vision.workbench.query', count: request.query.filter(item => item.name.trim()).length },
   { value: 'headers' as const, label: 'admin.vision.workbench.headers', count: request.headers.filter(item => item.name.trim()).length },
-  { value: 'body' as const, label: 'admin.vision.workbench.body', count: request.body.trim() ? 1 : 0 },
+  { value: 'body' as const, label: 'admin.vision.workbench.body', count: request.body.trim() || selectedEndpointKey.value === 'dub' ? 1 : 0 },
+  ...(['dub', 'generation'].includes(selectedEndpointKey.value) ? [{ value: 'docs' as const, label: 'admin.vision.mediaResult.docs', count: 0 }] : []),
 ])
 
 const request = reactive<{
@@ -435,7 +412,7 @@ const endpoints = computed<EndpointDefinition[]>(() => [
   { key: 'ocr', path: '/vision/volcengine/ocr', method: 'POST', description: t('admin.vision.endpointOcr'), category: 'vision', preset: 'vision' },
   { key: 'tts', path: '/media/tts', method: 'POST', description: t('admin.vision.endpointManboTts'), category: 'media', preset: 'manbo' },
   { key: 'dub', path: '/media/videos/dub', method: 'POST', description: t('admin.vision.endpointVideoDub'), category: 'media', preset: 'video-dub' },
-  { key: 'generation', path: '/media/videos/generations', method: 'POST', description: t('admin.vision.endpointVideoGeneration'), category: 'media', preset: 'video-generation' },
+  { key: 'generation', path: '/v1/contents/generations/tasks', method: 'POST', description: t('admin.vision.endpointVideoGeneration'), category: 'media', preset: 'video-generation' },
   { key: 'jev', path: '/v1/systemone', method: 'POST', description: t('admin.vision.jevDescription'), category: 'decision', preset: 'jev' },
   { key: 'laya', path: '/v1/systemone', method: 'POST', description: t('admin.vision.layaDescription'), category: 'decision', preset: 'laya' },
 ])
@@ -463,7 +440,12 @@ const generatedCode = computed(() => generateEdgeCode({
   headers: sanitizeHeaders(request.headers, '$SUB2API_KEY'),
   query: request.query,
   body: request.body,
-  bodyMode: request.bodyMode,
+  bodyMode: selectedEndpointKey.value === 'dub' ? 'form' : request.bodyMode,
+  form: selectedEndpointKey.value === 'dub' ? [
+    { name: 'video', kind: 'file', value: dubbingFile.value?.name ?? 'input.mp4' },
+    { name: 'options', kind: 'text', value: JSON.stringify(dubbingOptions.value) },
+  ] : undefined,
+  outputFile: selectedEndpointKey.value === 'tts' ? 'speech.' + ttsFormat() : undefined,
   apiKeyPlaceholder: '$SUB2API_KEY',
 }))
 
@@ -485,9 +467,14 @@ function openEndpoint(endpoint: EndpointDefinition) {
   gatewayPath.value = endpoint.path
   request.method = endpoint.method
   request.url = buildGatewayUrl(endpoint.path)
-  detailOpen.value = true
-  response.value = null
-  sendError.value = ''
+  requestTab.value = 'body'
+  taskID.value = ''
+  reset()
+}
+
+function selectEndpointFromMenu(event: Event) {
+  const endpoint = endpoints.value.find(item => item.key === (event.target as HTMLSelectElement).value)
+  if (endpoint) openEndpoint(endpoint)
 }
 
 
@@ -552,21 +539,21 @@ function presetRequest(preset: Preset) {
       url: buildGatewayUrl('/media/videos/dub'),
       headers: [] as EdgeKeyValue[],
       query: [] as EdgeKeyValue[],
-      body: 'video=@input.mp4&options={}',
+      body: '',
       bodyMode: 'form' as EdgeBodyMode,
       model: '',
     }
   }
   if (preset === 'video-generation') {
-    gatewayPath.value = '/media/videos/generations'
+    gatewayPath.value = '/v1/contents/generations/tasks'
     return {
       method: 'POST' as EdgeRequestMethod,
-      url: buildGatewayUrl('/media/videos/generations'),
+      url: buildGatewayUrl('/v1/contents/generations/tasks'),
       headers: [{ name: 'Content-Type', value: 'application/json' }],
       query: [] as EdgeKeyValue[],
-      body: JSON.stringify({ model: 'edge-video', prompt: '一台机器人在天津海边散步，电影感镜头' }, null, 2),
+      body: JSON.stringify({ model: 'YOUR_ARK_MODEL_ID', content: [{ type: 'text', text: '海边日出，固定镜头' }], duration: 5, resolution: '720p' }, null, 2),
       bodyMode: 'json' as EdgeBodyMode,
-      model: 'edge-video',
+      model: 'YOUR_ARK_MODEL_ID',
     }
   }
   const model = preset === 'jev' ? 'typesafe/jev' : 'laya'
@@ -600,20 +587,8 @@ function applyRequest(value: ReturnType<typeof presetRequest>) {
 }
 
 function usePreset(preset: Preset) {
+  if (preset === 'video-dub') dubbingOptions.value = defaultDubbingOptions()
   applyRequest(presetRequest(preset))
-}
-
-function openPreset(preset: Preset) {
-  const endpoint = endpoints.value.find(item => item.preset === preset)
-  if (endpoint) {
-    openEndpoint(endpoint)
-    return
-  }
-  usePreset(preset)
-  selectedEndpointKey.value = 'detect'
-  detailOpen.value = true
-  response.value = null
-  sendError.value = ''
 }
 
 function importCurl() {
@@ -622,6 +597,18 @@ function importCurl() {
   registerSuccess.value = ''
   try {
     const parsed = parseEdgeCurl(curlInput.value)
+    const endpoint = endpoints.value.find(item => item.path === new URL(parsed.url).pathname)
+    selectedEndpointKey.value = endpoint?.key ?? ''
+    requestTab.value = 'body'
+    reset()
+    if (endpoint?.key === 'dub') {
+      const options = JSON.parse(parsed.form.find(field => field.name === 'options')?.value ?? '{}')
+      const normalized = { ...defaultDubbingOptions(), ...options }
+      const error = dubbingOptionsError(normalized)
+      if (error) throw new Error(t('admin.vision.dubbing.' + error))
+      dubbingOptions.value = normalized
+      dubbingFile.value = null
+    }
     request.method = parsed.method
     request.url = parsed.url
     request.headers = sanitizeHeaders(parsed.headers)
@@ -760,7 +747,22 @@ async function selectVisionImage(event: Event) {
   }
 }
 
-function buildRequestBody(): BodyInit | undefined {
+function ttsFormat(): string {
+  try {
+    const value = JSON.parse(request.body).response_format
+    return ['wav', 'mp3', 'ogg'].includes(value) ? value : 'wav'
+  } catch { return 'wav' }
+}
+
+function buildRequestBody() {
+  if (selectedEndpointKey.value === 'dub') {
+    const error = videoFileError(dubbingFile.value) || dubbingOptionsError(dubbingOptions.value, dubbingDuration.value)
+    if (error) throw new Error(t('admin.vision.dubbing.' + error))
+    const form = new FormData()
+    form.append('video', dubbingFile.value!)
+    form.append('options', JSON.stringify(dubbingOptions.value))
+    return form
+  }
   if (request.method === 'GET' || request.bodyMode === 'none' || !request.body.trim()) return undefined
   if (request.bodyMode === 'json') return request.body
   const form = new FormData()
@@ -768,6 +770,7 @@ function buildRequestBody(): BodyInit | undefined {
     const separator = part.indexOf('=')
     const name = separator >= 0 ? part.slice(0, separator) : part
     const value = separator >= 0 ? part.slice(separator + 1) : ''
+    if (value.startsWith('@')) throw new Error(t('admin.vision.mediaResult.unsupportedFormFile'))
     if (name.trim()) form.append(name.trim(), value)
   })
   return form
@@ -775,40 +778,21 @@ function buildRequestBody(): BodyInit | undefined {
 
 async function sendRequest() {
   if (!selectedAPIKey.value || sending.value) return
-  sending.value = true
-  response.value = null
-  sendError.value = ''
-  const startedAt = performance.now()
   try {
     const headers = buildRequestHeaders()
-    const responseBody = buildRequestBody()
-    if (responseBody instanceof FormData) {
-      headers.delete('Content-Type')
-    } else if (request.bodyMode === 'json' && !headers.has('Content-Type')) {
-      headers.set('Content-Type', 'application/json')
-    }
-    const result = await fetch(buildRequestURL(), {
-      method: request.method,
-      headers,
-      body: responseBody,
-    })
-    const text = await result.text()
-    const responseHeaders: Record<string, string> = {}
-    result.headers.forEach((value, name) => { responseHeaders[name] = value })
-    response.value = {
-      status: result.status,
-      statusText: result.statusText,
-      durationMs: Math.round(performance.now() - startedAt),
-      size: new Blob([text]).size,
-      headers: responseHeaders,
-      body: text,
-      ok: result.ok,
-    }
+    const body = buildRequestBody()
+    if (body instanceof FormData) headers.delete('Content-Type')
+    else if (request.bodyMode === 'json' && !headers.has('Content-Type')) headers.set('Content-Type', 'application/json')
+    await execute(buildRequestURL(), { method: request.method, headers, body })
   } catch (cause) {
+    reset()
     sendError.value = cause instanceof Error ? cause.message : t('admin.vision.requestFailed')
-  } finally {
-    sending.value = false
   }
+}
+
+async function queryTask() {
+  if (!selectedAPIKey.value || sending.value || !/^[a-zA-Z0-9_-]+$/.test(taskID.value)) return
+  await execute(buildGatewayUrl('/media/tasks/' + taskID.value), { headers: buildRequestHeaders() })
 }
 
 async function loadGroupModels() {
@@ -875,6 +859,7 @@ async function copyGeneratedCode() {
 }
 
 onMounted(async () => {
+  openEndpoint(endpoints.value[0])
   await Promise.all([loadStatus(), loadGroups(), loadAPIKeys()])
 })
 </script>

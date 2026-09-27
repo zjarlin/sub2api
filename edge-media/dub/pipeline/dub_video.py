@@ -1,34 +1,26 @@
 #!/usr/bin/env python3
-"""开源视频配音流水线：ASR -> 翻译 -> 曼波 TTS -> 时间轴对齐 -> 混音回封。
+"""视频配音：自动转写或显式时间轴 -> 曼波 TTS -> 对齐 -> ffmpeg 回封。
 
-由 edge-media 的 MEDIA_DUBBING_COMMAND 调用，输入输出通过环境变量传递：
-
-- MEDIA_INPUT      输入视频路径
-- MEDIA_OUTPUT     输出视频路径
-- MEDIA_TASK_DIR   任务工作目录
-- MEDIA_METADATA_JSON  任务 options（JSON）
-
-流程完全基于开源组件：
-- ffmpeg 抽音轨 / 拼接 / 回封
-- faster-whisper 做语音识别（可选 GPU / CPU）
-- GPT-SoVITS（曼波音色）HTTP API 做逐段语音合成，按目标时长做变速对齐
-
-设计取舍：逐段合成再按原时间轴拼接，保证画面与配音同步；翻译层默认关闭，
-只做“同语言重配音”，需要翻译时通过 MEDIA_DUB_TRANSLATE_* 接入。
+CLI 从 MEDIA_INPUT / MEDIA_OUTPUT / MEDIA_TASK_DIR / MEDIA_METADATA_JSON 读取任务。
+只做同语言配音，不包含翻译、人声分离或口型重建。
 """
 from __future__ import annotations
 
 import json
+import math
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
-import time
 from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
+
+MAX_SEGMENTS = 500
+MAX_SPEED = 1.6
+SAMPLE_RATE = 32000
+LANGUAGES = {"zh", "en", "ja", "ko", "yue"}
 
 
 def env(name: str, default: str = "") -> str:
@@ -39,23 +31,14 @@ def run(cmd: list[str], **kwargs) -> subprocess.CompletedProcess:
     return subprocess.run(cmd, check=True, capture_output=True, text=True, **kwargs)
 
 
+def probe(path: Path) -> dict:
+    return json.loads(run([
+        "ffprobe", "-v", "error", "-show_streams", "-show_format", "-of", "json", str(path),
+    ]).stdout)
+
+
 def probe_duration(path: Path) -> float:
-    result = subprocess.run(
-        [
-            "ffprobe",
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-of",
-            "default=noprint_wrappers=1:nokey=1",
-            str(path),
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-    )
-    return float(result.stdout.strip())
+    return float(probe(path)["format"]["duration"])
 
 
 @dataclass
@@ -65,43 +48,70 @@ class Segment:
     text: str
 
 
-def transcribe(audio: Path, language: str | None) -> list[Segment]:
-    """用 faster-whisper 识别转写，返回按时间排序的分段。"""
+def validate_segments(items: object, duration: float) -> list[Segment]:
+    if not isinstance(items, list) or not 1 <= len(items) <= MAX_SEGMENTS:
+        raise ValueError(f"segments must contain 1..{MAX_SEGMENTS} entries")
+    segments = []
+    previous_end = 0.0
+    for index, item in enumerate(items):
+        prefix = f"segments[{index}]"
+        if not isinstance(item, dict) or set(item) != {"start", "end", "text"}:
+            raise ValueError(f"{prefix} requires start, end, text")
+        start, end, text = item["start"], item["end"], item["text"]
+        if any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v) for v in (start, end)):
+            raise ValueError(f"{prefix} start/end must be finite numbers in seconds")
+        if start < 0 or end <= start or end > duration:
+            raise ValueError(f"{prefix} requires 0 <= start < end <= video duration ({duration:.3f}s)")
+        if start < previous_end:
+            raise ValueError(f"{prefix} overlaps the previous segment; keep segments ordered")
+        if not isinstance(text, str) or not text.strip() or len(text) > 2000:
+            raise ValueError(f"{prefix} text must contain 1..2000 characters")
+        segments.append(Segment(float(start), float(end), text.strip()))
+        previous_end = end
+    return segments
+
+
+def validate_options(options: object) -> dict:
+    if not isinstance(options, dict):
+        raise ValueError("options must be a JSON object")
+    if set(options) - {"mode", "language", "keep_original_audio", "segments"}:
+        raise ValueError("unknown options; supported fields: mode, language, keep_original_audio, segments")
+    opts = {"mode": "auto", "language": env("MEDIA_DUB_LANGUAGE", "zh"), "keep_original_audio": False, **options}
+    if opts["mode"] not in ("auto", "timeline"):
+        raise ValueError("mode must be auto or timeline")
+    if not isinstance(opts["language"], str) or opts["language"] not in LANGUAGES:
+        raise ValueError("language must be zh, en, ja, ko or yue")
+    if not isinstance(opts["keep_original_audio"], bool):
+        raise ValueError("keep_original_audio must be a JSON boolean")
+    if opts["mode"] == "auto" and "segments" in opts:
+        raise ValueError("segments requires mode=timeline")
+    return opts
+
+
+def transcribe(audio: Path, language: str) -> list[Segment]:
     from faster_whisper import WhisperModel
 
-    model_name = env("MEDIA_DUB_WHISPER_MODEL", "large-v3")
     device = env("MEDIA_DUB_WHISPER_DEVICE", "auto")
-    compute_type = env("MEDIA_DUB_WHISPER_COMPUTE", "float16" if device != "cpu" else "int8")
-    model = WhisperModel(model_name, device=device, compute_type=compute_type)
-    raw_segments, info = model.transcribe(
-        str(audio),
-        language=language or None,
-        vad_filter=True,
+    model = WhisperModel(
+        env("MEDIA_DUB_WHISPER_MODEL", "large-v3"), device=device,
+        compute_type=env("MEDIA_DUB_WHISPER_COMPUTE", "float16" if device != "cpu" else "int8"),
+    )
+    raw_segments, _ = model.transcribe(
+        str(audio), language="zh" if language == "yue" else language, vad_filter=True,
         beam_size=int(env("MEDIA_DUB_WHISPER_BEAM", "5")),
     )
-    segments = [Segment(float(s.start), float(s.end), (s.text or "").strip()) for s in raw_segments]
-    return [s for s in segments if s.text]
+    return [Segment(float(s.start), float(s.end), s.text.strip()) for s in raw_segments if s.text.strip()]
 
 
 def synthesize(text: str, language: str, output: Path) -> None:
-    """调用曼波 GPT-SoVITS 合成单段语音。"""
     upstream = env("MEDIA_TTS_UPSTREAM_URL")
     if not upstream:
         raise RuntimeError("MEDIA_TTS_UPSTREAM_URL is required for dubbing")
     params = {"text": text, "text_language": language, "format": "wav"}
-    refer = env("MEDIA_TTS_REFER_WAV")
-    prompt_text = env("MEDIA_TTS_PROMPT_TEXT")
-    prompt_language = env("MEDIA_TTS_PROMPT_LANGUAGE", "zh")
+    refer, prompt_text = env("MEDIA_TTS_REFER_WAV"), env("MEDIA_TTS_PROMPT_TEXT")
     if refer and prompt_text:
-        params.update(
-            {
-                "refer_wav_path": refer,
-                "prompt_text": prompt_text,
-                "prompt_language": prompt_language,
-            }
-        )
-    timeout = float(env("MEDIA_TTS_TIMEOUT_SECONDS", "180"))
-    with httpx.Client(timeout=timeout) as client:
+        params.update(refer_wav_path=refer, prompt_text=prompt_text, prompt_language=env("MEDIA_TTS_PROMPT_LANGUAGE", "zh"))
+    with httpx.Client(timeout=float(env("MEDIA_TTS_TIMEOUT_SECONDS", "180"))) as client:
         response = client.get(upstream, params=params)
     response.raise_for_status()
     if not response.content:
@@ -110,203 +120,106 @@ def synthesize(text: str, language: str, output: Path) -> None:
 
 
 def fit_audio(source: Path, target_seconds: float, output: Path) -> None:
-    """把合成语音贴到目标时长：短了补静音，长了用 atempo 加速（封顶 1.6x）。"""
+    """短语音补静音，长语音最多加速 1.6 倍；不能容纳时要求用户调整时间轴。"""
     actual = probe_duration(source)
-    if actual <= 0:
-        shutil.copy(source, output)
-        return
-    ratio = actual / target_seconds if target_seconds > 0 else 1.0
-    filters: list[str] = []
-    if ratio > 1.02:
-        tempo = min(ratio, 1.6)
-        filters.append(f"atempo={tempo:.4f}")
-    pad = max(target_seconds - actual / (min(ratio, 1.6) if ratio > 1.02 else 1.0), 0.0)
-    filter_expr = ",".join(filters + [f"apad=pad_dur={pad:.3f}", "atrim=0:{:.3f}".format(target_seconds)])
-    run(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-y",
-            "-i",
-            str(source),
-            "-af",
-            filter_expr,
-            "-ar",
-            "32000",
-            "-ac",
-            "1",
-            str(output),
-        ]
-    )
+    if not math.isfinite(actual) or actual <= 0:
+        raise ValueError("TTS returned invalid audio duration")
+    ratio = actual / target_seconds
+    if ratio > MAX_SPEED:
+        raise ValueError(
+            f"speech is too long ({actual:.2f}s) for slot ({target_seconds:.2f}s); "
+            f"shorten text or allow at least {actual / MAX_SPEED:.2f}s"
+        )
+    filters = [f"atempo={max(1, ratio):.8f}", "apad", f"atrim=end_sample={round(target_seconds * SAMPLE_RATE)}"]
+    run(["ffmpeg", "-hide_banner", "-y", "-i", str(source), "-ar", str(SAMPLE_RATE), "-ac", "1",
+         "-af", f"aresample={SAMPLE_RATE}," + ",".join(filters), str(output)])
 
 
-def build_track(segments: list[Segment], language: str, workdir: Path) -> Path:
-    """逐段合成并对齐到原始时间轴，拼接成完整配音轨。"""
+def build_track(segments: list[Segment], language: str, workdir: Path, duration: float) -> Path:
     pieces: list[Path] = []
     cursor = 0.0
+
+    def add_silence(seconds: float) -> None:
+        if round(seconds * SAMPLE_RATE) <= 0:
+            return
+        gap = workdir / f"gap_{len(pieces):04d}.wav"
+        run(["ffmpeg", "-hide_banner", "-y", "-f", "lavfi", "-i", f"anullsrc=r={SAMPLE_RATE}:cl=mono",
+             "-af", f"atrim=end_sample={round(seconds * SAMPLE_RATE)}", str(gap)])
+        pieces.append(gap)
+
     for index, segment in enumerate(segments):
-        target = max(segment.end - segment.start, 0.2)
-        if segment.start > cursor + 0.01:
-            gap = workdir / f"gap_{index:04d}.wav"
-            run(
-                [
-                    "ffmpeg",
-                    "-hide_banner",
-                    "-y",
-                    "-f",
-                    "lavfi",
-                    "-i",
-                    "anullsrc=r=32000:cl=mono",
-                    "-t",
-                    f"{segment.start - cursor:.3f}",
-                    str(gap),
-                ]
-            )
-            pieces.append(gap)
-        raw = workdir / f"seg_{index:04d}_raw.wav"
-        fitted = workdir / f"seg_{index:04d}.wav"
+        add_silence(segment.start - cursor)
+        raw, fitted = workdir / f"seg_{index:04d}_raw.wav", workdir / f"seg_{index:04d}.wav"
         synthesize(segment.text, language, raw)
-        fit_audio(raw, target, fitted)
+        try:
+            fit_audio(raw, segment.end - segment.start, fitted)
+        except ValueError as exc:
+            raise ValueError(f"segments[{index}]: {exc}") from exc
         pieces.append(fitted)
-        cursor = segment.start + probe_duration(fitted)
-    if not pieces:
-        raise RuntimeError("no dubbing segments were produced")
+        cursor = segment.end
+    add_silence(duration - cursor)
     list_file = workdir / "concat.txt"
     list_file.write_text("".join(f"file '{p.name}'\n" for p in pieces), encoding="utf-8")
     track = workdir / "dub_track.wav"
-    run(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-y",
-            "-f",
-            "concat",
-            "-safe",
-            "0",
-            "-i",
-            str(list_file),
-            "-ar",
-            "32000",
-            "-ac",
-            "1",
-            str(track),
-        ],
-        cwd=workdir,
-    )
+    run(["ffmpeg", "-hide_banner", "-y", "-f", "concat", "-safe", "0", "-i", str(list_file),
+         "-ar", str(SAMPLE_RATE), "-ac", "1", str(track)])
     return track
 
 
-def mux(video: Path, track: Path, output: Path, keep_original: bool) -> None:
-    """把配音轨回封到原视频；默认压低原声而不是完全静音，保留环境音底噪。"""
+def mux(video: Path, track: Path, output: Path, keep_original: bool, duration: float) -> None:
+    cmd = ["ffmpeg", "-hide_banner", "-y", "-i", str(video), "-i", str(track)]
     if keep_original:
-        run(
-            [
-                "ffmpeg",
-                "-hide_banner",
-                "-y",
-                "-i",
-                str(video),
-                "-i",
-                str(track),
-                "-filter_complex",
-                "[0:a]volume=0.15[bg];[1:a]volume=1.0[dub];[bg][dub]amix=inputs=2:duration=first:dropout_transition=0[aout]",
-                "-map",
-                "0:v",
-                "-map",
-                "[aout]",
-                "-c:v",
-                "copy",
-                "-c:a",
-                "aac",
-                "-shortest",
-                str(output),
-            ]
-        )
+        cmd += ["-filter_complex",
+                "[0:a:0]volume=0.15[bg];[1:a:0][bg]amix=inputs=2:duration=first:normalize=0:dropout_transition=0[aout]",
+                "-map", "0:v:0", "-map", "[aout]"]
     else:
-        run(
-            [
-                "ffmpeg",
-                "-hide_banner",
-                "-y",
-                "-i",
-                str(video),
-                "-i",
-                str(track),
-                "-map",
-                "0:v",
-                "-map",
-                "1:a",
-                "-c:v",
-                "copy",
-                "-c:a",
-                "aac",
-                "-shortest",
-                str(output),
-            ]
-        )
+        cmd += ["-map", "0:v:0", "-map", "1:a:0"]
+    # 统一编码便于浏览器播放；尾部静音使最后一句之后的画面也完整保留。
+    cmd += ["-c:v", "libx264", "-preset", "veryfast", "-pix_fmt", "yuv420p", "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+            "-c:a", "aac", "-t", f"{duration:.6f}", "-movflags", "+faststart", str(output)]
+    run(cmd)
 
 
-def dub_video(
-    input_path: Path,
-    output_path: Path,
-    workdir: Path | None = None,
-    options: dict | None = None,
-) -> Path:
-    """执行完整配音流程，返回输出路径。CLI 与 HTTP 服务共用同一入口。"""
-    workdir = Path(workdir or tempfile.mkdtemp(prefix="dub_"))
+def dub_video(input_path: Path, output_path: Path, workdir: Path | None = None, options: dict | None = None) -> Path:
+    opts = validate_options(options if options is not None else {})
+    workdir = Path(workdir or tempfile.mkdtemp(prefix="dub_")).resolve()
     workdir.mkdir(parents=True, exist_ok=True)
-    opts = (options or {}).get("options", options) if isinstance(options, dict) else {}
-    opts = opts or {}
-    language = str(opts.get("language") or env("MEDIA_DUB_LANGUAGE", "zh"))
-    keep_original = str(opts.get("keep_original_audio", env("MEDIA_DUB_KEEP_ORIGINAL", "false"))).lower() in {
-        "1",
-        "true",
-        "yes",
-    }
-    started = time.time()
-    audio = workdir / "source.wav"
-    run(
-        [
-            "ffmpeg",
-            "-hide_banner",
-            "-y",
-            "-i",
-            str(input_path),
-            "-vn",
-            "-ac",
-            "1",
-            "-ar",
-            "16000",
-            str(audio),
-        ]
-    )
-    segments = transcribe(audio, language)
-    print(f"[dub] transcribed {len(segments)} segments in {time.time() - started:.1f}s", flush=True)
-    if not segments:
-        raise RuntimeError("no speech detected in input video")
-    track = build_track(segments, language, workdir)
+    info = probe(input_path)
+    videos = [s for s in info["streams"] if s["codec_type"] == "video"]
+    if not videos:
+        raise ValueError("input must contain a video stream")
+    duration = float(videos[0].get("duration") or info["format"]["duration"])
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError("video duration must be positive")
+    has_audio = any(s["codec_type"] == "audio" for s in info["streams"])
+    if opts["mode"] == "timeline":
+        segments = validate_segments(opts.get("segments"), duration)
+    else:
+        if not has_audio:
+            raise ValueError("auto mode requires an audio track; use timeline mode for silent video")
+        audio = workdir / "source.wav"
+        run(["ffmpeg", "-hide_banner", "-y", "-i", str(input_path), "-vn", "-ac", "1", "-ar", "16000", str(audio)])
+        recognized = transcribe(audio, opts["language"])
+        if not recognized:
+            raise ValueError("no speech detected; use timeline mode with explicit text")
+        segments = validate_segments([
+            {"start": s.start, "end": min(s.end, duration), "text": s.text} for s in recognized
+        ], duration)
+    track = build_track(segments, opts["language"], workdir, duration)
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    mux(input_path, track, output_path, keep_original)
-    print(
-        f"[dub] wrote {output_path} ({output_path.stat().st_size} bytes) in {time.time() - started:.1f}s",
-        flush=True,
-    )
+    mux(input_path, track, output_path, opts["keep_original_audio"] and has_audio, duration)
     return output_path
 
 
 def main() -> None:
-    options = json.loads(env("MEDIA_METADATA_JSON", "{}") or "{}")
-    dub_video(
-        input_path=Path(env("MEDIA_INPUT")),
-        output_path=Path(env("MEDIA_OUTPUT")),
-        workdir=Path(env("MEDIA_TASK_DIR", tempfile.mkdtemp(prefix="dub_"))),
-        options=options,
-    )
+    metadata = json.loads(env("MEDIA_METADATA_JSON", "{}") or "{}")
+    dub_video(Path(env("MEDIA_INPUT")), Path(env("MEDIA_OUTPUT")),
+              Path(env("MEDIA_TASK_DIR", tempfile.mkdtemp(prefix="dub_"))), metadata.get("options", metadata))
 
 
 if __name__ == "__main__":
     try:
         main()
-    except subprocess.CalledProcessError as exc:
-        print(exc.stderr or exc.stdout or str(exc), file=sys.stderr)
-        sys.exit(exc.returncode or 1)
+    except (ValueError, subprocess.CalledProcessError) as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)

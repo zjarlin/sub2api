@@ -17,14 +17,14 @@ describe('generateEdgeCode', () => {
   it('generates cURL with the gateway URL and auth placeholder', () => {
     const code = generateEdgeCode({ ...base, language: 'curl' })
     expect(code).toContain("curl -X POST 'https://company-ai.example/vision/volcengine/detect?trace=1'")
-    expect(code).toContain("Authorization: $SUB2API_KEY")
+    expect(code).toContain('Authorization: Bearer $SUB2API_KEY')
   })
 
   it('generates JavaScript, Python, Go, and Java clients', () => {
     for (const language of ['javascript', 'python', 'go', 'java'] as const) {
       const code = generateEdgeCode({ ...base, language })
       expect(code).toContain('/vision/volcengine/detect?trace=1')
-      expect(code).toContain('$SUB2API_KEY')
+      expect(code).toContain('SUB2API_KEY')
     }
   })
 })

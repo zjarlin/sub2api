@@ -109,7 +109,8 @@ func (h *GatewayHandler) MediaProxy(c *gin.Context) {
 	}
 	defer response.Body.Close()
 
-	if response.StatusCode >= 200 && response.StatusCode < 300 {
+	// 查询和下载复用已生成产物，不应再次按视频任务计费。
+	if c.Request.Method == http.MethodPost && response.StatusCode >= 200 && response.StatusCode < 300 {
 		if err := h.recordMediaUsage(c, apiKey, subscription, quotaPlatform, endpoint, requestURL.Path, c.GetHeader("Content-Type"), requestBody); err != nil {
 			logger.L().With(zap.String("component", "handler.media")).Error("billing_failed", zap.Error(err))
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "billing_error", "message": "Media billing unavailable"}})

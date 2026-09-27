@@ -3,7 +3,7 @@ import jetbrains.buildServer.configs.kotlin.*
 version = "2025.11"
 
 project {
-    description = "Sub2API 双端部署：252 承载公网入口与编排（构建不可变镜像、双副本切换并验证 18080），天津海光 DCU 承载曼波 TTS / 视频配音 / 视频生成等重模型服务。"
+    description = "构建并启动曼波 GPT-SoVITS、视频配音流水线与 edge-media 编排，发布内网端口供 252 的 /media/* 调用。"
     buildType(Deploy252Cluster)
     buildType(DeployTianjinMedia)
 }
@@ -216,7 +216,7 @@ object DeployTianjinMedia : BuildType({
 
     steps {
         step {
-            name = "Sync source and deploy Tianjin media stack over SSH"
+            name = "Build and deploy media services"
             type = "simpleRunner"
             param("use.custom.script", "true")
             param("script.content", """
@@ -231,15 +231,15 @@ object DeployTianjinMedia : BuildType({
                 cd "${'$'}CHECKOUT"
                 test -x deploy/tianjin/deploy-tianjin-media.sh
 
-                echo "##teamcity[progressStart '同步源码到天津']"
+                echo "##teamcity[progressStart '同步媒体服务源码']"
                 ssh -o BatchMode=yes "${'$'}REMOTE" "mkdir -p '${'$'}RDIR'"
                 # 天津只需要 edge-media 与部署脚本；整仓库归档经慢速隧道要传 ~34MB，
                 # 只发这两个目录（<0.1MB）即可。
                 git archive "${'$'}SHA" edge-media deploy | ssh -o BatchMode=yes "${'$'}REMOTE" "tar -x -C '${'$'}RDIR'"
                 ssh -o BatchMode=yes "${'$'}REMOTE" "chmod +x '${'$'}RDIR/deploy/tianjin/deploy-tianjin-media.sh'"
-                echo "##teamcity[progressFinish '同步源码到天津']"
+                echo "##teamcity[progressFinish '同步媒体服务源码']"
 
-                echo "##teamcity[progressStart '部署天津 GPU 媒体三件套']"
+                echo "##teamcity[progressStart '部署 GPU 媒体服务']"
                 ssh -o BatchMode=yes "${'$'}REMOTE" \
                   "REPO_DIR='${'$'}RDIR' \
                    GPT_SOVITS_MODELS_DIR='%env.GPT_SOVITS_MODELS_DIR%' \
@@ -253,7 +253,7 @@ object DeployTianjinMedia : BuildType({
                    MEDIA_VIDEO_GENERATION_ENABLED='%env.MEDIA_VIDEO_GENERATION_ENABLED%' \
                    MEDIA_VIDEO_GENERATION_UPSTREAM_URL='%env.MEDIA_VIDEO_GENERATION_UPSTREAM_URL%' \
                    '${'$'}RDIR/deploy/tianjin/deploy-tianjin-media.sh'"
-                echo "##teamcity[progressFinish '部署天津 GPU 媒体三件套']"
+                echo "##teamcity[progressFinish '部署 GPU 媒体服务']"
 
                 echo "##teamcity[progressStart '验证天津媒体服务']"
                 ssh -o BatchMode=yes "${'$'}REMOTE" "docker exec edge-media curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18083/health >/dev/null && \

@@ -34,7 +34,7 @@ class MediaTask:
         }
         if self.error:
             payload["error"] = self.error
-        if self.output_path is not None and self.output_path.exists():
+        if self.status == "succeeded" and self.output_path is not None and self.output_path.exists():
             payload["output"] = {
                 "path": f"/media/tasks/{self.task_id}/content",
                 "bytes": self.output_path.stat().st_size,
@@ -171,6 +171,39 @@ async def post_bytes_upstream(
         request_headers.update(headers)
     async with httpx.AsyncClient(timeout=timeout) as client:
         return await client.post(url, content=body, headers=request_headers)
+
+
+async def post_video_upstream(
+    url: str, source: Path, output: Path, options: dict[str, Any], *, timeout: int,
+) -> None:
+    """视频与参数一起转发；流式落盘，只发布完整的 MP4 产物。"""
+    partial = output.with_suffix(".part")
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            with source.open("rb") as video:
+                async with client.stream(
+                    "POST", url,
+                    files={"video": (source.name, video, "application/octet-stream")},
+                    data={"options": json_text(options)},
+                ) as response:
+                    if not response.is_success:
+                        # 错误正文只读取小段，避免把任意上游响应装进内存。
+                        detail = bytearray()
+                        async for chunk in response.aiter_bytes():
+                            detail.extend(chunk[:2000 - len(detail)])
+                            if len(detail) >= 2000:
+                                break
+                        raise RuntimeError(f"video upstream HTTP {response.status_code}: {detail.decode('utf-8', errors='replace')}")
+                    if response.headers.get("content-type", "").split(";")[0] != "video/mp4":
+                        raise RuntimeError("video upstream must return video/mp4")
+                    with partial.open("wb") as target:
+                        async for chunk in response.aiter_bytes():
+                            target.write(chunk)
+        if not partial.stat().st_size:
+            raise RuntimeError("video upstream returned empty video")
+        partial.replace(output)
+    finally:
+        partial.unlink(missing_ok=True)
 
 
 def copy_or_move(src: Path, dst: Path) -> Path:

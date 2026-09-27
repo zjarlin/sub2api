@@ -1427,8 +1427,8 @@ export default {
     },
 
   vision: {
-    title: '边缘计算视觉服务',
-    description: '把边缘视觉、JEV 与 Laya 决策服务放进同一个请求工作台：粘贴 curl、调整请求头与参数、生成网关 curl，并把模型注册到分组的可用白名单。',
+    title: '边缘计算服务',
+    description: '视觉识别、语音合成、视频配音与网络视频生成',
     localService: '离线推理服务',
     gatewayBase: '网关地址',
     chooseImage: '选择图片',
@@ -1460,6 +1460,62 @@ export default {
     request: {
       title: '请求参数与请求头',
       description: '这里的结果是生成 curl 的唯一来源。解析后可直接修改 method、URL、query、headers 与 body。',
+    },
+    dubbing: {
+      "mode": "配音方式",
+      "auto": "原声自动配音",
+      "timeline": "时间轴配音",
+      "video": "视频文件",
+      "chooseVideo": "请选择要配音的视频文件。",
+      "language": "语音语言",
+      "languages": {
+        "zh": "中文",
+        "en": "英语",
+        "ja": "日语",
+        "ko": "韩语",
+        "yue": "粤语"
+      },
+      "keepOriginal": "混入 15% 原声",
+      "start": "开始（秒）",
+      "end": "结束（秒）",
+      "text": "配音文字",
+      "addSegment": "添加片段",
+      "removeSegment": "删除片段",
+      "importOptions": "导入参数 JSON",
+      "exportOptions": "导出参数 JSON",
+      "fileSizeError": "视频不能为空，最大支持 512 MiB。",
+      "fileTypeError": "请选择视频文件。",
+      "invalidOptions": "参数必须是 JSON 对象，包含 mode、language、keep_original_audio；时间轴模式还需 segments。请检查模式、语言及字段类型。",
+      "invalidSegments": "请填写 1–500 个片段：时间为秒，开始不小于 0，结束大于开始且不超过视频时长，按顺序排列且不重叠；每段文字 1–2000 字。",
+      "docs": {
+        "auto": "适合已有单人讲话的视频：提取音轨 → 识别文字及时间戳 → 曼波语音合成 → 按原时间轴对齐 → 输出完整 MP4。不是直接转换原声音波。",
+        "timeline": "适合无声视频或已有字幕稿的视频：上传视频及 start / end / text 片段 → 曼波逐段合成 → 按指定时间轴配音。不会识别原音轨。",
+        "multipart": "请求类型为 multipart/form-data。video 是文件字段，options 是 JSON 文本字段；不要手动填写 Content-Type 的 boundary。下方请求示例随表单同步更新。",
+        "fields": {
+          "video": "必填，最大 512 MiB。cURL 中的文件路径需指向本机实际视频文件。",
+          "mode": "auto（默认）或 timeline。auto 要求可识别的讲话；timeline 要求 segments。",
+          "language": "默认 zh；可选 zh、en、ja、ko、yue。表示讲话及合成语言，不会翻译文字。",
+          "keep_original_audio": "布尔值，默认 false，完全替换原音轨。true 将整条原音轨以 15% 音量混入，包括原人声；不是人声分离。无声视频忽略此项。",
+          "segments": "仅 timeline 使用。数组元素为 start、end、text，时间单位是秒，支持小数。必须按开始时间排列，不可重叠或超出视频时长。"
+        },
+        "alignment": "短配音补静音；长配音最多加速到 1.6 倍，仍放不下会返回错误，请减少文字或延长片段。开头、间隙与最后一句后的画面均保留。",
+        "result": "接口等待完成后返回任务 JSON，耗时可能较长。以 status 为准：succeeded 才可下载，failed / blocked 查看 error，不能只看 HTTP 200。GET /media/tasks/TASK_ID 可查询，GET /media/tasks/TASK_ID/content 下载 MP4，二者均需同一分组 API Key。",
+        "auth": "终端先设置 SUB2API_KEY 为你的 API Key。Authorization 要包含 Bearer，且用双引号让变量展开。将 TASK_ID 换成返回的 task_id。",
+        "limits": "当前使用已配置的曼波音色。不支持多人音色分配、声音克隆训练、翻译、人声分离或口型重建。"
+      }
+    },
+    mediaResult: {
+      "docs": "接口文档",
+      "download": "下载媒体文件",
+      "loading": "正在读取媒体文件…",
+      "load": "读取并预览结果",
+      "task": "任务 ID",
+      "query": "查询任务",
+      "taskFailed": "任务失败",
+      "invalidOutput": "返回的媒体地址不符合本网关任务路径。",
+      "sameOrigin": "只能向当前网关发送带密钥的调试请求。",
+      "unsupportedFormFile": "请使用视频配音表单选择文件，浏览器不能读取文本中的本机路径。",
+      "generationDocs": "视频生成走 Seedance / Ark 网络 API。先在账号中启用 Seedance (Ark)，配置地址与 Key，再将 model 替换为可用模型 ID。创建返回 id 后，以同一分组 Key 请求 GET /v1/contents/generations/tasks/ID 查询，DELETE 同一路径取消；完成后读取 content.video_url。"
     },
     workbench: {
       method: 'Method',
@@ -1565,6 +1621,6 @@ export default {
     endpointOcr: 'OCR 文字识别（中英文）',
     endpointManboTts: '曼波/GPT-SoVITS 文本转语音',
     endpointVideoDub: '视频配音任务（语音识别、TTS、音轨混音）',
-    endpointVideoGeneration: '视频生成任务（可接本地或内网生成模型）',
+    endpointVideoGeneration: 'Seedance / Ark 网络视频生成任务',
   }
 }

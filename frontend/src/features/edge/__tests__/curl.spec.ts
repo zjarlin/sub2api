@@ -63,6 +63,15 @@ describe('parseEdgeCurl', () => {
 })
 
 describe('edge curl output', () => {
+  it('round-trips structured multipart JSON without splitting speech on ampersands', () => {
+    const options = JSON.stringify({ mode: 'timeline', segments: [{ start: 0, end: 2, text: '你好 & "world"; $(literal)' }] })
+    const output = buildEdgeCurl({ gatewayOrigin: 'https://gateway.test', url: 'https://gateway.test/media/videos/dub',
+      method: 'POST', headers: [{ name: 'Content-Type', value: 'multipart/form-data; boundary=stale' }], query: [],
+      body: '', bodyMode: 'form', form: [{ name: 'video', kind: 'file', value: 'clip.mp4' }, { name: 'options', kind: 'text', value: options }] })
+    expect(output).not.toContain('boundary=stale')
+    expect(parseEdgeCurl(output).form).toEqual([{ name: 'video', kind: 'file', value: 'clip.mp4' }, { name: 'options', kind: 'text', value: options }])
+    expect(output).toContain('--form-string')
+  })
   it('replaces authentication headers with a placeholder and targets the configured gateway', () => {
     const output = buildEdgeCurl({
       gatewayOrigin: 'https://company-ai.example',
@@ -80,8 +89,8 @@ describe('edge curl output', () => {
     })
 
     expect(output).toContain("curl -X POST 'https://company-ai.example/v1/chat/completions'")
-    expect(output).toContain("-H 'Authorization: $SUB2API_KEY'")
-    expect(output).toContain("-H 'X-Api-Key: $SUB2API_KEY'")
+    expect(output).toContain('-H "Authorization: Bearer $SUB2API_KEY"')
+    expect(output).toContain('-H "X-Api-Key: $SUB2API_KEY"')
     expect(output).not.toContain('secret-token')
     expect(output).not.toContain('another-secret')
   })
@@ -97,7 +106,7 @@ describe('edge curl output', () => {
       bodyMode: 'none',
     })
 
-    expect(output).toContain("-H 'Authorization: $SUB2API_KEY'")
+    expect(output).toContain('-H "Authorization: Bearer $SUB2API_KEY"')
     expect(output).toContain("'https://company-ai.example/v1/models?type=codex'")
   })
 
@@ -118,7 +127,7 @@ describe('edge curl output', () => {
       { name: 'x-api-key', value: 'secret-2' },
       { name: 'X-Trace', value: 'trace-1' },
     ])).toEqual([
-      { name: 'Authorization', value: '$SUB2API_KEY' },
+      { name: 'Authorization', value: 'Bearer $SUB2API_KEY' },
       { name: 'x-api-key', value: '$SUB2API_KEY' },
       { name: 'X-Trace', value: 'trace-1' },
     ])

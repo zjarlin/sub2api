@@ -2,8 +2,11 @@
 from __future__ import annotations
 
 import asyncio
+import subprocess
 from pathlib import Path
 from typing import Any
+
+import httpx
 
 from fastapi import HTTPException, UploadFile
 from fastapi.responses import FileResponse
@@ -13,7 +16,7 @@ from app.runtime import (
     MediaTask,
     json_text,
     new_task_id,
-    post_bytes_upstream,
+    post_video_upstream,
     post_json_upstream,
     read_upload,
     read_task_state,
@@ -64,7 +67,7 @@ async def dub_video(cfg: MediaConfig, video: UploadFile, body: dict[str, Any]) -
     _validate_video_upload(video)
     task_id = new_task_id("dub")
     try:
-        input_path = await read_upload(cfg, task_id, video, video.filename or "input.mp4")
+        input_path = await read_upload(cfg, task_id, video, "input" + (Path(video.filename or "input.mp4").suffix or ".mp4"))
     except ValueError as exc:
         raise HTTPException(status_code=413, detail=str(exc)) from exc
     output = task_dir(cfg, task_id) / "output.mp4"
@@ -81,24 +84,20 @@ async def dub_video(cfg: MediaConfig, video: UploadFile, body: dict[str, Any]) -
         try:
             await asyncio.to_thread(_run_sync_command, cfg, task, cfg.dubbing_command, output)
             task.status = "succeeded"
-        except RuntimeError as exc:
+        except (RuntimeError, subprocess.TimeoutExpired) as exc:
             task.status = "failed"
             task.error = str(exc)
     elif cfg.video_upstream_url:
         task.status = "running"
-        response = await post_bytes_upstream(
-            cfg.video_upstream_url.rstrip("/") + "/dub",
-            input_path.read_bytes(),
-            content_type=video.content_type or "application/octet-stream",
-            timeout=cfg.video_timeout_seconds,
-            headers={"X-Media-Filename": input_path.name, "X-Media-Task-Id": task_id},
-        )
-        if response.status_code < 200 or response.status_code >= 300:
-            task.status = "failed"
-            task.error = response.text[:1000] or "video upstream failed"
-        else:
-            output.write_bytes(response.content)
+        try:
+            await post_video_upstream(
+                cfg.video_upstream_url.rstrip("/") + "/dub",
+                input_path, output, body, timeout=cfg.video_timeout_seconds,
+            )
             task.status = "succeeded"
+        except (httpx.HTTPError, RuntimeError, OSError) as exc:
+            task.status = "failed"
+            task.error = str(exc)[:2000] or type(exc).__name__
     else:
         task.status = "blocked"
         task.error = "configure MEDIA_DUBBING_COMMAND or MEDIA_VIDEO_UPSTREAM_URL"
@@ -198,6 +197,9 @@ async def transcode_video(cfg: MediaConfig, video: UploadFile, body: dict[str, A
 
 
 def task_content(cfg: MediaConfig, task_id: str) -> FileResponse:
+    state = read_task_state(cfg, task_id)
+    if state is not None and state.get("status") != "succeeded":
+        raise HTTPException(status_code=409, detail=state.get("error") or "task is not complete")
     directory = task_dir(cfg, task_id)
     for name in ("output.mp4", "output.wav", "output.mp3", "output.webm"):
         path = directory / name

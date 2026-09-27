@@ -6,7 +6,12 @@ export interface EdgeKeyValue {
   value: string
 }
 
+export interface EdgeFormField extends EdgeKeyValue {
+  kind: 'file' | 'text'
+}
+
 export interface ParsedEdgeCurl {
+  form: EdgeFormField[]
   method: EdgeRequestMethod
   url: string
   headers: EdgeKeyValue[]
@@ -18,6 +23,8 @@ export interface ParsedEdgeCurl {
 }
 
 export interface BuildEdgeCurlOptions {
+  form?: EdgeFormField[]
+  outputFile?: string
   gatewayOrigin: string
   method: EdgeRequestMethod
   url: string
@@ -178,7 +185,7 @@ export function parseEdgeCurl(input: string): ParsedEdgeCurl {
   let forceGet = false
   let multipart = false
   const headers: EdgeKeyValue[] = []
-  const form: EdgeKeyValue[] = []
+  const form: EdgeFormField[] = []
   const warnings: string[] = []
 
   const addData = (value: string) => {
@@ -222,7 +229,9 @@ export function parseEdgeCurl(input: string): ParsedEdgeCurl {
     }
     if (flag === '-F' || flag === '--form' || flag === '--form-string') {
       multipart = true
-      form.push(parseKeyValue(nextValue() ?? ''))
+      const field = parseKeyValue(nextValue() ?? '')
+      const isFile = flag !== '--form-string' && field.value.startsWith('@')
+      form.push({ ...field, kind: isFile ? 'file' : 'text', value: isFile ? field.value.slice(1).replace(/^"(.*)"$/, '$1') : field.value })
       continue
     }
     if (flag === '-G' || flag === '--get') {
@@ -323,11 +332,12 @@ export function parseEdgeCurl(input: string): ParsedEdgeCurl {
   }
 
   return {
+    form,
     method,
     url: parsedUrl.toString(),
     headers: normalizedHeaders,
     query,
-    body: multipart ? form.map(item => `${item.name}=${item.value}`).join('&') : body,
+    body: multipart ? form.map(item => `${item.name}=${item.kind === 'file' ? '@' : ''}${item.value}`).join('&') : body,
     bodyMode: inferBodyMode(contentType, multipart),
     model,
     warnings,
@@ -338,7 +348,9 @@ export function sanitizeHeaders(headers: EdgeKeyValue[], apiKeyPlaceholder = '$S
   return headers
     .map(header => ({
       name: header.name.trim(),
-      value: SENSITIVE_HEADERS.has(header.name.trim().toLowerCase()) ? apiKeyPlaceholder : header.value,
+      value: SENSITIVE_HEADERS.has(header.name.trim().toLowerCase())
+        ? (/^(proxy-)?authorization$/i.test(header.name.trim()) ? `Bearer ${apiKeyPlaceholder}` : apiKeyPlaceholder)
+        : header.value,
     }))
     .filter(header => header.name)
 }
@@ -385,21 +397,36 @@ export function buildEdgeCurl(options: BuildEdgeCurlOptions): string {
   const headers = sanitizeHeaders(options.headers, options.apiKeyPlaceholder)
   const hasAuthentication = headers.some(header => SENSITIVE_HEADERS.has(header.name.toLowerCase()))
   if (options.injectAuthorization !== false && !hasAuthentication) {
-    headers.unshift({ name: 'Authorization', value: options.apiKeyPlaceholder ?? '$SUB2API_KEY' })
+    headers.unshift({ name: 'Authorization', value: `Bearer ${options.apiKeyPlaceholder ?? '$SUB2API_KEY'}` })
   }
 
   const lines = [`curl -X ${options.method} ${quoteShell(url)}`]
+  lines.push('  --fail-with-body')
   for (const header of headers) {
-    lines.push(`  -H ${quoteShell(`${header.name}: ${header.value}`)}`)
+    if (options.bodyMode === 'form' && /^content-type$/i.test(header.name)) continue
+    const variable = options.apiKeyPlaceholder ?? '$SUB2API_KEY'
+    const value = `${header.name}: ${header.value}`
+    // 只展开受控的认证变量，其他请求数据始终按字面值引用。
+    const auth = SENSITIVE_HEADERS.has(header.name.toLowerCase()) && /^\$[A-Z_][A-Z_0-9]*$/i.test(variable)
+    lines.push(`  -H ${auth ? '"' + value + '"' : quoteShell(value)}`)
   }
-  if (options.bodyMode === 'form') {
-    for (const item of options.body.split('&').filter(Boolean)) {
-      lines.push(`  -F ${quoteShell(item)}`)
+  if (options.bodyMode === 'form' && options.method !== 'GET') {
+    for (const item of edgeFormFields(options)) {
+      const value = item.kind === 'file' ? `@"${item.value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"` : item.value
+      lines.push(`  ${item.kind === 'file' ? '-F' : '--form-string'} ${quoteShell(`${item.name}=${value}`)}`)
     }
-  } else if (options.body.trim() && options.method !== 'GET') {
+  } else if (options.bodyMode !== 'none' && options.body.trim() && options.method !== 'GET') {
     lines.push(`  -d ${quoteShell(options.body)}`)
   }
+  if (options.outputFile) lines.push(`  -o ${quoteShell(options.outputFile)}`)
   return lines.join(' \\\n')
+}
+
+export function edgeFormFields(options: { form?: EdgeFormField[]; body: string }): EdgeFormField[] {
+  return options.form ?? options.body.split('&').filter(Boolean).map(part => {
+    const field = parseKeyValue(part)
+    return { ...field, kind: field.value.startsWith('@') ? 'file' : 'text', value: field.value.replace(/^@/, '') }
+  })
 }
 
 export function replaceBodyModel(body: string, model: string): string {
