@@ -7,6 +7,51 @@
       </div>
 
       <template v-else-if="stats">
+        <!-- 月份与日期范围统一控制汇总和图表 -->
+        <div class="card p-4">
+          <div class="flex flex-wrap items-center gap-4">
+            <div class="flex items-center gap-2">
+              <label for="admin-dashboard-month" class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t('dashboard.monthFilter') }}
+              </label>
+              <input
+                id="admin-dashboard-month"
+                v-model="selectedMonth"
+                data-test="dashboard-month"
+                type="month"
+                :max="currentMonth"
+                class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm text-gray-700 focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30 dark:border-dark-600 dark:bg-dark-800 dark:text-gray-300"
+                @change="onMonthChange"
+              />
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                >{{ t('admin.dashboard.timeRange') }}:</span
+              >
+              <DateRangePicker
+                v-model:start-date="startDate"
+                v-model:end-date="endDate"
+                @change="onDateRangeChange"
+              />
+            </div>
+            <button type="button" data-test="dashboard-refresh" @click="loadDashboardStats" :disabled="chartsLoading || periodLoading" class="btn btn-secondary">
+              {{ t('common.refresh') }}
+            </button>
+            <div class="ml-auto flex items-center gap-2">
+              <span class="text-sm font-medium text-gray-700 dark:text-gray-300"
+                >{{ t('admin.dashboard.granularity') }}:</span
+              >
+              <div class="w-28">
+                <Select
+                  v-model="granularity"
+                  :options="granularityOptions"
+                  @change="loadChartData"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
         <!-- Row 1: Core Stats -->
         <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
           <!-- Total API Keys -->
@@ -54,7 +99,7 @@
             </div>
           </div>
 
-          <!-- Today Requests -->
+          <!-- 所选时段的请求数 -->
           <div class="card p-4">
             <div class="flex items-center gap-3">
               <div class="rounded-lg bg-green-100 p-2 dark:bg-green-900/30">
@@ -62,10 +107,13 @@
               </div>
               <div>
                 <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {{ t('admin.dashboard.todayRequests') }}
+                  {{ t('dashboard.periodRequests', { period: periodLabel }) }}
                 </p>
-                <p class="text-xl font-bold text-gray-900 dark:text-white">
-                  {{ stats.today_requests }}
+                <p data-test="period-requests" class="text-xl font-bold text-gray-900 dark:text-white">
+                  {{ periodStats ? formatNumber(periodStats.total_requests) : '—' }}
+                </p>
+                <p class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.dashboard.todayRequests') }}: {{ formatNumber(stats.today_requests) }}
                 </p>
                 <p class="text-xs text-gray-500 dark:text-gray-400">
                   {{ t('common.total') }}: {{ formatNumber(stats.total_requests) }}
@@ -97,7 +145,7 @@
 
         <!-- Row 2: Token Stats -->
         <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
-          <!-- Today Tokens -->
+          <!-- 所选时段的 Token 和费用 -->
           <div class="card p-4">
             <div class="flex items-center gap-3">
               <div class="rounded-lg bg-amber-100 p-2 dark:bg-amber-900/30">
@@ -105,28 +153,28 @@
               </div>
               <div>
                 <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {{ t('admin.dashboard.todayTokens') }}
+                  {{ t('dashboard.periodTokens', { period: periodLabel }) }}
                 </p>
-                <p class="text-xl font-bold text-gray-900 dark:text-white">
-                  {{ formatTokens(stats.today_tokens) }}
+                <p data-test="period-tokens" class="text-xl font-bold text-gray-900 dark:text-white">
+                  {{ periodStats ? formatTokens(periodStats.total_tokens) : '—' }}
                 </p>
-                <p class="text-xs">
+                <p v-if="periodStats" data-test="period-costs" class="text-xs">
                   <span
                     class="text-green-600 dark:text-green-400"
                     :title="t('admin.dashboard.actual')"
-                    >${{ formatCost(stats.today_actual_cost) }}</span
+                    >${{ formatCost(periodStats.total_actual_cost) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
                     class="text-orange-500 dark:text-orange-400"
                     :title="t('admin.dashboard.accountCost')"
-                    >${{ formatCost(stats.today_account_cost) }}</span
+                    >${{ formatCost(periodStats.total_account_cost) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
                     class="text-gray-400 dark:text-gray-500"
                     :title="t('admin.dashboard.standard')"
-                    >${{ formatCost(stats.today_cost) }}</span
+                    >${{ formatCost(periodStats.total_cost) }}</span
                   >
                 </p>
               </div>
@@ -203,10 +251,10 @@
               </div>
               <div>
                 <p class="text-xs font-medium text-gray-500 dark:text-gray-400">
-                  {{ t('admin.dashboard.avgResponse') }}
+                  {{ periodLabel }} · {{ t('admin.dashboard.avgResponse') }}
                 </p>
-                <p class="text-xl font-bold text-gray-900 dark:text-white">
-                  {{ formatDuration(stats.average_duration_ms) }}
+                <p data-test="period-response" class="text-xl font-bold text-gray-900 dark:text-white">
+                  {{ periodStats ? formatDuration(periodStats.average_duration_ms) : '—' }}
                 </p>
                 <p class="text-xs text-gray-500 dark:text-gray-400">
                   {{ stats.active_users }} {{ t('admin.dashboard.activeUsers') }}
@@ -266,37 +314,6 @@
 
         <!-- Charts Section -->
         <div class="space-y-6">
-          <!-- Date Range Filter -->
-          <div class="card p-4">
-            <div class="flex flex-wrap items-center gap-4">
-              <div class="flex items-center gap-2">
-                <span class="text-sm font-medium text-gray-700 dark:text-gray-300"
-                  >{{ t('admin.dashboard.timeRange') }}:</span
-                >
-                <DateRangePicker
-                  v-model:start-date="startDate"
-                  v-model:end-date="endDate"
-                  @change="onDateRangeChange"
-                />
-              </div>
-              <button @click="loadDashboardStats" :disabled="chartsLoading" class="btn btn-secondary">
-                {{ t('common.refresh') }}
-              </button>
-              <div class="ml-auto flex items-center gap-2">
-                <span class="text-sm font-medium text-gray-700 dark:text-gray-300"
-                  >{{ t('admin.dashboard.granularity') }}:</span
-                >
-                <div class="w-28">
-                  <Select
-                    v-model="granularity"
-                    :options="granularityOptions"
-                    @change="loadChartData"
-                  />
-                </div>
-              </div>
-            </div>
-          </div>
-
           <!-- Charts Grid -->
           <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <ModelDistributionChart
@@ -348,6 +365,8 @@ import { useAppStore } from '@/stores/app'
 
 const { t } = useI18n()
 import { adminAPI } from '@/api/admin'
+import type { AdminUsageStatsResponse } from '@/api/admin/usage'
+import { formatDateLocalInput } from '@/utils/format'
 import type {
   DashboardStats,
   TrendDataPoint,
@@ -391,6 +410,9 @@ const appStore = useAppStore()
 const router = useRouter()
 const { canUseBatchImage, refreshBatchImageAccess } = useBatchImageAccess()
 const stats = ref<DashboardStats | null>(null)
+const periodStats = ref<AdminUsageStatsResponse | null>(null)
+const periodLoading = ref(false)
+let periodLoadSeq = 0
 const loading = ref(false)
 const chartsLoading = ref(false)
 const userTrendLoading = ref(false)
@@ -410,25 +432,26 @@ let usersTrendLoadSeq = 0
 let rankingLoadSeq = 0
 const rankingLimit = 12
 
-// Helper function to format date in local timezone
-const formatLocalDate = (date: Date): string => {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+// 默认查看本自然月；历史月份包含完整月末，本月截至今天。
+const currentMonth = formatDateLocalInput(new Date()).slice(0, 7)
+const selectedMonth = ref(currentMonth)
+const monthBounds = (month: string): { start: string; end: string } => {
+  const [year, monthNumber] = month.split('-').map(Number)
+  const monthEnd = formatDateLocalInput(new Date(year, monthNumber, 0))
+  const today = formatDateLocalInput(new Date())
+  return { start: `${month}-01`, end: monthEnd < today ? monthEnd : today }
 }
-
-const getLast24HoursRangeDates = (): { start: string; end: string } => {
-  const end = new Date()
-  const start = new Date(end.getTime() - 24 * 60 * 60 * 1000)
-  return {
-    start: formatLocalDate(start),
-    end: formatLocalDate(end)
-  }
-}
-
-// Date range
-const granularity = ref<'day' | 'hour'>('hour')
-const defaultRange = getLast24HoursRangeDates()
+const defaultRange = monthBounds(selectedMonth.value)
 const startDate = ref(defaultRange.start)
 const endDate = ref(defaultRange.end)
+const granularity = ref<'day' | 'hour'>('day')
+const periodLabel = computed(() => {
+  if (!selectedMonth.value) {
+    return `${startDate.value} ~ ${endDate.value}`
+  }
+  const [year, month] = selectedMonth.value.split('-')
+  return t('dashboard.selectedMonth', { year, month: Number(month) })
+})
 
 // Granularity options for Select component
 const granularityOptions = computed(() => [
@@ -622,13 +645,27 @@ const goToUserUsage = (item: UserSpendingRankingItem) => {
   })
 }
 
-// Date range change handler
+const onMonthChange = () => {
+  if (!selectedMonth.value || selectedMonth.value > currentMonth) {
+    selectedMonth.value = currentMonth
+  }
+  const range = monthBounds(selectedMonth.value)
+  startDate.value = range.start
+  endDate.value = range.end
+  granularity.value = 'day'
+  void loadChartData()
+}
+
+// 自定义日期范围也使用相同的汇总与图表查询。
 const onDateRangeChange = (range: {
   startDate: string
   endDate: string
   preset: string | null
 }) => {
-  // Auto-select granularity based on date range
+  selectedMonth.value = ''
+  startDate.value = range.startDate
+  endDate.value = range.endDate
+  // 根据时段长度选择图表粒度。
   const start = new Date(range.startDate)
   const end = new Date(range.endDate)
   const daysDiff = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24))
@@ -643,7 +680,32 @@ const onDateRangeChange = (range: {
   loadChartData()
 }
 
-// Load data
+// 切换时段先清空旧汇总，并忽略较早请求的迟到结果。
+const loadPeriodStats = async () => {
+  const currentSeq = ++periodLoadSeq
+  periodStats.value = null
+  periodLoading.value = true
+  try {
+    const response = await adminAPI.usage.getStats({
+      start_date: startDate.value,
+      end_date: endDate.value
+    })
+    if (currentSeq === periodLoadSeq) {
+      periodStats.value = response
+    }
+  } catch (error) {
+    if (currentSeq === periodLoadSeq) {
+      appStore.showError(t('admin.dashboard.failedToLoad'))
+      console.error('Error loading dashboard period stats:', error)
+    }
+  } finally {
+    if (currentSeq === periodLoadSeq) {
+      periodLoading.value = false
+    }
+  }
+}
+
+// 加载系统概览和图表。
 const loadDashboardSnapshot = async (includeStats: boolean) => {
   const currentSeq = ++chartLoadSeq
   if (includeStats && !stats.value) {
@@ -733,7 +795,13 @@ const loadUserSpendingRanking = async () => {
 }
 
 const loadDashboardStats = async () => {
+  if (selectedMonth.value) {
+    const range = monthBounds(selectedMonth.value)
+    startDate.value = range.start
+    endDate.value = range.end
+  }
   await Promise.all([
+    loadPeriodStats(),
     loadDashboardSnapshot(true),
     loadUsersTrend(),
     loadUserSpendingRanking()
@@ -742,6 +810,7 @@ const loadDashboardStats = async () => {
 
 const loadChartData = async () => {
   await Promise.all([
+    loadPeriodStats(),
     loadDashboardSnapshot(false),
     loadUsersTrend(),
     loadUserSpendingRanking()

@@ -133,6 +133,11 @@
           </nav>
         </div>
 
+        <details v-if="showCodexAuthMode" class="text-sm">
+          <summary class="cursor-pointer py-2">{{ t('docs.setup.paths') }}</summary>
+          <CodexSetupOptions v-model="setupOptions" :windows="activeTab === 'windows'" />
+        </details>
+
         <!-- Code Blocks (Stacked for multi-file platforms) -->
         <div class="space-y-4">
           <div
@@ -260,6 +265,8 @@ import { useI18n } from 'vue-i18n'
 import { saveAs } from 'file-saver'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
+import CodexSetupOptions from './CodexSetupOptions.vue'
+import { buildCodexSetupCommand, defaultCodexSetupOptions } from '@/utils/codexSetup'
 import { useClipboard } from '@/composables/useClipboard'
 import { fetchCodexModelsManifest } from '@/api/codex'
 import type { GroupPlatform } from '@/types'
@@ -306,6 +313,7 @@ const activeTab = ref<string>('unix')
 const activeClientTab = ref<string>('claude')
 type CodexAuthMode = 'legacy' | 'api-key'
 const codexAuthMode = ref<CodexAuthMode>('legacy')
+const setupOptions = ref(defaultCodexSetupOptions())
 type CodexModelManifestState = 'idle' | 'loading' | 'ready' | 'error'
 const codexModelManifestState = ref<CodexModelManifestState>('idle')
 const codexModelManifestContent = ref('')
@@ -788,8 +796,7 @@ const currentFiles = computed((): FileConfig[] => {
 
 function codexCliSetupCommand(): string {
   const baseUrl = props.baseUrl || window.location.origin
-  const authMode = codexAuthMode.value === 'legacy' ? ' --auth-mode legacy' : ''
-  return `npx -y sub2api-codex-setup --base-url ${baseUrl} --api-key ${props.apiKey}${authMode}`
+  return buildCodexSetupCommand(baseUrl, props.apiKey, setupOptions.value, activeTab.value === 'windows', codexAuthMode.value)
 }
 
 function generateAnthropicFiles(baseUrl: string, apiKey: string): FileConfig[] {

@@ -22,177 +22,77 @@
       </nav>
     </header>
 
-    <main class="mx-auto grid max-w-6xl gap-8 px-6 py-10 lg:grid-cols-[240px_minmax(0,1fr)]">
-      <aside class="hidden lg:block">
-        <div class="sticky top-24 space-y-2">
-          <a
-            v-for="section in sections"
-            :key="section.id"
-            :href="`#${section.id}`"
-            class="block rounded-lg px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-white hover:text-slate-950 dark:text-dark-300 dark:hover:bg-dark-900 dark:hover:text-white"
-          >
-            {{ section.title }}
-          </a>
+    <main class="mx-auto max-w-4xl space-y-8 px-4 py-8 sm:px-6">
+      <section id="quick-start" class="scroll-mt-6">
+        <h1 class="text-2xl font-semibold">{{ t('docs.title') }}</h1>
+        <a href="https://learn.chatgpt.com/docs/app" target="_blank" rel="noopener noreferrer" class="mt-3 inline-flex items-center gap-2 text-primary-600 hover:underline dark:text-primary-300">
+          <Icon name="book" size="sm" />
+          {{ t('docs.official') }}
+        </a>
+      </section>
+
+      <section id="downloads" class="scroll-mt-6 border-t border-gray-200 pt-6 dark:border-dark-700">
+        <h2 class="text-lg font-semibold">{{ t('docs.downloads.title') }}</h2>
+        <div v-for="download in downloads" :key="download.id" class="mt-5 min-w-0">
+          <div class="flex items-center justify-between gap-3">
+            <h3 class="text-sm font-semibold">{{ download.title }}</h3>
+            <button type="button" :aria-label="t('common.copy')" :title="t('common.copy')" class="shrink-0 rounded p-2 hover:bg-gray-200 dark:hover:bg-dark-700" @click="copyCommand(download.code, download.id)">
+              <Icon :name="copied === download.id ? 'check' : 'document'" size="sm" />
+            </button>
+          </div>
+          <p class="mb-2 text-xs leading-5 text-gray-500 dark:text-dark-300">{{ download.description }}</p>
+          <pre class="max-w-full overflow-x-auto rounded-lg bg-gray-950 p-4 text-sm text-gray-100"><code>{{ download.code }}</code></pre>
         </div>
-      </aside>
+      </section>
 
-      <article class="min-w-0 space-y-8">
-        <section class="rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-dark-800 dark:bg-dark-900">
-          <p class="mb-2 text-sm font-semibold uppercase tracking-wide text-primary-600 dark:text-primary-400">
-            Sub2API
-          </p>
-          <h1 class="text-3xl font-bold tracking-tight sm:text-4xl">{{ t('docs.title') }}</h1>
-          <p class="mt-4 max-w-3xl text-base leading-7 text-slate-600 dark:text-dark-300">
-            {{ t('docs.subtitle') }}
-          </p>
-        </section>
+      <section id="codex-cli" class="scroll-mt-6 space-y-4 border-t border-gray-200 pt-6 dark:border-dark-700">
+        <h2 class="text-lg font-semibold">{{ t('docs.setup.title') }}</h2>
+        <p class="text-sm text-gray-600 dark:text-dark-300">{{ t('docs.setup.requirements') }}</p>
+        <div class="flex flex-wrap gap-1" role="radiogroup" :aria-label="t('docs.setup.platform')">
+          <button v-for="platform in platforms" :key="platform.id" type="button" role="radio" :aria-checked="selectedPlatform === platform.id" :data-testid="'platform-' + platform.id" class="rounded-md border px-3 py-2 text-sm" :class="selectedPlatform === platform.id ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-200' : 'border-gray-300 dark:border-dark-700'" @click="selectPlatform(platform.id)">
+            {{ platform.label }}
+          </button>
+        </div>
 
-        <section
-          v-for="section in sections"
-          :id="section.id"
-          :key="section.id"
-          class="scroll-mt-24 rounded-lg border border-slate-200 bg-white p-6 shadow-sm dark:border-dark-800 dark:bg-dark-900"
-        >
-          <div class="mb-5 flex items-start gap-3">
-            <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-primary-600 dark:bg-primary-500/10 dark:text-primary-300">
-              <Icon :name="section.icon" size="sm" />
-            </div>
-            <div>
-              <h2 class="text-xl font-semibold tracking-tight">{{ section.title }}</h2>
-              <p class="mt-1 text-sm leading-6 text-slate-500 dark:text-dark-400">{{ section.description }}</p>
-            </div>
-          </div>
+        <p v-if="currentUserKeyLoading" class="text-sm text-gray-500">{{ t('docs.codex.items.setupCommand.loading') }}</p>
+        <p v-else-if="currentUserKey" class="text-sm text-gray-500">{{ t('docs.codex.items.setupCommand.usingKey', { name: currentUserKey.name }) }}</p>
+        <template v-else>
+          <p class="text-sm text-gray-500 dark:text-dark-300">{{ t(currentUserKeyError ? 'docs.codex.items.setupCommand.error' : isAuthenticated ? 'docs.codex.items.setupCommand.noKey' : 'docs.codex.items.setupCommand.loginRequired') }}</p>
+          <label class="block space-y-1 text-sm">
+            <span>{{ t('docs.codex.items.setupCommand.manualKeyLabel') }}</span>
+            <input v-model.trim="manualApiKey" data-testid="setup-api-key" type="password" spellcheck="false" autocomplete="off" :placeholder="t('docs.codex.items.setupCommand.manualKeyPlaceholder')" class="input w-full font-mono" />
+          </label>
+          <router-link v-if="isAuthenticated" to="/keys" class="inline-block text-sm text-primary-600 dark:text-primary-300">{{ t('docs.codex.items.setupCommand.createKey') }}</router-link>
+        </template>
 
-          <div class="space-y-4">
-            <div
-              v-for="item in section.items"
-              :key="item.title"
-              class="rounded-lg border border-slate-200 bg-slate-50 p-4 dark:border-dark-800 dark:bg-dark-950"
-            >
-              <h3 class="text-sm font-semibold text-slate-950 dark:text-white">{{ item.title }}</h3>
-              <p class="mt-2 text-sm leading-6 text-slate-600 dark:text-dark-300">{{ item.body }}</p>
-              <div v-if="item.links?.length" class="mt-3 flex flex-wrap gap-2">
-                <a
-                  v-for="link in item.links"
-                  :key="link.href"
-                  :href="link.href"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="inline-flex items-center gap-1.5 rounded-lg border border-primary-200 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700 transition-colors hover:border-primary-300 hover:bg-primary-100 dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-primary-200 dark:hover:bg-primary-500/20"
-                >
-                  <Icon name="download" size="xs" />
-                  <span>{{ link.label }}</span>
-                </a>
-              </div>
-              <pre
-                v-if="item.code"
-                class="mt-3 overflow-x-auto rounded-lg bg-slate-950 p-4 text-sm text-slate-100"
-              ><code>{{ item.code }}</code></pre>
-              <div v-if="item.setupCommand" class="mt-3 space-y-2">
-                <p v-if="currentUserKeyLoading" class="text-xs text-slate-500 dark:text-dark-400">
-                  {{ t('docs.codex.items.setupCommand.loading') }}
-                </p>
-                <p v-else-if="currentUserKeyError" class="text-xs text-red-600 dark:text-red-400">
-                  {{ t('docs.codex.items.setupCommand.error') }}
-                </p>
-                <template v-else-if="currentUserKey">
-                  <pre class="overflow-x-auto rounded-lg bg-slate-950 p-4 text-sm text-slate-100"><code>{{ setupCommand }}</code></pre>
-                  <button
-                    type="button"
-                    class="inline-flex items-center gap-1.5 rounded-lg border border-primary-200 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700 transition-colors hover:border-primary-300 hover:bg-primary-100 dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-primary-200 dark:hover:bg-primary-500/20"
-                    @click="copySetupCommand"
-                  >
-                    <Icon :name="setupCommandCopied ? 'check' : 'document'" size="xs" />
-                    <span>{{ setupCommandCopied ? t('common.copied') : t('common.copy') }}</span>
-                  </button>
-                  <p class="text-xs text-slate-500 dark:text-dark-400">
-                    {{ t('docs.codex.items.setupCommand.usingKey', { name: currentUserKey.name }) }}
-                  </p>
-                </template>
-                <template v-else>
-                  <p v-if="isAuthenticated" class="text-xs text-amber-600 dark:text-amber-400">
-                    {{ t('docs.codex.items.setupCommand.noKey') }}
-                  </p>
-                  <p v-else class="text-xs text-slate-500 dark:text-dark-400">
-                    {{ t('docs.codex.items.setupCommand.loginRequired') }}
-                  </p>
-                  <label class="block space-y-1.5">
-                    <span class="text-xs font-semibold text-slate-600 dark:text-dark-300">
-                      {{ t('docs.codex.items.setupCommand.manualKeyLabel') }}
-                    </span>
-                    <input
-                      v-model.trim="manualApiKey"
-                      type="text"
-                      spellcheck="false"
-                      autocomplete="off"
-                      :placeholder="t('docs.codex.items.setupCommand.manualKeyPlaceholder')"
-                      class="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-sm text-slate-950 placeholder:text-slate-400 focus:border-primary-400 focus:outline-none focus:ring-2 focus:ring-primary-500/30 dark:border-dark-700 dark:bg-dark-950 dark:text-white dark:placeholder:text-dark-500"
-                    />
-                  </label>
-                  <pre class="overflow-x-auto rounded-lg bg-slate-950 p-4 text-sm text-slate-100"><code>{{ setupCommand }}</code></pre>
-                  <div class="flex flex-wrap items-center gap-3">
-                    <button
-                      type="button"
-                      class="inline-flex items-center gap-1.5 rounded-lg border border-primary-200 bg-primary-50 px-3 py-1.5 text-xs font-semibold text-primary-700 transition-colors hover:border-primary-300 hover:bg-primary-100 dark:border-primary-500/30 dark:bg-primary-500/10 dark:text-primary-200 dark:hover:bg-primary-500/20"
-                      @click="copySetupCommand"
-                    >
-                      <Icon :name="setupCommandCopied ? 'check' : 'document'" size="xs" />
-                      <span>{{ setupCommandCopied ? t('common.copied') : t('common.copy') }}</span>
-                    </button>
-                    <router-link
-                      v-if="isAuthenticated"
-                      to="/keys"
-                      class="inline-flex items-center gap-1.5 text-xs font-semibold text-primary-600 transition-colors hover:text-primary-700 dark:text-primary-300 dark:hover:text-primary-200"
-                    >
-                      <Icon name="plus" size="xs" />
-                      <span>{{ t('docs.codex.items.setupCommand.createKey') }}</span>
-                    </router-link>
-                  </div>
-                </template>
-              </div>
-            </div>
-          </div>
-        </section>
-      </article>
+        <CodexSetupOptions v-model="setupOptions" :windows="selectedPlatform === 'windows'" />
+        <p v-if="selectedPlatform === 'linux' && setupOptions.client === 'desktop'" class="text-xs text-amber-700 dark:text-amber-300">{{ t('docs.setup.linuxDesktop') }}</p>
+        <pre class="max-w-full overflow-x-auto rounded-lg bg-gray-950 p-4 text-sm text-gray-100" data-testid="setup-command"><code>{{ setupCommand }}</code></pre>
+        <button type="button" class="inline-flex items-center gap-2 rounded-md border border-primary-300 px-3 py-2 text-sm text-primary-700 dark:border-primary-700 dark:text-primary-200" @click="copyCommand(setupCommand, 'setup')">
+          <Icon :name="copied === 'setup' ? 'check' : 'document'" size="sm" />
+          {{ copied === 'setup' ? t('common.copied') : t('common.copy') }}
+        </button>
+        <p v-if="copyError" role="status" class="text-sm text-red-600">{{ t('docs.setup.copyError') }}</p>
+      </section>
     </main>
   </div>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore, useAuthStore } from '@/stores'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import Icon from '@/components/icons/Icon.vue'
+import CodexSetupOptions from '@/components/keys/CodexSetupOptions.vue'
+import { buildCodexSetupCommand, defaultCodexSetupOptions } from '@/utils/codexSetup'
 import { keysAPI } from '@/api/keys'
 import type { ApiKey } from '@/types'
-
-type DocIcon = 'book' | 'key' | 'document' | 'chart' | 'shield' | 'cog'
-
-interface DocItem {
-  title: string
-  body: string
-  code?: string
-  setupCommand?: boolean
-  links?: Array<{
-    label: string
-    href: string
-  }>
-}
-
-interface DocSection {
-  id: string
-  icon: DocIcon
-  title: string
-  description: string
-  items: DocItem[]
-}
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
-
-const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || '++0 的 API')
+const siteName = computed(() => appStore.cachedPublicSettings?.site_name || appStore.siteName || 'Sub2API')
 const siteLogo = computed(() => appStore.cachedPublicSettings?.site_logo || appStore.siteLogo || '')
 const siteNameInitial = computed(() => siteName.value.trim().charAt(0).toUpperCase() || 'S')
 const isAuthenticated = computed(() => authStore.isAuthenticated)
@@ -201,24 +101,64 @@ const currentUserKey = ref<ApiKey | null>(null)
 const currentUserKeyLoading = ref(false)
 const currentUserKeyError = ref(false)
 const manualApiKey = ref('')
-const setupCommandCopied = ref(false)
-
-const setupCommand = computed(() => {
-  const baseUrl = window.location.origin.replace(/\/+$/, '')
-  const apiKey = currentUserKey.value?.key || manualApiKey.value || 'sk-xxxx'
-  return `npx -y sub2api-codex-setup --base-url ${baseUrl} --api-key ${apiKey}`
-})
-
+const setupOptions = ref(defaultCodexSetupOptions())
+type Platform = 'macos' | 'windows' | 'linux'
+const selectedPlatform = ref<Platform>(/Win/i.test(navigator.platform) ? 'windows' : /Linux/i.test(navigator.platform) ? 'linux' : 'macos')
+if (selectedPlatform.value === 'linux') setupOptions.value.client = 'cli'
+const platforms: Array<{ id: Platform; label: string }> = [
+  { id: 'macos', label: 'macOS' },
+  { id: 'windows', label: 'Windows (PowerShell)' },
+  { id: 'linux', label: 'Linux' }
+]
+function selectPlatform(platform: Platform) {
+  selectedPlatform.value = platform
+  setupOptions.value = { ...defaultCodexSetupOptions(), client: platform === 'linux' ? 'cli' : 'desktop' }
+}
+const downloads = computed(() => [
+  {
+    id: 'macos',
+    title: 'macOS',
+    description: t('docs.downloads.macos'),
+    code: 'curl -fL "https://persistent.oaistatic.com/codex-app-prod/Codex.dmg" -o Codex.dmg\nopen Codex.dmg'
+  },
+  {
+    id: 'windows',
+    title: 'Windows (PowerShell)',
+    description: t('docs.downloads.windows'),
+    code: 'curl.exe -fL "https://get.microsoft.com/installer/download/9PLM9XGG6VKS" -o ChatGPT-Setup.exe\nif ($LASTEXITCODE -eq 0) { Start-Process .\\ChatGPT-Setup.exe -Wait }'
+  },
+  {
+    id: 'linux',
+    title: 'Linux',
+    description: t('docs.downloads.linux'),
+    code: 'curl -fL "https://chatgpt.com/codex/install.sh" -o codex-install.sh && sh codex-install.sh'
+  }
+])
+const setupCommand = computed(() => buildCodexSetupCommand(
+  window.location.origin.replace(/\/+$/, ''),
+  currentUserKey.value?.key || manualApiKey.value || 'sk-xxxx',
+  setupOptions.value,
+  selectedPlatform.value === 'windows'
+))
+const copied = ref('')
+const copyError = ref(false)
+let copyTimer: ReturnType<typeof setTimeout> | undefined
+async function copyCommand(command: string, id: string) {
+  copyError.value = false
+  try {
+    await navigator.clipboard.writeText(command)
+    copied.value = id
+    clearTimeout(copyTimer)
+    copyTimer = setTimeout(() => { copied.value = '' }, 2000)
+  } catch {
+    copyError.value = true
+  }
+}
 async function loadCurrentUserKey() {
   if (!isAuthenticated.value) return
   currentUserKeyLoading.value = true
-  currentUserKeyError.value = false
   try {
-    const response = await keysAPI.list(1, 1, {
-      status: 'active',
-      sort_by: 'created_at',
-      sort_order: 'desc'
-    })
+    const response = await keysAPI.list(1, 1, { status: 'active', sort_by: 'created_at', sort_order: 'desc' })
     currentUserKey.value = response.items[0] || null
   } catch {
     currentUserKeyError.value = true
@@ -226,129 +166,6 @@ async function loadCurrentUserKey() {
     currentUserKeyLoading.value = false
   }
 }
-
-async function copySetupCommand() {
-  try {
-    await navigator.clipboard.writeText(setupCommand.value)
-    setupCommandCopied.value = true
-    setTimeout(() => {
-      setupCommandCopied.value = false
-    }, 2000)
-  } catch {
-    setupCommandCopied.value = false
-  }
-}
-
-onMounted(() => {
-  void loadCurrentUserKey()
-})
-
-const sections = computed<DocSection[]>(() => [
-  {
-    id: 'quick-start',
-    icon: 'book',
-    title: t('docs.quickStart.title'),
-    description: t('docs.quickStart.description'),
-    items: [
-      {
-        title: t('docs.quickStart.items.createKey.title'),
-        body: t('docs.quickStart.items.createKey.body'),
-      },
-      {
-        title: t('docs.quickStart.items.assignGroup.title'),
-        body: t('docs.quickStart.items.assignGroup.body'),
-      },
-      {
-        title: t('docs.quickStart.items.useKey.title'),
-        body: t('docs.quickStart.items.useKey.body'),
-      },
-    ],
-  },
-  {
-    id: 'codex-cli',
-    icon: 'key',
-    title: t('docs.codex.title'),
-    description: t('docs.codex.description'),
-    items: [
-      {
-        title: t('docs.codex.items.files.title'),
-        body: t('docs.codex.items.files.body'),
-        code: '~/.codex/config.toml\n~/.codex/auth.json',
-      },
-      {
-        title: t('docs.codex.items.script.title'),
-        body: t('docs.codex.items.script.body'),
-      },
-      {
-        title: t('docs.codex.items.download.title'),
-        body: t('docs.codex.items.download.body'),
-        setupCommand: true,
-      },
-      {
-        title: t('docs.codex.items.windows.title'),
-        body: t('docs.codex.items.windows.body'),
-        code: '%USERPROFILE%\\.codex\\config.toml\n%USERPROFILE%\\.codex\\auth.json',
-      },
-    ],
-  },
-  {
-    id: 'clients',
-    icon: 'document',
-    title: t('docs.clients.title'),
-    description: t('docs.clients.description'),
-    items: [
-      {
-        title: t('docs.clients.items.claude.title'),
-        body: t('docs.clients.items.claude.body'),
-        code: 'ANTHROPIC_BASE_URL\nANTHROPIC_AUTH_TOKEN',
-      },
-      {
-        title: t('docs.clients.items.gemini.title'),
-        body: t('docs.clients.items.gemini.body'),
-        code: 'GOOGLE_GEMINI_BASE_URL\nGEMINI_API_KEY\nGEMINI_MODEL',
-      },
-      {
-        title: t('docs.clients.items.opencode.title'),
-        body: t('docs.clients.items.opencode.body'),
-        code: '~/.config/opencode/opencode.json',
-      },
-    ],
-  },
-  {
-    id: 'usage',
-    icon: 'chart',
-    title: t('docs.usage.title'),
-    description: t('docs.usage.description'),
-    items: [
-      {
-        title: t('docs.usage.items.query.title'),
-        body: t('docs.usage.items.query.body'),
-      },
-      {
-        title: t('docs.usage.items.quota.title'),
-        body: t('docs.usage.items.quota.body'),
-      },
-    ],
-  },
-  {
-    id: 'troubleshooting',
-    icon: 'shield',
-    title: t('docs.troubleshooting.title'),
-    description: t('docs.troubleshooting.description'),
-    items: [
-      {
-        title: t('docs.troubleshooting.items.noGroup.title'),
-        body: t('docs.troubleshooting.items.noGroup.body'),
-      },
-      {
-        title: t('docs.troubleshooting.items.baseUrl.title'),
-        body: t('docs.troubleshooting.items.baseUrl.body'),
-      },
-      {
-        title: t('docs.troubleshooting.items.secret.title'),
-        body: t('docs.troubleshooting.items.secret.body'),
-      },
-    ],
-  },
-])
+onMounted(() => { void loadCurrentUserKey() })
+onUnmounted(() => { clearTimeout(copyTimer) })
 </script>

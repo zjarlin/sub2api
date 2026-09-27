@@ -107,11 +107,12 @@ vi.mock('@/api/keys', () => ({
 
 describe('DocsView', () => {
   beforeEach(() => {
+    authState.isAuthenticated = false
     listKeysMock.mockReset()
     listKeysMock.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 1, pages: 0 })
   })
 
-  it('renders built-in API key and client setup documentation', () => {
+  it('renders official documentation, platform downloads and one-command setup', () => {
     const wrapper = mount(DocsView, {
       global: {
         stubs: {
@@ -130,14 +131,15 @@ describe('DocsView', () => {
     })
 
     expect(wrapper.text()).toContain('Documentation')
-    expect(wrapper.text()).toContain('Create an API key')
-    expect(wrapper.text()).toContain('Codex CLI Configuration')
-    expect(wrapper.text()).toContain('~/.codex/config.toml')
-    expect(wrapper.text()).toContain('setup script')
-    expect(wrapper.text()).toContain('Install and configure Codex automatically')
+    expect(wrapper.find('a[href="https://learn.chatgpt.com/docs/app"]').exists()).toBe(true)
+    expect(wrapper.find('#quick-start').exists()).toBe(true)
+    expect(wrapper.text()).toContain('curl -fL')
+    expect(wrapper.text()).toContain('Codex.dmg')
+    expect(wrapper.text()).toContain('curl.exe -fL')
+    expect(wrapper.text()).toContain('https://chatgpt.com/codex/install.sh')
+    expect(wrapper.text()).toContain('npx -y sub2api-codex-setup')
     expect(wrapper.text()).toContain('Login required.')
-    expect(wrapper.text()).toContain('OpenCode')
-    expect(wrapper.text()).toContain('Usage Query')
+    expect(wrapper.find('#clients').exists()).toBe(false)
   })
 
   it('renders the current user key setup command for an authenticated user', async () => {
@@ -242,5 +244,42 @@ describe('DocsView', () => {
     await input.setValue('sk-manual')
 
     expect(wrapper.text()).toContain('--api-key sk-manual')
+  })
+
+  it('builds and copies a Windows command for installation and data on another drive', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const wrapper = mount(DocsView, {
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, Icon: { template: '<span />' } } }
+    })
+    await wrapper.get('[data-testid="platform-windows"]').trigger('click')
+    await wrapper.get('[data-testid="setup-client-cli"]').trigger('click')
+    expect(wrapper.get('[data-testid="setup-install-dir"]').attributes('placeholder')).toBe('D:\\Codex\\app')
+    await wrapper.get('[data-testid="setup-install-dir"]').setValue('D:\\AI tools\\app')
+    await wrapper.get('[data-testid="setup-codex-home"]').setValue('D:\\AI tools\\data')
+    const command = wrapper.get('[data-testid="setup-command"]').text()
+    expect(command).toContain('--client cli')
+    expect(command).toContain("--install-dir 'D:\\AI tools\\app'")
+    expect(command).toContain("--codex-home 'D:\\AI tools\\data' --persist-home")
+    await wrapper.get('#codex-cli > button').trigger('click')
+    expect(writeText).toHaveBeenCalledWith(command)
+    await wrapper.get('[data-testid="setup-client-desktop"]').trigger('click')
+    expect(wrapper.get('[data-testid="setup-command"]').text()).not.toContain('--install-dir')
+    await wrapper.get('[data-testid="platform-linux"]').trigger('click')
+    expect(wrapper.get('[data-testid="setup-command"]').text()).toContain('--client cli')
+    expect(wrapper.get('[data-testid="setup-command"]').text()).not.toContain('--persist-home')
+    wrapper.unmount()
+  })
+
+  it('allows manual configuration after key retrieval fails', async () => {
+    authState.isAuthenticated = true
+    listKeysMock.mockRejectedValue(new Error('offline'))
+    const wrapper = mount(DocsView, {
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, Icon: { template: '<span />' } } }
+    })
+    await flushPromises()
+    expect(wrapper.text()).toContain('Key load failed.')
+    await wrapper.get('[data-testid="setup-api-key"]').setValue('sk-recovery')
+    expect(wrapper.get('[data-testid="setup-command"]').text()).toContain('--api-key sk-recovery')
   })
 })

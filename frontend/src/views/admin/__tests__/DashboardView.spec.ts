@@ -1,14 +1,18 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
 import type { DashboardStats } from '@/types'
+import type { AdminUsageStatsResponse } from '@/api/admin/usage'
+import DateRangePicker from '@/components/common/DateRangePicker.vue'
 import DashboardView from '../DashboardView.vue'
 
-const { getSnapshotV2, getUserUsageTrend, getUserSpendingRanking } = vi.hoisted(() => ({
+const { getSnapshotV2, getUserUsageTrend, getUserSpendingRanking, getUsageStats, showError } = vi.hoisted(() => ({
   getSnapshotV2: vi.fn(),
   getUserUsageTrend: vi.fn(),
-  getUserSpendingRanking: vi.fn()
+  getUserSpendingRanking: vi.fn(),
+  getUsageStats: vi.fn(),
+  showError: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -17,13 +21,14 @@ vi.mock('@/api/admin', () => ({
       getSnapshotV2,
       getUserUsageTrend,
       getUserSpendingRanking
-    }
+    },
+    usage: { getStats: getUsageStats }
   }
 }))
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
-    showError: vi.fn()
+    showError
   })
 }))
 
@@ -38,17 +43,21 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => key
+      t: (key: string, params?: Record<string, string | number>) => {
+        if (key === 'dashboard.selectedMonth') {
+          return `${params?.year}年${params?.month}月`
+        }
+        if (key === 'dashboard.periodRequests') {
+          return `${params?.period}请求`
+        }
+        if (key === 'dashboard.periodTokens') {
+          return `${params?.period} Token`
+        }
+        return key
+      }
     })
   }
 })
-
-const formatLocalDate = (date: Date): string => {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
 
 const createDashboardStats = (): DashboardStats => ({
   total_users: 0,
@@ -86,61 +95,173 @@ const createDashboardStats = (): DashboardStats => ({
   tpm: 0
 })
 
+const createPeriodStats = (requests = 12): AdminUsageStatsResponse => ({
+  total_requests: requests,
+  total_input_tokens: 1000,
+  total_output_tokens: 200,
+  total_cache_tokens: 300,
+  total_cache_creation_tokens: 100,
+  total_cache_read_tokens: 200,
+  total_tokens: 1500,
+  total_cost: 10,
+  total_actual_cost: 3,
+  total_account_cost: 2,
+  average_duration_ms: 1250
+})
+
+const mountDashboard = () => mount(DashboardView, {
+  global: {
+    stubs: {
+      AppLayout: { template: '<div><slot /></div>' },
+      LoadingSpinner: true,
+      Icon: true,
+      DateRangePicker: true,
+      Select: true,
+      ModelDistributionChart: true,
+      TokenUsageTrend: true,
+      Line: true
+    }
+  }
+})
+
+const expectRangeQueries = (start: string, end: string, granularity = 'day') => {
+  expect(getUsageStats).toHaveBeenLastCalledWith({ start_date: start, end_date: end })
+  expect(getSnapshotV2).toHaveBeenLastCalledWith(expect.objectContaining({
+    start_date: start,
+    end_date: end,
+    granularity
+  }))
+  expect(getUserUsageTrend).toHaveBeenLastCalledWith({
+    start_date: start,
+    end_date: end,
+    granularity,
+    limit: 12
+  })
+  expect(getUserSpendingRanking).toHaveBeenLastCalledWith({
+    start_date: start,
+    end_date: end,
+    limit: 12
+  })
+}
+
 describe('admin DashboardView', () => {
   beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date(2026, 8, 3, 12))
+    vi.resetAllMocks()
     setActivePinia(createPinia())
-
-    getSnapshotV2.mockReset()
-    getUserUsageTrend.mockReset()
-    getUserSpendingRanking.mockReset()
 
     getSnapshotV2.mockResolvedValue({
       stats: createDashboardStats(),
       trend: [],
       models: []
     })
-    getUserUsageTrend.mockResolvedValue({
-      trend: [],
-      start_date: '',
-      end_date: '',
-      granularity: 'hour'
-    })
-    getUserSpendingRanking.mockResolvedValue({
-      ranking: [],
-      total_actual_cost: 0,
-      total_requests: 0,
-      total_tokens: 0,
-      start_date: '',
-      end_date: ''
+    getUsageStats.mockResolvedValue(createPeriodStats())
+    getUserUsageTrend.mockResolvedValue({ trend: [] })
+    getUserSpendingRanking.mockResolvedValue({ ranking: [] })
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.restoreAllMocks()
+  })
+
+  it('defaults to month-to-date and renders system-wide period totals independently of today and lifetime stats', async () => {
+    const wrapper = mountDashboard()
+    await flushPromises()
+
+    expectRangeQueries('2026-09-01', '2026-09-03')
+    expect(wrapper.get('[data-test="dashboard-month"]').attributes('max')).toBe('2026-09')
+    expect(wrapper.text()).toContain('2026年9月请求')
+    expect(wrapper.get('[data-test="period-requests"]').text()).toBe('12')
+    expect(wrapper.get('[data-test="period-tokens"]').text()).toBe('1.50K')
+    expect(wrapper.get('[data-test="period-costs"]').text()).toBe('$3.00 / $2.00 / $10.00')
+    expect(wrapper.get('[data-test="period-response"]').text()).toBe('1.25s')
+  })
+
+  it.each([
+    ['2026-08', '2026-08-31'],
+    ['2025-02', '2025-02-28'],
+    ['2024-02', '2024-02-29'],
+    ['2025-12', '2025-12-31']
+  ])('updates all queries for historical month %s, including the full last day', async (month, end) => {
+    const wrapper = mountDashboard()
+    await flushPromises()
+    getUsageStats.mockResolvedValueOnce(createPeriodStats(34))
+
+    await wrapper.get('[data-test="dashboard-month"]').setValue(month)
+    await flushPromises()
+
+    expectRangeQueries(`${month}-01`, end)
+    expect(wrapper.get('[data-test="period-requests"]').text()).toBe('34')
+    expect(wrapper.findComponent(DateRangePicker).props()).toMatchObject({
+      startDate: `${month}-01`, endDate: end
     })
   })
 
-  it('uses last 24 hours as default dashboard range', async () => {
-    mount(DashboardView, {
-      global: {
-        stubs: {
-          AppLayout: { template: '<div><slot /></div>' },
-          LoadingSpinner: true,
-          Icon: true,
-          DateRangePicker: true,
-          Select: true,
-          ModelDistributionChart: true,
-          TokenUsageTrend: true,
-          Line: true
-        }
-      }
-    })
-
+  it('keeps custom date ranges working and clears the month label', async () => {
+    const wrapper = mountDashboard()
     await flushPromises()
 
-    const now = new Date()
-    const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+    wrapper.findComponent(DateRangePicker).vm.$emit('change', {
+      startDate: '2026-09-02', endDate: '2026-09-03', preset: 'last24Hours'
+    })
+    await flushPromises()
 
-    expect(getSnapshotV2).toHaveBeenCalledTimes(1)
-    expect(getSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({
-      start_date: formatLocalDate(yesterday),
-      end_date: formatLocalDate(now),
-      granularity: 'hour'
+    expectRangeQueries('2026-09-02', '2026-09-03', 'hour')
+    expect((wrapper.get('[data-test="dashboard-month"]').element as HTMLInputElement).value).toBe('')
+    expect(wrapper.text()).toContain('2026-09-02 ~ 2026-09-03请求')
+    expect(wrapper.text()).not.toContain('2026年9月请求')
+  })
+
+  it('restores the current month when the month input is cleared and refreshes through the current day', async () => {
+    const wrapper = mountDashboard()
+    await flushPromises()
+    await wrapper.get('[data-test="dashboard-month"]').setValue('2026-08')
+    await flushPromises()
+    await wrapper.get('[data-test="dashboard-month"]').setValue('')
+    await flushPromises()
+    expectRangeQueries('2026-09-01', '2026-09-03')
+
+    vi.setSystemTime(new Date(2026, 8, 4, 12))
+    await wrapper.get('[data-test="dashboard-refresh"]').trigger('click')
+    await flushPromises()
+    expectRangeQueries('2026-09-01', '2026-09-04')
+  })
+
+  it('does not show or restore another month totals while requests are pending or arrive out of order', async () => {
+    const wrapper = mountDashboard()
+    await flushPromises()
+    let resolveOlder!: (stats: AdminUsageStatsResponse) => void
+    getUsageStats.mockReturnValueOnce(new Promise<AdminUsageStatsResponse>((resolve) => {
+      resolveOlder = resolve
     }))
+
+    await wrapper.get('[data-test="dashboard-month"]').setValue('2026-08')
+    expect(wrapper.get('[data-test="period-requests"]').text()).toBe('—')
+    expect(wrapper.find('[data-test="period-costs"]').exists()).toBe(false)
+
+    getUsageStats.mockResolvedValueOnce(createPeriodStats(56))
+    await wrapper.get('[data-test="dashboard-month"]').setValue('2026-07')
+    await flushPromises()
+    resolveOlder(createPeriodStats(34))
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('2026年7月请求')
+    expect(wrapper.get('[data-test="period-requests"]').text()).toBe('56')
+  })
+
+  it('shows an error and leaves totals unavailable if the selected month cannot be loaded', async () => {
+    const wrapper = mountDashboard()
+    await flushPromises()
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    getUsageStats.mockRejectedValueOnce(new Error('stats unavailable'))
+    await wrapper.get('[data-test="dashboard-month"]').setValue('2026-08')
+    await flushPromises()
+
+    expect(showError).toHaveBeenCalledWith('admin.dashboard.failedToLoad')
+    expect(wrapper.get('[data-test="period-requests"]').text()).toBe('—')
+    expect(wrapper.get('[data-test="period-tokens"]').text()).toBe('—')
+    expect(wrapper.find('[data-test="period-costs"]').exists()).toBe(false)
   })
 })

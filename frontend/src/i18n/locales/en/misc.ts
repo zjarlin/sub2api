@@ -61,6 +61,29 @@ export default {
 
   docs: {
     title: 'Documentation',
+    official: 'Codex official website and documentation',
+    downloads: {
+      title: 'Client downloads',
+      macos: 'Official desktop installer. Download and open the DMG.',
+      windows: 'The official docs currently recommend the ChatGPT desktop app with Codex. Run in PowerShell; the download is saved in the current directory.',
+      linux: 'Official Codex CLI installer.',
+    },
+    setup: {
+      title: 'Install and configure',
+      requirements: 'Requires Node.js 22.14 or newer. Existing configuration will be replaced.',
+      platform: 'Operating system',
+      client: 'Client type',
+      desktop: 'Desktop app',
+      cli: 'Codex CLI',
+      paths: 'One-command installation and data directories',
+      installDir: 'CLI installation directory (optional, absolute path)',
+      codexHome: 'Configuration and session data directory (optional, absolute path)',
+      windowsStore: 'Choose the desktop app drive in Windows Settings > System > Storage > Where new content is saved. Existing apps may offer Move under Installed apps. Choose Codex CLI to specify an arbitrary installation directory.',
+      homeWindows: 'The command saves user-level CODEX_HOME. Reopen terminals and apps afterwards. Existing sessions are not migrated automatically.',
+      homeUnix: 'Set CODEX_HOME as printed by the CLI before starting Codex. Existing sessions are not migrated automatically.',
+      linuxDesktop: 'This tool only installs Codex CLI on Linux; selecting the desktop app writes configuration only.',
+      copyError: 'Copy failed. Select and copy the command manually.',
+    },
     subtitle: 'The complete flow from creating an API key to configuring local clients. Start from the Use Key dialog on the API Keys page; it generates copy-ready config files and one-click setup scripts for the selected group type.',
     quickStart: {
       title: 'Quick Start',

@@ -60,6 +60,29 @@ export default {
 
   docs: {
     title: '使用文档',
+    official: 'Codex 官网与使用文档',
+    downloads: {
+      title: '客户端下载',
+      macos: '官方桌面安装包，下载后打开 DMG。',
+      windows: '官方文档当前推荐的 ChatGPT 桌面应用（含 Codex），在 PowerShell 中运行。下载文件保存在当前目录。',
+      linux: '官方 Codex CLI 安装脚本。',
+    },
+    setup: {
+      title: '一键安装与配置',
+      requirements: '需要 Node.js 22.14 或更新版本。已有配置会被替换。',
+      platform: '操作系统',
+      client: '客户端类型',
+      desktop: '桌面应用',
+      cli: 'Codex CLI',
+      paths: '一键命令的安装与数据目录',
+      installDir: 'CLI 安装目录（可选，绝对路径）',
+      codexHome: '配置与会话数据目录（可选，绝对路径）',
+      windowsStore: '桌面版安装盘在 Windows「设置 → 系统 → 存储 → 新内容的保存位置」中设置；已安装应用可在「已安装的应用」中尝试移动。需要指定任意安装目录时选择 Codex CLI。',
+      homeWindows: '命令会保存用户级 CODEX_HOME，完成后重新打开终端和应用。旧目录的会话不会自动迁移。',
+      homeUnix: '完成后按 CLI 输出设置 CODEX_HOME 再启动 Codex。旧目录的会话不会自动迁移。',
+      linuxDesktop: '此工具在 Linux 上仅自动安装 Codex CLI；选择桌面应用时只写入配置。',
+      copyError: '复制失败，请手动选择并复制命令。',
+    },
     subtitle: '从创建 API 密钥到配置本地客户端的完整流程。优先使用密钥页里的“使用密钥”弹窗，它会根据分组类型生成可直接复制的配置文件和一键配置脚本。',
     quickStart: {
       title: '快速开始',
