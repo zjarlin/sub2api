@@ -20,7 +20,11 @@ BEGIN
     FOR addition IN
         SELECT * FROM (VALUES
             ('deepseek-v4-flash', 'deepseek/deepseek-v4-flash'),
+            ('deepseek-v4-flash', 'DeepSeek-V4-Flash'),
+            ('deepseek-v4-flash', 'DeepSeek-V4-Flash-Official'),
             ('deepseek-v4-pro', 'deepseek/deepseek-v4-pro'),
+            ('deepseek-v4-pro', 'DeepSeek-V4-Pro'),
+            ('deepseek-v4-pro', 'DeepSeek-V4-Pro-Official'),
             ('deepseek-v4.1-flash', 'deepseek/deepseek-v4.1-flash')
         ) AS aliases(canonical, alias)
     LOOP

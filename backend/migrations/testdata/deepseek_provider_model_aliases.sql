@@ -18,6 +18,11 @@ BEGIN
         WHERE g->'aliases' ? ('deepseek/' || (g->>'canonical'))) <> 3 THEN
         RAISE EXCEPTION '新环境必须将三个 DeepSeek 规范 ID 映射到上游带前缀的 ID';
     END IF;
+    IF NOT EXISTS (SELECT 1 FROM jsonb_array_elements(p->'groups') AS g
+        WHERE g->>'canonical' = 'deepseek-v4-flash'
+          AND g->'aliases' ? 'DeepSeek-V4-Flash-Official') THEN
+        RAISE EXCEPTION 'V4 Flash Official 必须归入 deepseek-v4-flash 同义词组';
+    END IF;
     IF EXISTS (SELECT 1 FROM settings s JOIN initial_settings i USING (key)
         WHERE s.key <> 'model_aliases' AND s.value IS DISTINCT FROM i.value) THEN
         RAISE EXCEPTION '不能改变降级档位或其他功能配置';
@@ -44,7 +49,7 @@ DECLARE
     p JSONB := (SELECT value::jsonb FROM settings WHERE key = 'model_aliases');
 BEGIN
     IF p <> '{"custom":true,"groups":[
-        {"canonical":"deepseek-v4-flash","aliases":["private-flash","deepseek/deepseek-v4-flash"]},
+        {"canonical":"deepseek-v4-flash","aliases":["private-flash","deepseek/deepseek-v4-flash","DeepSeek-V4-Flash","DeepSeek-V4-Flash-Official"]},
         {"canonical":"deepseek-v4.1-flash","aliases":["private-v41"]},
         {"canonical":"custom-route","aliases":["deepseek/deepseek-v4.1-flash"]}
     ]}'::jsonb THEN
