@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 import { parseArgs } from 'node:util';
+import { join } from 'node:path';
 import { currentPlatformLabel, normalizeBaseUrl, writeCodexConfig } from './config.js';
 import {
   DEFAULT_MODIFIED_INSTALL_REPO,
-  MODIFIED_INSTALL_URL_ENV,
   MODIFIED_INSTALL_REPO_ENV,
   parseCodexInstallSource,
+  codexConfigDir,
+  resolveDirectory,
+  powerShellLiteral,
+  shellLiteral,
   planClientInstall,
   runCommand
 } from './install.js';
@@ -14,7 +18,7 @@ declare const PACKAGE_VERSION: string;
 
 const HELP = `sub2api-codex-setup
 
-Install the Codex desktop client when needed, then write Codex CLI configuration for Sub2API.
+Install the Codex desktop app or CLI, then write Sub2API configuration.
 
 Usage:
   npx -y sub2api-codex-setup --base-url <url> --api-key <key> [options]
@@ -26,6 +30,10 @@ Options:
   --provider-name <name> Provider name written to config.toml (default: Sub2API)
   --auth-mode <mode>     api-key or legacy (default: api-key)
   --install-source <src> Codex client source: official or modified (default: official)
+  --client <type>        desktop or cli (default: desktop)
+  --install-dir <dir>    Absolute npm prefix for CLI, or app folder for macOS desktop
+  --codex-home <dir>     Absolute config/data directory (default: CODEX_HOME or ~/.codex)
+  --persist-home        Save CODEX_HOME in Windows user environment; reopen terminals/apps
   --modified-installer-url <url>
                           Override the modified installer URL; default is the latest GitHub
                           Release asset from ${DEFAULT_MODIFIED_INSTALL_REPO}
@@ -46,6 +54,10 @@ function parseCli() {
       'provider-name': { type: 'string', default: 'Sub2API' },
       'auth-mode': { type: 'string', default: 'api-key' },
       'install-source': { type: 'string', default: 'official' },
+      client: { type: 'string', default: 'desktop' },
+      'install-dir': { type: 'string' },
+      'codex-home': { type: 'string' },
+      'persist-home': { type: 'boolean', default: false },
       'modified-installer-url': { type: 'string' },
       'no-install': { type: 'boolean', default: false },
       'dry-run': { type: 'boolean', default: false }
@@ -81,21 +93,40 @@ async function main(): Promise<void> {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
   const platform = currentPlatformLabel();
   const installSource = parseCodexInstallSource(values['install-source']);
+  const client = values.client;
+  if (client !== 'desktop' && client !== 'cli') {
+    throw new Error('--client must be desktop or cli');
+  }
+  const directory = codexConfigDir(process.platform, values['codex-home']);
+  const installDir = values['install-dir'] === undefined ? undefined : resolveDirectory(values['install-dir']);
+  if (values['persist-home'] && (process.platform !== 'win32' || !values['codex-home'])) {
+    throw new Error('--persist-home requires Windows and an explicit --codex-home');
+  }
+  if (values['no-install'] && installDir) {
+    throw new Error('--install-dir cannot be used with --no-install');
+  }
+  const installPlan = values['no-install'] ? undefined : planClientInstall({
+    source: installSource,
+    client,
+    installDir,
+    modifiedInstallerUrl: values['modified-installer-url']
+  });
 
   console.log(`Detected platform: ${platform}`);
   console.log(`Codex install source: ${installSource}`);
   if (values['dry-run']) {
-    console.log(`Config directory: ${platform === 'windows' ? '%USERPROFILE%\\.codex' : '~/.codex'}`);
+    console.log(`Config directory: ${directory}`);
+    console.log(`Client: ${client}`);
+    if (installDir) console.log(`Install directory: ${installDir}`);
+    if (installDir && client === 'cli' && platform === 'windows') console.log(`Windows user PATH: prepend ${installDir}`);
+    if (values['persist-home']) console.log(`Windows user CODEX_HOME: ${directory}`);
     console.log(`Base URL: ${normalizedBaseUrl}`);
     console.log(`Model: ${values.model}`);
     console.log(`Auth mode: ${authMode}`);
     if (values['no-install']) {
       console.log('Codex client install: skipped by --no-install');
     } else {
-      const installPlan = planClientInstall({
-        source: installSource,
-        modifiedInstallerUrl: values['modified-installer-url']
-      });
+      if (!installPlan) throw new Error('Missing install plan');
       if (installPlan.installed) console.log('Codex client: already installed; install step skipped');
       else if (installPlan.install) {
         for (const command of installPlan.install) {
@@ -107,11 +138,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (!values['no-install']) {
-    const installPlan = planClientInstall({
-      source: installSource,
-      modifiedInstallerUrl: values['modified-installer-url']
-    });
+  if (installPlan) {
     if (installPlan.installed) {
       console.log('Codex client already installed; skipping install.');
     } else if (installPlan.install) {
@@ -131,11 +158,31 @@ async function main(): Promise<void> {
     model: values.model,
     providerName: values['provider-name'],
     authMode,
-    modelCatalogJson: modelCatalog
+    modelCatalogJson: modelCatalog,
+    codexHome: directory
   });
   console.log(`Wrote ${written.configPath}`);
   if (written.modelCatalogPath) console.log(`Wrote ${written.modelCatalogPath}`);
   if (written.authPath) console.log(`Wrote ${written.authPath}`);
+  if (values['persist-home']) {
+    await runCommand({ command: 'powershell.exe', args: ['-NoProfile', '-Command',
+      `$ErrorActionPreference = 'Stop'; [Environment]::SetEnvironmentVariable('CODEX_HOME', ${powerShellLiteral(directory)}, 'User')`] });
+    console.log('Saved Windows user CODEX_HOME. Reopen terminals and restart Codex; sign out of Windows if an existing launcher keeps the old environment.');
+  } else if (values['codex-home']) {
+    console.log(process.platform === 'win32'
+      ? `Before starting Codex in PowerShell: $env:CODEX_HOME = ${powerShellLiteral(directory)}`
+      : `Before starting Codex (also add to your shell profile): export CODEX_HOME=${shellLiteral(directory)}`);
+  }
+  if (installDir && client === 'cli') {
+    const binDir = process.platform === 'win32' ? installDir : join(installDir, 'bin');
+    if (process.platform === 'win32') {
+      await runCommand({ command: 'powershell.exe', args: ['-NoProfile', '-Command',
+        `$ErrorActionPreference = 'Stop'; $binDir = ${powerShellLiteral(binDir)}; $userPath = [Environment]::GetEnvironmentVariable('Path', 'User'); if (($userPath -split ';') -notcontains $binDir) { [Environment]::SetEnvironmentVariable('Path', ($binDir + ';' + $userPath), 'User') }`] });
+      console.log('Saved Windows user PATH. Reopen your terminal to run codex by name.');
+    }
+    console.log(`Codex CLI executable: ${join(binDir, process.platform === 'win32' ? 'codex.cmd' : 'codex')}`);
+    if (process.platform !== 'win32') console.log(`Add to your shell profile: export PATH=${shellLiteral(binDir)}:"$PATH"`);
+  }
   console.log('Codex setup complete. Restart Codex if it was already running.');
 }
 
@@ -144,7 +191,6 @@ function formatInstallCommand(command: { command: string; args: string[] }): str
     const match = command.args[1].match(/installer_url='((?:[^']|'\\'')*)'/);
     if (match) return `download and run ${match[1].replace(/'\\''/g, "'")}`;
   }
-  if (command.command === 'powershell.exe') return 'run modified PowerShell installer from --modified-installer-url';
   return `${command.command} ${command.args.join(' ')}`;
 }
 

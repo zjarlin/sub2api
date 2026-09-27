@@ -78,85 +78,76 @@ test('modified install source always plans its installer even when Codex exists'
   assert.doesNotMatch(output, /already installed; install step skipped/);
 });
 
-test('writes Codex config with inline API key under a custom HOME', () => {
-  const home = mkdtempSync(join(tmpdir(), 'sub2api-codex-setup-'));
-  try {
-    execFileSync(process.execPath, ['dist/cli.mjs',
-      '--base-url', 'https://example.com',
-      '--api-key', 'sk-test',
-      '--model', 'gpt-5.5',
-      '--no-install'
-    ], {
-      encoding: 'utf8',
-      env: { ...process.env, HOME: home, USERPROFILE: home }
-    });
-
-    const config = readFileSync(join(home, '.codex', 'config.toml'), 'utf8');
-    assert.match(config, /base_url = "https:\/\/example\.com\/v1"/);
-    assert.match(config, /experimental_bearer_token = "sk-test"/);
-    assert.throws(() => readFileSync(join(home, '.codex', 'auth.json'), 'utf8'));
-  } finally {
-    rmSync(home, { recursive: true, force: true });
-  }
-});
-
-test('legacy auth mode writes auth.json', () => {
-  const home = mkdtempSync(join(tmpdir(), 'sub2api-codex-setup-'));
-  try {
-    execFileSync(process.execPath, ['dist/cli.mjs',
-      '--base-url', 'https://example.com/v1',
-      '--api-key', 'sk-test',
-      '--auth-mode', 'legacy',
-      '--no-install'
-    ], {
-      encoding: 'utf8',
-      env: { ...process.env, HOME: home, USERPROFILE: home }
-    });
-
-    const config = readFileSync(join(home, '.codex', 'config.toml'), 'utf8');
-    const auth = JSON.parse(readFileSync(join(home, '.codex', 'auth.json'), 'utf8'));
-    assert.match(config, /env_key = "SUB2API_API_KEY"/);
-    assert.equal(auth.OPENAI_API_KEY, 'sk-test');
-  } finally {
-    rmSync(home, { recursive: true, force: true });
-  }
-});
-
-test('writes the model catalog to a file and references its path in config.toml', async () => {
-  const home = mkdtempSync(join(tmpdir(), 'sub2api-codex-setup-'));
-  const manifest = { models: [{ slug: 'gpt-5.5' }] };
-  const server = createServer((request, response) => {
-    if (request.url?.startsWith('/v1/models')) {
+for (const scenario of [
+  { name: 'default directory', options: [], directory: '.codex', environment: '' },
+  { name: 'legacy auth', options: ['--auth-mode', 'legacy'], directory: '.codex', environment: '' },
+  { name: 'CODEX_HOME environment', options: [], directory: 'environment data', environment: 'environment data' },
+  { name: 'explicit directory overrides CODEX_HOME', options: ['--codex-home'], directory: 'custom data', environment: 'unused' }
+]) {
+  test('writes configuration and catalog in ' + scenario.name, async () => {
+    const sandboxRoot = mkdtempSync(join(tmpdir(), 'sub2api-codex-setup-'));
+    const destination = join(sandboxRoot, scenario.directory);
+    const manifest = { models: [{ slug: 'gpt-5.5' }] };
+    const server = createServer((request, response) => {
+      assert.match(request.url, /^\/v1\/models\?/);
+      assert.equal(request.headers.authorization, 'Bearer sk-test');
       response.writeHead(200, { 'content-type': 'application/json' });
       response.end(JSON.stringify(manifest));
-      return;
-    }
-    response.writeHead(404);
-    response.end();
-  });
-
-  try {
-    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const address = server.address();
-    assert.ok(address && typeof address === 'object');
-
-    await execFileAsync(process.execPath, ['dist/cli.mjs',
-      '--base-url', `http://127.0.0.1:${address.port}`,
-      '--api-key', 'sk-test',
-      '--no-install'
-    ], {
-      encoding: 'utf8',
-      env: { ...process.env, HOME: home, USERPROFILE: home }
     });
+    try {
+      await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+      const options = scenario.options[0] === '--codex-home' ? ['--codex-home', destination] : scenario.options;
+      await execFileAsync(process.execPath, ['dist/cli.mjs',
+        '--base-url', 'http://127.0.0.1:' + server.address().port,
+        '--api-key', 'sk-test', '--no-install', ...options
+      ], {
+        encoding: 'utf8',
+        env: { ...process.env, HOME: sandboxRoot, USERPROFILE: sandboxRoot,
+          CODEX_HOME: scenario.environment ? join(sandboxRoot, scenario.environment) : '' }
+      });
+      const config = readFileSync(join(destination, 'config.toml'), 'utf8');
+      const catalogLine = config.split('\n').find((line) => line.startsWith('model_catalog_json = '));
+      assert.equal(JSON.parse(catalogLine.slice('model_catalog_json = '.length)), join(destination, 'codex-models.json'));
+      assert.deepEqual(JSON.parse(readFileSync(join(destination, 'codex-models.json'), 'utf8')), manifest);
+      if (scenario.name === 'legacy auth') {
+        assert.equal(JSON.parse(readFileSync(join(destination, 'auth.json'), 'utf8')).OPENAI_API_KEY, 'sk-test');
+      } else {
+        assert.match(config, /experimental_bearer_token = "sk-test"/);
+        assert.throws(() => readFileSync(join(destination, 'auth.json')));
+      }
+      if (scenario.directory !== '.codex') assert.throws(() => readFileSync(join(sandboxRoot, '.codex', 'config.toml')));
+      if (scenario.environment === 'unused') assert.throws(() => readFileSync(join(sandboxRoot, 'unused', 'config.toml')));
+    } finally {
+      await new Promise((resolve) => server.close(resolve));
+      rmSync(sandboxRoot, { recursive: true, force: true });
+    }
+  });
+}
 
-    const config = readFileSync(join(home, '.codex', 'config.toml'), 'utf8');
-    const catalogLine = config.split('\n').find((line) => line.startsWith('model_catalog_json = '));
-    assert.ok(catalogLine);
-    assert.doesNotMatch(config, /"models"/);
-    assert.equal(JSON.parse(catalogLine.slice('model_catalog_json = '.length)), join(home, '.codex', 'codex-models.json'));
-    assert.deepEqual(JSON.parse(readFileSync(join(home, '.codex', 'codex-models.json'), 'utf8')), manifest);
+test('dry-run reports custom directories and never writes or exposes the API key', () => {
+  const sandboxRoot = mkdtempSync(join(tmpdir(), 'sub2api-codex-dry-'));
+  const destination = join(sandboxRoot, 'data folder');
+  try {
+    const output = cli('--base-url', 'https://example.com', '--api-key', 'sk-secret',
+      '--client', 'cli', '--install-dir', join(sandboxRoot, 'app folder'),
+      '--codex-home', destination, '--dry-run');
+    assert.ok(output.includes(destination));
+    assert.match(output, /--prefix/);
+    assert.doesNotMatch(output, /sk-secret/);
+    assert.throws(() => readFileSync(join(destination, 'config.toml')));
   } finally {
-    await new Promise((resolve) => server.close(resolve));
-    rmSync(home, { recursive: true, force: true });
+    rmSync(sandboxRoot, { recursive: true, force: true });
+  }
+});
+
+test('invalid options fail before installation or writing configuration', () => {
+  for (const options of [
+    ['--client', 'other'],
+    ['--codex-home', 'relative-path'],
+    ['--install-dir', join(tmpdir(), 'app'), '--no-install'],
+    ['--persist-home'],
+    ['--install-source', 'modified', '--client', 'cli']
+  ]) {
+    assert.throws(() => cli('--base-url', 'https://example.com', '--api-key', 'sk-test', '--dry-run', ...options));
   }
 });

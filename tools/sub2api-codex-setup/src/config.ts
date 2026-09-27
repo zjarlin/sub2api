@@ -11,6 +11,7 @@ export interface SetupConfig {
   modelCatalogJson?: string;
   modelCatalogPath?: string;
   platform?: NodeJS.Platform;
+  codexHome?: string;
 }
 
 export interface WrittenConfig {
@@ -58,7 +59,7 @@ supports_websockets = false`
 
 export async function writeCodexConfig(config: SetupConfig): Promise<WrittenConfig> {
   const platform = config.platform || process.platform;
-  const directory = codexConfigDir(platform);
+  const directory = codexConfigDir(platform, config.codexHome);
   const configPath = join(directory, 'config.toml');
   const modelCatalogPath = config.modelCatalogJson ? join(directory, 'codex-models.json') : undefined;
   await mkdir(directory, { recursive: true });
