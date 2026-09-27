@@ -39,6 +39,16 @@ func TestResponsesRejectedInputCompatibility(t *testing.T) {
 			want: `{"input":[{"type":"message","role":"assistant","content":""},{"role":"user","content":"continue"}]}`,
 		},
 		{
+			name: "null reasoning content preserves summary and encrypted state",
+			body: `{"input":[{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"Keep the plan."}],"content":null,"encrypted_content":"opaque","opaque":9007199254740993}]}`,
+			want: `{"input":[{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"Keep the plan."}],"encrypted_content":"opaque","opaque":9007199254740993}]}`,
+		},
+		{
+			name: "all null reasoning content fields are removed in one retry",
+			body: `{"input":[{"type":"reasoning","summary":[],"content":null},{"role":"user","content":"continue"},{"type":"reasoning","summary":[],"content":null}]}`,
+			want: `{"input":[{"type":"reasoning","summary":[]},{"role":"user","content":"continue"},{"type":"reasoning","summary":[]}]}`,
+		},
+		{
 			name: "null tools is removed",
 			body: `{"model":"gpt-5.6-luna","input":[{"role":"user","content":"hello"}],"tools":null}`,
 			want: `{"model":"gpt-5.6-luna","input":[{"role":"user","content":"hello"}]}`,
@@ -76,6 +86,9 @@ func TestResponsesRejectedInputDoesNotGuessUnsupportedContent(t *testing.T) {
 		`{"input":[{"type":"additional_tools","tools":"invalid"}]}`,
 		`{"input":[{"type":"function_call_output","call_id":"call_1","content":null,"output":"keep"}]}`,
 		`{"input":[{"type":"unknown","role":"assistant","content":null}]}`,
+		`{"input":[{"type":"reasoning","summary":[],"content":[{"type":"reasoning_text","text":"Keep this thought."}],"encrypted_content":"opaque"}]}`,
+		`{"input":[{"type":"reasoning","summary":[],"content":[],"encrypted_content":"opaque"}]}`,
+		`{"input":[{"type":"reasoning","summary":[],"encrypted_content":"opaque"}]}`,
 	} {
 		retry, _, changed, err := normalizeOpenAIResponsesRejectedFieldRetryBody(http.StatusBadRequest, []byte(body), []byte(rejectedResponsesInputError))
 		require.NoError(t, err, body)
@@ -92,6 +105,42 @@ func TestResponsesRejectedInputDoesNotGuessUnsupportedContent(t *testing.T) {
 		_, _, changed, err := normalizeOpenAIResponsesRejectedFieldRetryBody(http.StatusBadRequest, []byte(`{"input":[{"role":"assistant","content":null}]}`), []byte(response))
 		require.NoError(t, err)
 		require.False(t, changed, response)
+	}
+}
+
+// 复现 #177704：透传重放含空 content 的推理条目时，只修正空字段并保留完整历史。
+func TestResponsesRejectedReasoningNullContentPassthroughRetry(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream_%t", stream), func(t *testing.T) {
+			body := []byte(fmt.Sprintf(`{"model":"gpt-6-sol","stream":%t,"input":[{"type":"reasoning","id":"rs_1","summary":[{"type":"summary_text","text":"Keep the plan."}],"content":null,"encrypted_content":"opaque"},{"type":"function_call","call_id":"call_1","name":"probe_ping","arguments":"{}"},{"type":"function_call_output","call_id":"call_1","output":"original tool output"},{"role":"user","content":"Reply OK."}]}`, stream))
+			responseJSON := `{"id":"resp_ok","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"OK"}]}],"usage":{"input_tokens":3,"output_tokens":1}}`
+			terminal := newOpenAIRejectedFieldTestResponse(http.StatusOK, responseJSON)
+			if stream {
+				terminal = newOpenAIRejectedFieldTestResponse(http.StatusOK, "data: {\"type\":\"response.completed\",\"response\":"+responseJSON+"}\n\n")
+				terminal.Header.Set("Content-Type", "text/event-stream")
+			}
+			upstream := &httpUpstreamRecorder{responses: []*http.Response{
+				newOpenAIRejectedFieldTestResponse(http.StatusBadRequest, rejectedResponsesInputError), terminal,
+			}}
+			account := newOpenAIRejectedFieldTestAccount()
+			account.Extra["openai_passthrough"] = true
+			c := newOpenAIRejectedFieldTestContext(body)
+			result, err := newOpenAIRejectedFieldTestService(upstream).Forward(context.Background(), c, account, body)
+			require.NoError(t, err)
+			require.NotNil(t, result)
+			require.Equal(t, 3, result.Usage.InputTokens)
+			require.Len(t, upstream.bodies, 2)
+			require.True(t, gjson.GetBytes(upstream.bodies[0], "input.0.content").Exists())
+			require.False(t, gjson.GetBytes(upstream.bodies[1], "input.0.content").Exists())
+			for _, sent := range upstream.bodies {
+				require.Equal(t, "gpt-6-sol", gjson.GetBytes(sent, "model").String())
+				require.Equal(t, "opaque", gjson.GetBytes(sent, "input.0.encrypted_content").String())
+				require.Equal(t, "Keep the plan.", gjson.GetBytes(sent, "input.0.summary.0.text").String())
+				require.Equal(t, "call_1", gjson.GetBytes(sent, "input.1.call_id").String())
+				require.Equal(t, "call_1", gjson.GetBytes(sent, "input.2.call_id").String())
+				require.Equal(t, "original tool output", gjson.GetBytes(sent, "input.2.output").String())
+			}
+		})
 	}
 }
 

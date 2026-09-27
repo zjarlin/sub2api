@@ -61,6 +61,12 @@ func normalizeOpenAIResponsesRejectedInput(body []byte) ([]byte, string, bool, e
 			}
 		case nil, "", "message":
 			changed = normalizeRejectedResponsesMessageContent(item) || changed
+		case "reasoning":
+			// 兼容上游拒绝 content:null；只省略可选空字段，保留摘要、密文和非空内容。
+			if content, exists := item["content"]; exists && content == nil {
+				delete(item, "content")
+				changed = true
+			}
 		}
 	}
 	if !changed {
