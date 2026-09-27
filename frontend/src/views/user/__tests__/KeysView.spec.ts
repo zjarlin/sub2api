@@ -227,8 +227,8 @@ const IconStub = {
 
 const ApiKeyDailyUsageDialogStub = {
   name: 'ApiKeyDailyUsageDialog',
-  props: ['show', 'apiKey'],
-  emits: ['close'],
+  props: ['show', 'apiKey', 'month'],
+  emits: ['close', 'update:month'],
   template: '<div v-if="show" data-test="daily-usage-dialog-stub">{{ apiKey?.name }}</div>',
 }
 
@@ -380,8 +380,8 @@ describe('user KeysView column settings', () => {
 
     const wrapper = await mountView()
 
-    expect(wrapper.get('[data-test="usage"]').text()).toContain('Today: ¥1.2500')
-    expect(wrapper.get('[data-test="usage"]').text()).toContain('This Month: ¥7.5000')
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('Today:¥1.2500')
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('This Month:¥7.5000')
   })
 
   it('uses the compatibility month value returned for an older frontend contract', async () => {
@@ -397,7 +397,7 @@ describe('user KeysView column settings', () => {
 
     const wrapper = await mountView()
 
-    expect(wrapper.get('[data-test="usage"]').text()).toContain('This Month: ¥7.5000')
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('This Month:¥7.5000')
   })
 
   it('opens daily usage details for the selected API key', async () => {
@@ -407,6 +407,68 @@ describe('user KeysView column settings', () => {
     await nextTick()
 
     expect(wrapper.get('[data-test="daily-usage-dialog-stub"]').text()).toBe('test-key')
+  })
+
+  it('loads a historical month and synchronizes changes from daily details', async () => {
+    const wrapper = await mountView()
+    getDashboardApiKeysUsage.mockResolvedValue({
+      stats: { 1: { api_key_id: 1, today_actual_cost: 1.25, month_actual_cost: 42 } },
+    })
+    await wrapper.get('[data-test="usage-month"]').setValue('2024-02')
+    await flushPromises()
+    expect(getDashboardApiKeysUsage).toHaveBeenLastCalledWith([1], expect.objectContaining({ month: '2024-02' }))
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('2024-02:¥42.0000')
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('Today:¥1.2500')
+    await wrapper.get('[data-test="daily-usage-button"]').trigger('click')
+    const dialog = wrapper.findComponent({ name: 'ApiKeyDailyUsageDialog' })
+    expect(dialog.props('month')).toBe('2024-02')
+    dialog.vm.$emit('update:month', '2024-12')
+    await flushPromises()
+    expect(wrapper.get<HTMLInputElement>('[data-test="usage-month"]').element.value).toBe('2024-12')
+    expect(getDashboardApiKeysUsage).toHaveBeenLastCalledWith([1], expect.objectContaining({ month: '2024-12' }))
+    wrapper.unmount()
+  })
+
+  it('ignores a late month response after a newer month has loaded', async () => {
+    const wrapper = await mountView()
+    let resolveOld!: (value: unknown) => void
+    getDashboardApiKeysUsage.mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve }))
+    await wrapper.get('[data-test="usage-month"]').setValue('2024-02')
+    await flushPromises()
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('2024-02:—')
+    getDashboardApiKeysUsage.mockResolvedValueOnce({
+      stats: { 1: { api_key_id: 1, today_actual_cost: 1, month_actual_cost: 24 } },
+    })
+    await wrapper.get('[data-test="usage-month"]').setValue('2024-12')
+    await flushPromises()
+    resolveOld({ stats: { 1: { api_key_id: 1, today_actual_cost: 1, month_actual_cost: 999 } } })
+    await flushPromises()
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('2024-12:¥24.0000')
+    expect(wrapper.get('[data-test="usage"]').text()).not.toContain('999')
+    wrapper.unmount()
+  })
+
+  it('shows unavailable usage and an error instead of a stale or zero amount when loading fails', async () => {
+    const wrapper = await mountView()
+    getDashboardApiKeysUsage.mockRejectedValueOnce(new Error('Temporary failure'))
+    await wrapper.get('[data-test="usage-month"]').setValue('2024-02')
+    await flushPromises()
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('2024-02:—')
+    expect(showError).toHaveBeenCalledWith('keys.usageLoadFailed')
+    wrapper.unmount()
+  })
+
+  it('keeps the displayed and queried month when clearing or entering a future month', async () => {
+    const wrapper = await mountView()
+    const picker = wrapper.get<HTMLInputElement>('[data-test="usage-month"]')
+    const selectedMonth = picker.element.value
+    getDashboardApiKeysUsage.mockClear()
+    await picker.setValue('')
+    expect(picker.element.value).toBe(selectedMonth)
+    await picker.setValue('9999-01')
+    expect(picker.element.value).toBe(selectedMonth)
+    expect(getDashboardApiKeysUsage).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it('opens bulk editing with only selected visible keys', async () => {

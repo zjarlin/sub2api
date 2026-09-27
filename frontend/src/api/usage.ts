@@ -106,6 +106,7 @@ export interface ApiKeyDailyUsageResponse {
 export interface ApiKeyDailyUsageParams {
   days?: number
   period?: 'month'
+  month?: string
 }
 
 export interface UsageDashboardSnapshotV2Params extends TrendParams {
@@ -344,12 +345,15 @@ export async function getDashboardApiKeysUsage(
   apiKeyIds: number[],
   options?: {
     signal?: AbortSignal
+    month?: string
   }
 ): Promise<BatchApiKeysUsageResponse> {
   const { data } = await apiClient.post<BatchApiKeysUsageResponse>(
     '/usage/dashboard/api-keys-usage',
     {
-      api_key_ids: apiKeyIds
+      api_key_ids: apiKeyIds,
+      month: options?.month,
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
     },
     {
       signal: options?.signal

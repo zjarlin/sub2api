@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -448,11 +449,23 @@ func apiKeyDailyUsageRange(days int, userTZ string) (time.Time, time.Time) {
 	return startTime, endTime
 }
 
-func apiKeyMonthlyDailyUsageRange(userTZ string) (time.Time, time.Time, int) {
+// apiKeyMonthlyDailyUsageRange 按用户时区解析自然月，本月只统计到今天。
+func apiKeyMonthlyDailyUsageRange(month, userTZ string) (time.Time, time.Time, int, error) {
 	now := timezone.NowInUserLocation(userTZ)
 	startTime := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+	if month != "" {
+		parsed, err := time.ParseInLocation("2006-01", month, now.Location())
+		if err != nil || parsed.Year() < 1 || parsed.After(startTime) {
+			return time.Time{}, time.Time{}, 0, fmt.Errorf("invalid month, use YYYY-MM and no future months")
+		}
+		startTime = parsed
+	}
 	endTime := timezone.StartOfDayInUserLocation(now.AddDate(0, 0, 1), userTZ)
-	return startTime, endTime, now.Day()
+	monthEnd := startTime.AddDate(0, 1, 0)
+	if monthEnd.Before(endTime) {
+		endTime = monthEnd
+	}
+	return startTime, endTime, endTime.AddDate(0, 0, -1).Day(), nil
 }
 
 // DashboardStats handles getting user dashboard statistics
@@ -632,6 +645,8 @@ func parseBoolQueryWithDefault(c *gin.Context, key string, fallback bool) (bool,
 // BatchAPIKeysUsageRequest represents the request for batch API keys usage
 type BatchAPIKeysUsageRequest struct {
 	APIKeyIDs []int64 `json:"api_key_ids" binding:"required"`
+	Month     string  `json:"month"`
+	Timezone  string  `json:"timezone"`
 }
 
 // DashboardAPIKeysUsage handles getting usage stats for user's own API keys
@@ -646,6 +661,12 @@ func (h *UsageHandler) DashboardAPIKeysUsage(c *gin.Context) {
 	var req BatchAPIKeysUsageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	startTime, endTime, _, err := apiKeyMonthlyDailyUsageRange(req.Month, req.Timezone)
+	if err != nil {
+		response.BadRequest(c, err.Error())
 		return
 	}
 
@@ -671,7 +692,7 @@ func (h *UsageHandler) DashboardAPIKeysUsage(c *gin.Context) {
 		return
 	}
 
-	stats, err := h.usageService.GetBatchAPIKeyUsageStats(c.Request.Context(), validAPIKeyIDs, time.Time{}, time.Time{})
+	stats, err := h.usageService.GetBatchAPIKeyUsageStats(c.Request.Context(), validAPIKeyIDs, startTime, endTime)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -681,7 +702,7 @@ func (h *UsageHandler) DashboardAPIKeysUsage(c *gin.Context) {
 }
 
 // GetMyAPIKeyDailyUsage 获取当前用户指定 API 密钥的每日用量明细。
-// GET /api/v1/user/api-keys/:id/usage/daily?days=30 或 period=month
+// GET /api/v1/user/api-keys/:id/usage/daily?days=30 或 period=month&month=2026-08
 func (h *UsageHandler) GetMyAPIKeyDailyUsage(c *gin.Context) {
 	subject, ok := middleware2.GetAuthSubjectFromContext(c)
 	if !ok {
@@ -699,6 +720,14 @@ func (h *UsageHandler) GetMyAPIKeyDailyUsage(c *gin.Context) {
 	if period != "" && period != apiKeyDailyUsagePeriodMonth {
 		response.BadRequest(c, "Invalid period, allowed value is month")
 		return
+	}
+	month := c.Query("month")
+	if month != "" {
+		if c.Query("days") != "" {
+			response.BadRequest(c, "month and days cannot be used together")
+			return
+		}
+		period = apiKeyDailyUsagePeriodMonth
 	}
 	days := 0
 	if period == "" {
@@ -730,7 +759,11 @@ func (h *UsageHandler) GetMyAPIKeyDailyUsage(c *gin.Context) {
 	var startTime time.Time
 	var endTime time.Time
 	if period == apiKeyDailyUsagePeriodMonth {
-		startTime, endTime, days = apiKeyMonthlyDailyUsageRange(userTZ)
+		startTime, endTime, days, err = apiKeyMonthlyDailyUsageRange(month, userTZ)
+		if err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		}
 	} else {
 		startTime, endTime = apiKeyDailyUsageRange(days, userTZ)
 	}

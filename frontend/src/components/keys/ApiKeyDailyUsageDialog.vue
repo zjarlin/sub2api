@@ -6,6 +6,12 @@
     @close="emit('close')"
   >
     <div data-test="daily-usage-dialog" class="min-h-64">
+      <ApiKeyUsageMonthPicker
+        id="daily-usage-month"
+        :model-value="month"
+        class="mb-4"
+        @update:model-value="emit('update:month', $event)"
+      />
       <div
         v-if="dailyUsage"
         class="mb-4 flex flex-col gap-2 border-b border-gray-200 pb-4 sm:flex-row sm:items-center sm:justify-between dark:border-dark-600"
@@ -116,16 +122,19 @@ import { usageAPI } from '@/api'
 import type { ApiKeyDailyUsagePoint, ApiKeyDailyUsageResponse } from '@/api/usage'
 import type { ApiKey } from '@/types'
 import { formatUserCurrency } from '@/utils/userCurrency'
+import ApiKeyUsageMonthPicker from './ApiKeyUsageMonthPicker.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 
 const props = defineProps<{
   show: boolean
   apiKey: ApiKey | null
+  month: string
 }>()
 
 const emit = defineEmits<{
   (event: 'close'): void
+  (event: 'update:month', month: string): void
 }>()
 
 const { t } = useI18n()
@@ -183,9 +192,13 @@ const loadDailyUsage = async () => {
   const currentRequestVersion = ++requestVersion
   loading.value = true
   errorMessage.value = ''
+  dailyUsage.value = null
 
   try {
-    const response = await usageAPI.getMyApiKeyDailyUsage(props.apiKey.id, { period: 'month' })
+    const response = await usageAPI.getMyApiKeyDailyUsage(props.apiKey.id, {
+      period: 'month',
+      month: props.month
+    })
     if (currentRequestVersion !== requestVersion) {
       return
     }
@@ -204,7 +217,7 @@ const loadDailyUsage = async () => {
 }
 
 watch(
-  () => [props.show, props.apiKey?.id] as const,
+  () => [props.show, props.apiKey?.id, props.month] as const,
   ([show, apiKeyID]) => {
     if (show && apiKeyID) {
       void loadDailyUsage()

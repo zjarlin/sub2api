@@ -22,6 +22,11 @@
               :options="statusFilterOptions"
               @update:model-value="onStatusFilterChange"
             />
+            <ApiKeyUsageMonthPicker
+              id="usage-month"
+              :model-value="selectedUsageMonth"
+              @update:model-value="onUsageMonthChange"
+            />
           </div>
           <EndpointPopover
             v-if="publicSettings?.api_base_url || (publicSettings?.custom_endpoints?.length ?? 0) > 0"
@@ -213,13 +218,13 @@
               <div class="flex items-center gap-1.5">
                 <span class="text-gray-500 dark:text-gray-400">{{ t('keys.today') }}:</span>
                 <span class="font-medium text-gray-900 dark:text-white">
-                  ¥{{ (usageStats[row.id]?.today_actual_cost ?? 0).toFixed(4) }}
+                  {{ usageStats[row.id] ? `¥${usageStats[row.id].today_actual_cost.toFixed(4)}` : '—' }}
                 </span>
               </div>
               <div class="mt-0.5 flex items-center gap-1.5">
-                <span class="text-gray-500 dark:text-gray-400">{{ t('keys.month') }}:</span>
+                <span class="text-gray-500 dark:text-gray-400">{{ usageMonthLabel }}:</span>
                 <span class="font-medium text-gray-900 dark:text-white">
-                  ¥{{ getMonthActualCost(row.id).toFixed(4) }}
+                  {{ usageStats[row.id] ? `¥${getMonthActualCost(row.id).toFixed(4)}` : '—' }}
                 </span>
               </div>
               <button
@@ -1091,6 +1096,8 @@
     <ApiKeyDailyUsageDialog
       :show="showDailyUsageModal"
       :api-key="selectedKey"
+      :month="selectedUsageMonth"
+      @update:month="onUsageMonthChange"
       @close="closeDailyUsageModal"
     />
 
@@ -1225,6 +1232,7 @@ import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 import BulkEditKeysModal from '@/components/keys/BulkEditKeysModal.vue'
+import ApiKeyUsageMonthPicker from '@/components/keys/ApiKeyUsageMonthPicker.vue'
 	import DataTable from '@/components/common/DataTable.vue'
 	import Pagination from '@/components/common/Pagination.vue'
 	import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -1241,7 +1249,7 @@ import BulkEditKeysModal from '@/components/keys/BulkEditKeysModal.vue'
 	import type { ApiKey, Group, PublicSettings, SubscriptionType, GroupPlatform, UpdateApiKeyRequest } from '@/types'
 import type { Column } from '@/components/common/types'
 import type { BatchApiKeyUsageStats } from '@/api/usage'
-import { formatDateTime } from '@/utils/format'
+import { formatDateTime, formatDateLocalInput } from '@/utils/format'
 import { maskApiKey } from '@/utils/maskApiKey'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import { platformBadgeLightClass } from '@/utils/platformColors'
@@ -1390,6 +1398,11 @@ const groups = ref<Group[]>([])
 const loading = ref(false)
 const submitting = ref(false)
 const now = ref(new Date())
+const currentMonth = computed(() => formatDateLocalInput(now.value).slice(0, 7))
+const selectedUsageMonth = ref(currentMonth.value)
+const usageMonthLabel = computed(() => selectedUsageMonth.value === currentMonth.value
+  ? t('keys.month')
+  : selectedUsageMonth.value)
 let resetTimer: ReturnType<typeof setInterval> | null = null
 const usageStats = ref<Record<string, BatchApiKeyUsageStats>>({})
 const userGroupRates = ref<Record<number, number>>({})
@@ -1603,12 +1616,21 @@ const isAbortError = (error: unknown) => {
   return name === 'AbortError' || code === 'ERR_CANCELED'
 }
 
+const onUsageMonthChange = (month: string) => {
+  if (selectedUsageMonth.value === month) {
+    return
+  }
+  selectedUsageMonth.value = month
+  void loadApiKeys()
+}
+
 const loadApiKeys = async () => {
   abortController?.abort()
   const controller = new AbortController()
   abortController = controller
   const { signal } = controller
   loading.value = true
+  usageStats.value = {}
   try {
     // Build filters
     const filters: {
@@ -1637,12 +1659,16 @@ const loadApiKeys = async () => {
     if (response.items.length > 0) {
       const keyIds = response.items.map((k) => k.id)
       try {
-        const usageResponse = await usageAPI.getDashboardApiKeysUsage(keyIds, { signal })
+        const usageResponse = await usageAPI.getDashboardApiKeysUsage(keyIds, {
+          signal,
+          month: selectedUsageMonth.value
+        })
         if (signal.aborted) return
         usageStats.value = usageResponse.stats
       } catch (e) {
-        if (!isAbortError(e)) {
+        if (!signal.aborted && !isAbortError(e)) {
           console.error('Failed to load usage stats:', e)
+          appStore.showError(t('keys.usageLoadFailed'))
         }
       }
     }
@@ -2134,6 +2160,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  abortController?.abort()
   document.removeEventListener('click', closeGroupSelector)
   if (resetTimer) clearInterval(resetTimer)
 })

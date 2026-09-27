@@ -21,7 +21,7 @@ vi.mock('vue-i18n', async () => {
     useI18n: () => ({
       t: (key: string, params?: Record<string, string>) => {
         if (key === 'keys.dailyUsageTitle') {
-          return `${params?.name} - Daily Usage This Month`
+          return `${params?.name} - Daily Usage`
         }
         return key
       },
@@ -50,6 +50,7 @@ const mountDialog = () =>
     props: {
       show: true,
       apiKey,
+      month: '2026-08',
     },
     global: {
       stubs: {
@@ -83,12 +84,12 @@ describe('ApiKeyDailyUsageDialog', () => {
     })
   })
 
-  it('loads the selected API key using the current-month period', async () => {
+  it('loads the selected API key using the selected month', async () => {
     const wrapper = mountDialog()
     await flushPromises()
 
-    expect(getMyApiKeyDailyUsage).toHaveBeenCalledWith(7, { period: 'month' })
-    expect(wrapper.text()).toContain('team-key - Daily Usage This Month')
+    expect(getMyApiKeyDailyUsage).toHaveBeenCalledWith(7, { period: 'month', month: '2026-08' })
+    expect(wrapper.text()).toContain('team-key - Daily Usage')
     expect(wrapper.get('[data-test="daily-usage-total"]').text()).toBe('¥0.5000')
   })
 
@@ -102,4 +103,60 @@ describe('ApiKeyDailyUsageDialog', () => {
     expect(rows[1].text()).toContain('2026-08-02')
     expect(rows[2].text()).toContain('2026-08-01')
   })
+
+  it('clears the previous month while loading and ignores late responses', async () => {
+    const wrapper = mountDialog()
+    await flushPromises()
+    let resolveOld!: (value: unknown) => void
+    getMyApiKeyDailyUsage.mockReturnValueOnce(new Promise((resolve) => { resolveOld = resolve }))
+    await wrapper.setProps({ month: '2024-02' })
+    expect(wrapper.find('[data-test="daily-usage-total"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-test="daily-usage-row"]')).toHaveLength(0)
+
+    getMyApiKeyDailyUsage.mockResolvedValueOnce({
+      items: [], days: 31, period: 'month', start_date: '2024-12-01', end_date: '2024-12-31',
+    })
+    await wrapper.setProps({ month: '2024-12' })
+    await flushPromises()
+    resolveOld({ items: [], days: 29, period: 'month', start_date: '2024-02-01', end_date: '2024-02-29' })
+    await flushPromises()
+    expect(wrapper.findAll('[data-test="daily-usage-row"]')).toHaveLength(31)
+    expect(wrapper.text()).toContain('2024-12-31')
+    expect(wrapper.text()).not.toContain('2024-02-29')
+    wrapper.unmount()
+  })
+
+  it('shows all 29 days of an empty leap-year February with a zero total', async () => {
+    getMyApiKeyDailyUsage.mockResolvedValueOnce({
+      items: [], days: 29, period: 'month', start_date: '2024-02-01', end_date: '2024-02-29',
+    })
+    const wrapper = mountDialog()
+    await flushPromises()
+    expect(wrapper.findAll('[data-test="daily-usage-row"]')).toHaveLength(29)
+    expect(wrapper.get('[data-test="daily-usage-total"]').text()).toBe('¥0.0000')
+    wrapper.unmount()
+  })
+
+  it('emits month selection to keep the list and dialog synchronized', async () => {
+    const wrapper = mountDialog()
+    await wrapper.get('[data-test="daily-usage-month"]').setValue('2024-02')
+    expect(wrapper.emitted('update:month')).toEqual([['2024-02']])
+    wrapper.unmount()
+  })
+
+  it('retries a failed month without displaying the old total', async () => {
+    const wrapper = mountDialog()
+    await flushPromises()
+    getMyApiKeyDailyUsage.mockRejectedValueOnce(new Error('Temporary failure'))
+    await wrapper.setProps({ month: '2024-02' })
+    await flushPromises()
+    expect(wrapper.text()).toContain('Temporary failure')
+    expect(wrapper.find('[data-test="daily-usage-total"]').exists()).toBe(false)
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(getMyApiKeyDailyUsage).toHaveBeenLastCalledWith(7, { period: 'month', month: '2024-02' })
+    expect(wrapper.text()).not.toContain('Temporary failure')
+    wrapper.unmount()
+  })
+
 })
