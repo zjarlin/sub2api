@@ -79,6 +79,30 @@ func TestGlobalModelAliasDoesNotInventAvailability(t *testing.T) {
 	require.Equal(t, "private-target", accountWithModelAliases(ctx, native).GetMappedModel("deepseek-v4-flash"))
 }
 
+func TestGlobalModelAliasRoutesDefaultProviderIDs(t *testing.T) {
+	policy := &ModelAliasPolicy{Groups: []ModelAliasGroup{
+		{Canonical: "deepseek-v4.1-flash", Aliases: []string{"deepseek-flash"}},
+		{Canonical: "minimax-m3", Aliases: []string{"MiniMax-M3"}},
+		{Canonical: "minimax-m2.7", Aliases: []string{"MiniMax-M2.7"}},
+	}}
+	ctx := WithModelAliases(context.Background(), policy)
+	for _, test := range []struct {
+		platform  string
+		canonical string
+		upstream  string
+	}{
+		{PlatformDeepseek, "deepseek-v4.1-flash", "deepseek-flash"},
+		{PlatformMiniMax, "minimax-m3", "MiniMax-M3"},
+		{PlatformMiniMax, "minimax-m2.7", "MiniMax-M2.7"},
+	} {
+		account := &Account{Platform: test.platform, Type: AccountTypeAPIKey}
+		routed := accountWithModelAliases(ctx, account)
+		require.True(t, routed.IsModelSupported(test.canonical), "%s mapping=%v upstream=%t", test.platform, routed.GetModelMapping(), account.IsModelSupported(test.upstream))
+		require.Equal(t, test.upstream, routed.GetMappedModel(test.canonical), test.platform)
+		require.Empty(t, account.globalModelMapping)
+	}
+}
+
 func TestGlobalModelAliasCatalogAndFallback(t *testing.T) {
 	p := aliasTestPolicy()
 	body, err := p.CanonicalizeCatalog([]byte(`{"data":[{"id":"cn:deepseek-v4-flash","context_length":100},{"id":"deepseek-v4-flash","context_length":200},{"id":"DeepSeek-V4-Flash","context_length":300},{"id":"unknown"}]}`))

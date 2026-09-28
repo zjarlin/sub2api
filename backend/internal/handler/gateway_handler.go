@@ -1233,13 +1233,11 @@ func (h *GatewayHandler) CodexModels(c *gin.Context) {
 		return
 	}
 	etag := service.CodexModelsManifestETag(body)
-	c.Header("ETag", etag)
-	if service.CodexModelsManifestETagMatches(c.GetHeader("If-None-Match"), etag) {
-		c.Status(http.StatusNotModified)
-		c.Writer.WriteHeaderNow()
-		return
-	}
-	c.Data(http.StatusOK, "application/json", body)
+	writeOpenAIModelsResponse(c, &service.OpenAIModelsResponse{
+		Body:        body,
+		ETag:        etag,
+		NotModified: service.CodexModelsManifestETagMatches(c.GetHeader("If-None-Match"), etag),
+	})
 }
 
 func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *service.Group, platformOverride string) []string {

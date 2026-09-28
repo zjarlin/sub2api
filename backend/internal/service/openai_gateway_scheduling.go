@@ -1533,6 +1533,37 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 	return accounts, nil
 }
 
+// 从当次账号快照取模型目录候选，后续调度仍须逐账号检查实时状态并做 DB 终检。
+func (s *OpenAIGatewayService) listSchedulableModelCandidates(
+	ctx context.Context,
+	groupID *int64,
+	platform string,
+	requestedModel string,
+	capability OpenAIEndpointCapability,
+) ([]Account, error) {
+	accounts, err := s.listSchedulableAccounts(ctx, groupID, platform)
+	if err != nil || requestedModel == "" || len(accounts) < 2 {
+		return accounts, err
+	}
+	ids, err := sharedOpenAIModelCandidateIndex.candidateIDs(
+		accounts, groupID, platform, openAIRequestProtocol(ctx, capability), requestedModel, ModelAliasesFromContext(ctx),
+	)
+	if err != nil || len(ids) == 0 || len(ids) == len(accounts) {
+		return accounts, nil
+	}
+	wanted := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		wanted[id] = struct{}{}
+	}
+	candidates := make([]Account, 0, len(ids))
+	for _, account := range accounts {
+		if _, ok := wanted[account.ID]; ok {
+			candidates = append(candidates, account)
+		}
+	}
+	return candidates, nil
+}
+
 func (s *OpenAIGatewayService) tryAcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int) (*AcquireResult, error) {
 	if s.concurrencyService == nil {
 		return &AcquireResult{Acquired: true, ReleaseFunc: func() {}}, nil

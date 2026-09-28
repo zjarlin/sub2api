@@ -80,8 +80,10 @@ func TestClassifyOpenAIAPIKeyHealthFailureExclusions(t *testing.T) {
 		eligible bool
 	}{
 		{name: "account attributed 502", err: &UpstreamFailoverError{StatusCode: http.StatusBadGateway}, eligible: true},
-		{name: "request scoped capacity", err: &UpstreamFailoverError{StatusCode: 529, RequestScopedTransient: true}, eligible: true},
-		{name: "provider scoped overload", err: &UpstreamFailoverError{StatusCode: 529, Scope: GatewayFailureScopeProvider}, eligible: true},
+		{name: "request scoped capacity", err: &UpstreamFailoverError{StatusCode: 529, RequestScopedTransient: true}},
+		{name: "provider scoped overload", err: &UpstreamFailoverError{StatusCode: 529, Scope: GatewayFailureScopeProvider}},
+		{name: "request scoped server error", err: &UpstreamFailoverError{StatusCode: http.StatusBadGateway, Scope: GatewayFailureScopeRequest}},
+		{name: "auxiliary failure", err: &UpstreamFailoverError{StatusCode: http.StatusBadGateway, SkipAccountScheduleFailure: true}},
 		{name: "rate limit uses dedicated handling", err: &UpstreamFailoverError{StatusCode: http.StatusTooManyRequests, RetryableOnSameAccount: true}},
 		{name: "credential disable path", err: &UpstreamFailoverError{StatusCode: http.StatusUnauthorized, Stage: GatewayFailureStageAccountAuth, Scope: GatewayFailureScopeAccount}},
 		{name: "client request", err: &UpstreamFailoverError{StatusCode: http.StatusBadRequest}},
@@ -91,6 +93,26 @@ func TestClassifyOpenAIAPIKeyHealthFailureExclusions(t *testing.T) {
 			_, _, eligible := classifyOpenAIAPIKeyHealthFailure(tt.err)
 			require.Equal(t, tt.eligible, eligible)
 		})
+	}
+}
+
+func TestOpenAIAPIKeyHealthBreakerSkipsUnattributedFailures(t *testing.T) {
+	for _, upstreamErr := range []error{
+		&UpstreamFailoverError{StatusCode: 529, RequestScopedTransient: true},
+		&UpstreamFailoverError{StatusCode: 529, Scope: GatewayFailureScopeProvider},
+	} {
+		settingRepo := &openAIAPIKeyHealthSettingRepo{}
+		settings := NewSettingService(settingRepo, &config.Config{})
+		cache := &openAIAPIKeyHealthCacheStub{tripped: true}
+		repo := &openAIAPIKeyHealthAccountRepo{}
+		svc := NewRateLimitService(repo, nil, &config.Config{}, nil, cache)
+		svc.SetSettingService(settings)
+		svc.SetOpenAIAPIKeyHealthCache(cache)
+
+		require.False(t, svc.ObserveOpenAIAPIKeyHealthFailure(context.Background(), openAIHealthPoolAccount(), upstreamErr))
+		require.Zero(t, settingRepo.getCalls)
+		require.Zero(t, cache.recordCalls)
+		require.Zero(t, repo.setCalls)
 	}
 }
 

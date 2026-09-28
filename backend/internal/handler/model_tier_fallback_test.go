@@ -118,6 +118,6 @@ func TestModelFallbackRechecksSelectedAccountAndReleasesSlot(t *testing.T) {
 	account.SetUpstreamModelMetadataSnapshot(service.UpstreamModelMetadataSnapshot{Models: map[string]service.UpstreamModelMetadata{"target": {ID: "target", MaxContextWindow: 20}}})
 	released := 0
 	selection := &service.AccountSelectionResult{Account: account, ReleaseFunc: func() { released++ }}
-	require.True(t, rejectIncompatibleModelFallbackAccount(c, selection, "target", []byte(`{"input":"a complete conversation cannot fit"}`)))
+	require.True(t, rejectIncompatibleModelFallbackAccount(c, selection, "target", []byte(`{"input":"a complete conversation cannot fit"}`), false))
 	require.Equal(t, 1, released)
 }

@@ -26,8 +26,14 @@ func classifyOpenAIAPIKeyHealthFailure(err error) (int, []byte, bool) {
 
 	var failoverErr *UpstreamFailoverError
 	if errors.As(err, &failoverErr) {
-		// 凭据错误有独立禁用逻辑；请求参数类错误不能处罚账号。
-		if failoverErr.IsCredentialFailure() || failoverErr.IsUpstreamConcurrencyLimited() || failoverErr.StatusCode < http.StatusInternalServerError {
+		if failoverErr == nil {
+			return 0, nil, false
+		}
+		// 仅账号本身的上游故障可累计；请求或供应商范围的降载不处罚账号。
+		if failoverErr.IsCredentialFailure() || failoverErr.IsUpstreamConcurrencyLimited() ||
+			failoverErr.RequestScopedTransient || failoverErr.SkipAccountScheduleFailure ||
+			failoverErr.Scope == GatewayFailureScopeProvider || failoverErr.Scope == GatewayFailureScopeRequest ||
+			failoverErr.StatusCode < http.StatusInternalServerError {
 			return failoverErr.StatusCode, failoverErr.ResponseBody, false
 		}
 		if failoverErr.StatusCode >= http.StatusInternalServerError {

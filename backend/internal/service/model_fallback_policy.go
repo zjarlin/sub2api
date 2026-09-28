@@ -181,15 +181,35 @@ func ModelFallbackAccountCompatible(account *Account, model string, body []byte)
 	return fallbackInputCompatible(gjson.GetBytes(body, "input"), account, model) && fallbackInputCompatible(gjson.GetBytes(body, "messages"), account, model)
 }
 
+// 请求级先排除不可移植输入；图片能力仍在每个候选账号上检查。
+func ModelFallbackRequestPortable(body []byte) bool {
+	return fallbackInputCompatible(gjson.GetBytes(body, "input"), nil, "") &&
+		fallbackInputCompatible(gjson.GetBytes(body, "messages"), nil, "")
+}
+
 func fallbackInputCompatible(value gjson.Result, account *Account, model string) bool {
 	if !value.IsObject() && !value.IsArray() {
 		return true
 	}
+	if value.Get("role").String() == "assistant" && value.Get("audio.id").String() != "" {
+		return false
+	}
 	switch value.Get("type").String() {
 	case "input_image", "image_url", "image":
-		return accountHasNativeVision(account, model)
-	case "input_file", "file", "input_audio", "audio", "video", "item_reference":
+		if value.Get("file_id").Exists() {
+			return false
+		}
+		if account != nil && !accountHasNativeVision(account, model) {
+			return false
+		}
+	case "input_file", "file", "input_audio", "audio", "video", "video_url", "input_video", "item_reference":
 		return false
+	case "redacted_thinking":
+		return false
+	case "thinking":
+		if value.Get("signature").String() != "" {
+			return false
+		}
 	case "reasoning":
 		if value.Get("encrypted_content").Exists() {
 			return false

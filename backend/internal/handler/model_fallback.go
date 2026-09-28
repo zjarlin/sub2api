@@ -25,11 +25,7 @@ const modelFallbackStateKey = "model_fallback_state"
 
 // 候选列表固定在本次请求，防止修改档位或别名映射导致循环；有服务端会话状态时不换模型。
 func (h *OpenAIGatewayHandler) nextModelFallback(c *gin.Context, apiKey *service.APIKey, model string, body []byte, compact bool) (modelFallbackAttempt, bool) {
-	if !openAIRequestAllowsFailoverReplay(c) || h.gatewayService == nil ||
-		openAICompatibleRequestPlatform(c.Request.Context(), apiKey) != service.PlatformOpenAI ||
-		gjson.GetBytes(body, "previous_response_id").String() != "" ||
-		gjson.GetBytes(body, "conversation").Exists() ||
-		service.IsExplicitImageGenerationIntent(c.Request.URL.Path, model, body) || !fallbackToolsReplayable(gjson.GetBytes(body, "tools")) {
+	if h.gatewayService == nil || !modelFallbackReplayableRequest(c, apiKey, model, body) {
 		return modelFallbackAttempt{}, false
 	}
 	value, found := c.Get(modelFallbackStateKey)
@@ -74,6 +70,18 @@ func (h *OpenAIGatewayHandler) nextModelFallback(c *gin.Context, apiKey *service
 	return modelFallbackAttempt{}, false
 }
 
+func modelFallbackReplayableRequest(c *gin.Context, apiKey *service.APIKey, model string, body []byte) bool {
+	if !openAIRequestAllowsFailoverReplay(c) ||
+		openAICompatibleRequestPlatform(c.Request.Context(), apiKey) != service.PlatformOpenAI ||
+		gjson.GetBytes(body, "previous_response_id").String() != "" ||
+		gjson.GetBytes(body, "conversation").Exists() ||
+		service.IsExplicitImageGenerationIntent(c.Request.URL.Path, model, body) ||
+		!service.ModelFallbackRequestPortable(body) || !fallbackToolsReplayable(gjson.GetBytes(body, "tools")) {
+		return false
+	}
+	return true
+}
+
 // 服务端托管工具的执行状态不能在模型间移植；普通函数工具保留完整输入并允许重放。
 func fallbackToolsReplayable(tools gjson.Result) bool {
 	allowed := true
@@ -94,8 +102,9 @@ func fallbackToolsReplayable(tools gjson.Result) bool {
 }
 
 // 选号时可能取得与预筛选不同的账号，因此释放不兼容候选已获得的槽位后继续调度。
-func rejectIncompatibleModelFallbackAccount(c *gin.Context, selection *service.AccountSelectionResult, model string, body []byte) bool {
-	if _, active := c.Get(modelFallbackStateKey); !active || service.ModelFallbackAccountCompatible(selection.Account, model, body) {
+func rejectIncompatibleModelFallbackAccount(c *gin.Context, selection *service.AccountSelectionResult, model string, body []byte, requireCompatible bool) bool {
+	_, active := c.Get(modelFallbackStateKey)
+	if (!active && !requireCompatible) || service.ModelFallbackAccountCompatible(selection.Account, model, body) {
 		return false
 	}
 	if selection.ReleaseFunc != nil {

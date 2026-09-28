@@ -19,6 +19,15 @@ func (r schedulerLatencyAccountRepo) ListSchedulableUngroupedByPlatform(ctx cont
 	return r.ListSchedulableByPlatform(ctx, platform)
 }
 
+func (r schedulerLatencyAccountRepo) ListSchedulableByPlatforms(ctx context.Context, platforms []string) ([]Account, error) {
+	time.Sleep(20 * time.Millisecond)
+	return r.schedulerTestOpenAIAccountRepo.ListSchedulableByPlatforms(ctx, platforms)
+}
+
+func (r schedulerLatencyAccountRepo) ListSchedulableUngroupedByPlatforms(ctx context.Context, platforms []string) ([]Account, error) {
+	return r.ListSchedulableByPlatforms(ctx, platforms)
+}
+
 func TestOpenAISchedulerSelectReturnsRealLatency(t *testing.T) {
 	resetOpenAIAdvancedSchedulerSettingCacheForTest()
 	t.Cleanup(resetOpenAIAdvancedSchedulerSettingCacheForTest)

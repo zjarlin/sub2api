@@ -131,7 +131,7 @@ func (p *ModelAliasPolicy) CanonicalIDs(ids []string) []string {
 	return out
 }
 
-// 只使用该账号的显式映射或目录证据，规范名优先，随后按别名配置顺序选择。
+// 只使用该账号的显式映射、目录或平台默认 ID 证据，规范名优先，随后按别名配置顺序选择。
 // cn:/global: 原样保留在最终目标，不向账号凭据或数据库复制映射。
 func accountWithModelAliases(ctx context.Context, account *Account) *Account {
 	policy := ModelAliasesFromContext(ctx)
@@ -145,18 +145,25 @@ func accountWithModelAliases(ctx context.Context, account *Account) *Account {
 	for _, group := range policy.Groups {
 		for _, id := range policy.IDs(group.Canonical) {
 			target, explicit := native[id]
+			defaultTarget := false
 			if clone.IsOpenAIPassthroughEnabled() {
 				target = id
 			}
 			if !explicit {
 				// 目录证据必须按实际 ID 精确匹配，避免把 TRAE 的大小写目标改成规范名。
 				snapshot := clone.GetUpstreamSupportedModelsSnapshot()
-				if snapshot == nil || !slices.Contains(snapshot.Models, id) {
+				if snapshot != nil && !slices.Contains(snapshot.Models, id) {
 					continue
+				}
+				if snapshot == nil {
+					defaultTarget = knownDefaultAliasTarget(&clone, id)
+					if !defaultTarget {
+						continue
+					}
 				}
 				target = id
 			}
-			if target == "" || !clone.IsModelSupported(id) {
+			if target == "" || (!defaultTarget && !clone.IsModelSupported(id)) {
 				continue
 			}
 			// 不递归映射目标，已有账号映射的优先级高于全局别名。
@@ -166,6 +173,21 @@ func accountWithModelAliases(ctx context.Context, account *Account) *Account {
 	}
 	clone.globalModelMapping = overlay
 	return &clone
+}
+
+// 空映射账号仅采用该平台已公开的默认 ID，避免凭别名配置猜测上游能力。
+func knownDefaultAliasTarget(account *Account, model string) bool {
+	if account == nil || len(account.GetModelMapping()) != 0 {
+		return false
+	}
+	switch account.Platform {
+	case PlatformDeepseek:
+		return isDeepseekServableModel(model)
+	case PlatformMiniMax:
+		return model == "MiniMax-M3" || model == "MiniMax-M2.7" || model == "MiniMax-M2.5"
+	default:
+		return false
+	}
 }
 
 func accountsWithModelAliases(ctx context.Context, accounts []Account) []Account {

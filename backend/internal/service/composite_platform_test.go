@@ -103,6 +103,38 @@ func TestResolveCompositeModelOwnershipAllowsSamePlatformAndRejectsCrossPlatform
 	require.Equal(t, CompositeModelOwnership{Ambiguous: true}, ambiguous)
 }
 
+func TestResolveCompositeModelOwnershipUsesConfiguredAliases(t *testing.T) {
+	groupID := int64(7)
+	repo := &compositeOwnershipAccountRepo{accounts: []Account{{
+		ID: 1, Platform: PlatformDeepseek,
+		Credentials: map[string]any{"model_mapping": map[string]any{
+			"deepseek/deepseek-v4.1-flash": "deepseek/deepseek-v4.1-flash",
+		}},
+	}}}
+	svc := &GatewayService{accountRepo: repo}
+	policy := &ModelAliasPolicy{Groups: []ModelAliasGroup{{
+		Canonical: "deepseek-v4.1-flash", Aliases: []string{"deepseek/deepseek-v4.1-flash"},
+	}}}
+
+	withoutPolicy, err := svc.resolveCompositeModelOwnership(context.Background(), groupID, "deepseek-v4.1-flash")
+	require.NoError(t, err)
+	require.Equal(t, CompositeModelOwnership{}, withoutPolicy)
+
+	withPolicy, err := svc.resolveCompositeModelOwnership(WithModelAliases(context.Background(), policy), groupID, "deepseek-v4.1-flash")
+	require.NoError(t, err)
+	require.Equal(t, CompositeModelOwnership{TargetPlatform: PlatformDeepseek, Matched: true}, withPolicy)
+
+	repo.accounts = append(repo.accounts, Account{
+		ID: 2, Platform: PlatformOpenAI,
+		Credentials: map[string]any{"model_mapping": map[string]any{
+			"deepseek-v4.1-flash": "deepseek-v4.1-flash",
+		}},
+	})
+	preferred, err := svc.resolveCompositeModelOwnership(WithModelAliases(context.Background(), policy), groupID, "deepseek-v4.1-flash")
+	require.NoError(t, err)
+	require.Equal(t, CompositeModelOwnership{TargetPlatform: PlatformOpenAI, Matched: true}, preferred)
+}
+
 func TestNewGatewayServiceWiresCompositeModelOwnershipResolver(t *testing.T) {
 	groupID := int64(7)
 	repo := &compositeOwnershipAccountRepo{
@@ -223,7 +255,7 @@ func TestCompositeGroupSchedulerHasAllCanonicalPlatformBuckets(t *testing.T) {
 		platforms = append(platforms, platform)
 	}
 	require.ElementsMatch(t,
-		[]string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformZcode, PlatformLaya, PlatformJev},
+		[]string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformLaya, PlatformJev},
 		platforms,
 	)
 }

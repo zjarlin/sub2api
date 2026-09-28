@@ -212,6 +212,7 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 			return
 		}
 		candidates := autoModelCandidatesForGroup(apiKey.Group, models)
+		candidates = service.ModelAliasesFromContext(c.Request.Context()).CanonicalIDs(candidates)
 		if h.billingCacheService != nil {
 			subscription, _ := middleware2.GetSubscriptionFromContext(c)
 			if billingErr := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); billingErr != nil {

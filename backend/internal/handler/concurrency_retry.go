@@ -20,10 +20,12 @@ func openAILocalCapacityFailover() *service.UpstreamFailoverError {
 	}
 }
 
-// 限流时遍历同模型候选，不消耗普通故障的切换预算；已失败账号仍由排除集合约束。
+// 限流与可重放的普通故障遍历同模型候选；已失败账号仍由排除集合约束。
 type openAIAccountSwitchBudget struct {
-	limit    int
-	failures int
+	limit             int
+	failures          int
+	replayable        bool
+	requireCompatible bool
 }
 
 func tryRemainingOpenAIAccounts(account *service.Account, err *service.UpstreamFailoverError) bool {
@@ -37,11 +39,26 @@ func (b *openAIAccountSwitchBudget) exhausted(account *service.Account, err *ser
 	if tryRemainingOpenAIAccounts(account, err) {
 		return false
 	}
+	if b.replayable && ordinaryOpenAIAccountFailure(account, err) {
+		b.requireCompatible = true
+		return false
+	}
 	if b.failures >= b.limit {
 		return true
 	}
 	b.failures++
 	return false
+}
+
+func ordinaryOpenAIAccountFailure(account *service.Account, err *service.UpstreamFailoverError) bool {
+	if !account.IsOpenAICompatible() || err == nil ||
+		!err.ShouldRetryNextAccount() || err.IsCredentialFailure() ||
+		err.RequestScopedTransient || err.Scope == service.GatewayFailureScopeRequest ||
+		err.IsUpstreamConcurrencyLimited() {
+		return false
+	}
+	return err.StatusCode == 0 || err.StatusCode == http.StatusRequestTimeout ||
+		(err.StatusCode >= http.StatusInternalServerError && err.StatusCode <= 599)
 }
 
 // Other candidates are tried first. Only explicit busy-account exclusions are

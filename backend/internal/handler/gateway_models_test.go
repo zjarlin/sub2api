@@ -94,6 +94,55 @@ func newGatewayModelsHandlerForTest(repo service.AccountRepository, healthRepos 
 	}
 }
 
+func TestCompositeModelCatalogCanonicalizesOrdinaryAndCodexLists(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	group := &service.Group{ID: 6, Platform: service.PlatformComposite}
+	alias := "deepseek/deepseek-v4.1-flash"
+	canonical := "deepseek-v4.1-flash"
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{byGroup: map[int64][]service.Account{
+		group.ID: {{
+			ID: 851, Platform: service.PlatformDeepseek,
+			Credentials: map[string]any{"model_mapping": map[string]any{
+				alias: alias, canonical: canonical,
+			}},
+		}},
+	}})
+	policy := &service.ModelAliasPolicy{Groups: []service.ModelAliasGroup{{Canonical: canonical, Aliases: []string{alias}}}}
+
+	for _, codex := range []bool{false, true} {
+		request := func(etag string) *httptest.ResponseRecorder {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+			c.Request = c.Request.WithContext(service.WithModelAliases(c.Request.Context(), policy))
+			c.Set("model_alias_if_none_match", etag)
+			c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{GroupID: &group.ID, Group: group})
+			if codex {
+				h.CodexModels(c)
+			} else {
+				h.Models(c)
+			}
+			return recorder
+		}
+
+		first := request("")
+		require.Equal(t, http.StatusOK, first.Code, first.Body.String())
+		if codex {
+			var response codexModelsResponseForTest
+			require.NoError(t, json.Unmarshal(first.Body.Bytes(), &response))
+			require.Len(t, response.Models, 1)
+			require.Equal(t, canonical, response.Models[0].Slug)
+		} else {
+			var response gatewayModelsResponseForTest
+			require.NoError(t, json.Unmarshal(first.Body.Bytes(), &response))
+			require.Equal(t, []string{canonical}, modelIDsForTest(response.Data))
+		}
+		require.NotEmpty(t, first.Header().Get("ETag"))
+		second := request(first.Header().Get("ETag"))
+		require.Equal(t, http.StatusNotModified, second.Code)
+	}
+}
+
 type gatewayModelsHealthRepoStub struct {
 	service.UsageLogRepository
 	observations []service.ModelHealthObservation

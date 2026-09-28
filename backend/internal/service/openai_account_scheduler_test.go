@@ -22,10 +22,14 @@ type openAISnapshotCacheStub struct {
 
 type schedulerTestOpenAIAccountRepo struct {
 	AccountRepository
-	accounts []Account
+	accounts      []Account
+	beforeGetByID func(context.Context, int64)
 }
 
 func (r schedulerTestOpenAIAccountRepo) GetByID(ctx context.Context, id int64) (*Account, error) {
+	if r.beforeGetByID != nil {
+		r.beforeGetByID(ctx, id)
+	}
 	for i := range r.accounts {
 		if r.accounts[i].ID == id {
 			return &r.accounts[i], nil
@@ -3352,7 +3356,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_RequiredWSV2_NoAvailabl
 	require.Equal(t, 0, decision.CandidateCount)
 }
 
-func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceTopKFallback(t *testing.T) {
+func TestOpenAIGatewayService_SelectAccountWithScheduler_ExcludedStickyScoreOrderUsesFullPool(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(11)
 	accounts := []Account{
@@ -3389,13 +3393,14 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceTopKFallback
 	}
 
 	cfg := &config.Config{}
-	cfg.Gateway.OpenAIWS.LBTopK = 2
+	cfg.Gateway.OpenAIWS.LBTopK = 1
 	cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Priority = 0.4
 	cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Load = 1.0
 	cfg.Gateway.OpenAIWS.SchedulerScoreWeights.Queue = 1.0
 	cfg.Gateway.OpenAIWS.SchedulerScoreWeights.ErrorRate = 0.2
 	cfg.Gateway.OpenAIWS.SchedulerScoreWeights.TTFT = 0.1
 
+	var acquiredIDs []int64
 	concurrencyCache := schedulerTestConcurrencyCache{
 		loadMap: map[int64]*AccountLoadInfo{
 			3001: {AccountID: 3001, LoadRate: 95, WaitingCount: 8},
@@ -3403,14 +3408,15 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceTopKFallback
 			3003: {AccountID: 3003, LoadRate: 10, WaitingCount: 0},
 		},
 		acquireResults: map[int64]bool{
-			3003: false, // top1 失败，必须回退到 top-K 的下一候选
+			3003: false,
 			3002: true,
 		},
+		acquiredIDs: &acquiredIDs,
 	}
 
 	svc := &OpenAIGatewayService{
 		accountRepo:        schedulerTestOpenAIAccountRepo{accounts: accounts},
-		cache:              &schedulerTestGatewayCache{},
+		cache:              &schedulerTestGatewayCache{sessionBindings: map[string]int64{"openai:failed_sticky_session": 3001}},
 		cfg:                cfg,
 		rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService("true"),
 		concurrencyService: NewConcurrencyService(concurrencyCache),
@@ -3420,9 +3426,9 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceTopKFallback
 		ctx,
 		&groupID,
 		"",
-		"",
+		"failed_sticky_session",
 		"gpt-5.1",
-		nil,
+		map[int64]struct{}{3001: {}},
 		OpenAIUpstreamTransportAny,
 		false,
 	)
@@ -3430,12 +3436,298 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceTopKFallback
 	require.NotNil(t, selection)
 	require.NotNil(t, selection.Account)
 	require.Equal(t, int64(3002), selection.Account.ID)
+	require.Equal(t, []int64{3003, 3002}, acquiredIDs)
 	require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
-	require.Equal(t, 3, decision.CandidateCount)
+	require.Equal(t, 2, decision.CandidateCount)
 	require.Equal(t, 2, decision.TopK)
 	require.Greater(t, decision.LoadSkew, 0.0)
 	if selection.ReleaseFunc != nil {
 		selection.ReleaseFunc()
+	}
+}
+
+func TestOpenAIGatewayService_SelectAccountWithScheduler_StickyWeightedDBDriftUsesFullPool(t *testing.T) {
+	for _, reason := range []string{"disabled", "deleted", "out of group", "unsupported", "valid"} {
+		t.Run(reason, func(t *testing.T) {
+			ctx := context.Background()
+			groupID := int64(101095)
+			newAccount := func(id int64, priority int) *Account {
+				return &Account{
+					Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
+					ID:          id, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+					Status: StatusActive, Schedulable: true, Concurrency: 1,
+					Priority: priority, GroupIDs: []int64{groupID},
+				}
+			}
+			sticky := newAccount(39201, 0)
+			primary := newAccount(39202, 5)
+			backup := newAccount(39203, 10)
+			dbSticky := *sticky
+			switch reason {
+			case "disabled":
+				dbSticky.Status = StatusDisabled
+				dbSticky.Schedulable = false
+			case "out of group":
+				dbSticky.GroupIDs = []int64{groupID + 1}
+			case "unsupported":
+				dbSticky.Credentials = map[string]any{"model_mapping": testModelMapping("gpt-4.1")}
+			}
+			dbAccounts := []Account{*primary, *backup}
+			if reason != "deleted" {
+				dbAccounts = append(dbAccounts, dbSticky)
+			}
+			var readIDs, acquiredIDs, releasedIDs []int64
+			accountRepo := schedulerGroupAwareOpenAIAccountRepo{schedulerTestOpenAIAccountRepo{
+				accounts: dbAccounts,
+				beforeGetByID: func(_ context.Context, id int64) {
+					readIDs = append(readIDs, id)
+				},
+			}}
+			cfg := newSchedulerTestSubscriptionPriorityConfig()
+			cfg.Gateway.OpenAIWS.SchedulerScoreWeights.SessionSticky = 3
+			cache := &schedulerTestGatewayCache{sessionBindings: map[string]int64{
+				"openai:weighted_db_drift": sticky.ID,
+			}}
+			svc := &OpenAIGatewayService{
+				accountRepo: accountRepo, cache: cache, cfg: cfg,
+				rateLimitService: newOpenAIAdvancedSchedulerRateLimitService("true", "true"),
+				schedulerSnapshot: &SchedulerSnapshotService{
+					accountRepo: accountRepo,
+					cache: &openAISnapshotCacheStub{
+						snapshotAccounts: []*Account{sticky, primary, backup},
+						accountsByID: map[int64]*Account{
+							sticky.ID: sticky, primary.ID: primary, backup.ID: backup,
+						},
+					},
+				},
+				concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{
+					acquireResults: map[int64]bool{primary.ID: false},
+					acquiredIDs:    &acquiredIDs,
+					releasedIDs:    &releasedIDs,
+				}),
+			}
+			selection, decision, err := svc.SelectAccountWithScheduler(
+				ctx, &groupID, "", "weighted_db_drift", "gpt-5.1", nil, OpenAIUpstreamTransportAny, false,
+			)
+			require.NoError(t, err)
+			require.NotNil(t, selection)
+			require.NotNil(t, selection.Account)
+			require.Nil(t, selection.WaitPlan)
+			require.Empty(t, releasedIDs)
+			if reason == "valid" {
+				require.Equal(t, sticky.ID, selection.Account.ID)
+				require.Equal(t, []int64{sticky.ID}, acquiredIDs)
+				require.Equal(t, []int64{sticky.ID, sticky.ID}, readIDs)
+				require.True(t, decision.StickySessionHit)
+				require.True(t, decision.CandidateCountComplete)
+				require.Equal(t, 3, decision.CandidateCount)
+				require.Equal(t, 1, decision.TopK)
+				require.Equal(t, []int64{sticky.ID, primary.ID, backup.ID}, decision.CandidateAccountIDs)
+				require.Zero(t, cache.deletedSessions["openai:weighted_db_drift"])
+			} else {
+				require.Equal(t, backup.ID, selection.Account.ID)
+				require.Equal(t, []int64{primary.ID, backup.ID}, acquiredIDs)
+				require.Equal(t, []int64{sticky.ID, backup.ID}, readIDs)
+				require.False(t, decision.StickySessionHit)
+				require.False(t, decision.CandidateCountComplete)
+				require.Equal(t, 2, decision.CandidateCount)
+				require.Equal(t, 2, decision.TopK)
+				require.Equal(t, []int64{primary.ID, backup.ID}, decision.CandidateAccountIDs)
+				require.Equal(t, backup.ID, cache.sessionBindings["openai:weighted_db_drift"])
+				require.Equal(t, 1, cache.deletedSessions["openai:weighted_db_drift"])
+			}
+			if selection.ReleaseFunc != nil {
+				selection.ReleaseFunc()
+			}
+		})
+	}
+}
+
+func TestOpenAIGatewayService_SelectAccountWithScheduler_StickyWeightedDBCheckCancellationKeepsBinding(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	groupID := int64(101096)
+	account := Account{
+		Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
+		ID:          39301, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Status: StatusActive, Schedulable: true, Concurrency: 1, GroupIDs: []int64{groupID},
+	}
+	accountRepo := schedulerTestOpenAIAccountRepo{
+		accounts: []Account{account},
+		beforeGetByID: func(_ context.Context, _ int64) {
+			cancel()
+		},
+	}
+	cache := &schedulerTestGatewayCache{sessionBindings: map[string]int64{
+		"openai:weighted_check_cancelled": account.ID,
+	}}
+	var acquiredIDs []int64
+	svc := &OpenAIGatewayService{
+		accountRepo: accountRepo, cache: cache, cfg: newSchedulerTestSubscriptionPriorityConfig(),
+		rateLimitService: newOpenAIAdvancedSchedulerRateLimitService("true", "true"),
+		schedulerSnapshot: &SchedulerSnapshotService{
+			accountRepo: accountRepo,
+			cache: &openAISnapshotCacheStub{
+				snapshotAccounts: []*Account{&account},
+				accountsByID:     map[int64]*Account{account.ID: &account},
+			},
+		},
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{acquiredIDs: &acquiredIDs}),
+	}
+	selection, _, err := svc.SelectAccountWithScheduler(
+		ctx, &groupID, "", "weighted_check_cancelled", "gpt-5.1", nil, OpenAIUpstreamTransportAny, false,
+	)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Nil(t, selection)
+	require.Empty(t, acquiredIDs)
+	require.Equal(t, account.ID, cache.sessionBindings["openai:weighted_check_cancelled"])
+	require.Zero(t, cache.deletedSessions["openai:weighted_check_cancelled"])
+}
+
+func TestOpenAIGatewayService_SelectAccountWithScheduler_InvalidSessionBindingUsesFullPool(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		reason   string
+		weighted bool
+		direct   bool
+		fallback bool
+	}{
+		{name: "deleted", reason: "deleted"},
+		{name: "disabled", reason: "disabled"},
+		{name: "unsupported", reason: "unsupported"},
+		{name: "out of group", reason: "out of group"},
+		{name: "weighted deleted", reason: "deleted", weighted: true},
+		{name: "weighted disabled", reason: "disabled", weighted: true},
+		{name: "weighted unsupported", reason: "unsupported", weighted: true},
+		{name: "weighted out of group", reason: "out of group", weighted: true},
+		{name: "busy escape", reason: "busy escape"},
+		{name: "health escape", reason: "health escape"},
+		{name: "health escape fallback with implicit binding", reason: "health escape", direct: true, fallback: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			groupID := int64(101094)
+			newAccount := func(id int64, priority int) *Account {
+				return &Account{
+					Credentials: map[string]any{"model_mapping": testModelMapping("gpt-5.1")},
+					ID:          id, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+					Status: StatusActive, Schedulable: true, Concurrency: 1,
+					Priority: priority, GroupIDs: []int64{groupID},
+				}
+			}
+			sticky := newAccount(39101, 20)
+			primary := newAccount(39102, 0)
+			backup := newAccount(39103, 10)
+			dbPrimary := *primary
+			dbPrimary.Status = StatusDisabled
+			dbPrimary.Schedulable = false
+			dbBackup := *backup
+			if tc.fallback {
+				dbBackup.Status = StatusDisabled
+				dbBackup.Schedulable = false
+			}
+			dbAccounts := []Account{dbPrimary, dbBackup}
+			snapshotAccounts := []*Account{primary, backup}
+			accountsByID := map[int64]*Account{primary.ID: primary, backup.ID: backup}
+			switch tc.reason {
+			case "disabled":
+				sticky.Status = StatusDisabled
+				sticky.Schedulable = false
+			case "unsupported":
+				sticky.Credentials = map[string]any{"model_mapping": testModelMapping("gpt-4.1")}
+			case "out of group":
+				sticky.GroupIDs = []int64{groupID + 1}
+			case "health escape":
+				sticky.Priority = -10
+			}
+			if tc.reason != "deleted" {
+				accountsByID[sticky.ID] = sticky
+				dbAccounts = append(dbAccounts, *sticky)
+				if tc.reason != "out of group" {
+					snapshotAccounts = append(snapshotAccounts, sticky)
+				}
+			}
+			cfg := newSchedulerTestSubscriptionPriorityConfig()
+			cfg.Gateway.OpenAIScheduler.StickyEscapeEnabled = tc.reason == "busy escape" || tc.reason == "health escape"
+			cfg.Gateway.OpenAIScheduler.StickyEscapeErrorRate = 0.5
+			cache := &schedulerTestGatewayCache{sessionBindings: map[string]int64{
+				"openai:invalid_sticky_session": sticky.ID,
+			}}
+			var acquiredIDs, releasedIDs []int64
+			accountRepo := schedulerGroupAwareOpenAIAccountRepo{schedulerTestOpenAIAccountRepo{accounts: dbAccounts}}
+			svc := &OpenAIGatewayService{
+				accountRepo:      accountRepo,
+				cache:            cache,
+				cfg:              cfg,
+				rateLimitService: newOpenAIAdvancedSchedulerRateLimitService("true", strconv.FormatBool(tc.weighted)),
+				schedulerSnapshot: &SchedulerSnapshotService{
+					accountRepo: accountRepo,
+					cache: &openAISnapshotCacheStub{
+						snapshotAccounts: snapshotAccounts,
+						accountsByID:     accountsByID,
+					},
+				},
+				concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{
+					acquireResults: map[int64]bool{sticky.ID: tc.reason == "health escape"},
+					acquiredIDs:    &acquiredIDs,
+					releasedIDs:    &releasedIDs,
+				}),
+				openaiAccountStats: newOpenAIAccountRuntimeStats(),
+			}
+			if tc.reason == "health escape" {
+				for range 5 {
+					svc.openaiAccountStats.report(sticky.ID, false, nil)
+				}
+			}
+			var selection *AccountSelectionResult
+			var decision OpenAIAccountScheduleDecision
+			var err error
+			if tc.direct {
+				scheduler := newDefaultOpenAIAccountScheduler(svc, svc.openaiAccountStats)
+				selection, decision, err = scheduler.Select(ctx, OpenAIAccountScheduleRequest{
+					GroupID: &groupID, Platform: PlatformOpenAI,
+					SessionHash: "invalid_sticky_session", RequestedModel: "gpt-5.1",
+					RequiredTransport: OpenAIUpstreamTransportAny,
+				})
+			} else {
+				selection, decision, err = svc.SelectAccountWithScheduler(
+					ctx, &groupID, "", "invalid_sticky_session", "gpt-5.1", nil, OpenAIUpstreamTransportAny, false,
+				)
+			}
+			require.NoError(t, err)
+			require.NotNil(t, selection)
+			require.NotNil(t, selection.Account)
+			expectedAccountID := backup.ID
+			expectedAcquiredIDs := []int64{primary.ID, backup.ID}
+			expectedReleasedIDs := []int64{primary.ID}
+			if tc.reason == "busy escape" {
+				expectedAcquiredIDs = append([]int64{sticky.ID}, expectedAcquiredIDs...)
+			}
+			if tc.fallback {
+				expectedAccountID = sticky.ID
+				expectedAcquiredIDs = append(expectedAcquiredIDs, sticky.ID)
+				expectedReleasedIDs = append(expectedReleasedIDs, backup.ID)
+			}
+			require.Equal(t, expectedAccountID, selection.Account.ID)
+			require.Equal(t, expectedAcquiredIDs, acquiredIDs)
+			require.Equal(t, expectedReleasedIDs, releasedIDs)
+			require.Equal(t, openAIAccountScheduleLayerLoadBalance, decision.Layer)
+			require.False(t, decision.StickySessionHit)
+			require.True(t, decision.CandidateCountComplete)
+			if cfg.Gateway.OpenAIScheduler.StickyEscapeEnabled {
+				require.Equal(t, 3, decision.CandidateCount)
+				require.Equal(t, 3, decision.TopK)
+				require.Contains(t, decision.CandidateAccountIDs, sticky.ID)
+				require.Equal(t, sticky.ID, cache.sessionBindings["openai:invalid_sticky_session"])
+			} else {
+				require.Equal(t, 2, decision.CandidateCount)
+				require.Equal(t, 2, decision.TopK)
+				require.Equal(t, backup.ID, cache.sessionBindings["openai:invalid_sticky_session"])
+			}
+			if selection.ReleaseFunc != nil {
+				selection.ReleaseFunc()
+			}
+		})
 	}
 }
 
@@ -3684,7 +3976,7 @@ func TestBuildOpenAIWeightedSelectionOrder_DeterministicBySessionSeed(t *testing
 	}
 }
 
-func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceDistributesAcrossSessions(t *testing.T) {
+func TestOpenAIGatewayService_SelectAccountWithScheduler_UnboundSessionsUseBestScore(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(15)
 	accounts := []Account{
@@ -3765,8 +4057,7 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceDistributesA
 		}
 	}
 
-	// 多 session 应该能打散到多个账号，避免“恒定单账号命中”。
-	require.GreaterOrEqual(t, len(selected), 2)
+	require.Equal(t, map[int64]int{5101: 60}, selected)
 }
 
 func TestDeriveOpenAISelectionSeed_NoAffinityAddsEntropy(t *testing.T) {

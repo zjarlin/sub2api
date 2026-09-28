@@ -1493,8 +1493,10 @@ func (s *GatewayService) resolveCompositeModelOwnership(ctx context.Context, gro
 		return CompositeModelOwnership{}, nil
 	}
 
+	aliases := ModelAliasesFromContext(ctx)
+	aliasIDs := aliases.IDs(model)
 	cacheKey := compositeModelOwnershipCacheKey(groupID, model)
-	if s.modelsListCache != nil {
+	if s.modelsListCache != nil && len(aliasIDs) == 1 {
 		if cached, found := s.modelsListCache.Get(cacheKey); found {
 			if ownership, ok := cached.(CompositeModelOwnership); ok {
 				return ownership, nil
@@ -1510,10 +1512,23 @@ func (s *GatewayService) resolveCompositeModelOwnership(ctx context.Context, gro
 	platforms := make(map[string]struct{})
 	for _, account := range accounts {
 		platform := strings.TrimSpace(account.Platform)
-		if !isConcreteRequestPlatform(platform) || !explicitModelMappingClaims(account, model) {
-			continue
+		if isConcreteRequestPlatform(platform) && explicitModelMappingClaims(account, aliasIDs[0]) {
+			platforms[platform] = struct{}{}
 		}
-		platforms[platform] = struct{}{}
+	}
+	if len(platforms) == 0 {
+		for _, account := range accounts {
+			platform := strings.TrimSpace(account.Platform)
+			if !isConcreteRequestPlatform(platform) {
+				continue
+			}
+			for _, aliasID := range aliasIDs[1:] {
+				if explicitModelMappingClaims(account, aliasID) {
+					platforms[platform] = struct{}{}
+					break
+				}
+			}
+		}
 	}
 
 	ownership := CompositeModelOwnership{}
@@ -1526,7 +1541,7 @@ func (s *GatewayService) resolveCompositeModelOwnership(ctx context.Context, gro
 		ownership.Ambiguous = true
 	}
 
-	if s.modelsListCache != nil {
+	if s.modelsListCache != nil && len(aliasIDs) == 1 {
 		s.modelsListCache.Set(cacheKey, ownership, s.modelsListCacheTTL)
 	}
 	return ownership, nil

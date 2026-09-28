@@ -381,6 +381,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// 局部兜底：确保该 handler 内部任何 panic 都不会击穿到进程级。
 	streamStarted := false
 	defer h.recoverResponsesPanic(c, &streamStarted)
+	c.Request = c.Request.WithContext(service.WithOpenAIRequestProtocol(c.Request.Context(), service.OpenAIRequestProtocolResponses))
 	compactStartedAt := time.Now()
 	defer h.logOpenAIRemoteCompactOutcome(c, compactStartedAt)
 	setOpenAIClientTransportHTTP(c)
@@ -627,7 +628,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
-	switchBudget := openAIAccountSwitchBudget{limit: h.maxAccountSwitches}
+	switchBudget := openAIAccountSwitchBudget{limit: h.maxAccountSwitches, replayable: modelFallbackReplayableRequest(c, apiKey, reqModel, forwardBody)}
 	firstOutputTimeoutSwitchCount := 0
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
@@ -636,6 +637,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	var passthroughFailoverState openAIPassthroughFailoverState
 	var busyRetry concurrencyRetry
+	poolRound := newOpenAIModelPoolRound(h.gatewayService, apiKey.GroupID, service.APIProtocolResponses, forwardModel, switchBudget.replayable)
+	defer poolRound.close()
 	advanceModel := func() bool {
 		attempt, ok := h.nextModelFallback(c, apiKey, reqModel, forwardBody, legacyCompact)
 		if !ok {
@@ -647,10 +650,12 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		sameAccountRetryCount = make(map[int64]int)
 		switchCount, firstOutputTimeoutSwitchCount = 0, 0
 		switchBudget.failures = 0
+		switchBudget.requireCompatible = false
 		lastFailoverErr = nil
 		oauth429FailoverState = service.OpenAIOAuth429FailoverState{}
 		passthroughFailoverState = openAIPassthroughFailoverState{}
 		busyRetry = concurrencyRetry{}
+		poolRound.reset(forwardModel)
 		return true
 	}
 
@@ -674,6 +679,13 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		// be drained after a disconnect. Re-check the client context before every
 		// account attempt so a canceled request never starts a failover replay.
 		if !openAIRequestAllowsFailoverReplay(c) {
+			return
+		}
+		if !poolRound.allowed(c.Request.Context()) {
+			if advanceModel() {
+				continue
+			}
+			h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Model temporarily unavailable", streamStarted)
 			return
 		}
 		// Select account supporting the requested model
@@ -707,6 +719,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			}
 			if failoverClientGone(c) {
 				return
+			}
+			if errors.Is(err, service.ErrNoAvailableAccounts) {
+				poolRound.exhausted(c.Request.Context())
 			}
 			if len(failedAccountIDs) == 0 {
 				if (errors.Is(err, service.ErrNoAvailableAccounts) || errors.Is(err, service.ErrNoAvailableCompactAccounts)) && advanceModel() {
@@ -759,12 +774,15 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			zap.Float64("load_skew", scheduleDecision.LoadSkew),
 		)
 		account := selection.Account
-		if rejectIncompatibleModelFallbackAccount(c, selection, forwardModel, forwardBody) {
+		poolRound.selected(scheduleDecision, account, len(failedAccountIDs))
+		if rejectIncompatibleModelFallbackAccount(c, selection, forwardModel, forwardBody, switchBudget.requireCompatible) {
+			poolRound.excludeWithoutUpstreamFailure()
 			failedAccountIDs[account.ID] = struct{}{}
 			continue
 		}
 		busyRetry.record(account.ID, nil)
 		if previousResponseID != "" && requestPlatform == service.PlatformOpenAI && !account.IsOpenAIApiKey() {
+			poolRound.excludeWithoutUpstreamFailure()
 			// The public Responses HTTP API supports previous_response_id on API-key
 			// accounts. OAuth/SetupToken upstreams do not, so keep searching instead
 			// of silently deleting continuation state from a mixed account pool.
@@ -793,6 +811,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 
 		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, reqStream, &streamStarted, reqLog)
 		if slotResult == openAISlotAcquireCapacityLimited {
+			poolRound.excludeWithoutUpstreamFailure()
 			failedAccountIDs[account.ID] = struct{}{}
 			lastFailoverErr = openAILocalCapacityFailover()
 			busyRetry.record(account.ID, lastFailoverErr)
@@ -804,6 +823,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			continue
 		}
 		if slotResult == openAISlotAcquireProfitVetoed {
+			poolRound.excludeWithoutUpstreamFailure()
 			// 利润终检否决：排除该账号重新选号，全池耗尽由下一轮选号报错；
 			// 否决次数达上限则直接终止，避免排队抢槽后才终检的延迟放大。
 			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
@@ -975,6 +995,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 						}
 					}
 					h.gatewayService.RecordOpenAIAccountSwitch()
+					poolRound.failed(account.ID, failoverErr)
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
 					busyRetry.record(account.ID, failoverErr)
@@ -1041,6 +1062,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, forwardModel, requireCompact, result), openAIForwardSucceededForScheduling(result), result.FirstTokenMs)
 		} else {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, forwardModel, requireCompact, result), openAIForwardSucceededForScheduling(result), nil)
+		}
+		if openAIModelPoolForwardSucceeded(c, result, err) {
+			poolRound.succeeded(c.Request.Context())
 		}
 
 		// 使用量记录通过有界 worker 池提交，避免请求热路径创建无界 goroutine。
@@ -1201,6 +1225,7 @@ func (h *OpenAIGatewayHandler) logOpenAIRemoteCompactOutcome(c *gin.Context, sta
 func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	streamStarted := false
 	defer h.recoverAnthropicMessagesPanic(c, &streamStarted)
+	c.Request = c.Request.WithContext(service.WithOpenAIRequestProtocol(c.Request.Context(), service.OpenAIRequestProtocolMessages))
 
 	requestStart := time.Now()
 
@@ -1330,14 +1355,23 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
-	switchBudget := openAIAccountSwitchBudget{limit: h.maxAccountSwitches}
+	switchBudget := openAIAccountSwitchBudget{limit: h.maxAccountSwitches, replayable: modelFallbackReplayableRequest(c, apiKey, reqModel, body)}
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	effectiveMappedModel := preferredMappedModel
+	if channelMappingMsg.Mapped {
+		effectiveMappedModel = openAIChannelForwardModel(channelMappingMsg, routingModel)
+	}
 	var busyRetry concurrencyRetry
+	poolModel := routingModel
+	if effectiveMappedModel != "" {
+		poolModel = effectiveMappedModel
+	}
+	poolRound := newOpenAIModelPoolRound(h.gatewayService, apiKey.GroupID, service.APIProtocolAnthropic, poolModel, switchBudget.replayable)
+	defer poolRound.close()
 
 	advanceModel := func() bool {
 		model := routingModel
@@ -1355,9 +1389,11 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		failedAccountIDs = make(map[int64]struct{})
 		sameAccountRetryCount = make(map[int64]int)
 		switchCount, switchBudget.failures = 0, 0
+		switchBudget.requireCompatible = false
 		lastFailoverErr = nil
 		busyRetry = concurrencyRetry{}
 		oauth429FailoverState = service.OpenAIOAuth429FailoverState{}
+		poolRound.reset(effectiveMappedModel)
 		return true
 	}
 
@@ -1367,6 +1403,13 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 
 	for {
 		if failoverClientGone(c) {
+			return
+		}
+		if !poolRound.allowed(c.Request.Context()) {
+			if advanceModel() {
+				continue
+			}
+			h.anthropicStreamingAwareError(c, http.StatusServiceUnavailable, "api_error", "Model temporarily unavailable", streamStarted)
 			return
 		}
 		currentRoutingModel := routingModel
@@ -1404,6 +1447,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			if failoverClientGone(c) {
 				return
 			}
+			if errors.Is(err, service.ErrNoAvailableAccounts) {
+				poolRound.exhausted(c.Request.Context())
+			}
 			if errors.Is(err, service.ErrNoAvailableAccounts) && advanceModel() {
 				continue
 			}
@@ -1437,7 +1483,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			return
 		}
 		account := selection.Account
-		if rejectIncompatibleModelFallbackAccount(c, selection, currentRoutingModel, body) {
+		poolRound.selected(scheduleDecision, account, len(failedAccountIDs))
+		if rejectIncompatibleModelFallbackAccount(c, selection, currentRoutingModel, body, switchBudget.requireCompatible) {
+			poolRound.excludeWithoutUpstreamFailure()
 			failedAccountIDs[account.ID] = struct{}{}
 			continue
 		}
@@ -1449,6 +1497,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 
 		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, reqStream, &streamStarted, reqLog)
 		if slotResult == openAISlotAcquireCapacityLimited {
+			poolRound.excludeWithoutUpstreamFailure()
 			failedAccountIDs[account.ID] = struct{}{}
 			lastFailoverErr = openAILocalCapacityFailover()
 			busyRetry.record(account.ID, lastFailoverErr)
@@ -1460,6 +1509,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			continue
 		}
 		if slotResult == openAISlotAcquireProfitVetoed {
+			poolRound.excludeWithoutUpstreamFailure()
 			// 利润终检否决：排除该账号重新选号，全池耗尽由下一轮选号报错；
 			// 否决次数达上限则直接终止，避免排队抢槽后才终检的延迟放大。
 			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
@@ -1599,6 +1649,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						}
 					}
 					h.gatewayService.RecordOpenAIAccountSwitch()
+					poolRound.failed(account.ID, failoverErr)
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
 					busyRetry.record(account.ID, failoverErr)
@@ -1650,6 +1701,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, currentRoutingModel, false, result), true, result.FirstTokenMs)
 		} else {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, currentRoutingModel, false, result), true, nil)
+		}
+		if openAIModelPoolForwardSucceeded(c, result, err) {
+			poolRound.succeeded(c.Request.Context())
 		}
 
 		submitMessagesUsage(result)

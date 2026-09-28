@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -45,6 +46,24 @@ func (r codexModelsFailoverAccountRepo) ListSchedulableByPlatform(_ context.Cont
 		}
 	}
 	return accounts, nil
+}
+
+func (r codexModelsFailoverAccountRepo) ListSchedulableByGroupIDAndPlatform(ctx context.Context, _ int64, platform string) ([]service.Account, error) {
+	return r.ListSchedulableByPlatform(ctx, platform)
+}
+
+func (r codexModelsFailoverAccountRepo) ListSchedulableByPlatforms(_ context.Context, platforms []string) ([]service.Account, error) {
+	accounts := make([]service.Account, 0, len(r.accounts))
+	for _, account := range r.accounts {
+		if slices.Contains(platforms, account.Platform) {
+			accounts = append(accounts, account)
+		}
+	}
+	return accounts, nil
+}
+
+func (r codexModelsFailoverAccountRepo) ListSchedulableByGroupIDAndPlatforms(ctx context.Context, _ int64, platforms []string) ([]service.Account, error) {
+	return r.ListSchedulableByPlatforms(ctx, platforms)
 }
 
 func (r codexModelsFailoverAccountRepo) ListSchedulableByGroupID(_ context.Context, _ int64) ([]service.Account, error) {
@@ -106,7 +125,7 @@ func (u *codexModelsFailoverHTTPUpstream) Do(_ *http.Request, _ string, accountI
 		StatusCode: http.StatusOK,
 		Status:     "200 OK",
 		Header:     make(http.Header),
-		Body:       io.NopCloser(strings.NewReader(`{"models":[{"slug":"gpt-5.6-sol"}]}`)),
+		Body:       io.NopCloser(strings.NewReader(`{"models":[{"slug":"gpt-5.6-sol","input_modalities":["text","image"]}]}`)),
 	}, nil
 }
 
@@ -429,6 +448,12 @@ func TestCodexModelsUnmappedParentAndSparkShadowHonorCustomListAndETag(t *testin
 			Credentials: map[string]any{"model_mapping": map[string]any{sparkModel: sparkModel}},
 		},
 	}}
+	// 父账号保留空映射，目录中的额外模型用于验证自定义列表改变 ETag。
+	repo.accounts[0].SetUpstreamSupportedModelsSnapshot(service.UpstreamSupportedModelsSnapshot{
+		Source:   "upstream",
+		SyncedAt: time.Now().UTC().Format(time.RFC3339),
+		Models:   []string{"gpt-5.6-sol", "gpt-5.3-codex"},
+	})
 	upstream := &codexModelsFailoverHTTPUpstream{firstStatus: http.StatusNotFound}
 	gatewayService := service.NewOpenAIGatewayService(
 		repo,
