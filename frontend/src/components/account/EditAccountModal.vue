@@ -5074,7 +5074,9 @@ const handleSubmit = async () => {
       if (['doubao', 'traework', 'workbuddy', 'zcode'].includes(props.account.platform)) {
         newCredentials.api_protocol = 'chat_completions'
         newCredentials.openai_capabilities = ['chat_completions']
-        updatePayload.concurrency = 1
+        if (props.account.platform !== 'traework') {
+          updatePayload.concurrency = 1
+        }
       }
 
       // 国产供应商：模式与协议写入凭据（决定额度/余额探测与转发端点/格式）。

@@ -46,16 +46,53 @@ func TestTraeworkConnectionUsesBuiltinSidecar(t *testing.T) {
 	require.Contains(t, recorder.Body.String(), `"type":"test_complete"`)
 }
 
-func TestTraeworkCreateForcesSingleConcurrency(t *testing.T) {
+func TestTraeworkCreateAndUpdatePreserveConfiguredConcurrency(t *testing.T) {
 	enableBuiltinAdapterForTest(t)
 	repo := &upstreamBillingProbeAdminRepo{upstreamBillingProbeAccountRepo: &upstreamBillingProbeAccountRepo{}}
 	svc := &adminServiceImpl{accountRepo: repo}
 	created, err := svc.CreateAccount(context.Background(), &CreateAccountInput{
 		Name: "traework", Platform: PlatformTraework, Type: AccountTypeAPIKey,
-		Credentials: traeworkTestAccount().Credentials, Concurrency: 16, SkipDefaultGroupBind: true,
+		Credentials: traeworkTestAccount().Credentials, SkipDefaultGroupBind: true,
 	})
 	require.NoError(t, err)
 	require.Equal(t, 1, created.Concurrency)
+
+	concurrency := 2
+	updated, err := svc.UpdateAccount(context.Background(), created.ID, &UpdateAccountInput{Concurrency: &concurrency})
+	require.NoError(t, err)
+	require.Equal(t, concurrency, updated.Concurrency)
+	updated, err = svc.UpdateAccount(context.Background(), created.ID, &UpdateAccountInput{Name: "renamed"})
+	require.NoError(t, err)
+	require.Equal(t, concurrency, updated.Concurrency)
+
+	created, err = svc.CreateAccount(context.Background(), &CreateAccountInput{
+		Name: "parallel", Platform: PlatformTraework, Type: AccountTypeAPIKey,
+		Credentials: traeworkTestAccount().Credentials, Concurrency: concurrency, SkipDefaultGroupBind: true,
+	})
+	require.NoError(t, err)
+	require.Equal(t, concurrency, created.Concurrency)
+}
+
+func TestTraeworkBulkConcurrencyPreservesOtherAdapterLimits(t *testing.T) {
+	for _, platform := range []string{PlatformTraework, PlatformDoubao, PlatformWorkbuddy, PlatformZcode} {
+		t.Run(platform, func(t *testing.T) {
+			account := traeworkTestAccount()
+			account.Platform = platform
+			repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+			concurrency := 2
+			_, err := (&adminServiceImpl{accountRepo: repo}).BulkUpdateAccounts(context.Background(), &BulkUpdateAccountsInput{
+				AccountIDs: []int64{account.ID}, Concurrency: &concurrency,
+			})
+			if platform != PlatformTraework {
+				require.Error(t, err)
+				require.Empty(t, repo.bulkUpdates)
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, repo.bulkUpdates, 1)
+			require.Equal(t, concurrency, *repo.bulkUpdates[0].Concurrency)
+		})
+	}
 }
 
 func TestTraeworkAdapterProbeHasNoMaxTokens(t *testing.T) {

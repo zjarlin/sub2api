@@ -349,7 +349,11 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 }
 
 func normalizeAccountConcurrency(platform, accountType string, concurrency int) int {
-	if platform == PlatformDoubao || platform == PlatformTraework || platform == PlatformWorkbuddy || platform == PlatformZcode || platform == PlatformQoder || IsSystemOneDecisionPlatform(platform) {
+	// TRAE 允许按上游容量配置并发，未配置时仍使用单并发。
+	if platform == PlatformTraework {
+		return max(1, concurrency)
+	}
+	if platform == PlatformDoubao || platform == PlatformWorkbuddy || platform == PlatformZcode || platform == PlatformQoder || IsSystemOneDecisionPlatform(platform) {
 		return 1
 	}
 	if platform == PlatformGrok && accountType == AccountTypeOAuth {
@@ -813,7 +817,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if input.Concurrency != nil {
 		account.Concurrency = normalizeAccountConcurrency(account.Platform, account.Type, *input.Concurrency)
 	}
-	if account.IsDoubao() || account.IsTraework() || account.IsWorkbuddy() || account.IsZcode() || account.IsLaya() || account.IsJev() {
+	if account.IsDoubao() || account.IsWorkbuddy() || account.IsZcode() || account.IsLaya() || account.IsJev() {
 		account.Concurrency = 1
 	}
 	// 只在指针非 nil 时更新 Priority（支持设置为 0）
@@ -1032,8 +1036,8 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		if !account.IsDoubao() && !account.IsTraework() && !account.IsWorkbuddy() && !account.IsZcode() && !account.IsLaya() && !account.IsJev() {
 			continue
 		}
-		if input.Concurrency != nil && *input.Concurrency != 1 {
-			return nil, infraerrors.BadRequest("INVALID_BUILTIN_ADAPTER_CONCURRENCY", "built-in adapter accounts require concurrency 1; exclude them from this batch to use another value")
+		if input.Concurrency != nil && *input.Concurrency != normalizeAccountConcurrency(account.Platform, account.Type, *input.Concurrency) {
+			return nil, infraerrors.BadRequest("INVALID_BUILTIN_ADAPTER_CONCURRENCY", "the requested concurrency is not supported by a selected built-in adapter account")
 		}
 		if len(input.Credentials) > 0 {
 			credentials := mergeMap(account.Credentials, input.Credentials)

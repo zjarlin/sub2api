@@ -6,7 +6,7 @@
 ## 平台接入
 
 Sub2API 已提供独立的 **TRAE Work（traework）** 平台类型。账号为 `apikey` 类型，
-协议固定 `chat_completions`，并发固定 `1`。内置模式下账号表单**无需**填写地址和密钥：
+协议固定 `chat_completions`，并发默认 `1`，可按实际验证的上游容量调整；视觉助手与普通请求共用账号并发额度。内置模式下账号表单**无需**填写地址和密钥：
 后端从 `builtin_adapter.traework_url` 与 `builtin_adapter.traework_key` 注入。
 
 ## 启用内置适配器
