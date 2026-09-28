@@ -1,0 +1,90 @@
+{
+  "verified_date": "2026-09-28",
+  "account_id": 858,
+  "group_id": 28,
+  "verified_model": "free-qwen-3.8-max",
+  "production": {
+    "gateway_image": "zjarlin/sub2api:vibex-tools-images-20260928",
+    "gateway_image_id": "sha256:4499c4d2262c1e284b78ada602b5cfae4d2aefd121ad4e5b7be3c102b95be4dc",
+    "gateway_binary_sha256": "ecd19b9868e45d1e31fb487ffb2ea5a0048e0a48b09b1cba91ffc2b0150edfa9",
+    "gateway_replicas_healthy": 2,
+    "adapter_image": "sub2api-vibex:tools-images-retry-20260928",
+    "adapter_image_id": "sha256:672a8a7fae968ae8cf764ea45c5ddd20303515debc08fea83e347e9e65a16651",
+    "adapter_binary_sha256": "6b6394de1b0ed84c6b6fc0fa21da01ae05851bae74ce3cc8bd588a0a179f53b6",
+    "adapter_healthy": true
+  },
+  "live_probes": {
+    "public_chat_feature_probe": {
+      "usage_ids": [709295, 709298],
+      "adapter_image_id_at_probe": "sha256:be71afbebeac7dfb35591c86b53dc6b7720447a84181fecbb7748b30ec87f741",
+      "image_and_client_tool_verified": true,
+      "tool_result_continuation_verified": true,
+      "tool_finish_reason": "tool_calls"
+    },
+    "public_http_responses_feature_probe": {
+      "usage_ids": [709303, 709305],
+      "adapter_image_id_at_probe": "sha256:be71afbebeac7dfb35591c86b53dc6b7720447a84181fecbb7748b30ec87f741",
+      "image_and_client_tool_verified": true,
+      "tool_result_continuation_verified": true,
+      "terminal_event": "response.completed"
+    },
+    "gateway_candidate_websocket_probe": {
+      "usage_ids": [709380, 709382],
+      "two_turn_continuation_verified": true,
+      "terminal_event": "response.completed"
+    },
+    "final_public_websocket_probe": {
+      "usage_ids": [709455, 709457],
+      "response_ids": [
+        "resp_eedbcae0-2428-4f22-82eb-d7b33cc83aea",
+        "resp_c64c4d9a-caf3-48ed-b376-6a21e9a968c2"
+      ],
+      "image_and_client_tool_verified": true,
+      "previous_response_id_continuation_verified": true,
+      "terminal_event": "response.completed",
+      "account_id_observed": 858,
+      "input_tokens": [79827, 39881],
+      "output_tokens": [202, 88]
+    },
+    "final_adapter_candidate_probe": {
+      "image_and_client_tool_verified": true,
+      "tool_result_continuation_verified": true
+    }
+  },
+  "probe_method": {
+    "image_sha256": "bc93f24bad98d496738a93bb74c7a87d66ca047a9c56fe1f1322bb2321b97826",
+    "visual_content_not_in_prompt": true,
+    "left_object": "red circle",
+    "right_object": "blue square",
+    "client_tool": "read_verification_file",
+    "execution": "Client actually read a local file containing a fresh random verifier and returned it as the tool result.",
+    "continuation_check": "Final model reply matched the verifier, which was absent from the original prompt."
+  },
+  "regressions": {
+    "duplicate_tool_replay_error_id": 180522,
+    "fix": "Reuse output item IDs in the final Responses completion instead of generating new IDs.",
+    "pre_retry_transient_handshake_error_ids": [180521, 180523],
+    "retry_policy": "At most three attempts for pre-prompt handshakes and REST GET queries; no mutation or generation replay.",
+    "get_total_timeout_seconds": 45
+  },
+  "source_checks": [
+    "tools/vibex2api: go test -race ./...",
+    "tools/vibex2api: go vet ./...",
+    "backend: go test -race ./internal/service -run '^TestVibexResponsesWebSocketBridge' -count=1",
+    "backend: go test ./internal/pkg/apicompat -run '^TestChat.*(Tool|Custom|Namespace|Reasoning|Stream)' -count=1"
+  ],
+  "limits": [
+    "Function calls use a validated JSON decision bridge and execute on the client.",
+    "Images use native project attachments and Read; longest edge is at most 1024 pixels.",
+    "Only the listed model has verified image evidence; other upstream models are not inferred to support vision.",
+    "Responses previous_response_id must identify the latest response on the same WebSocket connection.",
+    "Native Responses storage, custom tool grammar, hosted search and image generation are not guaranteed by this bridge.",
+    "Upstream connectivity can still fail after bounded retries."
+  ],
+  "cleanup": {
+    "temporary_key_id": 90,
+    "temporary_key_deleted": true,
+    "canaries_removed": true,
+    "ssh_tunnels_closed": true
+  }
+}

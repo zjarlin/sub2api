@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -56,8 +57,12 @@ func (s *Server) beginZcodeLogin(ctx context.Context) (*builtinlogin.Flow, error
 		nextPoll = time.Now().Add(flow.PollInterval)
 		data, err := pollZcodeOAuthFlow(ctx, client, pollToken, flow.ID, options.Provider)
 		if err != nil {
+			if !errors.Is(err, builtinlogin.ErrPending) {
+				s.logger.Printf("event=zcode_login stage=poll outcome=failed error_type=%T", err)
+			}
 			return nil, err
 		}
+		s.logger.Printf("event=zcode_login stage=poll outcome=ready plan=%s provider=%s", options.Plan, options.Provider)
 		var cred credential.Credential
 		if options.Plan == credential.PlanStart {
 			cred, err = s.buildStartPlanCredential(ctx, data, options.Provider)
@@ -65,6 +70,7 @@ func (s *Server) beginZcodeLogin(ctx context.Context) (*builtinlogin.Flow, error
 			cred, err = buildZcodeCredential(ctx, client, data, options.Provider)
 		}
 		if err != nil {
+			s.logger.Printf("event=zcode_login stage=credential outcome=failed plan=%s error_type=%T", options.Plan, err)
 			var public *builtinlogin.PublicError
 			if errors.As(err, &public) {
 				return nil, public
@@ -72,6 +78,7 @@ func (s *Server) beginZcodeLogin(ctx context.Context) (*builtinlogin.Flow, error
 			return nil, &builtinlogin.PublicError{Status: http.StatusBadGateway, Message: "Authorization response is incomplete; retry or start a new login"}
 		}
 		if err := store.Save(cred); err != nil {
+			s.logger.Printf("event=zcode_login stage=save outcome=failed error_type=%T", err)
 			return nil, &builtinlogin.PublicError{Status: http.StatusBadGateway, Message: "Unable to persist the authorization result"}
 		}
 		return &builtinlogin.Account{UID: credentialUID(cred), Nickname: cred.Provider}, nil
@@ -176,7 +183,11 @@ func pollZcodeOAuthFlow(ctx context.Context, client *http.Client, pollToken, flo
 	case "ready":
 		oauth, _ := result.Data[provider].(map[string]any)
 		user, _ := result.Data["user"].(map[string]any)
-		if stringVal(result.Data, "token") == "" || firstNonEmpty(stringVal(oauth, "access_token"), stringVal(oauth, "accessToken")) == "" || stringVal(user, "user_id") == "" {
+		hasToken := stringVal(result.Data, "token") != ""
+		hasAccessToken := firstNonEmpty(stringVal(oauth, "access_token"), stringVal(oauth, "accessToken")) != ""
+		hasUserID := stringVal(user, "user_id") != ""
+		if !hasToken || !hasAccessToken || !hasUserID {
+			log.Printf("event=zcode_login stage=poll outcome=incomplete provider=%s has_token=%t has_access_token=%t has_user_id=%t", provider, hasToken, hasAccessToken, hasUserID)
 			return nil, &builtinlogin.PublicError{Status: http.StatusBadGateway, Message: "ZCode login response is incomplete; start a new login"}
 		}
 		return result.Data, nil

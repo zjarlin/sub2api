@@ -14,6 +14,9 @@ func (a *Account) IsWorkbuddy() bool { return a != nil && a.Platform == Platform
 
 // validateBuiltinChatCredentials 统一校验内置适配器账号。
 func validateBuiltinChatCredentials(platform, accountType string, credentials map[string]any) error {
+	if platform == PlatformArena {
+		return validateArenaCredentials(accountType, credentials)
+	}
 	if platform == PlatformVibex {
 		return validateVibexCredentials(accountType, credentials)
 	}

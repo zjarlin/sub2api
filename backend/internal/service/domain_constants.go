@@ -49,6 +49,7 @@ const (
 	PlatformZhipu       = domain.PlatformZhipu
 	PlatformDeepseek    = domain.PlatformDeepseek
 	PlatformDeepseekWeb = domain.PlatformDeepseekWeb
+	PlatformArena       = domain.PlatformArena
 	PlatformMiniMax     = domain.PlatformMiniMax
 	PlatformDoubao      = domain.PlatformDoubao
 	PlatformTraework    = domain.PlatformTraework
@@ -114,7 +115,7 @@ const (
 // IsCNProvider 报告 platform 是否为国产 OpenAI 兼容供应商（含豆包桌面会话适配器）。
 func IsCNProvider(platform string) bool {
 	switch platform {
-	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformMiniMax, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformLaya, PlatformJev:
+	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformArena, PlatformMiniMax, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformLaya, PlatformJev:
 		return true
 	default:
 		return false
@@ -143,6 +144,7 @@ var AllowedQuotaPlatforms = []string{
 	PlatformZhipu,
 	PlatformDeepseek,
 	PlatformDeepseekWeb,
+	PlatformArena,
 	PlatformMiniMax,
 	PlatformOpenCodeGo,
 	PlatformDoubao,

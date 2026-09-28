@@ -103,6 +103,8 @@ func (c *Client) Messages(ctx context.Context, req *anthropic.Request, handlers 
 	httpReq.Header.Set("content-type", "application/json")
 	httpReq.Header.Set("accept", "text/event-stream")
 	httpReq.Header.Set("x-api-key", c.APIKey)
+	// 与官方 Anthropic 客户端一致，同时发送 Bearer，后续显式请求头仍可覆盖。
+	httpReq.Header.Set("authorization", "Bearer "+c.APIKey)
 	version := c.APIVersion
 	if version == "" {
 		version = "2023-06-01"

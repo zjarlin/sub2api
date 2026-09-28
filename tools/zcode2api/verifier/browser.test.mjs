@@ -32,6 +32,13 @@ test('visible verification lets the SDK show its interactive challenge', async (
   assert.equal(await verifyInPage({ ...options, headless: false }), 'interactive-proof')
 })
 
+test('visible verification tries the official traceless path before opening a challenge', async () => {
+  let clicked = false
+  sdk(callbacks => callbacks.getInstance({ startTracelessVerification() { callbacks.success('traceless-proof') } }), () => { clicked = true })
+  assert.equal(await verifyInPage({ ...options, headless: false }), 'traceless-proof')
+  assert.equal(clicked, false)
+})
+
 test('accepts the native terminal-pass callback and rejects duplicate submissions', async () => {
   sdk(callbacks => callbacks.fail({ verifyCode: 'T006', CaptchaVerifyParam: 'native-proof' }))
   assert.equal(await verifyInPage(options), 'native-proof')
@@ -52,10 +59,36 @@ test('repeated deferred callbacks open the interactive challenge once', async ()
     value.getInstance({ startTracelessVerification() {
       value.fail({ success: true, verifyResult: false })
       value.fail({ success: true, verifyResult: false })
-      value.success('final-proof')
     } })
-  }, () => { clicks++; callbacks.fail({ success: true, verifyResult: false }) })
+  }, () => {
+    clicks++
+    callbacks.fail({ success: true, verifyResult: false })
+    callbacks.fail({ success: true, verifyResult: false })
+    callbacks.success('final-proof')
+  })
   assert.equal(await verifyInPage({ ...options, headless: false }), 'final-proof')
+  assert.equal(clicks, 1)
+})
+
+test('reinitialized SDK instances do not start another verification while a challenge is open', async () => {
+  let callbacks
+  let starts = 0
+  let clicks = 0
+  const instance = { startTracelessVerification() {
+    starts++
+    callbacks.fail({ verifyCode: starts === 1 ? 'F001' : 'F008', verifyResult: false })
+  } }
+  sdk(value => {
+    callbacks = value
+    callbacks.getInstance(instance)
+  }, () => {
+    clicks++
+    callbacks.getInstance(instance)
+    callbacks.fail({ verifyCode: 'F001', verifyResult: false })
+    setTimeout(() => callbacks.success('interactive-proof'), 10)
+  })
+  assert.equal(await verifyInPage({ ...options, headless: false }), 'interactive-proof')
+  assert.equal(starts, 1)
   assert.equal(clicks, 1)
 })
 

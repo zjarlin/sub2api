@@ -3,10 +3,13 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "node server.mjs",
-    "test": "node --test *.test.mjs"
+    "start": "electron server.mjs",
+    "start:chromium": "node server.mjs",
+    "test": "node --test *.test.mjs",
+    "test:browser": "node --test browser.integration.mjs"
   },
   "dependencies": {
+    "electron": "41.10.7",
     "playwright-core": "1.59.1"
   }
 }

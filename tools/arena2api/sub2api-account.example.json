@@ -1,0 +1,17 @@
+{
+  "name": "Arena dedicated text session",
+  "platform": "openai",
+  "type": "apikey",
+  "concurrency": 1,
+  "credentials": {
+    "base_url": "http://sub2api-arena:7867/v1",
+    "api_key": "replace-with-ARENA_AGENT_BRIDGE_KEY",
+    "openai_capabilities": ["chat_completions"],
+    "model_mapping": { "arena-session": "arena-session" }
+  },
+  "extra": {
+    "openai_session_adapter": "arena",
+    "openai_responses_mode": "force_chat_completions",
+    "model_health_probe_enabled": false
+  }
+}

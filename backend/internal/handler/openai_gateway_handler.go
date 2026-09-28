@@ -322,18 +322,15 @@ func allowOpenAICompatibleMessagesDispatch(c *gin.Context, apiKey *service.APIKe
 func openAICompatibleTextTargetAllowed(c *gin.Context, apiKey *service.APIKey, model string) bool {
 	return compositeTargetPlatformAllowed(c, apiKey, model,
 		service.PlatformOpenAI, service.PlatformGrok,
-		service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek,
+		service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformArena,
 		service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformDoubao, service.PlatformTraework, service.PlatformWorkbuddy, service.PlatformVibex, service.PlatformZcode, service.PlatformQoder,
 		service.PlatformLaya, service.PlatformJev)
 }
 
-// isResponsesWebSocketCompositePlatform 限定 composite 分组在 Responses WebSocket
-// 上可服务的目标平台。CN 供应商（kimi/zhipu/deepseek）刻意排除：其账号无法通过
-// WSv2 ingress 的 transport 过滤，且 WS HTTP 桥没有面向 CN 的 Responses 转换，
-// 放行只会把明确的策略拒绝变成误导性的 "no available account"。
+// Responses WebSocket 仅放行已接入原生协议或 HTTP 转换桥的平台。
 func isResponsesWebSocketCompositePlatform(platform string) bool {
 	switch platform {
-	case service.PlatformOpenAI, service.PlatformGrok:
+	case service.PlatformOpenAI, service.PlatformGrok, service.PlatformVibex:
 		return true
 	default:
 		return false
@@ -2729,7 +2726,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	requestPlatform := openAICompatibleRequestPlatform(ctx, apiKey)
 	requiredTransport := service.OpenAIUpstreamTransportResponsesWebsocketV2Ingress
-	if requestPlatform == service.PlatformGrok {
+	if requestPlatform == service.PlatformGrok || requestPlatform == service.PlatformVibex {
 		requiredTransport = service.OpenAIUpstreamTransportHTTPSSE
 	}
 	if err := h.billingCacheService.CheckBillingEligibility(ctx, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {

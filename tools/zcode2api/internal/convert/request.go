@@ -17,10 +17,12 @@ import (
 // Options controls request shaping.
 type Options struct {
 	DefaultMaxTokens int
-	ThinkingEnabled  bool
-	ThinkingEffort   string
-	PromptCache      bool
-	Replay           *ReplayCache
+	// 套餐所需的原生系统上下文，放在调用方 system/developer 指令之前。
+	SystemPrefix    []anthropic.Block
+	ThinkingEnabled bool
+	ThinkingEffort  string
+	PromptCache     bool
+	Replay          *ReplayCache
 	// DeviceID and SessionID build the metadata.user_id JSON the official
 	// client sends: {"device_id":…,"account_uuid":"","session_id":…}.
 	DeviceID  string
@@ -44,7 +46,7 @@ func Request(req *openai.ChatRequest, upstreamModel string, opts Options) (*anth
 	if err != nil {
 		return nil, err
 	}
-	out.System = system
+	out.System = append(opts.SystemPrefix, system...)
 
 	messages, err := chatMessages(req.Messages, opts)
 	if err != nil {

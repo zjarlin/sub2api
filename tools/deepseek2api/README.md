@@ -24,7 +24,8 @@ DeepSeek 目前没有向第三方适配器提供 OAuth2 授权码回调接口，
 - `DEEPSEEK_WEB_ADAPTER_KEY` 为必填共享密钥；`DEEPSEEK_WEB_LISTEN` 默认
   `127.0.0.1:7867`，Compose 中设为 `0.0.0.0:7867`。
 
-可选的 `deploy/docker-compose.deepseek-web.yml` 包含服务和持久化卷；部署时将其
-与基础 Compose 文件一起叠加，并在私有环境文件中设置共享密钥。
+可选的 `deploy/docker-compose.deepseek-web.yml` 包含服务和持久化卷。标准部署
+在私有 `.env` 中设置 `SUB2API_DEEPSEEK_WEB=1` 后自动叠加该文件、生成共享密钥并
+启动适配器；手工运行 Compose 时需自行叠加文件并设置共享密钥。
 适配器在未导入账号前依然能通过 `/livez`，但模型请求会返回登录所需错误。
 本地验证：在此目录执行 `go test -race ./...`。

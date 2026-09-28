@@ -115,7 +115,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	}
 
 	wsDecision := s.getOpenAIWSProtocolResolver().Resolve(account)
-	forceHTTPBridge := account.Platform == PlatformGrok ||
+	forceHTTPBridge := account.Platform == PlatformGrok || account.Platform == PlatformVibex ||
 		(s.pluginManager != nil && s.pluginManager.ShouldRouteOpenAIOAuth(account))
 	modeRouterV2Enabled := s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIWS.ModeRouterV2Enabled
 	ingressMode := OpenAIWSIngressModeCtxPool
@@ -171,7 +171,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	wsHost := "-"
 	wsPath := "-"
 	if forceHTTPBridge {
-		wsHost = "xai-http-bridge"
+		wsHost = account.Platform + "-http-bridge"
 		wsPath = "/v1/responses"
 	} else {
 		var err error
@@ -583,7 +583,17 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		bridgeReplayInputExists := false
 		var bridgeAccountFailoverInput []json.RawMessage
 		bridgeAccountFailoverInputExists := false
+		bridgeLastResponseID := ""
 		for turn := 1; ; turn++ {
+			if account.Platform == PlatformVibex && currentBridgePayload.previousResponseID != "" && currentBridgePayload.previousResponseID != bridgeLastResponseID {
+				message := "previous_response_id must reference the latest response on this VibeX WebSocket connection"
+				event := buildOpenAIWSHTTPBridgeErrorEvent(http.StatusBadRequest, message)
+				if err := writeClientMessage(event); err != nil {
+					return err
+				}
+				markOpenAIWSClientVisibleFailure(c, "error", event)
+				return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, message, nil)
+			}
 			if turn > 1 && hooks != nil && hooks.BeforeRequest != nil {
 				if err := hooks.BeforeRequest(turn, currentBridgePayload.payloadRaw, currentBridgePayload.originalModel); err != nil {
 					return err
@@ -748,6 +758,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				turnState = bridgeTurnState
 			}
 			responseID := strings.TrimSpace(result.RequestID)
+			bridgeLastResponseID = responseID
 			if responseID != "" && stateStore != nil {
 				ttl := s.openAIWSResponseStickyTTL()
 				logOpenAIWSBindResponseAccountWarn(groupID, account.ID, responseID, stateStore.BindResponseAccount(ctx, groupID, responseID, account.ID, ttl))

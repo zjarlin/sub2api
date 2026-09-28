@@ -1,0 +1,15 @@
+{
+  "name": "sub2api-arena2api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/index.mjs",
+    "test": "node --test",
+    "manage": "node src/manage.mjs"
+  },
+  "dependencies": {
+    "arena-local-bridge": "https://codeload.github.com/Gandhara2077/arena-local-bridge/tar.gz/293263b0df6f380f89406c418690df82f7e28d38"
+  }
+}

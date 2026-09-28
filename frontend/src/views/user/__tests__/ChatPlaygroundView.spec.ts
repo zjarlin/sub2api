@@ -201,6 +201,25 @@ describe('ChatPlaygroundView', () => {
     expect(wrapper.text()).toContain('12 tokens')
   })
 
+  it('多轮对话保留会话身份，每轮和清空后使用新身份', async () => {
+    const wrapper = await mountView()
+    for (const content of ['first', 'second']) {
+      await wrapper.get('.chat-composer__input').setValue(content)
+      await wrapper.get('.chat-composer').trigger('submit')
+      await flushPromises()
+    }
+    const first = streamCompletion.mock.calls[0][0]
+    const second = streamCompletion.mock.calls[1][0]
+    expect(first.sessionId).toMatch(/^[a-f0-9]{32}$/)
+    expect(second.sessionId).toBe(first.sessionId)
+    expect(second.requestId).not.toBe(first.requestId)
+    await wrapper.get('.chat-page__header button').trigger('click')
+    await wrapper.get('.chat-composer__input').setValue('fresh')
+    await wrapper.get('.chat-composer').trigger('submit')
+    await flushPromises()
+    expect(streamCompletion.mock.calls[2][0].sessionId).not.toBe(first.sessionId)
+  })
+
   it('重试失败请求时不重复发送失败轮次', async () => {
     streamCompletion.mockRejectedValueOnce(new Error('upstream unavailable'))
     const wrapper = await mountView()

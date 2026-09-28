@@ -29,6 +29,24 @@ if [ "$BUILTIN_ADAPTERS_ENABLED" = "1" ]; then
   COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.builtin-adapters.yml")
 fi
 
+# DeepSeek 网页适配器独立启用，不要求同时启动其他内置服务。
+DEEPSEEK_WEB_ENABLED="${SUB2API_DEEPSEEK_WEB:-}"
+if [ -z "$DEEPSEEK_WEB_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
+  DEEPSEEK_WEB_ENABLED="$(awk -F= '
+    $1 ~ /^[[:space:]]*(export[[:space:]]+)?SUB2API_DEEPSEEK_WEB[[:space:]]*$/ {
+      value=$2
+      sub(/#.*/, "", value)
+      gsub(/[[:space:]"\047]/, "", value)
+      result=value
+    }
+    END { if (result == "1") print "1"; else print "0" }
+  ' "$DEPLOY_DIR/.env")"
+fi
+if [ "$DEEPSEEK_WEB_ENABLED" = "1" ]; then
+  test -f "$DEPLOY_DIR/deploy/docker-compose.deepseek-web.yml"
+  COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.deepseek-web.yml")
+fi
+
 # 只读取编排开关，不执行 .env 中的 shell 内容；显式环境变量优先。
 EDGE_MEDIA_ENABLED="${SUB2API_EDGE_MEDIA:-}"
 if [ -z "$EDGE_MEDIA_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
@@ -60,28 +78,36 @@ if [ -f docker-compose.override.yml ]; then
   cp docker-compose.override.yml "$RELEASE_DIR/docker-compose.override.yml"
 fi
 
-# 首次部署自动生成内部共享密钥（ZCode / VibeX），并持久化供后续重建复用。
+# 首次部署自动生成内部共享密钥，并持久化供后续重建复用。
 # 上游套餐凭据独立配置，不能用共享密钥替代。
+ensure_adapter_key() {
+  local key_name="$1"
+  if [ -n "${!key_name:-}" ]; then
+    return
+  fi
+  local key_present
+  key_present="$(awk -F= -v key="$key_name" '
+    $1 ~ "^[[:space:]]*" key "[[:space:]]*$" {
+      value=substr($0, index($0, "=")+1)
+      gsub(/[[:space:]"\047]/, "", value)
+      present=(value != "")
+    }
+    END { print present ? "1" : "0" }
+  ' "$DEPLOY_DIR/.env")"
+  if [ "$key_present" != "1" ]; then
+    (umask 077; cp "$DEPLOY_DIR/.env" "$RELEASE_DIR/env.before-$key_name")
+    local new_adapter_key
+    new_adapter_key="$(openssl rand -hex 32)"
+    printf '\n%s=%s\n' "$key_name" "$new_adapter_key" >> "$DEPLOY_DIR/.env"
+  fi
+  unset "$key_name"
+}
 if [ "$BUILTIN_ADAPTERS_ENABLED" = "1" ]; then
-  for INTERNAL_ADAPTER_KEY in ZCODE_ADAPTER_KEY VIBEX_ADAPTER_KEY; do
-    if [ -n "${!INTERNAL_ADAPTER_KEY:-}" ]; then
-      continue
-    fi
-    KEY_PRESENT="$(awk -F= -v key="$INTERNAL_ADAPTER_KEY" '
-      $1 ~ "^[[:space:]]*" key "[[:space:]]*$" {
-        value=substr($0, index($0, "=")+1)
-        gsub(/[[:space:]"\047]/, "", value)
-        present=(value != "")
-      }
-      END { print present ? "1" : "0" }
-    ' "$DEPLOY_DIR/.env")"
-    if [ "$KEY_PRESENT" != "1" ]; then
-      (umask 077; cp "$DEPLOY_DIR/.env" "$RELEASE_DIR/env.before-$INTERNAL_ADAPTER_KEY")
-      NEW_ADAPTER_KEY="$(openssl rand -hex 32)"
-      printf '\n%s=%s\n' "$INTERNAL_ADAPTER_KEY" "$NEW_ADAPTER_KEY" >> "$DEPLOY_DIR/.env"
-      unset NEW_ADAPTER_KEY
-    fi
-  done
+  ensure_adapter_key ZCODE_ADAPTER_KEY
+  ensure_adapter_key VIBEX_ADAPTER_KEY
+fi
+if [ "$DEEPSEEK_WEB_ENABLED" = "1" ]; then
+  ensure_adapter_key DEEPSEEK_WEB_ADAPTER_KEY
 fi
 docker image inspect "$IMAGE" > "$RELEASE_DIR/image.json"
 
@@ -122,6 +148,10 @@ export SUB2API_IMAGE="$IMAGE"
 if [ "$BUILTIN_ADAPTERS_ENABLED" = "1" ]; then
   echo "Building and starting built-in adapters (doubao / traework / workbuddy / vibex / zcode)"
   "${COMPOSE[@]}" up -d --build sub2api-desktop sub2api-traework sub2api-workbuddy sub2api-vibex sub2api-zcode
+fi
+if [ "$DEEPSEEK_WEB_ENABLED" = "1" ]; then
+  echo "Building and starting DeepSeek web adapter"
+  "${COMPOSE[@]}" up -d --build sub2api-deepseek-web
 fi
 echo "Starting canary with replicas=$CANARY_REPLICAS"
 "${COMPOSE[@]}" up -d --wait --wait-timeout 180 --no-deps --scale "sub2api=$CANARY_REPLICAS" sub2api gateway

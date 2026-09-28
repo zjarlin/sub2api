@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -17,79 +16,21 @@ import (
 )
 
 type chatRequest struct {
-	Model    string `json:"model"`
-	Messages []struct {
-		Role    string          `json:"role"`
-		Content json.RawMessage `json:"content"`
-	} `json:"messages"`
-	Stream        bool `json:"stream"`
-	StreamOptions struct {
+	Model             string          `json:"model"`
+	Messages          []chatMessage   `json:"messages"`
+	Tools             []functionTool  `json:"tools"`
+	ToolChoice        json.RawMessage `json:"tool_choice"`
+	ParallelToolCalls *bool           `json:"parallel_tool_calls"`
+	policy            toolPolicy
+	images            []chatImage
+	Stream            bool `json:"stream"`
+	StreamOptions     struct {
 		IncludeUsage bool `json:"include_usage"`
 	} `json:"stream_options"`
 }
 
-func decodeChat(w http.ResponseWriter, r *http.Request) (chatRequest, string, error) {
-	var request chatRequest
-	var raw map[string]json.RawMessage
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(&raw); err != nil {
-		return request, "", problem(400, "invalid_request", "Invalid chat request")
-	}
-	if decoder.Decode(new(any)) != io.EOF {
-		return request, "", problem(400, "invalid_request", "Invalid chat request")
-	}
-	allowed := map[string]bool{"model": true, "messages": true, "stream": true, "stream_options": true}
-	for key, value := range raw {
-		if allowed[key] || string(value) == "null" {
-			continue
-		}
-		if key == "tools" && string(value) == "[]" {
-			continue
-		}
-		return request, "", problem(400, "unsupported_parameter", "VibeX does not support parameter: "+key)
-	}
-	data, _ := json.Marshal(raw)
-	if json.Unmarshal(data, &request) != nil || request.Model == "" || len(request.Messages) == 0 || len(request.Messages) > 128 {
-		return request, "", problem(400, "invalid_request", "A model and text messages are required")
-	}
-	var messages []map[string]json.RawMessage
-	_ = json.Unmarshal(raw["messages"], &messages)
-	for _, message := range messages {
-		for _, key := range []string{"tool_calls", "tool_call_id", "function_call"} {
-			if value, ok := message[key]; ok && string(value) != "null" {
-				return request, "", problem(400, "unsupported_tools", "VibeX does not support client tool calls")
-			}
-		}
-	}
-	var prompt strings.Builder
-	prompt.WriteString("Answer the following conversation as text. Do not modify the project or run tools.\n\n")
-	for _, m := range request.Messages {
-		if m.Role != "system" && m.Role != "developer" && m.Role != "user" && m.Role != "assistant" {
-			return request, "", problem(400, "unsupported_message", "VibeX only supports text conversation roles")
-		}
-		var text string
-		if json.Unmarshal(m.Content, &text) != nil {
-			var parts []struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			}
-			if json.Unmarshal(m.Content, &parts) != nil || len(parts) == 0 {
-				return request, "", problem(400, "unsupported_content", "VibeX only supports text content")
-			}
-			for _, p := range parts {
-				if p.Type != "text" {
-					return request, "", problem(400, "unsupported_content", "VibeX only supports text content")
-				}
-				text += p.Text
-			}
-		}
-		prompt.WriteString(m.Role + ":\n" + text + "\n\n")
-	}
-	return request, prompt.String(), nil
-}
-
 func (a *adapter) ensureProject(ctx context.Context, c credential, model string) (credential, error) {
+	created := c.AppID == ""
 	if c.AppID == "" {
 		var app struct {
 			AppID string `json:"app_id"`
@@ -123,14 +64,14 @@ func (a *adapter) ensureProject(ctx context.Context, c credential, model string)
 		a.mu.Unlock()
 	}
 	path := "/vc/api/apps/" + url.PathEscape(c.AppID)
-	if err := a.call(ctx, c, "POST", path+"/start", nil, nil); err != nil {
-		return c, err
-	}
 	startCtx, stopStart := context.WithTimeout(ctx, 90*time.Second)
 	defer stopStart()
+	startRequested := false
+	currentProvider := ""
 	for {
 		var state struct {
-			Live *struct {
+			LLMProviderID string `json:"llm_provider_id"`
+			Live          *struct {
 				Status string `json:"status"`
 			} `json:"live"`
 			Cached string `json:"status_cached"`
@@ -143,9 +84,15 @@ func (a *adapter) ensureProject(ctx context.Context, c credential, model string)
 			status = state.Live.Status
 		}
 		if status == "running" {
+			currentProvider = state.LLMProviderID
 			break
 		}
-		if status == "" || status == "exited" || status == "failed" {
+		if !startRequested {
+			if err := a.call(startCtx, c, "POST", path+"/start", nil, nil); err != nil {
+				return c, err
+			}
+			startRequested = true
+		} else if status == "" || status == "exited" || status == "failed" {
 			return c, problem(502, "project_not_running", "VibeX project failed to start")
 		}
 		select {
@@ -154,11 +101,13 @@ func (a *adapter) ensureProject(ctx context.Context, c credential, model string)
 		case <-time.After(time.Second):
 		}
 	}
-	if err := a.call(ctx, c, "PATCH", path+"/llm-provider", map[string]string{"provider_id": model}, nil); err != nil {
-		return c, err
-	}
-	if err := a.call(ctx, c, "POST", path+"/ensure-llm-settings", nil, nil); err != nil {
-		return c, err
+	if created || currentProvider != model {
+		if err := a.call(ctx, c, "PATCH", path+"/llm-provider", map[string]string{"provider_id": model}, nil); err != nil {
+			return c, err
+		}
+		if err := a.call(ctx, c, "POST", path+"/ensure-llm-settings", nil, nil); err != nil {
+			return c, err
+		}
 	}
 	return c, nil
 }
@@ -190,8 +139,9 @@ func eventType(e map[string]json.RawMessage) string {
 }
 
 func eventError(e map[string]json.RawMessage) error {
-	var code string
+	var code, message string
 	_ = json.Unmarshal(e["code"], &code)
+	_ = json.Unmarshal(e["message"], &message)
 	switch code {
 	case "FREE_LLM_QUOTA_EXCEEDED", "FREE_LLM_GLOBAL_BUDGET_EXCEEDED":
 		return problem(429, "quota_exceeded", "VibeX quota is exhausted; retry after reset")
@@ -199,12 +149,27 @@ func eventError(e map[string]json.RawMessage) error {
 		return problem(402, "insufficient_balance", "VibeX wallet balance is insufficient")
 	case "TOKEN_INVALID", "TOKEN_MISSION":
 		return problem(401, "vibex_login_required", "RunningHub login expired; sign in again")
+	case "SOURCE_SESSION_ACTIVE", "SOURCE_TURN_RUNNING", "INIT_ROOT_BUSY":
+		return problem(409, "project_busy", "VibeX project has an active turn; retry after it finishes")
 	default:
+		if strings.Contains(message, "工作区已切换") {
+			return problem(409, "workspace_changed", "VibeX workspace changed; reconnect and retry")
+		}
 		return problem(502, "generation_failed", "VibeX generation failed; check login, quota and balance")
 	}
 }
 
 func (a *adapter) connect(ctx context.Context, c credential) (*websocket.Conn, string, error) {
+	var app map[string]json.RawMessage
+	if err := a.call(ctx, c, "GET", "/vc/api/apps/"+url.PathEscape(c.AppID), nil, &app); err != nil {
+		return nil, "", err
+	}
+	meta := map[string]json.RawMessage{}
+	for _, key := range []string{"app_id", "name", "app_type", "image", "host_ip", "host_ports", "created_at", "pocketbase_url", "flow", "enabled_capabilities"} {
+		if value, ok := app[key]; ok {
+			meta[key] = value
+		}
+	}
 	u, err := url.Parse(a.origin)
 	if err != nil {
 		return nil, "", err
@@ -215,12 +180,16 @@ func (a *adapter) connect(ctx context.Context, c credential) (*websocket.Conn, s
 		u.Scheme = "ws"
 	}
 	u.Path = "/app-ws/" + url.PathEscape(c.AppID) + "/ws"
-	conn, _, err := websocket.Dial(ctx, u.String(), &websocket.DialOptions{HTTPClient: a.client, HTTPHeader: a.headers(c)})
+	wsHeaders := http.Header{}
+	wsHeaders.Set("Cookie", "Rh-Accesstoken="+c.Token)
+	wsHeaders.Set("Origin", a.origin)
+	conn, err := a.dialProject(ctx, u.String(), wsHeaders)
 	if err != nil {
-		return nil, "", problem(502, "websocket_unavailable", "Unable to connect to the VibeX project")
+		return nil, "", err
 	}
 	conn.SetReadLimit(4 << 20)
-	if err := sendWS(ctx, conn, map[string]any{"type": "init", "cwd": "/workspace/app", "replay": false}); err != nil {
+	// 首次连接必须初始化项目根目录；仅 init 会收到 ready，但无法接受提示词。
+	if err := sendWS(ctx, conn, map[string]any{"type": "init_root", "cwd": "/workspace/app", "meta": meta, "replay": false}); err != nil {
 		conn.CloseNow()
 		return nil, "", err
 	}
@@ -235,7 +204,7 @@ func (a *adapter) connect(ctx context.Context, c credential) (*websocket.Conn, s
 		switch eventType(e) {
 		case "error":
 			conn.CloseNow()
-			return nil, "", problem(502, "initialization_failed", "VibeX project initialization failed")
+			return nil, "", eventError(e)
 		case "run_status":
 			if string(e["active"]) == "true" {
 				conn.CloseNow()
@@ -254,13 +223,49 @@ func (a *adapter) connect(ctx context.Context, c credential) (*websocket.Conn, s
 	}
 }
 
+// 仅重试提示词发送前的握手，不重试初始化、会话创建或生成。
+func (a *adapter) dialProject(ctx context.Context, address string, headers http.Header) (*websocket.Conn, error) {
+	for attempt := 0; attempt < 3; attempt++ {
+		conn, response, err := websocket.Dial(ctx, address, &websocket.DialOptions{HTTPClient: a.client, HTTPHeader: headers})
+		if err == nil {
+			return conn, nil
+		}
+		status := 0
+		if response != nil {
+			status = response.StatusCode
+			if response.Body != nil {
+				response.Body.Close()
+			}
+		}
+		switch status {
+		case 401, 403:
+			return nil, problem(401, "vibex_login_required", "RunningHub login expired; sign in again")
+		case 402:
+			return nil, problem(402, "insufficient_balance", "VibeX wallet balance is insufficient")
+		case 429:
+			return nil, problem(429, "quota_exceeded", "VibeX quota is exhausted; retry after reset")
+		}
+		if attempt == 2 || status != 0 && status < 500 {
+			break
+		}
+		timer := time.NewTimer(time.Duration(attempt+1) * 300 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return nil, problem(502, "websocket_unavailable", "Unable to connect to the VibeX project")
+}
+
 type tokenUsage struct {
 	Prompt     int `json:"prompt_tokens"`
 	Completion int `json:"completion_tokens"`
 	Total      int `json:"total_tokens"`
 }
 
-func generate(ctx context.Context, conn *websocket.Conn, previousSession, prompt string, emit func(string) error) (tokenUsage, error) {
+func generate(ctx context.Context, conn *websocket.Conn, previousSession, prompt string, buffered bool, emit func(string) error) (tokenUsage, error) {
 	var usage tokenUsage
 	// 读取取消会关闭 WebSocket；先由请求监听器发送上游取消，再关闭连接。
 	readCtx, stopRead := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Minute)
@@ -268,19 +273,19 @@ func generate(ctx context.Context, conn *websocket.Conn, previousSession, prompt
 	if err := sendWS(ctx, conn, map[string]string{"type": "new_session"}); err != nil {
 		return usage, err
 	}
-	// 新会话确认前不发送提示词，防止请求落入上一个会话。
+	// 新会话确认可以是 null，实际 ID 在提示词启动后才分配。
 	for {
 		e, err := readWS(readCtx, conn)
 		if err != nil {
 			return usage, err
 		}
 		if eventType(e) == "error" {
-			return usage, problem(502, "session_failed", "Unable to create a VibeX conversation")
+			return usage, eventError(e)
 		}
 		if eventType(e) == "session_info" {
 			var id string
 			_ = json.Unmarshal(e["session_id"], &id)
-			if id != "" && id != previousSession {
+			if id != previousSession || previousSession == "" {
 				break
 			}
 		}
@@ -305,6 +310,7 @@ func generate(ctx context.Context, conn *websocket.Conn, previousSession, prompt
 		}
 	}()
 	var streamed string
+	var finalText string
 	var textSeen bool
 	for {
 		e, err := readWS(readCtx, conn)
@@ -312,11 +318,17 @@ func generate(ctx context.Context, conn *websocket.Conn, previousSession, prompt
 			return usage, err
 		}
 		switch eventType(e) {
-		case "error":
+		case "error", "source_turn_waiting":
 			return usage, eventError(e)
 		case "done":
 			if !textSeen {
 				return usage, problem(502, "empty_response", "VibeX returned no text")
+			}
+			if buffered {
+				if finalText == "" {
+					finalText = streamed
+				}
+				return usage, emit(finalText)
 			}
 			return usage, nil
 		case "claude_event":
@@ -362,9 +374,14 @@ func generate(ctx context.Context, conn *websocket.Conn, previousSession, prompt
 			if event.Type == "stream_event" && event.Event.Type == "content_block_delta" && event.Event.Delta.Type == "text_delta" {
 				text := event.Event.Delta.Text
 				streamed += text
+				if len(streamed) > 4<<20 {
+					return usage, problem(502, "response_too_large", "VibeX response exceeded the size limit")
+				}
 				textSeen = textSeen || text != ""
-				if err := emit(text); err != nil {
-					return usage, err
+				if !buffered {
+					if err := emit(text); err != nil {
+						return usage, err
+					}
 				}
 			}
 			if event.Type == "assistant" {
@@ -375,14 +392,20 @@ func generate(ctx context.Context, conn *websocket.Conn, previousSession, prompt
 					}
 				}
 				text := final.String()
+				if len(text) > 4<<20 {
+					return usage, problem(502, "response_too_large", "VibeX response exceeded the size limit")
+				}
 				if text == "" {
 					continue
 				}
 				if !strings.HasPrefix(text, streamed) {
 					return usage, problem(502, "stream_mismatch", "VibeX revised its streamed response")
 				}
-				if err := emit(text[len(streamed):]); err != nil {
-					return usage, err
+				finalText = text
+				if !buffered {
+					if err := emit(text[len(streamed):]); err != nil {
+						return usage, err
+					}
 				}
 				textSeen = true
 				streamed = ""
@@ -430,6 +453,11 @@ func (a *adapter) chat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	prompt, err = a.uploadImages(ctx, c, request.images, prompt)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	initCtx, initCancel := context.WithTimeout(ctx, 90*time.Second)
 	conn, previousSession, err := a.connect(initCtx, c)
 	initCancel()
@@ -469,7 +497,7 @@ func (a *adapter) chat(w http.ResponseWriter, r *http.Request) {
 		}
 		return http.NewResponseController(w).Flush()
 	}
-	chunk := func(delta map[string]string, finish any) map[string]any {
+	chunk := func(delta map[string]any, finish any) map[string]any {
 		return map[string]any{"id": id, "object": "chat.completion.chunk", "created": created, "model": request.Model, "choices": []any{map[string]any{"index": 0, "delta": delta, "finish_reason": finish}}}
 	}
 	emit := func(value string) error {
@@ -477,7 +505,7 @@ func (a *adapter) chat(w http.ResponseWriter, r *http.Request) {
 			return problem(502, "response_too_large", "VibeX response exceeded the size limit")
 		}
 		text.WriteString(value)
-		if !request.Stream || value == "" {
+		if !request.Stream || request.policy.enabled() || value == "" {
 			return nil
 		}
 		if !started {
@@ -485,13 +513,17 @@ func (a *adapter) chat(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Cache-Control", "no-store")
 			w.Header().Set("X-Accel-Buffering", "no")
 			started = true
-			if err := sse(chunk(map[string]string{"role": "assistant"}, nil)); err != nil {
+			if err := sse(chunk(map[string]any{"role": "assistant"}, nil)); err != nil {
 				return err
 			}
 		}
-		return sse(chunk(map[string]string{"content": value}, nil))
+		return sse(chunk(map[string]any{"content": value}, nil))
 	}
-	usage, err := generate(ctx, conn, previousSession, prompt, emit)
+	usage, err := generate(ctx, conn, previousSession, prompt, request.policy.enabled() || len(request.images) > 0, emit)
+	message, finish := map[string]any{"role": "assistant", "content": text.String()}, "stop"
+	if err == nil && request.policy.enabled() {
+		message, finish, err = request.policy.reply(text.String())
+	}
 	if err != nil {
 		// 断开前取消上游，后续连接还会检查项目是否仍有运行中的任务。
 		cancelCtx, cancelTurn := context.WithTimeout(context.Background(), 3*time.Second)
@@ -507,7 +539,30 @@ func (a *adapter) chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if request.Stream {
-		_ = sse(chunk(map[string]string{}, "stop"))
+		if !started {
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.Header().Set("Cache-Control", "no-store")
+			w.Header().Set("X-Accel-Buffering", "no")
+			if sse(chunk(map[string]any{"role": "assistant"}, nil)) != nil {
+				return
+			}
+		}
+		if request.policy.enabled() {
+			if content, ok := message["content"].(*string); ok && content != nil && *content != "" {
+				if sse(chunk(map[string]any{"content": *content}, nil)) != nil {
+					return
+				}
+			}
+			if calls, ok := message["tool_calls"].([]toolCall); ok {
+				for i, call := range calls {
+					delta := map[string]any{"tool_calls": []any{map[string]any{"index": i, "id": call.ID, "type": call.Type, "function": call.Function}}}
+					if sse(chunk(delta, nil)) != nil {
+						return
+					}
+				}
+			}
+		}
+		_ = sse(chunk(map[string]any{}, finish))
 		if request.StreamOptions.IncludeUsage {
 			_ = sse(map[string]any{"id": id, "object": "chat.completion.chunk", "created": created, "model": request.Model, "choices": []any{}, "usage": usage})
 		}
@@ -515,5 +570,5 @@ func (a *adapter) chat(w http.ResponseWriter, r *http.Request) {
 		_ = http.NewResponseController(w).Flush()
 		return
 	}
-	writeJSON(w, 200, map[string]any{"id": id, "object": "chat.completion", "created": created, "model": request.Model, "choices": []any{map[string]any{"index": 0, "message": map[string]string{"role": "assistant", "content": text.String()}, "finish_reason": "stop"}}, "usage": usage})
+	writeJSON(w, 200, map[string]any{"id": id, "object": "chat.completion", "created": created, "model": request.Model, "choices": []any{map[string]any{"index": 0, "message": message, "finish_reason": finish}}, "usage": usage})
 }

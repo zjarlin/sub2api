@@ -58,6 +58,11 @@ export default {
       },
       builtinLogin: {
         deepseekWebHint: 'Sign in on the official DeepSeek page, then import that browser session. DeepSeek does not offer a third-party OAuth2 callback.',
+        deepseekWebUnavailable: 'The DeepSeek web adapter is not enabled. Set SUB2API_DEEPSEEK_WEB=1 in the deployment configuration and restart the service.',
+        deepseekWebStart: 'Import browser session',
+        deepseekWebRestart: 'Import another session',
+        deepseekWebOpen: 'Open DeepSeek sign-in',
+        deepseekWebComplete: 'Import session',
         deepseekWebPoolHint: 'Copy device_id from the users/login request in browser developer tools and the Bearer token from an authenticated request. Credentials go only to this deployment.',
         deepseekWebToken: 'Browser session token',
         deepseekWebDevice: 'Browser device_id',

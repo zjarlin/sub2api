@@ -62,17 +62,33 @@ OAuth 使用 ZCode 官方 `/api/v1/oauth/cli/init` 与 `/poll/{flow_id}` 流程�
 `/api/v1/zcode-plan/billing/balance` 中未过期的 `model:*` 权益；无对应权益时拒绝保存。
 `/v1/models` 只返回实际授权且在适配器配置中支持的模型。
 
-请求使用 `https://zcode.z.ai/api/v1/zcode-plan/anthropic`，以登录 JWT 作为 `x-api-key`，
-不会改写成 Coding Plan 的 `/api/v1/ultra/anthropic`。JWT 到期或被上游拒绝时返回
+请求使用 `https://zcode.z.ai/api/v1/zcode-plan/anthropic`，以网页登录返回的 ZCode token 同时填入
+`x-api-key` 和 `Authorization: Bearer`，与官方 Anthropic 客户端一致，
+不会改写成 Coding Plan 的 `/api/v1/ultra/anthropic`。能确认 token 到期或被上游拒绝时返回
 `start_plan_reauthorization_required`，需要重新登录；目前没有自动刷新流程。
-显式配置时同时设置 `ZCODE_UPSTREAM_PLAN=start-plan`、上述端点和有效登录 JWT，不能使用
-Coding Plan API key。Start Plan 不从桌面 provider 配置提取登录 JWT。
+显式配置时同时设置 `ZCODE_UPSTREAM_PLAN=start-plan`、上述端点和有效 ZCode 登录 token，不能使用
+Coding Plan API key。Start Plan 不从桌面 provider 配置提取登录 token。
 
 每个聊天请求调用 [verifier/README.md](verifier/README.md) 所述服务，使用官方 Aliyun SDK
 获取一次新验证参数。验证服务没有上游 JWT。验证浏览器与模型请求应使用相同网络出口。
+容器使用 ZCode 3.14.3 所属 Electron 41 系列的安全补丁版 41.10.7，通过 Xvfb 后台运行，无需物理显示器，
+先执行官方无感验证。普通 Chromium 的验证结果可能不同，不能替代原生运行时验收。
 缺少验证服务返回 503；无头浏览器遇到人工挑战返回 409
 `start_plan_interactive_verification_required`，此时须改用可见验证浏览器，由用户完成挑战。
 可见模式在当前请求内等待完成，验证码不会保存或重用。
+
+Start Plan 请求保留 ZCode 3.14.3 ContextBuilder 的 CLI Prefix 和 Agent Identity 两个原生
+系统块，再追加调用方的 system/developer 指令，缓存数量仍由转换器统一控制。
+同账号实测缺失系统块、仅产品前缀或使用通用助手提示词均返回 `3012`；完整原生上下文可以生成正文。
+这两个块来自官方 `context/sections/cli-prefix.ts`、`identity.ts`，升级客户端时需一并复核。
+它们包含软件工程助手身份与工具使用约束，会参与模型行为。Coding Plan 保持原有系统消息处理。
+请求头的 `x-session-id` 与 `metadata.user_id.session_id` 复用适配器会话 ID，
+请求、查询与 trace ID 仍逐次生成，避免把连续调用标记成不同会话。
+适配器使用 Go 1.27 构建：同源码、同容器和同账号的对照中，1.26 构建返回 `3009`，
+1.27 构建正常返回正文。尚未确定上游采用的具体传输识别字段，不能只凭该错误码断定账号并发已满。
+
+Coding Plan 不经过这条 Start Plan 验证链。SDK 无感验证通过并不证明模型调用成功，
+仍须确认真实正文和流结束事件；其他 `3012` 响应也不能只凭错误码归因于验证码。
 
 可选无头部署，先配置随机 `ZCODE_START_PLAN_VERIFIER_KEY`，再从仓库根目录执行：
 

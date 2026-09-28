@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-dark-600" data-testid="builtin-adapter-login">
-    <p class="text-sm text-gray-600 dark:text-gray-300">{{ t(`admin.accounts.builtinLogin.${platform}Hint`) }}</p>
+    <p class="text-sm text-gray-600 dark:text-gray-300">{{ t(hintKey) }}</p>
     <p class="input-hint">{{ t(platform === 'deepseek_web' ? 'admin.accounts.builtinLogin.deepseekWebPoolHint' : platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexPoolHint' : platform === 'zcode' ? 'admin.accounts.builtinLogin.zcodePoolHint' : 'admin.accounts.builtinLogin.poolHint') }}</p>
     <div v-if="platform === 'zcode'" class="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <div>
@@ -19,11 +19,11 @@
       </div>
     </div>
     <button type="button" class="btn btn-secondary" :disabled="busy" @click="start">
-      {{ t(session ? 'admin.accounts.builtinLogin.restart' : 'admin.accounts.builtinLogin.start') }}
+      {{ t(startKey) }}
     </button>
     <template v-if="session?.status === 'pending'">
       <a :href="session.auth_url" target="_blank" rel="noopener noreferrer" class="block text-sm text-primary-600 underline dark:text-primary-400">
-        {{ t('admin.accounts.builtinLogin.open') }}
+        {{ t(platform === 'deepseek_web' ? 'admin.accounts.builtinLogin.deepseekWebOpen' : 'admin.accounts.builtinLogin.open') }}
       </a>
       <template v-if="session.mode === 'callback'">
         <div v-if="platform === 'deepseek_web'" class="space-y-3">
@@ -41,7 +41,7 @@
           <input :id="`builtin-callback-${platform}`" v-model="callback" type="password" autocomplete="off" class="input" :placeholder="t(platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexTokenPlaceholder' : 'admin.accounts.builtinLogin.callbackPlaceholder')" />
         </template>
         <button type="button" class="btn btn-primary" :disabled="busy || (platform === 'deepseek_web' ? !browserToken.trim() || !browserDeviceID.trim() : !callback.trim())" @click="complete">
-          {{ t('admin.accounts.builtinLogin.complete') }}
+          {{ t(platform === 'deepseek_web' ? 'admin.accounts.builtinLogin.deepseekWebComplete' : 'admin.accounts.builtinLogin.complete') }}
         </button>
       </template>
       <p v-else class="input-hint" role="status">{{ t('admin.accounts.builtinLogin.waiting') }}</p>
@@ -55,7 +55,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue'
+import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { cancelBuiltinLogin, completeBuiltinLogin, startBuiltinLogin, type BuiltinLoginPlatform, type BuiltinLoginSession, type ZcodeLoginOptions } from '@/api/admin/builtinAdapters'
 
@@ -72,6 +72,15 @@ const error = ref('')
 const busy = ref(false)
 const zcodePlan = ref<ZcodeLoginOptions['plan']>('coding-plan')
 const zcodeProvider = ref<ZcodeLoginOptions['provider']>('zai')
+const hintKey = computed(() => props.platform === 'deepseek_web'
+  ? 'admin.accounts.builtinLogin.deepseekWebHint'
+  : `admin.accounts.builtinLogin.${props.platform}Hint`)
+const startKey = computed(() => {
+  if (props.platform === 'deepseek_web') {
+    return session.value ? 'admin.accounts.builtinLogin.deepseekWebRestart' : 'admin.accounts.builtinLogin.deepseekWebStart'
+  }
+  return session.value ? 'admin.accounts.builtinLogin.restart' : 'admin.accounts.builtinLogin.start'
+})
 let timer: ReturnType<typeof setTimeout> | undefined
 let controller: AbortController | undefined
 let generation = 0
@@ -91,7 +100,11 @@ function stop() {
 }
 
 function showError(err: unknown) {
-  const detail = err as { message?: string }
+  const detail = err as { code?: string; message?: string }
+  if (props.platform === 'deepseek_web' && detail.code === 'BUILTIN_ADAPTER_DISABLED') {
+    error.value = t('admin.accounts.builtinLogin.deepseekWebUnavailable')
+    return
+  }
   error.value = detail.message || t('admin.accounts.builtinLogin.failed')
 }
 

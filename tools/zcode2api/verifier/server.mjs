@@ -4,6 +4,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { BrowserVerifier, VerificationError } from './browser.mjs'
+import { ElectronVerifier } from './electron.mjs'
 
 const allowedHeaders = new Set(['x-zcode-app-version', 'x-platform', 'x-client-language'])
 
@@ -73,18 +74,40 @@ export function createServer({ key, verifier }) {
   })
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const verifier = new BrowserVerifier({
-    profile: process.env.ZCODE_VERIFY_PROFILE || join(homedir(), '.cache', 'zcode-start-plan-verifier'),
-    executablePath: process.env.ZCODE_VERIFY_BROWSER || undefined,
-    headless: process.env.ZCODE_VERIFY_HEADLESS === 'true',
-  })
+async function main() {
+  const profileRoot = process.env.ZCODE_VERIFY_PROFILE || join(homedir(), '.cache', 'zcode-start-plan-verifier')
+  const profile = process.versions.electron ? join(profileRoot, 'electron') : profileRoot
+  const headless = process.env.ZCODE_VERIFY_HEADLESS === 'true'
+  let verifier
+  let exit = code => process.exit(code)
+  if (process.versions.electron) {
+    const { app, BrowserWindow } = await import('electron')
+    exit = code => app.exit(code)
+    app.setPath('userData', profile)
+    app.on('window-all-closed', () => {})
+    await app.whenReady()
+    verifier = new ElectronVerifier({ BrowserWindow, profile, headless })
+  } else {
+    verifier = new BrowserVerifier({
+      profile,
+      executablePath: process.env.ZCODE_VERIFY_BROWSER || undefined,
+      headless,
+    })
+  }
   const server = createServer({ key: process.env.ZCODE_VERIFY_KEY, verifier })
   server.listen(Number(process.env.ZCODE_VERIFY_PORT || 7866), process.env.ZCODE_VERIFY_HOST || '127.0.0.1', () => {
     console.log('Start Plan verification service listening')
   })
   for (const signal of ['SIGINT', 'SIGTERM']) process.on(signal, () => {
     server.close()
-    verifier.close().then(() => process.exit(0), () => process.exit(1))
+    verifier.close().then(() => exit(0), () => exit(1))
+  })
+}
+
+if (process.argv.slice(1).some(argument => !argument.startsWith('-') && import.meta.url === pathToFileURL(argument).href)) {
+  // Electron 的 ready 事件须等入口模块完成求值，不能在顶层等待它。
+  main().catch(error => {
+    console.error(error.message)
+    process.exit(1)
   })
 }

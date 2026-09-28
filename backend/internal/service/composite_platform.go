@@ -119,6 +119,8 @@ func DetectModelPlatform(model string) (string, bool) {
 			return PlatformDeepseek, true
 		case "deepseek_web":
 			return PlatformDeepseekWeb, true
+		case "arena":
+			return PlatformArena, true
 		case "doubao":
 			return PlatformDoubao, true
 		case "workbuddy":
@@ -241,7 +243,7 @@ func (s *GatewayService) resolveCompositeRouteDecision(ctx context.Context, grou
 func isConcreteRequestPlatform(platform string) bool {
 	switch platform {
 	case PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformGrok,
-		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformMiniMax, PlatformOpenCodeGo, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformLaya, PlatformJev:
+		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformArena, PlatformMiniMax, PlatformOpenCodeGo, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformLaya, PlatformJev:
 		return true
 	default:
 		return false

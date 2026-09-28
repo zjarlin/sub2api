@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
 
@@ -194,6 +195,10 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	if err != nil {
 		return nil, fmt.Errorf("build upstream request: %w", err)
 	}
+	c.Set(arenaSessionAdapterContextKey, isArenaSessionAdapter(account))
+	if isArenaSessionAdapter(account) {
+		upstreamReq = upstreamReq.WithContext(ctx)
+	}
 	// 记录本次实际选择的协议端点，供错误日志和用量日志在没有
 	// OpenAIForwardResult（例如 503/传输失败）时使用。每次发送都覆盖，
 	// 避免 Gin context 在账号 failover 尝试之间残留旧端点。
@@ -230,6 +235,7 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	// 使配置值获得除共享传输层强制头之外的最高优先级。
 	account.ApplyHeaderOverrides(upstreamReq.Header)
 	applyOpenCodeSessionHeader(c, account, targetURL, upstreamReq.Header, body)
+	applyArenaSessionHeaders(c, account, upstreamReq.Header, body)
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
@@ -284,6 +290,11 @@ func (s *OpenAIGatewayService) scanCCStream(
 		}
 		if payload == "[DONE]" {
 			st.SawDone = true
+			break
+		}
+		// Arena 的流内错误必须终止转换，不能继续生成 response.completed。
+		if c.GetBool(arenaSessionAdapterContextKey) && gjson.Get(payload, "error").IsObject() {
+			st.Err = fmt.Errorf("Arena adapter stream error: %s", sanitizeUpstreamErrorMessage(gjson.Get(payload, "error.message").String()))
 			break
 		}
 		// 观察上游 CC chunk 回显的 model / service_tier（计费以回显为准）。

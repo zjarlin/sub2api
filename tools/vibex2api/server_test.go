@@ -121,7 +121,7 @@ func TestUnsupportedChatInputsDoNotReachUpstream(t *testing.T) {
 			t.Fatal(w.Code, w.Body.String())
 		}
 	}
-	for _, message := range []string{`{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.com/image"}}]}`, `{"role":"assistant","content":"","tool_calls":[{}]}`} {
+	for _, message := range []string{`{"role":"user","content":[{"type":"image_url","image_url":{"url":"file:///image"}}]}`, `{"role":"assistant","content":"","tool_calls":[{}]}`} {
 		w := invoke(a, "POST", "/v1/chat/completions", `{"model":"model","messages":[`+message+`]}`)
 		if w.Code != 400 {
 			t.Fatal(w.Code, w.Body.String())
@@ -129,11 +129,11 @@ func TestUnsupportedChatInputsDoNotReachUpstream(t *testing.T) {
 	}
 }
 
-func chatFixture(t *testing.T, busy bool, failCode string, sessions *atomic.Int32) http.Handler {
+func chatFixture(t *testing.T, busy bool, failCode string, sessions *atomic.Int32, replies ...string) http.Handler {
 	t.Helper()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" && r.URL.Path == "/vc/api/apps/dedicated" {
-			writeJSON(w, 200, map[string]any{"live": map[string]string{"status": "running"}})
+			writeJSON(w, 200, map[string]any{"app_id": "dedicated", "name": "Sub2API VibeX", "app_type": "web", "flow": "web", "live": map[string]string{"status": "running"}, "llm_provider_id": "live-model", "private_field": "secret-token-must-not-leak"})
 			return
 		}
 		if r.URL.Path == "/vc/api/llm-providers" {
@@ -144,8 +144,8 @@ func chatFixture(t *testing.T, busy bool, failCode string, sessions *atomic.Int3
 			writeJSON(w, 200, map[string]bool{"ok": true})
 			return
 		}
-		if r.Header.Get("RH-TOKEN") == "" || r.Header.Get("Cookie") == "" {
-			t.Error("missing websocket authentication")
+		if r.Header.Get("Cookie") == "" || r.Header.Get("Origin") == "" || r.Header.Get("RH-TOKEN") != "" {
+			t.Error("invalid browser websocket authentication")
 		}
 		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 		if err != nil {
@@ -156,13 +156,32 @@ func chatFixture(t *testing.T, busy bool, failCode string, sessions *atomic.Int3
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 		e, err := readWS(ctx, conn)
-		if err != nil || eventType(e) != "init" {
-			t.Error("missing init")
+		if err != nil || eventType(e) != "init_root" {
+			t.Error("missing project root initialization")
 			return
 		}
-		_ = sendWS(ctx, conn, map[string]any{"type": "session_info", "session_id": "old"})
-		_ = sendWS(ctx, conn, map[string]any{"type": "run_status", "active": busy})
+		var meta map[string]json.RawMessage
+		if json.Unmarshal(e["meta"], &meta) != nil || string(meta["app_id"]) != `"dedicated"` || string(meta["app_type"]) != `"web"` || meta["private_field"] != nil {
+			t.Error("invalid project root metadata")
+			return
+		}
+		if string(e["replay"]) != "false" {
+			t.Error("new requests must not replay previous conversation output")
+			return
+		}
+		if failCode == "INIT_ROOT_BUSY" {
+			_ = sendWS(ctx, conn, map[string]string{"type": "error", "code": failCode, "message": "secret-token-must-not-leak"})
+			_, _ = readWS(ctx, conn)
+			return
+		}
+		var previousSession any
+		if sessions.Load() > 0 {
+			previousSession = "existing-session"
+		}
+		_ = sendWS(ctx, conn, map[string]any{"type": "root_initialized"})
 		_ = sendWS(ctx, conn, map[string]any{"type": "ready"})
+		_ = sendWS(ctx, conn, map[string]any{"type": "session_info", "session_id": previousSession})
+		_ = sendWS(ctx, conn, map[string]any{"type": "run_status", "active": busy})
 		if busy {
 			_, _ = readWS(ctx, conn)
 			return
@@ -172,11 +191,17 @@ func chatFixture(t *testing.T, busy bool, failCode string, sessions *atomic.Int3
 			t.Error("missing new_session")
 			return
 		}
-		id := sessions.Add(1)
-		_ = sendWS(ctx, conn, map[string]any{"type": "session_info", "session_id": fmt.Sprintf("fresh-%d", id)})
+		_ = sendWS(ctx, conn, map[string]any{"type": "session_info", "session_id": nil})
 		e, err = readWS(ctx, conn)
 		if err != nil || eventType(e) != "prompt" {
 			t.Error("missing prompt")
+			return
+		}
+		id := sessions.Add(1)
+		_ = sendWS(ctx, conn, map[string]any{"type": "session_info", "session_id": fmt.Sprintf("fresh-%d", id)})
+		if failCode == "SOURCE_TURN_WAITING" {
+			_ = sendWS(ctx, conn, map[string]string{"type": "source_turn_waiting", "code": "SOURCE_SESSION_ACTIVE"})
+			_, _ = readWS(ctx, conn)
 			return
 		}
 		if failCode == "WAIT_FOR_CANCEL" {
@@ -187,12 +212,20 @@ func chatFixture(t *testing.T, busy bool, failCode string, sessions *atomic.Int3
 			}
 			return
 		}
+		if failCode == "WORKSPACE_CHANGED" {
+			_ = sendWS(ctx, conn, map[string]string{"type": "error", "message": "工作区已切换，请重新 init; secret-token-must-not-leak"})
+			_, _ = readWS(ctx, conn)
+			return
+		}
 		if failCode != "" {
 			_ = sendWS(ctx, conn, map[string]string{"type": "error", "code": failCode, "message": "secret-token-must-not-leak"})
 			_, _ = readWS(ctx, conn)
 			return
 		}
 		text := fmt.Sprintf("reply-%d", id)
+		if len(replies) > 0 {
+			text = replies[(int(id)-1)%len(replies)]
+		}
 		_ = sendWS(ctx, conn, map[string]any{"type": "claude_event", "event": map[string]any{"type": "stream_event", "event": map[string]any{"type": "content_block_delta", "delta": map[string]string{"type": "text_delta", "text": text}}}})
 		_ = sendWS(ctx, conn, map[string]any{"type": "claude_event", "event": map[string]any{"type": "assistant", "message": map[string]any{"content": []any{map[string]string{"type": "text", "text": text}}}}})
 		_ = sendWS(ctx, conn, map[string]any{"type": "claude_event", "event": map[string]any{"type": "result", "usage": map[string]int{"input_tokens": 5, "output_tokens": 2}}})
@@ -216,6 +249,71 @@ func TestChatIsolationAndStreaming(t *testing.T) {
 		if stream && !strings.Contains(w.Body.String(), "data: [DONE]") {
 			t.Fatal("missing stream finish")
 		}
+	}
+}
+
+func TestRunningProjectIsNotStartedAgain(t *testing.T) {
+	var sessions, starts, providerUpdates, settingsEnsures atomic.Int32
+	base := chatFixture(t, false, "", &sessions)
+	a := fixtureAdapter(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/vc/api/apps/dedicated/start" {
+			starts.Add(1)
+		}
+		if r.Method == http.MethodPatch && r.URL.Path == "/vc/api/apps/dedicated/llm-provider" {
+			providerUpdates.Add(1)
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/vc/api/apps/dedicated/ensure-llm-settings" {
+			settingsEnsures.Add(1)
+		}
+		base.ServeHTTP(w, r)
+	}))
+	w := invoke(a, "POST", "/v1/chat/completions", `{"model":"live-model","messages":[{"role":"user","content":"hello"}]}`)
+	if w.Code != http.StatusOK || starts.Load() != 0 || providerUpdates.Load() != 0 || settingsEnsures.Load() != 0 {
+		t.Fatal(w.Code, starts.Load(), providerUpdates.Load(), settingsEnsures.Load(), w.Body.String())
+	}
+}
+
+func TestProjectUpdatesProviderWhenChanged(t *testing.T) {
+	var sessions, providerUpdates, settingsEnsures atomic.Int32
+	base := chatFixture(t, false, "", &sessions)
+	a := fixtureAdapter(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/vc/api/apps/dedicated" {
+			writeJSON(w, 200, map[string]any{"app_id": "dedicated", "app_type": "web", "live": map[string]string{"status": "running"}, "llm_provider_id": "old-model"})
+			return
+		}
+		if r.Method == http.MethodPatch && r.URL.Path == "/vc/api/apps/dedicated/llm-provider" {
+			providerUpdates.Add(1)
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/vc/api/apps/dedicated/ensure-llm-settings" {
+			settingsEnsures.Add(1)
+		}
+		base.ServeHTTP(w, r)
+	}))
+	w := invoke(a, "POST", "/v1/chat/completions", `{"model":"live-model","messages":[{"role":"user","content":"hello"}]}`)
+	if w.Code != http.StatusOK || providerUpdates.Load() != 1 || settingsEnsures.Load() != 1 {
+		t.Fatal(w.Code, providerUpdates.Load(), settingsEnsures.Load(), w.Body.String())
+	}
+}
+
+func TestStoppedProjectStartsBeforeConnecting(t *testing.T) {
+	var sessions atomic.Int32
+	var started atomic.Bool
+	base := chatFixture(t, false, "", &sessions)
+	a := fixtureAdapter(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/vc/api/apps/dedicated" && !started.Load() {
+			writeJSON(w, 200, map[string]any{"live": map[string]string{"status": "exited"}})
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/vc/api/apps/dedicated/start" {
+			started.Store(true)
+			writeJSON(w, 200, map[string]int{"code": 0})
+			return
+		}
+		base.ServeHTTP(w, r)
+	}))
+	w := invoke(a, "POST", "/v1/chat/completions", `{"model":"live-model","messages":[{"role":"user","content":"hello"}]}`)
+	if w.Code != http.StatusOK || !started.Load() {
+		t.Fatal(w.Code, started.Load(), w.Body.String())
 	}
 }
 
@@ -251,7 +349,7 @@ func TestChatRefusesBusyProjectAndMapsQuotaErrors(t *testing.T) {
 		busy   bool
 		code   string
 		status int
-	}{{true, "", 409}, {false, "FREE_LLM_QUOTA_EXCEEDED", 429}, {false, "BALANCE_INSUFFICIENT", 402}} {
+	}{{true, "", 409}, {false, "INIT_ROOT_BUSY", 409}, {false, "WORKSPACE_CHANGED", 409}, {false, "SOURCE_TURN_WAITING", 409}, {false, "FREE_LLM_QUOTA_EXCEEDED", 429}, {false, "BALANCE_INSUFFICIENT", 402}} {
 		var sessions atomic.Int32
 		a := fixtureAdapter(t, chatFixture(t, item.busy, item.code, &sessions))
 		w := invoke(a, "POST", "/v1/chat/completions", `{"model":"live-model","messages":[{"role":"user","content":"hello"}]}`)

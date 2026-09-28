@@ -353,7 +353,7 @@ func normalizeAccountConcurrency(platform, accountType string, concurrency int) 
 	if platform == PlatformTraework {
 		return max(1, concurrency)
 	}
-	if platform == PlatformDoubao || platform == PlatformWorkbuddy || platform == PlatformVibex || platform == PlatformZcode || platform == PlatformDeepseekWeb || platform == PlatformQoder || IsSystemOneDecisionPlatform(platform) {
+	if platform == PlatformDoubao || platform == PlatformWorkbuddy || platform == PlatformVibex || platform == PlatformZcode || platform == PlatformDeepseekWeb || platform == PlatformArena || platform == PlatformQoder || IsSystemOneDecisionPlatform(platform) {
 		return 1
 	}
 	if platform == PlatformGrok && accountType == AccountTypeOAuth {
@@ -434,6 +434,7 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 	delete(accountExtra, OllamaCloudUsageSessionExtraKey)
 	delete(accountExtra, OllamaCloudUsageAutoRefreshExtraKey)
 	delete(accountExtra, OllamaCloudUsageSnapshotExtraKey)
+	accountExtra = normalizeArenaAccountExtra(input.Platform, accountExtra)
 	accountExtra = prepareCodexFingerprintExtraForCreate(input.Platform, input.Type, accountExtra)
 	account := &Account{
 		Name:        input.Name,

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -23,8 +24,14 @@ func (s *Server) buildStartPlanCredential(ctx context.Context, data map[string]a
 	if origin == "" {
 		origin = "https://zcode.z.ai"
 	}
+	token := strings.TrimSpace(stringVal(data, "token"))
+	hadBearerPrefix := strings.HasPrefix(strings.ToLower(token), "bearer ")
+	if hadBearerPrefix {
+		token = strings.TrimSpace(token[len("bearer "):])
+	}
+	s.logger.Printf("event=zcode_login stage=credential token_bearer_prefix=%t", hadBearerPrefix)
 	cred := credential.Credential{
-		APIKey:     stringVal(data, "token"),
+		APIKey:     token,
 		BaseURL:    origin + "/api/v1/zcode-plan/anthropic",
 		ProviderID: "account:" + provider + "-start-plan",
 		Provider:   firstNonEmpty(stringVal(user, "name"), stringVal(user, "display_name"), "ZCode Start Plan"),
@@ -33,8 +40,10 @@ func (s *Server) buildStartPlanCredential(ctx context.Context, data map[string]a
 	}
 	models, err := s.startPlanModels(ctx, cred)
 	if err != nil {
+		s.logger.Printf("event=zcode_login stage=entitlement outcome=failed error_type=%T", err)
 		return credential.Credential{}, &builtinlogin.PublicError{Status: http.StatusBadGateway, Message: "Unable to verify Start Plan login and entitlements; retry authorization"}
 	}
+	s.logger.Printf("event=zcode_login stage=entitlement outcome=accepted model_count=%d", len(models))
 	if len(models) == 0 {
 		return credential.Credential{}, &builtinlogin.PublicError{Status: http.StatusForbidden, Message: "This account has no active Start Plan entitlement for the configured models"}
 	}
@@ -48,7 +57,7 @@ func effectivePlan(cred credential.Credential) string {
 	return cred.Plan
 }
 
-// Start Plan 使用登录 JWT；上游目前没有公开刷新接口，过期后必须重新授权。
+// 仅在 JWT 明确声明已过期时本地拒绝；其余登录凭据由上游校验。
 func checkStartPlanToken(token string) error {
 	parts := strings.Split(token, ".")
 	var claims struct {
@@ -56,11 +65,14 @@ func checkStartPlanToken(token string) error {
 	}
 	if len(parts) == 3 {
 		payload, err := base64.RawURLEncoding.DecodeString(parts[1])
-		if err == nil && json.Unmarshal(payload, &claims) == nil && claims.ExpiresAt > time.Now().Unix() {
-			return nil
+		if err == nil && json.Unmarshal(payload, &claims) == nil && claims.ExpiresAt > 0 && claims.ExpiresAt <= time.Now().Unix() {
+			return &upstream.Error{Status: http.StatusUnauthorized, Type: "start_plan_reauthorization_required", Message: "Start Plan login is invalid or expired; sign in again"}
 		}
 	}
-	return &upstream.Error{Status: http.StatusUnauthorized, Type: "start_plan_reauthorization_required", Message: "Start Plan login is invalid or expired; sign in again"}
+	if strings.TrimSpace(token) == "" {
+		return &upstream.Error{Status: http.StatusUnauthorized, Type: "start_plan_reauthorization_required", Message: "Start Plan login is invalid or expired; sign in again"}
+	}
+	return nil
 }
 
 // 每次请求只取一次新验证参数，参数不落盘，也不从调用方请求头导入。
@@ -109,7 +121,11 @@ func (s *Server) prepareStartPlanRequest(ctx context.Context, cred credential.Cr
 
 // 模型目录取套餐实际授权的 model capability，不把静态目录当成套餐权益。
 func (s *Server) startPlanModels(ctx context.Context, cred credential.Credential) ([]config.ModelSpec, error) {
+	if len(strings.Split(cred.APIKey, ".")) != 3 {
+		s.logger.Printf("event=zcode_login stage=entitlement_check token_format=opaque")
+	}
 	if err := checkStartPlanToken(cred.APIKey); err != nil {
+		s.logger.Printf("event=zcode_login stage=entitlement_check outcome=invalid_token")
 		return nil, err
 	}
 	u, err := url.Parse(cred.BaseURL)
@@ -117,22 +133,31 @@ func (s *Server) startPlanModels(ctx context.Context, cred credential.Credential
 		return nil, &upstream.Error{Status: http.StatusBadGateway, Type: "start_plan_configuration_error", Message: "Invalid Start Plan endpoint"}
 	}
 	u.Path = strings.TrimSuffix(strings.TrimRight(u.Path, "/"), "/anthropic") + "/billing/balance"
+	query := u.Query()
+	query.Set("app_version", s.cfg.Upstream.AppVersion)
+	u.RawQuery = query.Encode()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+cred.APIKey)
 	req.Header.Set("Accept", "application/json")
+	for name, value := range mimicHeaders(s.cfg.Upstream.AppVersion, s.cfg.Upstream.ClientTimezone, s.deviceID) {
+		req.Header.Set(name, value)
+	}
 	res, err := s.loginHTTP.Do(req)
 	if err != nil {
+		s.logger.Printf("event=zcode_login stage=entitlement_check outcome=request_failed error_type=%T", err)
 		return nil, &upstream.Error{Status: http.StatusBadGateway, Type: "start_plan_entitlement_unavailable", Message: "Unable to read Start Plan entitlements"}
 	}
 	defer res.Body.Close()
+	s.logger.Printf("event=zcode_login stage=entitlement_check outcome=response http_status=%d", res.StatusCode)
 	if res.StatusCode == http.StatusUnauthorized {
 		return nil, &upstream.Error{Status: http.StatusUnauthorized, Type: "start_plan_reauthorization_required", Message: "Start Plan login was rejected; sign in again"}
 	}
 	var balance struct {
-		Code *int `json:"code"`
+		Code *int   `json:"code"`
+		Msg  string `json:"msg"`
 		Data struct {
 			Balances []struct {
 				Capabilities []string `json:"capabilities"`
@@ -140,7 +165,18 @@ func (s *Server) startPlanModels(ctx context.Context, cred credential.Credential
 			} `json:"balances"`
 		} `json:"data"`
 	}
-	if res.StatusCode != http.StatusOK || json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&balance) != nil || balance.Code == nil || *balance.Code != 0 {
+	decodeErr := json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&balance)
+	if res.StatusCode != http.StatusOK || decodeErr != nil || balance.Code == nil || *balance.Code != 0 {
+		code := -1
+		if balance.Code != nil {
+			code = *balance.Code
+		}
+		message := strings.TrimSpace(balance.Msg)
+		if len(message) > 160 || strings.ContainsAny(message, "\r\n") {
+			message = "[redacted]"
+		}
+		message = regexp.MustCompile(`[A-Za-z0-9_-]{16,}`).ReplaceAllString(message, "[redacted]")
+		s.logger.Printf("event=zcode_login stage=entitlement_check outcome=rejected http_status=%d response_code=%d decode_failed=%t message=%q", res.StatusCode, code, decodeErr != nil, message)
 		return nil, &upstream.Error{Status: http.StatusBadGateway, Type: "start_plan_entitlement_unavailable", Message: "Start Plan entitlement response was rejected"}
 	}
 	allowed := make(map[string]bool)

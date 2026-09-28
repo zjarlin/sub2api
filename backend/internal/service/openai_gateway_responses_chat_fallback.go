@@ -21,6 +21,10 @@ import (
 	"go.uber.org/zap"
 )
 
+type responsesStreamEventWriter interface {
+	WriteResponsesEvent(apicompat.ResponsesStreamEvent) error
+}
+
 // forwardResponsesViaRawChatCompletions serves /v1/responses clients through an
 // upstream that only supports /v1/chat/completions.
 func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
@@ -120,6 +124,10 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
+	if _, websocket := c.Writer.(responsesStreamEventWriter); websocket {
+		stopCancelBody := context.AfterFunc(ctx, func() { _ = resp.Body.Close() })
+		defer stopCancelBody()
+	}
 
 	if resp.StatusCode >= 400 {
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
@@ -222,6 +230,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	state.ToolSearchDeclared = toolSearch
 	state.NamespaceTools = namespaceTools
 	clientDisconnected := false
+	eventWriter, _ := c.Writer.(responsesStreamEventWriter)
 
 	writeEvents := func(events []apicompat.ResponsesStreamEvent) {
 		if clientDisconnected || len(events) == 0 {
@@ -229,6 +238,13 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		}
 		writeStreamHeaders()
 		for _, event := range events {
+			if eventWriter != nil {
+				if err := eventWriter.WriteResponsesEvent(event); err != nil {
+					clientDisconnected = true
+					return
+				}
+				continue
+			}
 			sse, err := apicompat.ResponsesEventToSSE(event)
 			if err != nil {
 				logger.L().Warn("openai responses chat fallback: failed to marshal stream event",
@@ -291,7 +307,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	finalEvents := apicompat.FinalizeChatCompletionsResponsesStream(state)
 	s.cacheReasoningItemsFromEvents(finalEvents)
 	writeEvents(finalEvents)
-	if !clientDisconnected {
+	if !clientDisconnected && eventWriter == nil {
 		writeStreamHeaders()
 		if _, err := fmt.Fprint(c.Writer, "data: [DONE]\n\n"); err != nil {
 			clientDisconnected = true

@@ -429,6 +429,20 @@ func TestMimicTimezoneIsConfigurable(t *testing.T) {
 	}
 }
 
+func TestZcodePlatformUsesClientArchitectureNames(t *testing.T) {
+	for _, tc := range []struct {
+		goos, goarch, want string
+	}{
+		{"linux", "amd64", "linux-x64"},
+		{"windows", "amd64", "win32-x64"},
+		{"darwin", "arm64", "darwin-arm64"},
+	} {
+		if got := zcodePlatform(tc.goos, tc.goarch); got != tc.want {
+			t.Errorf("zcodePlatform(%q, %q) = %q, want %q", tc.goos, tc.goarch, got, tc.want)
+		}
+	}
+}
+
 func tail(s string, n int) string {
 	if len(s) <= n {
 		return s

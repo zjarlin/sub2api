@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type upstreamError struct {
@@ -48,12 +49,40 @@ func (a *adapter) call(ctx context.Context, c credential, method, path string, b
 		return err
 	}
 	req.Header = a.headers(c)
-	res, err := a.client.Do(req)
+	return a.callRequest(req, out)
+}
+
+func (a *adapter) callRequest(req *http.Request, out any) error {
+	attempts := 1
+	if req.Method == http.MethodGet {
+		attempts = 3
+		ctx, cancel := context.WithTimeout(req.Context(), 45*time.Second)
+		defer cancel()
+		req = req.Clone(ctx)
+	}
+	var res *http.Response
+	var err error
+	for attempt := 0; attempt < attempts; attempt++ {
+		res, err = a.client.Do(req)
+		if attempt+1 == attempts || req.Context().Err() != nil || (err == nil && res.StatusCode < 500) {
+			break
+		}
+		if res != nil && res.Body != nil {
+			res.Body.Close()
+		}
+		timer := time.NewTimer(time.Duration(attempt+1) * 300 * time.Millisecond)
+		select {
+		case <-req.Context().Done():
+			timer.Stop()
+			return problem(502, "upstream_unavailable", "VibeX is unreachable")
+		case <-timer.C:
+		}
+	}
 	if err != nil {
 		return problem(502, "upstream_unavailable", "VibeX is unreachable")
 	}
 	defer res.Body.Close()
-	data, err = io.ReadAll(io.LimitReader(res.Body, (4<<20)+1))
+	data, err := io.ReadAll(io.LimitReader(res.Body, (4<<20)+1))
 	if err != nil || len(data) > 4<<20 {
 		return problem(502, "invalid_upstream_response", "Invalid VibeX response")
 	}

@@ -348,9 +348,14 @@ const referenceImageInputRef = ref<HTMLInputElement | null>(null)
 const referenceImages = ref<ReferenceImage[]>([])
 
 let messageSequence = 0
+let conversationId = createConversationIdentity()
 let modelRequestController: AbortController | null = null
 let generationController: AbortController | null = null
 let initializing = true
+
+function createConversationIdentity(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (value) => value.toString(16).padStart(2, '0')).join('')
+}
 
 const selectedApiKey = computed(() => (
   apiKeys.value.find((apiKey) => apiKey.id === selectedApiKeyId.value) || null
@@ -533,6 +538,8 @@ async function sendMessage(): Promise<void> {
       apiKey: apiKey.key,
       model,
       messages: requestMessages,
+      sessionId: conversationId,
+      requestId: createConversationIdentity(),
       signal: requestController.signal,
       onDelta: (delta) => {
         assistantMessage.content += delta
@@ -570,6 +577,7 @@ function stopGeneration(): void {
 
 function clearConversation(): void {
   stopGeneration()
+  conversationId = createConversationIdentity()
   messages.value = []
   draft.value = ''
   composerRef.value?.focus()

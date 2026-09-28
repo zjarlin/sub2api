@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"glm-zcode-2api/internal/anthropic"
 	"glm-zcode-2api/internal/config"
 	"glm-zcode-2api/internal/credential"
 )
@@ -57,15 +58,34 @@ func TestStartPlanUsesJWTDedicatedEndpointAndFreshVerification(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(map[string]string{"captcha_verify_param": fmt.Sprintf("proof-%d", proofs), "captcha_region": "cn"})
 	}))
 	defer verifier.Close()
-	var keys, params []string
+	var keys, params, sessions []string
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v1/zcode-plan/anthropic/v1/messages" {
 			t.Errorf("Start Plan used wrong endpoint: %s", r.URL.Path)
 		}
 		keys = append(keys, r.Header.Get("x-api-key"))
+		if r.Header.Get("Authorization") != "Bearer "+r.Header.Get("x-api-key") {
+			t.Error("Start Plan gateway requires the login JWT as Bearer authorization")
+		}
 		params = append(params, r.Header.Get("X-Aliyun-Captcha-Verify-Param"))
 		if r.Header.Get("X-Aliyun-Captcha-Verify-Region") != "cn" || r.Header.Get("X-ZCode-App-Version") != "3.14.3" {
 			t.Error("native request headers missing")
+		}
+		var request anthropic.Request
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+		}
+		if len(request.System) != 2 || request.System[0]["text"] != "You are ZCode, an interactive coding agent" || !strings.HasPrefix(fmt.Sprint(request.System[1]["text"]), "\nYou are an interactive ZCode agent that helps users with software engineering tasks.") {
+			t.Errorf("Start Plan request lacks native system context: %+v", request.System)
+		}
+		var metadata map[string]string
+		if err := json.Unmarshal([]byte(fmt.Sprint(request.Metadata["user_id"])), &metadata); err != nil {
+			t.Error(err)
+		}
+		session := r.Header.Get("X-Session-Id")
+		sessions = append(sessions, session)
+		if session == "" || session != metadata["session_id"] {
+			t.Error("header and metadata identify different sessions")
 		}
 		_, _ = io.WriteString(w, sseScript)
 	}))
@@ -79,6 +99,46 @@ func TestStartPlanUsesJWTDedicatedEndpointAndFreshVerification(t *testing.T) {
 	}
 	if proofs != 2 || len(keys) != 2 || keys[0] == "old-coding-plan-key" || keys[0] != keys[1] || params[0] != "proof-1" || params[1] != "proof-2" {
 		t.Fatalf("wrong plan credentials or proof lifecycle: proofs=%d params=%v", proofs, params)
+	}
+	if len(sessions) != 2 || sessions[0] != sessions[1] {
+		t.Fatalf("Start Plan created a new session per request: %v", sessions)
+	}
+}
+
+func TestStartPlanPreservesCallerSystemInstructions(t *testing.T) {
+	verifier := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = io.WriteString(w, `{"captcha_verify_param":"fresh-proof","captcha_region":"cn"}`)
+	}))
+	defer verifier.Close()
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var request anthropic.Request
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Error(err)
+			return
+		}
+		if len(request.System) != 4 {
+			t.Errorf("system blocks = %d, want native pair plus caller pair", len(request.System))
+			return
+		}
+		if request.System[2]["text"] != "Answer in Chinese." || request.System[3]["text"] != "Use concise sentences." {
+			t.Errorf("caller instructions changed: %+v", request.System[2:])
+		}
+		cached := 0
+		for _, block := range request.System {
+			if block["cache_control"] != nil {
+				cached++
+			}
+		}
+		if cached != 2 || request.MaxTokens != 512 || request.Thinking["type"] != "disabled" || request.Messages[0].Content[0]["text"] != "hi" {
+			t.Errorf("request controls or cache policy changed: %+v", request)
+		}
+		_, _ = io.WriteString(w, sseScript)
+	}))
+	defer upstream.Close()
+	s := startPlanServer(t, upstream.URL, verifier.URL)
+	response := post(t, s.Handler(), `{"model":"glm-5.3","stream":true,"max_tokens":512,"reasoning_effort":"none","messages":[{"role":"system","content":"Answer in Chinese."},{"role":"developer","content":"Use concise sentences."},{"role":"user","content":"hi"}]}`)
+	if response.Code != http.StatusOK {
+		t.Fatalf("chat failed: %d %s", response.Code, response.Body.String())
 	}
 }
 
@@ -138,7 +198,7 @@ func TestStartPlanModelsRejectCorruptCredential(t *testing.T) {
 
 func TestStartPlanModelsUseActiveEntitlements(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/zcode-plan/billing/balance" || !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer header.") {
+		if r.URL.Path != "/api/v1/zcode-plan/billing/balance" || r.URL.Query().Get("app_version") != "3.14.3" || !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer header.") || r.Header.Get("X-ZCode-App-Version") != "3.14.3" || r.Header.Get("User-Agent") != "ZCode/3.14.3" {
 			t.Errorf("wrong entitlement request: %s", r.URL.Path)
 		}
 		_, _ = fmt.Fprintf(w, `{"code":0,"data":{"balances":[{"capabilities":["model:GLM-5.3-Flash"],"expires_at":%d},{"capabilities":["model:glm-5.3"],"expires_at":1}]}}`, time.Now().Add(time.Hour).Unix())
@@ -151,6 +211,38 @@ func TestStartPlanModelsUseActiveEntitlements(t *testing.T) {
 	s.Handler().ServeHTTP(response, request)
 	if response.Code != http.StatusOK || strings.Contains(response.Body.String(), `"id":"glm-5.3"`) || !strings.Contains(response.Body.String(), `"id":"glm-5.3-flash"`) {
 		t.Fatalf("catalog does not match active grants: %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestStartPlanUnverifiableLoginChecksEntitlementsUpstream(t *testing.T) {
+	for _, token := range []string{
+		"opaque-login-token",
+		"header." + base64.RawURLEncoding.EncodeToString([]byte(`{"iat":1}`)) + ".signature",
+	} {
+		t.Run(token[:6], func(t *testing.T) {
+			calls := 0
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				if r.URL.Path != "/api/v1/zcode-plan/billing/balance" || r.Header.Get("Authorization") != "Bearer "+token {
+					t.Errorf("wrong opaque login entitlement request: %s", r.URL.Path)
+				}
+				_, _ = io.WriteString(w, `{"code":0,"data":{"balances":[{"capabilities":["model:glm-5.3"]}]}}`)
+			}))
+			defer upstream.Close()
+			s := startPlanServer(t, upstream.URL, "")
+			cred, _, _ := s.loginCredStore.Load()
+			cred.APIKey = token
+			if err := s.loginCredStore.Save(cred); err != nil {
+				t.Fatal(err)
+			}
+			request := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+			request.Header.Set("Authorization", "Bearer local-key")
+			response := httptest.NewRecorder()
+			s.Handler().ServeHTTP(response, request)
+			if response.Code != http.StatusOK || calls != 1 || !strings.Contains(response.Body.String(), `"id":"glm-5.3"`) {
+				t.Fatalf("opaque login entitlement check failed: status=%d calls=%d body=%s", response.Code, calls, response.Body.String())
+			}
+		})
 	}
 }
 
@@ -185,7 +277,7 @@ func TestStartPlanWebLoginDoesNotDeriveCodingPlanAPIKey(t *testing.T) {
 			}})
 		case "/poll/start-flow":
 			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
-				"status": "ready", "token": jwt, "user": map[string]string{"user_id": "user-1", "name": "Start Plan user"},
+				"status": "ready", "token": "Bearer " + jwt, "user": map[string]string{"user_id": "user-1", "name": "Start Plan user"},
 				"bigmodel": map[string]string{"access_token": "bigmodel-access"},
 			}})
 		case "/api/v1/zcode-plan/billing/balance":

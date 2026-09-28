@@ -227,8 +227,13 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var systemPrefix []anthropic.Block
+	if cred.Plan == credential.PlanStart {
+		systemPrefix = startPlanSystemPrefix()
+	}
 	upstreamReq, err := convert.Request(&req, spec.Upstream, convert.Options{
 		DefaultMaxTokens: spec.MaxOutputTokens,
+		SystemPrefix:     systemPrefix,
 		ThinkingEnabled:  s.cfg.Thinking.Enabled,
 		ThinkingEffort:   s.cfg.Thinking.Effort,
 		PromptCache:      s.cfg.Thinking.PromptCache,
@@ -368,6 +373,8 @@ func (s *Server) clientFor(cred credential.Credential) *upstream.Client {
 		client.APIKey = cred.APIKey
 		client.GatewayOrigin = ""
 		client.Headers = mimicHeaders(s.cfg.Upstream.AppVersion, s.cfg.Upstream.ClientTimezone, s.deviceID)
+		// 与 metadata.user_id 复用同一会话，避免每次请求都被视为新会话。
+		client.Headers["x-session-id"] = s.sessionID
 		client.UserAgent = client.Headers["user-agent"]
 		return &client
 	}
@@ -410,7 +417,7 @@ func mimicHeaders(appVersion, timezone, deviceID string) map[string]string {
 		"x-client-language":    "en-US",
 		"x-client-timezone":    timezone,
 		"x-zcode-agent":        "glm",
-		"x-platform":           runtime.GOOS + "-" + runtime.GOARCH,
+		"x-platform":           zcodePlatform(runtime.GOOS, runtime.GOARCH),
 		"x-os-category":        osCategory(),
 		"x-os-version":         osVersion(),
 		"x-zcode-session-type": "main",
@@ -420,6 +427,16 @@ func mimicHeaders(appVersion, timezone, deviceID string) map[string]string {
 		"x-query-id":           newUUID(),
 		"x-session-id":         newUUID(),
 	}
+}
+
+func zcodePlatform(goos, goarch string) string {
+	if goos == "windows" {
+		goos = "win32"
+	}
+	if goarch == "amd64" {
+		goarch = "x64"
+	}
+	return goos + "-" + goarch
 }
 
 // mimicDeviceID only exposes the installation device id when the gateway is

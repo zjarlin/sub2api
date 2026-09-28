@@ -1,0 +1,28 @@
+# 独立的可选 Arena 文本试接服务，使用专属会话和持久化凭证。
+services:
+  sub2api-arena:
+    profiles: [arena]
+    build:
+      context: ./tools/arena2api
+      dockerfile: Dockerfile
+    image: ${ARENA_IMAGE:-sub2api-arena:local}
+    restart: unless-stopped
+    environment:
+      ARENA_AGENT_BRIDGE_KEY: ${ARENA_AGENT_BRIDGE_KEY:?Set ARENA_AGENT_BRIDGE_KEY to a shared adapter key}
+      ARENA_REQUEST_TIMEOUT_MS: ${ARENA_REQUEST_TIMEOUT_MS:-300000}
+      ARENA_AGENT_PROXY: ${ARENA_AGENT_PROXY:-}
+    volumes:
+      - ${ARENA_STATE_DIR:-arena-data}:/app/data
+    networks: [sub2api-network]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    shm_size: 256m
+    mem_limit: 2g
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:7867/livez').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  arena-data:

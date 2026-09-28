@@ -31,6 +31,21 @@ describe('chatPlayground API', () => {
     vi.unstubAllGlobals()
   })
 
+  it('传递独立的会话身份与逻辑请求身份', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(createStreamResponse(['data: [DONE]\n\n']))
+    vi.stubGlobal('fetch', fetchMock)
+    await streamChatCompletion({
+      apiKey: 'sk-test',
+      model: 'arena-session',
+      messages: [{ role: 'user', content: 'hello' }],
+      sessionId: 'conversation-one',
+      requestId: 'turn-one',
+      onDelta: () => {},
+    })
+    expect(fetchMock.mock.calls[0][1].headers['X-Session-Id']).toBe('conversation-one')
+    expect(fetchMock.mock.calls[0][1].headers['Idempotency-Key']).toBe('turn-one')
+  })
+
   it('使用所选 API Key 加载并排序模型', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       data: [

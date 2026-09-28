@@ -48,6 +48,8 @@ export interface StreamChatCompletionOptions {
   apiKey: string
   model: string
   messages: ChatPlaygroundMessage[]
+  sessionId?: string
+  requestId?: string
   signal?: AbortSignal
   onDelta: (text: string) => void
 }
@@ -364,12 +366,19 @@ async function consumeJSON(
 export async function streamChatCompletion(
   options: StreamChatCompletionOptions,
 ): Promise<StreamChatCompletionResult> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${options.apiKey}`,
+    'Content-Type': 'application/json',
+  }
+  if (options.sessionId) {
+    headers['X-Session-Id'] = options.sessionId
+  }
+  if (options.requestId) {
+    headers['Idempotency-Key'] = options.requestId
+  }
   const response = await fetch(buildGatewayUrl('/v1/chat/completions'), {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${options.apiKey}`,
-      'Content-Type': 'application/json',
-    },
+    headers,
     body: JSON.stringify({
       model: options.model,
       messages: options.messages,

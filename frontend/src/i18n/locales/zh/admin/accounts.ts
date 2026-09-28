@@ -59,6 +59,11 @@ export default {
       },
       builtinLogin: {
         deepseekWebHint: '打开 DeepSeek 官方登录页完成登录，再导入该浏览器会话。DeepSeek 未提供第三方 OAuth2 回调。',
+        deepseekWebUnavailable: 'DeepSeek 网页适配器尚未启用。请在部署配置中设置 SUB2API_DEEPSEEK_WEB=1，并重启服务。',
+        deepseekWebStart: '开始导入会话',
+        deepseekWebRestart: '重新导入会话',
+        deepseekWebOpen: '打开 DeepSeek 登录页',
+        deepseekWebComplete: '导入会话',
         deepseekWebPoolHint: '在浏览器开发者工具的 users/login 请求中取得 device_id，并从已登录请求的 Authorization 头取得 Bearer token。凭证只提交到本部署的适配器。',
         deepseekWebToken: '浏览器会话 token',
         deepseekWebDevice: '浏览器 device_id',
