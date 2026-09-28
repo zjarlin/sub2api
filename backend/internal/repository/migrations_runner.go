@@ -105,6 +105,15 @@ var migrationChecksumCompatibilityRules = map[string]migrationChecksumCompatibil
 	"220_clear_non_grok_video_generation_config.sql": newMigrationChecksumCompatibilityRule("85e320b9ec64f2d3fcd8cf705b2b4e76a7b49f7a57140c14bff97f32691c818b", "3da48c8fdffe6390325f43d08b8e353e0a365df43d44a78dbbe655d0deb18402"),
 	"219_group_search_price_per_1k.sql":              newMigrationChecksumCompatibilityRule("e86786ebcc3b14206fd2d321380a4e50e80cdadbfcf4962c639255e6a14008db", "df6ffd71b97e30ec2c8fe7b95e15783042dea58c553e32701ee7c42a5619af80"),
 	"218_group_audio_voice_pricing.sql":              newMigrationChecksumCompatibilityRule("40ee9f3a2af0e0a5e99dabc878fd0fe98be1011f26bcfcefcac7197f7081f0e7", "c2a5e5b4ffd6968ad1c10593289fbc11192cdea19fec3ed9bce3a84eff9a8351"),
+	// 244 和 246 发布后补过模型别名；兼容 Git 中已核实的两个版本，保留原迁移记录和管理员配置。
+	"244_model_aliases_and_fallback_policy.sql": newMigrationChecksumCompatibilityRule(
+		"c52da0b844961bd1709e11321d29361004dd9d0d8ae0eefc88411f98e6e82195",
+		"f8f482b5691071a796fcce9d77e0c03e0065f58174b9d5b893b1c1bbf6203f18",
+	),
+	"246_deepseek_provider_model_aliases.sql": newMigrationChecksumCompatibilityRule(
+		"43d1132e80f99ff010ec8852719122ef4d4fa671a4da06c63b9bd618ad6c09ec",
+		"77d37168f52a38d3cfb8b860a4630b93ff1db4eb5e753dbc7ac68eb4144d9461",
+	),
 }
 
 // ApplyMigrations 将嵌入的 SQL 迁移文件应用到指定的数据库。

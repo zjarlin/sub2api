@@ -1,10 +1,45 @@
 package repository
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"io/fs"
+	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/migrations"
 	"github.com/stretchr/testify/require"
 )
+
+func TestModelAliasMigrationChecksumCompatibility(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		oldHash string
+		newHash string
+	}{
+		{
+			name:    "244_model_aliases_and_fallback_policy.sql",
+			oldHash: "f8f482b5691071a796fcce9d77e0c03e0065f58174b9d5b893b1c1bbf6203f18",
+			newHash: "c52da0b844961bd1709e11321d29361004dd9d0d8ae0eefc88411f98e6e82195",
+		},
+		{
+			name:    "246_deepseek_provider_model_aliases.sql",
+			oldHash: "77d37168f52a38d3cfb8b860a4630b93ff1db4eb5e753dbc7ac68eb4144d9461",
+			newHash: "43d1132e80f99ff010ec8852719122ef4d4fa671a4da06c63b9bd618ad6c09ec",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			content, err := fs.ReadFile(migrations.FS, tt.name)
+			require.NoError(t, err)
+			sum := sha256.Sum256([]byte(strings.TrimSpace(string(content))))
+			require.Equal(t, tt.newHash, hex.EncodeToString(sum[:]))
+			require.True(t, isMigrationChecksumCompatible(tt.name, tt.oldHash, tt.newHash))
+			require.True(t, isMigrationChecksumCompatible(tt.name, tt.newHash, tt.oldHash))
+			require.False(t, isMigrationChecksumCompatible(tt.name, "unknown", tt.newHash))
+			require.False(t, isMigrationChecksumCompatible(tt.name, tt.oldHash, "unknown"))
+		})
+	}
+}
 
 func TestIsMigrationChecksumCompatible(t *testing.T) {
 	t.Run("054历史checksum可兼容", func(t *testing.T) {

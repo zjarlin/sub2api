@@ -91,10 +91,22 @@ if [ -n "$CURRENT_IMAGE" ]; then
 fi
 
 rollback() {
+  local exit_status=$?
+  trap - ERR
+  # 回滚会重建失败容器，先保留启动日志和状态供 TeamCity 与现场诊断。
+  "${COMPOSE[@]}" ps -a > "$RELEASE_DIR/failed-containers" 2>&1 || true
+  "${COMPOSE[@]}" logs --no-color --tail 200 sub2api gateway > "$RELEASE_DIR/failed-startup.log" 2>&1 || true
+  echo "Deployment diagnostics: $RELEASE_DIR/failed-startup.log"
+  cat "$RELEASE_DIR/failed-containers" "$RELEASE_DIR/failed-startup.log" || true
   if [ -n "$CURRENT_IMAGE" ] && docker image inspect "$CURRENT_IMAGE" >/dev/null 2>&1; then
     echo "Deployment failed; restoring $CURRENT_IMAGE"
-    SUB2API_IMAGE="$CURRENT_IMAGE" "${COMPOSE[@]}" up -d --no-deps --scale "sub2api=$REPLICAS" sub2api gateway || true
+    if SUB2API_IMAGE="$CURRENT_IMAGE" "${COMPOSE[@]}" up -d --wait --wait-timeout 180 --no-deps --scale "sub2api=$REPLICAS" sub2api gateway; then
+      echo "Rollback healthy: $CURRENT_IMAGE"
+    else
+      echo "Rollback failed: $CURRENT_IMAGE" >&2
+    fi
   fi
+  return "$exit_status"
 }
 trap rollback ERR
 
