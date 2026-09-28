@@ -10,6 +10,10 @@
 !traework2api/internal/
 !traework2api/internal/**
 !traework2api/Dockerfile*
+!vibex2api/
+!vibex2api/go.mod
+!vibex2api/go.sum
+!vibex2api/*.go
 !workbuddy2api/
 !workbuddy2api/go.mod
 !workbuddy2api/go.sum
