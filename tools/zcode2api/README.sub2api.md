@@ -36,6 +36,11 @@ Anthropic Messages 通道包装成 OpenAI 兼容接口（`/v1/chat/completions`�
 地址与共享密钥（后端注入）。账号 API Key 是内部共享密钥，不能替代上游凭据。保存时固定
 Chat Completions 上游与单并发，创建后自动同步模型目录。
 
+OAuth 使用官方登记的官网中转页
+`https://zcode.z.ai/app/oauth/login?redirect=zcode%3A%2F%2Foauth%2Fcallback`，授权请求与
+token 兑换必须使用同一地址，不能替换成适配器端口或任意本机回调地址。登录后可提交
+含 `code` 的官网回调链接、`zcode://oauth/callback` 链接或授权码。
+
 凭据解析顺序：网页授权凭据 → `ZCODE_UPSTREAM_KEY`/`ZCODE_UPSTREAM_BASE_URL` 显式配置 →
 本机 `~/.zcode/v2/config.json` 桌面配置。
 

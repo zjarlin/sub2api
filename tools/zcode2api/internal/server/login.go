@@ -26,7 +26,11 @@ var (
 	zcodeBizBaseURL      = "https://api.z.ai/api/biz"
 )
 
-const zcodeOAuthClientID = "client_P8X5CMWmlaRO9gyO-KSqtg"
+const (
+	zcodeOAuthClientID = "client_P8X5CMWmlaRO9gyO-KSqtg"
+	// 官方客户端登记的官网中转页；适配器监听地址不能作为 OAuth 回调地址。
+	zcodeOAuthRedirectURI = "https://zcode.z.ai/app/oauth/login?redirect=zcode%3A%2F%2Foauth%2Fcallback"
+)
 
 // beginZcodeLogin 复用 Z.AI 网页授权入口：浏览器登录后把完整回调链接交回后台，
 // 由适配器兑换 Coding Plan 凭据并落盘，后续请求不再依赖桌面 config.json。
@@ -35,9 +39,8 @@ func (s *Server) beginZcodeLogin(ctx context.Context) (*builtinlogin.Flow, error
 	if err != nil {
 		return nil, err
 	}
-	redirect := fmt.Sprintf("http://127.0.0.1:%d/login/callback", s.loginPort)
 	authURL := zcodeAuthorizeURL + "?" + url.Values{
-		"redirect_uri":  {redirect},
+		"redirect_uri":  {zcodeOAuthRedirectURI},
 		"response_type": {"code"},
 		"client_id":     {zcodeOAuthClientID},
 		"state":         {state},
@@ -50,7 +53,7 @@ func (s *Server) beginZcodeLogin(ctx context.Context) (*builtinlogin.Flow, error
 		if err != nil {
 			return nil, err
 		}
-		data, err := exchangeZcodeToken(ctx, client, code, state, redirect)
+		data, err := exchangeZcodeToken(ctx, client, code, state, zcodeOAuthRedirectURI)
 		if err != nil {
 			return nil, &builtinlogin.PublicError{Status: http.StatusBadGateway, Message: "Built-in authorization failed; retry or start a new login"}
 		}
@@ -80,7 +83,7 @@ func extractZcodeCode(raw string) (string, error) {
 	if raw == "" {
 		return "", invalid
 	}
-	if strings.Contains(raw, "code=") {
+	if strings.Contains(raw, "://") || strings.Contains(raw, "code=") {
 		u, err := url.Parse(raw)
 		if err != nil {
 			return "", invalid

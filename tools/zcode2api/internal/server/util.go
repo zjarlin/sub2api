@@ -5,19 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"net"
 	"strconv"
 )
-
-// listenPort 从监听地址解析端口，供网页授权回调展示使用。
-func listenPort(listen string) int {
-	if _, port, err := net.SplitHostPort(listen); err == nil {
-		if n, err := strconv.Atoi(port); err == nil {
-			return n
-		}
-	}
-	return 7865
-}
 
 // randomHex 返回 n 字节随机数据的十六进制串。
 func randomHex(n int) (string, error) {

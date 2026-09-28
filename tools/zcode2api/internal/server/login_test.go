@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -23,6 +24,9 @@ func fakeZcodeOAuth(t *testing.T, seenCode *string) *httptest.Server {
 			body, _ := io.ReadAll(r.Body)
 			var payload map[string]string
 			_ = json.Unmarshal(body, &payload)
+			if payload["redirect_uri"] != "https://zcode.z.ai/app/oauth/login?redirect=zcode%3A%2F%2Foauth%2Fcallback" {
+				t.Errorf("token exchange redirect_uri = %q", payload["redirect_uri"])
+			}
 			*seenCode = payload["code"]
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"code": 200,
@@ -70,6 +74,7 @@ func TestZcodeWebAuthorizationPersistsCredential(t *testing.T) {
 	upstream, capture := fakeUpstream(t, sseScript)
 	storePath := filepath.Join(t.TempDir(), "credential.json")
 	cfg := config.Default()
+	cfg.Listen = "0.0.0.0:9898"
 	cfg.APIKey = "local-key"
 	cfg.Upstream.BaseURL = upstream.URL
 	cfg.Upstream.APIKey = ""
@@ -98,9 +103,16 @@ func TestZcodeWebAuthorizationPersistsCredential(t *testing.T) {
 	if session.Mode != "callback" || session.AuthURL == "" {
 		t.Fatalf("unexpected session: %+v", session)
 	}
+	authURL, err := url.Parse(session.AuthURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := authURL.Query().Get("redirect_uri"); got != "https://zcode.z.ai/app/oauth/login?redirect=zcode%3A%2F%2Foauth%2Fcallback" {
+		t.Fatalf("authorization redirect_uri = %q", got)
+	}
 
 	callback := httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/internal/login/sessions/"+session.SessionID+"/callback", strings.NewReader(`{"callback_url":"http://127.0.0.1:7865/login/callback?code=auth-code"}`))
+	req = httptest.NewRequest(http.MethodPost, "/internal/login/sessions/"+session.SessionID+"/callback", strings.NewReader(`{"callback_url":"https://zcode.z.ai/app/oauth/login?redirect=zcode%3A%2F%2Foauth%2Fcallback&code=auth-code"}`))
 	req.Header.Set("Authorization", "Bearer local-key")
 	req.Header.Set("X-Login-Owner", "admin:1")
 	handler.ServeHTTP(callback, req)
@@ -126,6 +138,28 @@ func TestZcodeWebAuthorizationPersistsCredential(t *testing.T) {
 	_, headers := capture.last(t)
 	if headers.Get("x-api-key") != "zcode-key.zcode-secret" {
 		t.Fatalf("stored credential not used: %q", headers.Get("x-api-key"))
+	}
+}
+
+func TestExtractZcodeCode(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		raw  string
+		code string
+	}{
+		{name: "website callback", raw: "https://zcode.z.ai/app/oauth/login?code=auth-code&state=state", code: "auth-code"},
+		{name: "desktop callback", raw: "zcode://oauth/callback?code=auth-code&state=state", code: "auth-code"},
+		{name: "authorization code", raw: "auth-code", code: "auth-code"},
+		{name: "authorization URL", raw: "https://chat.z.ai/api/oauth/authorize?client_id=client-id"},
+		{name: "error callback", raw: "https://zcode.z.ai/app/oauth/login?error=access_denied"},
+		{name: "empty code", raw: "zcode://oauth/callback?code="},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := extractZcodeCode(tc.raw)
+			if got != tc.code || (err != nil) != (tc.code == "") {
+				t.Fatalf("extractZcodeCode() = %q, %v; want %q", got, err, tc.code)
+			}
+		})
 	}
 }
 

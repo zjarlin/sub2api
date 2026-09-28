@@ -41,7 +41,6 @@ type Server struct {
 	// 内置网页授权：凭证落在本地凭据文件，登录会话由 builtinlogin 管理。
 	loginCredStore *credential.CredentialStore
 	loginHTTP      *http.Client
-	loginPort      int
 	loginMu        sync.Mutex
 }
 
@@ -76,7 +75,6 @@ func New(cfg *config.Config, logger *log.Logger) *Server {
 	}
 	server.loginCredStore = &credential.CredentialStore{Path: cfg.Upstream.CredentialStorePath}
 	server.loginHTTP = upstream.NewHTTPClient(30*time.Second, 4)
-	server.loginPort = listenPort(cfg.Listen)
 	return server
 }
 
