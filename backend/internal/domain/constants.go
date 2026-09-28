@@ -28,6 +28,7 @@ const (
 	// TRAE Work (SOLO CN) 反向代理适配器。
 	PlatformTraework  = "traework"
 	PlatformWorkbuddy = "workbuddy"
+	PlatformVibex     = "vibex"
 	// ZCode (z.ai / 智谱 GLM Coding Plan) Anthropic 协议反向代理适配器。
 	PlatformZcode = "zcode"
 	// Qoder 官方 Model Server（OpenAI 兼容 Chat Completions）。

@@ -10,7 +10,7 @@ func TestCredentialStoreRoundTrip(t *testing.T) {
 	if _, ok, err := store.Load(); err != nil || ok {
 		t.Fatalf("empty store load = %v, %v", ok, err)
 	}
-	want := Credential{APIKey: "key.secret", BaseURL: "https://open.bigmodel.cn/api/anthropic", ProviderID: "builtin:bigmodel-coding-plan", Provider: "me@example.com", Source: "builtin-login"}
+	want := Credential{APIKey: "key.secret", BaseURL: "https://open.bigmodel.cn/api/anthropic", ProviderID: "builtin:bigmodel-coding-plan", Provider: "me@example.com", Source: "builtin-login", Plan: PlanStart}
 	if err := store.Save(want); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
@@ -18,7 +18,7 @@ func TestCredentialStoreRoundTrip(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("Load after save = %v, %v", ok, err)
 	}
-	if got.APIKey != want.APIKey || got.BaseURL != want.BaseURL || got.ProviderID != want.ProviderID {
+	if got.APIKey != want.APIKey || got.BaseURL != want.BaseURL || got.ProviderID != want.ProviderID || got.Plan != want.Plan {
 		t.Fatalf("credential mismatch: %+v", got)
 	}
 	if err := store.Clear(); err != nil {

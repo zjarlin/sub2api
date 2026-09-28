@@ -121,6 +121,8 @@ func DetectModelPlatform(model string) (string, bool) {
 			return PlatformDoubao, true
 		case "workbuddy":
 			return PlatformWorkbuddy, true
+		case "vibex":
+			return PlatformVibex, true
 		case "zcode":
 			return PlatformZcode, true
 		case "laya":
@@ -171,6 +173,8 @@ func DetectModelPlatform(model string) (string, bool) {
 		return PlatformDoubao, true
 	case strings.HasPrefix(normalized, "workbuddy-"):
 		return PlatformWorkbuddy, true
+	case strings.HasPrefix(normalized, "vibex-"):
+		return PlatformVibex, true
 	case strings.HasPrefix(normalized, "zcode-"):
 		return PlatformZcode, true
 	case normalized == "laya":
@@ -233,7 +237,7 @@ func (s *GatewayService) resolveCompositeRouteDecision(ctx context.Context, grou
 func isConcreteRequestPlatform(platform string) bool {
 	switch platform {
 	case PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformGrok,
-		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformZcode, PlatformQoder, PlatformLaya, PlatformJev:
+		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformLaya, PlatformJev:
 		return true
 	default:
 		return false

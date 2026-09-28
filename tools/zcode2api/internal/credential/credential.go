@@ -30,7 +30,13 @@ type Credential struct {
 	ProviderID string
 	Provider   string // human readable provider name
 	Source     string // file the credential was read from
+	Plan       string
 }
+
+const (
+	PlanCoding = "coding-plan"
+	PlanStart  = "start-plan"
+)
 
 type providerEntry struct {
 	Name           string `json:"name"`

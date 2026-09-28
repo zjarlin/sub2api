@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log"
@@ -14,6 +15,40 @@ import (
 	"glm-zcode-2api/internal/config"
 	"glm-zcode-2api/internal/credential"
 )
+
+func TestBigmodelCodingPlanUsesNativeBusinessAuthorization(t *testing.T) {
+	calls := 0
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.Header.Get("Authorization") != "bigmodel-access" {
+			t.Errorf("BigModel business authentication must use the raw access token")
+		}
+		switch r.URL.Path {
+		case "/biz/customer/getCustomerInfo":
+			_, _ = io.WriteString(w, `{"data":{"organizations":[{"organizationId":"org","projects":[{"projectId":"proj"}]}]}}`)
+		case "/biz/v1/organization/org/projects/proj/api_keys":
+			if r.Method == http.MethodPost {
+				_, _ = io.WriteString(w, `{"data":{"apiKey":"coding-key"}}`)
+			} else {
+				_, _ = io.WriteString(w, `{"data":[]}`)
+			}
+		case "/biz/v1/organization/org/projects/proj/api_keys/copy/coding-key":
+			_, _ = io.WriteString(w, `{"data":{"secretKey":"coding-secret"}}`)
+		default:
+			t.Errorf("unexpected business path: %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer upstream.Close()
+	before := zcodeBigmodelBizBaseURL
+	zcodeBigmodelBizBaseURL = upstream.URL + "/biz"
+	defer func() { zcodeBigmodelBizBaseURL = before }()
+	data := map[string]any{"bigmodel": map[string]any{"access_token": "bigmodel-access"}}
+	cred, err := buildZcodeCredential(context.Background(), upstream.Client(), data, "bigmodel")
+	if err != nil || cred.APIKey != "coding-key.coding-secret" || cred.Plan != credential.PlanCoding || calls != 4 {
+		t.Fatalf("Coding Plan authorization failed: err=%v calls=%d", err, calls)
+	}
+}
 
 // fakeZcodeOAuth 模拟 Z.AI 授权、token 兑换和 API Key 提取链。
 func fakeZcodeOAuth(t *testing.T, seenCode *string) *httptest.Server {
@@ -77,6 +112,7 @@ func TestZcodeWebAuthorizationPersistsCredential(t *testing.T) {
 	cfg.Listen = "0.0.0.0:9898"
 	cfg.APIKey = "local-key"
 	cfg.Upstream.BaseURL = upstream.URL
+	cfg.Upstream.GatewayOrigin = upstream.URL
 	cfg.Upstream.APIKey = ""
 	cfg.Upstream.CredentialStorePath = storePath
 	cfg.Upstream.CredentialConfigPath = filepath.Join(t.TempDir(), "missing.json")

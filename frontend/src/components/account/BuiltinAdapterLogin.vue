@@ -1,7 +1,23 @@
 <template>
   <div class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-dark-600" data-testid="builtin-adapter-login">
     <p class="text-sm text-gray-600 dark:text-gray-300">{{ t(`admin.accounts.builtinLogin.${platform}Hint`) }}</p>
-    <p class="input-hint">{{ t('admin.accounts.builtinLogin.poolHint') }}</p>
+    <p class="input-hint">{{ t(platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexPoolHint' : platform === 'zcode' ? 'admin.accounts.builtinLogin.zcodePoolHint' : 'admin.accounts.builtinLogin.poolHint') }}</p>
+    <div v-if="platform === 'zcode'" class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div>
+        <label for="zcode-login-plan" class="input-label">{{ t('admin.accounts.builtinLogin.zcodePlan') }}</label>
+        <select id="zcode-login-plan" v-model="zcodePlan" class="input" :disabled="busy || session?.status === 'pending'">
+          <option value="coding-plan">Coding Plan</option>
+          <option value="start-plan">Start Plan</option>
+        </select>
+      </div>
+      <div>
+        <label for="zcode-login-provider" class="input-label">{{ t('admin.accounts.builtinLogin.zcodeProvider') }}</label>
+        <select id="zcode-login-provider" v-model="zcodeProvider" class="input" :disabled="busy || session?.status === 'pending'">
+          <option value="bigmodel">{{ t('admin.accounts.builtinLogin.zcodeBigmodel') }}</option>
+          <option value="zai">Z.ai</option>
+        </select>
+      </div>
+    </div>
     <button type="button" class="btn btn-secondary" :disabled="busy" @click="start">
       {{ t(session ? 'admin.accounts.builtinLogin.restart' : 'admin.accounts.builtinLogin.start') }}
     </button>
@@ -10,8 +26,8 @@
         {{ t('admin.accounts.builtinLogin.open') }}
       </a>
       <template v-if="session.mode === 'callback'">
-        <label :for="`builtin-callback-${platform}`" class="input-label">{{ t('admin.accounts.builtinLogin.callback') }}</label>
-        <input :id="`builtin-callback-${platform}`" v-model="callback" type="password" autocomplete="off" class="input" :placeholder="t('admin.accounts.builtinLogin.callbackPlaceholder')" />
+        <label :for="`builtin-callback-${platform}`" class="input-label">{{ t(platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexToken' : 'admin.accounts.builtinLogin.callback') }}</label>
+        <input :id="`builtin-callback-${platform}`" v-model="callback" type="password" autocomplete="off" class="input" :placeholder="t(platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexTokenPlaceholder' : 'admin.accounts.builtinLogin.callbackPlaceholder')" />
         <button type="button" class="btn btn-primary" :disabled="busy || !callback.trim()" @click="complete">
           {{ t('admin.accounts.builtinLogin.complete') }}
         </button>
@@ -29,7 +45,7 @@
 <script setup lang="ts">
 import { onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { cancelBuiltinLogin, completeBuiltinLogin, startBuiltinLogin, type BuiltinLoginPlatform, type BuiltinLoginSession } from '@/api/admin/builtinAdapters'
+import { cancelBuiltinLogin, completeBuiltinLogin, startBuiltinLogin, type BuiltinLoginPlatform, type BuiltinLoginSession, type ZcodeLoginOptions } from '@/api/admin/builtinAdapters'
 
 const props = defineProps<{ platform: BuiltinLoginPlatform }>()
 const emit = defineEmits<{
@@ -40,6 +56,8 @@ const session = ref<BuiltinLoginSession | null>(null)
 const callback = ref('')
 const error = ref('')
 const busy = ref(false)
+const zcodePlan = ref<ZcodeLoginOptions['plan']>('coding-plan')
+const zcodeProvider = ref<ZcodeLoginOptions['provider']>('zai')
 let timer: ReturnType<typeof setTimeout> | undefined
 let controller: AbortController | undefined
 let generation = 0
@@ -83,7 +101,9 @@ async function start() {
   const version = generation
   controller = new AbortController()
   try {
-    const result = await startBuiltinLogin(props.platform, controller.signal)
+    const result = props.platform === 'zcode'
+      ? await startBuiltinLogin(props.platform, controller.signal, { plan: zcodePlan.value, provider: zcodeProvider.value })
+      : await startBuiltinLogin(props.platform, controller.signal)
     if (version !== generation) return
     session.value = result
     if (result.mode === 'poll') timer = setTimeout(complete, 2500)

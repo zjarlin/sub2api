@@ -3056,6 +3056,8 @@ func (h *AccountHandler) SyncUpstreamModels(c *gin.Context) {
 		return
 	}
 
+	// 快速添加时创建请求尚无模型映射，同步完成后用真实模型重新探测协议。
+	h.scheduleOpenAIResponsesProbe(account)
 	response.Success(c, catalog)
 }
 

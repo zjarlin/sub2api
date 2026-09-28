@@ -24,7 +24,7 @@ export default {
   "models": "第 {index} 档模型 ID",
   "moveUp": "提高档位",
   "moveDown": "降低档位",
-  "modelsHint": "档位由上至下从高到低；每行一个精确模型 ID，同档内按填写顺序尝试。别名需要显式列入同一档。未分档模型只重试同名账号。最多 12 档、64 个模型。",
+  "modelsHint": "档位由上至下从高到低；每行一个精确模型 ID，同档内按填写顺序尝试。别名需要显式列入同一档。未分档模型只重试同名账号。最多 12 档、256 个模型。",
   "addTier": "添加下一档",
   "preset": "载入公开数据推荐（待保存）",
   "saved": "档位已保存，后续请求使用新配置。",
@@ -32,7 +32,7 @@ export default {
   "reference": "推荐分档参考最高已测推理强度的综合能力分数，每 10 分一档；不代表所有任务或推理强度等价，也不会自动改写你的配置。来源：",
   "required": "每档都需要名称和模型；启用时至少保留一档。",
   "duplicate": "档位名称和模型 ID 不能重复。",
-  "invalidModels": "最多 64 个模型；每个 ID 不超过 200 字符，不支持通配符。"
+  "invalidModels": "最多 256 个模型；每个 ID 不超过 200 字符，不支持通配符。"
 },
       modelSystemPrompts: {
   title: '模型系统提示词', description: '为指定模型追加一段 system 提示词，用来统一约束语言、语气等。按别名归一后的模型 ID 精确匹配，只对 OpenAI 兼容入口生效。', model: '模型 ID {index}', prompt: '提示词 {index}', promptPlaceholder: '例如：始终使用简体中文回答，除非用户明确要求其他语言。', hint: '模型 ID 使用别名归一后的规范 ID（见“全局模型同义词”）。命中时提示词会追加在已有 system 之后，不覆盖客户端自带的 system。', add: '添加模型提示词', saved: '模型提示词已保存，后续请求生效。', required: '每条都需要模型 ID 和提示词。', duplicate: '模型 ID 不能重复。',

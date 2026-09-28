@@ -73,3 +73,24 @@ func TestZcodeBuiltinAdapterLoginReachable(t *testing.T) {
 	require.Equal(t, "callback", result.Mode)
 	require.Contains(t, result.AuthURL, "chat.z.ai")
 }
+
+func TestZcodeLoginPlanOptionsForwardedAndValidated(t *testing.T) {
+	id := strings.Repeat("c", 64)
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		var body map[string]string
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		require.Equal(t, "start-plan", body["plan"])
+		require.Equal(t, "bigmodel", body["provider"])
+		_ = json.NewEncoder(w).Encode(map[string]any{"session_id": id, "status": "pending", "mode": "callback"})
+	}))
+	defer server.Close()
+	SetBuiltinAdapterConfig(&config.BuiltinAdapterConfig{Enabled: true, ZcodeURL: server.URL, ZcodeKey: "key"})
+	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
+	_, err := BuiltinAdapterLogin(context.Background(), PlatformZcode, "admin:1", "", "start", "", BuiltinLoginOptions{Plan: "start-plan", Provider: "bigmodel"})
+	require.NoError(t, err)
+	_, err = BuiltinAdapterLogin(context.Background(), PlatformZcode, "admin:1", "", "start", "", BuiltinLoginOptions{Plan: "unsupported", Provider: "bigmodel"})
+	require.Error(t, err)
+	require.Equal(t, 1, calls)
+}

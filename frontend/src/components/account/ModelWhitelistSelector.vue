@@ -213,7 +213,7 @@ const upstreamSyncPlatforms = new Set([
   'opencode_go',
   'doubao',
   'traework',
-  'workbuddy',
+  'workbuddy', 'vibex',
   'zcode'
 ])
 const canSyncUpstream = computed(() => {

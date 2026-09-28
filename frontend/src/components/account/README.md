@@ -18,6 +18,15 @@ Grok、Kimi、智谱、DeepSeek、MiniMax、OpenCode Go、豆包、TRAE Work、W
 
 部署、首次登录和验收边界见 `tools/traework2api/README.sub2api.md`、`tools/workbuddy2api/README.sub2api.md`。
 
+ZCode 使用同一组件选择 Coding Plan / Start Plan 与 BigModel / Z.ai 账号区域；选项在授权
+会话创建后固定。整个部署共享一个 ZCode 上游登录与套餐，成功重新授权会替换旧凭据。
+Start Plan 目录来自实际套餐权益，登录 JWT 过期后需重新授权；聊天请求依赖可选浏览器验证服务。
+切换套餐后应同步相关账号的模型目录。部署和真实调用验收见 `tools/zcode2api/README.sub2api.md`。
+
+VibeX 使用同一登录会话组件导入 RunningHub 令牌，凭证在后台验证后保存到适配器。
+`VibexUsage.vue` 在账号编辑页提供手动余额/额度刷新。部署与文本协议边界见
+`tools/vibex2api/README.md`；模型从真实目录同步，不使用静态默认模型。
+
 Qoder 测试模型列表优先使用账号已保存的官方目录及展示名，默认候选使用官方模型键。
 提交消息测试先于通用供应商分支处理，OAuth 使用设备令牌，并应用账号模型映射。
 目录启用状态和实际推理额度是独立信息；上游额度不足会按真实 HTTP 错误显示。

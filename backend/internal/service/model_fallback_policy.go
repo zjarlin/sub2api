@@ -13,6 +13,8 @@ import (
 
 const SettingKeyModelFallbackPolicy = "model_fallback_policy"
 
+const maxModelFallbackModels = 256
+
 // 档位按数组顺序从高到低排列；模型 ID 精确匹配，不猜测未评级模型的能力。
 type ModelCapabilityTier struct {
 	Name   string   `json:"name"`
@@ -57,8 +59,8 @@ func (p *ModelFallbackPolicy) Validate() error {
 			seen[model] = true
 		}
 	}
-	if len(seen) > 64 {
-		return fmt.Errorf("at most 64 models can participate in fallback")
+	if len(seen) > maxModelFallbackModels {
+		return fmt.Errorf("at most %d models can participate in fallback", maxModelFallbackModels)
 	}
 	return nil
 }

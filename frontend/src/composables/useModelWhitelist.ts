@@ -446,6 +446,7 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'qwen': return qwenModels
     case 'doubao': return ['doubao-chat-turbo', 'doubao-auto', 'doubao-pro']
     case 'traework': return ['glm-5.2']
+    case 'vibex': return []
     case 'workbuddy': return ['glm-5.2']
     case 'zcode': return ['glm-5.3', 'glm-5.3-flash']
     case 'qoder': return ['auto', 'qmodel_38max', 'qfmodel']

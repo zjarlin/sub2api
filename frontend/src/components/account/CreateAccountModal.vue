@@ -295,6 +295,11 @@
             <PlatformIcon platform="workbuddy" size="sm" />
             {{ t('admin.accounts.workbuddy.title') }}
           </button>
+          <button type="button" data-testid="platform-vibex" @click="selectVibexPlatform"
+            :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'vibex' ? 'bg-white text-blue-600 shadow-sm dark:bg-dark-600 dark:text-blue-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
+            <PlatformIcon platform="vibex" size="sm" />
+            {{ t('admin.accounts.vibex.title') }}
+          </button>
           <button type="button" data-testid="platform-zcode" @click="selectZcodePlatform"
             :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'zcode' ? 'bg-white text-indigo-600 shadow-sm dark:bg-dark-600 dark:text-indigo-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
             <PlatformIcon platform="zcode" size="sm" />
@@ -333,7 +338,7 @@
       <p v-if="form.platform === 'jev'" class="input-hint" data-testid="jev-connection-hint">
         {{ t('admin.accounts.jev.baseUrlHint') }}
       </p>
-      <BuiltinAdapterLogin v-if="show && (form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'zcode')" :key="form.platform" :platform="form.platform" />
+      <BuiltinAdapterLogin v-if="show && (form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'vibex' || form.platform === 'zcode')" :key="form.platform" :platform="form.platform" />
 
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
@@ -4227,6 +4232,7 @@ const baseUrlHint = computed(() => {
   if (form.platform === 'doubao') return t('admin.accounts.doubao.baseUrlHint')
   if (form.platform === 'traework') return t('admin.accounts.traework.baseUrlHint')
   if (form.platform === 'workbuddy') return t('admin.accounts.workbuddy.baseUrlHint')
+  if (form.platform === 'vibex') return t('admin.accounts.vibex.baseUrlHint')
   if (form.platform === 'zcode') return t('admin.accounts.zcode.baseUrlHint')
   if (form.platform === 'laya') return t('admin.accounts.laya.baseUrlHint')
   if (form.platform === 'jev') return t('admin.accounts.jev.baseUrlHint')
@@ -4240,6 +4246,7 @@ const apiKeyHint = computed(() => {
   if (form.platform === 'doubao') return t('admin.accounts.doubao.apiKeyHint')
   if (form.platform === 'traework') return t('admin.accounts.traework.apiKeyHint')
   if (form.platform === 'workbuddy') return t('admin.accounts.workbuddy.apiKeyHint')
+  if (form.platform === 'vibex') return t('admin.accounts.vibex.apiKeyHint')
   if (form.platform === 'zcode') return t('admin.accounts.zcode.apiKeyHint')
   if (form.platform === 'laya') return t('admin.accounts.laya.apiKeyHint')
   if (form.platform === 'jev') return t('admin.accounts.jev.apiKeyHint')
@@ -4539,6 +4546,11 @@ function selectWorkbuddyPlatform() {
   form.platform = 'workbuddy'
 }
 
+function selectVibexPlatform() {
+  selectTraeworkPlatform()
+  form.platform = 'vibex'
+}
+
 function selectZcodePlatform() {
   selectTraeworkPlatform()
   form.platform = 'zcode'
@@ -4580,7 +4592,7 @@ function selectJevPlatform() {
 
 // 内置适配器平台（地址与共享密钥由后端注入）的单一权威列表。
 // 新增此类平台时只改这里，避免平台按钮 / base_url 复位 / 密钥必填等分支各漏一处。
-const BUILTIN_ADAPTER_PLATFORMS = ['doubao', 'traework', 'workbuddy', 'zcode', 'qoder', 'laya', 'jev'] as const
+const BUILTIN_ADAPTER_PLATFORMS = ['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'qoder', 'laya', 'jev'] as const
 const isBuiltinAdapterPlatform = computed(() =>
   (BUILTIN_ADAPTER_PLATFORMS as readonly string[]).includes(form.platform)
 )
@@ -6258,7 +6270,7 @@ const handleSubmit = async () => {
   if (form.platform === 'gemini') {
     credentials.tier_id = geminiTierAIStudio.value
   }
-  if (form.platform === 'doubao' || form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'zcode' || form.platform === 'qoder') {
+  if (form.platform === 'doubao' || form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'vibex' || form.platform === 'zcode' || form.platform === 'qoder') {
     credentials.api_protocol = 'chat_completions'
     credentials.openai_capabilities = ['chat_completions']
   }

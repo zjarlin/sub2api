@@ -1,5 +1,16 @@
 export default {
     accounts: {
+      vibex: {
+        title: 'VibeX',
+        usage: 'RunningHub 余额与额度',
+        balance: '钱包余额（元）',
+        liteTokens: 'Lite Token 用量',
+        liteCost: 'Lite 额度（元）',
+        notLoaded: '尚未读取',
+        usageFailed: '读取额度失败，请检查登录状态。',
+        baseUrlHint: '使用内置 VibeX 服务，无需填写地址。',
+        apiKeyHint: '连接密钥由服务器管理。',
+      },
       zcode: {
         title: 'ZCode',
         connectionHint: '使用随 Sub2API 部署自动启动的 glm-zcode-2api 适配器。先完成网页授权登录 z.ai / 智谱账号，地址与密钥由后端注入，无需手填。',
@@ -47,9 +58,17 @@ export default {
         apiKeyHint: '连接密钥由服务器管理。JEV 返回决策结果，不生成文本。',
       },
       builtinLogin: {
+        vibexHint: '登录 RunningHub 后导入 VibeX 登录凭证。当前支持文本对话。',
+        vibexPoolHint: '此部署共享一个 RunningHub 账号和专用项目。登录过期后需重新导入，凭证不自动刷新。',
+        vibexToken: 'RunningHub 访问令牌 / 登录返回链接',
+        vibexTokenPlaceholder: 'Rh-Accesstoken 或包含 rh-sso-token 的 VibeX 返回链接',
         traeworkHint: '打开 TRAE 授权页完成登录，再把浏览器地址栏的完整回调链接粘贴回来。页面无法打开 127.0.0.1 不影响导入。',
         workbuddyHint: '打开 WorkBuddy 国内版授权页并登录，本页会自动获取授权结果。',
         zcodeHint: '打开 ZCode 授权页登录 z.ai / 智谱账号，再把浏览器地址栏的完整回调链接粘贴回来。页面无法打开 127.0.0.1 不影响导入。',
+        zcodePoolHint: '此部署共享一个 ZCode 登录账号与所选套餐。Start Plan 登录过期后需重新授权；交互验证须在验证浏览器完成。',
+        zcodePlan: '套餐',
+        zcodeProvider: '账号区域',
+        zcodeBigmodel: '智谱 BigModel',
         poolHint: '登录凭证保存到此部署的共享账号池，刷新由服务器维护。已有可用凭证时可直接保存账号；地址与连接密钥无需填写。',
         start: '登录并接入', restart: '重新登录 / 添加登录账号', open: '打开授权页',
         callback: '完整回调链接', callbackPlaceholder: 'http://127.0.0.1:18080/authorize?...',
@@ -407,6 +426,7 @@ export default {
         doubao: '豆包',
         traework: 'TRAE Work',
         workbuddy: 'WorkBuddy',
+        vibex: 'VibeX',
         zcode: 'ZCode',
         laya: 'Laya',
         jev: 'JEV',

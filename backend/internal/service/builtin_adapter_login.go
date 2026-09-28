@@ -27,10 +27,15 @@ type BuiltinLoginResult struct {
 	} `json:"account,omitempty"`
 }
 
+type BuiltinLoginOptions struct {
+	Plan     string `json:"plan,omitempty"`
+	Provider string `json:"provider,omitempty"`
+}
+
 // BuiltinAdapterLogin 只连接部署配置指定的内部服务，不接受浏览器提供的目标地址或密钥。
-func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action, callback string) (*BuiltinLoginResult, error) {
+func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action, callback string, options ...BuiltinLoginOptions) (*BuiltinLoginResult, error) {
 	switch platform {
-	case PlatformTraework, PlatformWorkbuddy, PlatformZcode, PlatformQoder, PlatformLaya, PlatformJev:
+	case PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformLaya, PlatformJev:
 	default:
 		return nil, infraerrors.BadRequest("INVALID_LOGIN_PLATFORM", "Unsupported login platform")
 	}
@@ -58,7 +63,15 @@ func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action
 	} else if action != "start" {
 		return nil, infraerrors.BadRequest("INVALID_LOGIN_SESSION", "Login session is required")
 	}
-	body, err := json.Marshal(map[string]string{"callback_url": callback})
+	payload := map[string]string{"callback_url": callback}
+	if len(options) > 0 && action == "start" && platform == PlatformZcode {
+		option := options[0]
+		if (option.Plan != "" && option.Plan != "coding-plan" && option.Plan != "start-plan") || (option.Provider != "" && option.Provider != "zai" && option.Provider != "bigmodel") {
+			return nil, infraerrors.BadRequest("INVALID_ZCODE_LOGIN_OPTIONS", "Unsupported ZCode plan or account provider")
+		}
+		payload["plan"], payload["provider"] = option.Plan, option.Provider
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +102,7 @@ func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action
 			message = "Login session expired or unavailable; start a new login"
 		}
 		if status == 400 {
-			message = "Invalid callback URL; paste the complete TRAE callback URL"
+			message = "Invalid authorization credential or callback URL"
 		}
 		return nil, infraerrors.New(status, "ADAPTER_LOGIN_FAILED", message)
 	}

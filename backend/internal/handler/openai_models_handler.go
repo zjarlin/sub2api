@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -46,6 +47,18 @@ func writeOpenAIModelsError(c *gin.Context, status int, errorType, message strin
 }
 
 func writeOpenAIModelsResponse(c *gin.Context, manifest *service.OpenAIModelsResponse) {
+	if c.GetBool(autoModelListingKey) && !manifest.NotModified {
+		body, err := appendAutoModelToCatalog(manifest.Body)
+		if err != nil {
+			writeOpenAIModelsError(c, http.StatusBadGateway, "upstream_error", "Invalid model catalogue")
+			return
+		}
+		clone := *manifest
+		clone.Body = body
+		clone.ETag = service.CodexModelsManifestETag(body)
+		clone.NotModified = c.Param("model") == "" && service.CodexModelsManifestETagMatches(c.GetString(autoModelListingETagKey), clone.ETag)
+		manifest = &clone
+	}
 	if policy := service.ModelAliasesFromContext(c.Request.Context()); policy != nil && len(policy.Groups) > 0 && !manifest.NotModified {
 		body, err := policy.CanonicalizeCatalog(manifest.Body)
 		if err != nil {
@@ -71,6 +84,64 @@ func writeOpenAIModelsResponse(c *gin.Context, manifest *service.OpenAIModelsRes
 		return
 	}
 	c.Data(http.StatusOK, "application/json", manifest.Body)
+}
+
+func appendAutoModelToCatalog(body []byte) ([]byte, error) {
+	var envelope map[string]json.RawMessage
+	if err := json.Unmarshal(body, &envelope); err != nil {
+		return nil, err
+	}
+	field, idField := "data", "id"
+	if _, ok := envelope["models"]; ok {
+		field, idField = "models", "slug"
+	}
+	if raw := bytes.TrimSpace(envelope[field]); len(raw) == 0 || raw[0] != '[' {
+		return nil, fmt.Errorf("invalid model catalogue entries")
+	}
+	var entries []json.RawMessage
+	if err := json.Unmarshal(envelope[field], &entries); err != nil {
+		return nil, err
+	}
+	for _, raw := range entries {
+		var item map[string]json.RawMessage
+		if json.Unmarshal(raw, &item) != nil {
+			continue
+		}
+		var id string
+		if json.Unmarshal(item[idField], &id) == nil && id == autoModelID {
+			return body, nil
+		}
+	}
+	var item []byte
+	if field == "models" {
+		generated, err := service.BuildCodexModelsManifest([]string{autoModelID})
+		if err != nil {
+			return nil, err
+		}
+		var catalog struct {
+			Models []json.RawMessage `json:"models"`
+		}
+		if err := json.Unmarshal(generated, &catalog); err != nil || len(catalog.Models) != 1 {
+			return nil, fmt.Errorf("invalid auto model manifest")
+		}
+		item = catalog.Models[0]
+	} else {
+		var err error
+		item, err = json.Marshal(map[string]any{
+			"id": autoModelID, "object": "model", "type": "model", "created": 1704067200,
+			"owned_by": "sub2api", "display_name": "Auto",
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	entries = append(entries, item)
+	encoded, err := json.Marshal(entries)
+	if err != nil {
+		return nil, err
+	}
+	envelope[field] = encoded
+	return json.Marshal(envelope)
 }
 
 // Both discovery endpoints consume the same final catalogue, after group/platform

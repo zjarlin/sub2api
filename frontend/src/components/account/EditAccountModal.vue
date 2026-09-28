@@ -28,11 +28,12 @@
 
       <!-- API Key fields (only for apikey type) -->
       <BuiltinAdapterLogin
-        v-if="show && (account.platform === 'traework' || account.platform === 'workbuddy' || account.platform === 'zcode') && !hasBuiltinAdapterCredentials"
+        v-if="show && (account.platform === 'traework' || account.platform === 'workbuddy' || account.platform === 'vibex' || account.platform === 'zcode') && !hasBuiltinAdapterCredentials"
         :key="account.platform"
         :platform="account.platform"
       />
       <div v-if="account.type === 'apikey'" class="space-y-4">
+        <VibexUsage v-if="account.platform === 'vibex'" :key="account.id" :account-id="account.id" />
         <div v-if="!isBuiltinAdapterAccount && (!isCNApiKeyAccount || editApiProtocol !== 'adaptive')">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -3053,6 +3054,7 @@ import {
   usesAutomaticMixedScheduling
 } from '@/constants/platforms'
 import BuiltinAdapterLogin from './BuiltinAdapterLogin.vue'
+import VibexUsage from './VibexUsage.vue'
 import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -3157,7 +3159,7 @@ interface Props {
 }
 
 const props = defineProps<Props>()
-const isBuiltinAdapterAccount = computed(() => ['doubao', 'traework', 'workbuddy', 'zcode'].includes(props.account?.platform ?? ''))
+const isBuiltinAdapterAccount = computed(() => ['doubao', 'traework', 'workbuddy', 'vibex', 'zcode'].includes(props.account?.platform ?? ''))
 const hasBuiltinAdapterCredentials = computed(() => {
   const credentials = props.account?.credentials as Record<string, unknown> | undefined
   return props.account?.credentials_status?.has_api_key ?? Boolean(credentials?.api_key)
@@ -3873,7 +3875,7 @@ const tempUnschedPresets = computed(() => [
 
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
-  if (['doubao', 'traework', 'workbuddy', 'zcode'].includes(props.account?.platform ?? '')) return ''
+  if (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode'].includes(props.account?.platform ?? '')) return ''
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
@@ -4315,7 +4317,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       }
     }
     const platformDefaultUrl =
-      (['doubao', 'traework', 'workbuddy', 'zcode'].includes(newAccount.platform))
+      (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode'].includes(newAccount.platform))
         ? ''
         : newAccount.platform === 'openai'
         ? 'https://api.openai.com'
@@ -4395,7 +4397,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
   } else {
     const platformDefaultUrl =
-      (['doubao', 'traework', 'workbuddy', 'zcode'].includes(newAccount.platform))
+      (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode'].includes(newAccount.platform))
         ? ''
         : newAccount.platform === 'openai'
         ? 'https://api.openai.com'
@@ -5071,7 +5073,7 @@ const handleSubmit = async () => {
         delete newCredentials.base_url
       }
 
-      if (['doubao', 'traework', 'workbuddy', 'zcode'].includes(props.account.platform)) {
+      if (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode'].includes(props.account.platform)) {
         newCredentials.api_protocol = 'chat_completions'
         newCredentials.openai_capabilities = ['chat_completions']
         if (props.account.platform !== 'traework') {

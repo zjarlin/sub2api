@@ -225,15 +225,16 @@ func (h *Handler) modelList() []map[string]any {
 	if infos := h.fetchDynamicModels(); len(infos) > 0 {
 		out := make([]map[string]any, 0, len(infos))
 		for _, mi := range infos {
+			contextLength := mi.ContextWindow
+			if contextLength <= 0 {
+				contextLength = 131072
+			}
 			entry := map[string]any{
 				"id":             mi.ID,
 				"object":         "model",
 				"created":        1753600000,
 				"owned_by":       "trae-solo",
-				"context_length": mi.ContextWindow,
-			}
-			if entry["context_length"] == 0 {
-				entry["context_length"] = 131072
+				"context_length": contextLength,
 			}
 			out = append(out, entry)
 		}

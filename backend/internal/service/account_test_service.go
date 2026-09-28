@@ -527,6 +527,9 @@ func (s *AccountTestService) testOpenCodeGoResponsesConnection(c *gin.Context, a
 func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
+		if account.IsVibex() {
+			return s.sendErrorAndEnd(c, "Select a model synchronized from the VibeX account")
+		}
 		testModelID = openai.DefaultTestModel
 		if account.IsDoubao() {
 			testModelID = DefaultDoubaoTestModel

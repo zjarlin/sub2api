@@ -27,6 +27,18 @@ func newResponsesProbeAccount(id int64) Account {
 	}
 }
 
+func TestSelectResponsesProbeModelUsesSyncedCatalogForQuickAdd(t *testing.T) {
+	account := &Account{}
+	account.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
+		Models: []string{"z-model", "*", "", " alpha-model "},
+	})
+	require.Equal(t, "alpha-model", selectResponsesProbeModel(account))
+	account.Credentials = map[string]any{
+		"model_mapping": map[string]any{"alias": "mapped-model"},
+	}
+	require.Equal(t, "mapped-model", selectResponsesProbeModel(account))
+}
+
 // runResponsesProbe 跑一次探测，返回落库的 extra 更新；未落库时返回 nil。
 func runResponsesProbe(t *testing.T, status int, body string) map[string]any {
 	t.Helper()
@@ -128,6 +140,30 @@ func TestProbeOpenAIAPIKeyResponsesSupport_ConclusiveResponsesStillPersist(t *te
 			status: http.StatusNotFound,
 			body:   `{"error":{"message":"Not Found"}}`,
 			want:   false,
+		},
+		{
+			name:   "new_api_responses_conversion_not_implemented",
+			status: http.StatusInternalServerError,
+			body:   `{"error":{"message":"not implemented (request id: probe)","type":"new_api_error","code":"convert_request_failed"}}`,
+			want:   false,
+		},
+		{
+			name:   "endpoint_not_implemented_501",
+			status: http.StatusNotImplemented,
+			body:   `{"error":{"message":"Not Implemented"}}`,
+			want:   false,
+		},
+		{
+			name:   "unrelated_conversion_error_keeps_responses",
+			status: http.StatusInternalServerError,
+			body:   `{"error":{"code":"convert_request_failed","message":"temporary upstream failure"}}`,
+			want:   true,
+		},
+		{
+			name:   "unrelated_not_implemented_keeps_responses",
+			status: http.StatusInternalServerError,
+			body:   `{"error":{"code":"server_error","message":"not implemented"}}`,
+			want:   true,
 		},
 		{
 			// 非 2xx 的结论只看状态码：body 里的 status=failed 不该让它变成"不下结论"。

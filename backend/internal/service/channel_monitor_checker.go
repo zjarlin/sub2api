@@ -179,6 +179,7 @@ var providerAdapters = map[string]providerAdapter{
 	MonitorProviderDoubao:    providerDoubaoChatAdapter,
 	MonitorProviderTraework:  providerTraeworkChatAdapter,
 	MonitorProviderWorkbuddy: providerTraeworkChatAdapter,
+	MonitorProviderVibex:     providerTraeworkChatAdapter,
 	MonitorProviderZcode:     providerTraeworkChatAdapter,
 	// Laya / JEV 的 System One 决策响应不生成文本；通道探活只验证 OpenAI 兼容适配面可用。
 	MonitorProviderLaya: providerTraeworkChatAdapter,
@@ -493,6 +494,7 @@ var bodyMergeKeyDenyList = map[string]map[string]bool{
 	MonitorProviderDoubao:    {"model": true, "messages": true, "stream": true},
 	MonitorProviderTraework:  {"model": true, "messages": true, "stream": true},
 	MonitorProviderWorkbuddy: {"model": true, "messages": true, "stream": true},
+	MonitorProviderVibex:     {"model": true, "messages": true, "stream": true},
 	MonitorProviderZcode:     {"model": true, "messages": true, "stream": true},
 	MonitorProviderLaya:      {"model": true, "messages": true, "stream": true},
 	MonitorProviderJev:       {"model": true, "messages": true, "stream": true},
@@ -517,7 +519,7 @@ func bodyMergeDenyKey(provider, apiMode string) string {
 func isOpenAICompatibleChatProvider(provider string) bool {
 	switch provider {
 	case MonitorProviderOpenAI, MonitorProviderGrok,
-		MonitorProviderKimi, MonitorProviderZhipu, MonitorProviderDeepseek, MonitorProviderMiniMax, MonitorProviderDoubao, MonitorProviderTraework, MonitorProviderWorkbuddy, MonitorProviderZcode, MonitorProviderLaya, MonitorProviderJev:
+		MonitorProviderKimi, MonitorProviderZhipu, MonitorProviderDeepseek, MonitorProviderMiniMax, MonitorProviderDoubao, MonitorProviderTraework, MonitorProviderWorkbuddy, MonitorProviderVibex, MonitorProviderZcode, MonitorProviderLaya, MonitorProviderJev:
 		return true
 	default:
 		return false

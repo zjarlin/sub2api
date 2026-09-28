@@ -146,3 +146,22 @@ func TestGPTFallbackGuards(t *testing.T) {
 	_, ok = h.nextModelFallback(c, key, "gpt-6-astra", []byte(`{}`), false)
 	require.False(t, ok)
 }
+
+func TestFallbackToolsReplayableClientTools(t *testing.T) {
+	for _, body := range []string{
+		`[{"type":"custom","name":"apply_patch","format":{"type":"grammar","syntax":"lark","definition":"start: /.+/"}}]`,
+		`[{"type":"namespace","name":"functions","tools":[{"type":"function","name":"exec"},{"type":"custom","name":"apply_patch"}]}]`,
+		`[{"type":"tool_search","execution":"client"}]`,
+	} {
+		require.True(t, fallbackToolsReplayable(gjson.Parse(body)))
+	}
+	for _, body := range []string{
+		`[{"type":"web_search"}]`,
+		`[{"type":"namespace","name":"hosted","tools":[{"type":"code_interpreter"}]}]`,
+		`[{"type":"custom","name":"apply_patch"},{"type":"file_search"}]`,
+		`[{"type":"tool_search","execution":"server"}]`,
+		`[{"type":"tool_search"}]`,
+	} {
+		require.False(t, fallbackToolsReplayable(gjson.Parse(body)))
+	}
+}

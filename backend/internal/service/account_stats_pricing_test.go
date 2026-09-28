@@ -381,7 +381,7 @@ func TestTryCustomRules_FirstMatchWins(t *testing.T) {
 		},
 	}
 	tokens := UsageTokens{InputTokens: 100, OutputTokens: 50}
-	result := tryCustomRules(channel, 999, 1, "", "claude-opus-4", tokens, 1)
+	result := tryCustomRules(channel, 999, 1, "", "claude-opus-4", tokens, 1, time.Time{})
 	require.NotNil(t, result)
 	// 应使用第一条规则的价格：100*0.01 + 50*0.02 = 2.0
 	require.InDelta(t, 2.0, *result, 1e-12)
@@ -405,7 +405,7 @@ func TestTryCustomRules_SkipsNonMatchingRules(t *testing.T) {
 		},
 	}
 	tokens := UsageTokens{InputTokens: 100}
-	result := tryCustomRules(channel, 999, 1, "", "claude-opus-4", tokens, 1)
+	result := tryCustomRules(channel, 999, 1, "", "claude-opus-4", tokens, 1, time.Time{})
 	require.NotNil(t, result)
 	// 跳过规则1（账号不匹配），使用规则2：100*0.05 = 5.0
 	require.InDelta(t, 5.0, *result, 1e-12)
@@ -423,7 +423,7 @@ func TestTryCustomRules_NoMatch_ReturnsNil(t *testing.T) {
 		},
 	}
 	tokens := UsageTokens{InputTokens: 100}
-	result := tryCustomRules(channel, 999, 2, "", "claude-opus-4", tokens, 1)
+	result := tryCustomRules(channel, 999, 2, "", "claude-opus-4", tokens, 1, time.Time{})
 	require.Nil(t, result) // 账号和分组都不匹配
 }
 
@@ -445,7 +445,7 @@ func TestTryCustomRules_RuleMatchesButModelNot_ContinuesToNext(t *testing.T) {
 		},
 	}
 	tokens := UsageTokens{InputTokens: 100}
-	result := tryCustomRules(channel, 999, 1, "", "claude-opus-4", tokens, 1)
+	result := tryCustomRules(channel, 999, 1, "", "claude-opus-4", tokens, 1, time.Time{})
 	require.NotNil(t, result)
 	require.InDelta(t, 5.0, *result, 1e-12) // 使用规则2
 }
@@ -453,6 +453,28 @@ func TestTryCustomRules_RuleMatchesButModelNot_ContinuesToNext(t *testing.T) {
 // ---------------------------------------------------------------------------
 // tryModelFilePricing
 // ---------------------------------------------------------------------------
+
+func TestTryCustomRulesUsesRequestTimeForPeakCost(t *testing.T) {
+	channel := &Channel{AccountStatsPricingRules: []AccountStatsPricingRule{{
+		AccountIDs: []int64{856},
+		Pricing: []ChannelModelPricing{{
+			Models: []string{"deepseek-v4.1-flash"}, InputPrice: testPtrFloat64(1.5e-7),
+			TimePricing: &ChannelTimePricing{Timezone: "UTC", WeekdaysOnly: true, Periods: []ChannelTimePricingPeriod{{StartTime: "01:00", EndTime: "04:00", Multiplier: 2}}},
+		}},
+	}}}
+	for _, tc := range []struct {
+		at   time.Time
+		want float64
+	}{
+		{time.Date(2026, 9, 28, 2, 0, 0, 0, time.UTC), 0.0003},
+		{time.Date(2026, 9, 28, 4, 0, 0, 0, time.UTC), 0.00015},
+		{time.Date(2026, 9, 27, 2, 0, 0, 0, time.UTC), 0.00015},
+	} {
+		cost := tryCustomRules(channel, 856, 6, "openai", "deepseek-v4.1-flash", UsageTokens{InputTokens: 1000}, 1, tc.at)
+		require.NotNil(t, cost)
+		require.InDelta(t, tc.want, *cost, 1e-12)
+	}
+}
 
 // newTestBillingServiceWithPrices creates a BillingService with pre-populated
 // fallback prices for testing. No config or pricing service is needed.

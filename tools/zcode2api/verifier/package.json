@@ -1,0 +1,12 @@
+{
+  "name": "zcode-start-plan-verifier",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node server.mjs",
+    "test": "node --test *.test.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "1.59.1"
+  }
+}

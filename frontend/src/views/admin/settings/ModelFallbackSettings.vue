@@ -66,7 +66,7 @@ const validationError = computed(() => {
   const models = rows.flatMap(tier => tier.models)
   if ((enabled.value && !rows.length) || rows.some(tier => !tier.name || !tier.models.length)) return t('admin.settings.modelFallback.required')
   if (new Set(rows.map(tier => tier.name)).size !== rows.length || new Set(models).size !== models.length) return t('admin.settings.modelFallback.duplicate')
-  if (models.length > 64 || models.some(model => model.length > 200 || model.includes('*'))) return t('admin.settings.modelFallback.invalidModels')
+  if (models.length > 256 || models.some(model => model.length > 200 || model.includes('*'))) return t('admin.settings.modelFallback.invalidModels')
   return ''
 })
 

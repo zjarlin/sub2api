@@ -19,6 +19,7 @@ export type Platform =
   | 'doubao'
   | 'traework'
   | 'workbuddy'
+  | 'vibex'
   | 'zcode'
   | 'qoder'
   | 'laya'
@@ -38,6 +39,7 @@ const BADGE: Record<Platform, string> = {
   doubao: 'bg-cyan-500/10 text-cyan-600 border-cyan-500/30 dark:text-cyan-400',
   traework: 'bg-lime-500/10 text-lime-600 border-lime-500/30 dark:text-lime-400',
   workbuddy: 'bg-blue-500/10 text-blue-600 border-blue-500/30 dark:text-blue-400',
+  vibex: 'bg-blue-500/10 text-blue-600 border-blue-500/30 dark:text-blue-400',
   zcode: 'bg-indigo-500/10 text-indigo-600 border-indigo-500/30 dark:text-indigo-400',
   qoder: 'bg-teal-500/10 text-teal-600 border-teal-500/30 dark:text-teal-400',
   laya: 'bg-violet-500/10 text-violet-600 border-violet-500/30 dark:text-violet-400',
@@ -61,6 +63,7 @@ const BADGE_LIGHT: Record<Platform, string> = {
   doubao: 'bg-cyan-500/10 text-cyan-600 dark:bg-cyan-500/10 dark:text-cyan-300',
   traework: 'bg-lime-500/10 text-lime-600 dark:bg-lime-500/10 dark:text-lime-300',
   workbuddy: 'bg-blue-500/10 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300',
+  vibex: 'bg-blue-500/10 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300',
   zcode: 'bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300',
   qoder: 'bg-teal-500/10 text-teal-600 dark:bg-teal-500/10 dark:text-teal-300',
   laya: 'bg-violet-500/10 text-violet-600 dark:bg-violet-500/10 dark:text-violet-300',
@@ -83,6 +86,7 @@ const BORDER: Record<Platform, string> = {
   doubao: 'border-cyan-500/20 dark:border-cyan-500/20',
   traework: 'border-lime-500/20 dark:border-lime-500/20',
   workbuddy: 'border-blue-500/20 dark:border-blue-500/20',
+  vibex: 'border-blue-500/20 dark:border-blue-500/20',
   zcode: 'border-indigo-500/20 dark:border-indigo-500/20',
   qoder: 'border-teal-500/20 dark:border-teal-500/20',
   laya: 'border-violet-500/20 dark:border-violet-500/20',
@@ -106,6 +110,7 @@ const BORDER_STRONG: Record<Platform, string> = {
   doubao: 'border-cyan-500/35 dark:border-cyan-500/30',
   traework: 'border-lime-500/35 dark:border-lime-500/30',
   workbuddy: 'border-blue-500/35 dark:border-blue-500/30',
+  vibex: 'border-blue-500/35 dark:border-blue-500/30',
   zcode: 'border-indigo-500/35 dark:border-indigo-500/30',
   qoder: 'border-teal-500/35 dark:border-teal-500/30',
   laya: 'border-violet-500/35 dark:border-violet-500/30',
@@ -130,6 +135,7 @@ const ACCENT: Record<Platform, string> = {
   doubao: '#06b6d4',
   traework: '#84cc16',
   workbuddy: '#3b82f6',
+  vibex: '#3b82f6',
   zcode: '#6366f1',
   qoder: '#14b8a6',
   laya: '#8b5cf6',
@@ -153,6 +159,7 @@ const ACCENT_BAR: Record<Platform, string> = {
   doubao: 'bg-gradient-to-r from-cyan-400 to-cyan-500',
   traework: 'bg-gradient-to-r from-lime-400 to-lime-500',
   workbuddy: 'bg-gradient-to-r from-blue-400 to-blue-500',
+  vibex: 'bg-gradient-to-r from-blue-400 to-blue-500',
   zcode: 'bg-gradient-to-r from-indigo-400 to-indigo-500',
   qoder: 'bg-gradient-to-r from-teal-400 to-teal-500',
   laya: 'bg-gradient-to-r from-violet-400 to-violet-500',
@@ -176,6 +183,7 @@ const TEXT: Record<Platform, string> = {
   doubao: 'text-cyan-600 dark:text-cyan-400',
   traework: 'text-lime-600 dark:text-lime-400',
   workbuddy: 'text-blue-600 dark:text-blue-400',
+  vibex: 'text-blue-600 dark:text-blue-400',
   zcode: 'text-indigo-600 dark:text-indigo-400',
   qoder: 'text-teal-600 dark:text-teal-400',
   laya: 'text-violet-600 dark:text-violet-400',
@@ -199,6 +207,7 @@ const ICON: Record<Platform, string> = {
   doubao: 'text-cyan-500 dark:text-cyan-400',
   traework: 'text-lime-500 dark:text-lime-400',
   workbuddy: 'text-blue-500 dark:text-blue-400',
+  vibex: 'text-blue-500 dark:text-blue-400',
   zcode: 'text-indigo-500 dark:text-indigo-400',
   qoder: 'text-teal-500 dark:text-teal-400',
   laya: 'text-violet-500 dark:text-violet-400',
@@ -222,6 +231,7 @@ const BUTTON: Record<Platform, string> = {
   doubao: 'bg-cyan-500 text-white hover:bg-cyan-600 active:bg-cyan-700 dark:bg-cyan-500/80 dark:hover:bg-cyan-500',
   traework: 'bg-lime-500 text-white hover:bg-lime-600 active:bg-lime-700 dark:bg-lime-500/80 dark:hover:bg-lime-500',
   workbuddy: 'bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700 dark:bg-blue-500/80 dark:hover:bg-blue-500',
+  vibex: 'bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700 dark:bg-blue-500/80 dark:hover:bg-blue-500',
   zcode: 'bg-indigo-500 text-white hover:bg-indigo-600 active:bg-indigo-700 dark:bg-indigo-500/80 dark:hover:bg-indigo-500',
   qoder: 'bg-teal-500 text-white hover:bg-teal-600 active:bg-teal-700 dark:bg-teal-500/80 dark:hover:bg-teal-500',
   laya: 'bg-violet-500 text-white hover:bg-violet-600 active:bg-violet-700 dark:bg-violet-500/80 dark:hover:bg-violet-500',
@@ -245,6 +255,7 @@ const DISCOUNT: Record<Platform, string> = {
   doubao: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300',
   traework: 'bg-lime-100 text-lime-700 dark:bg-lime-900/40 dark:text-lime-300',
   workbuddy: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
+  vibex: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
   zcode: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300',
   qoder: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
   laya: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
@@ -268,6 +279,7 @@ const GRADIENT: Record<Platform, string> = {
   doubao: 'from-cyan-500 to-cyan-600',
   traework: 'from-lime-500 to-lime-600',
   workbuddy: 'from-blue-500 to-blue-600',
+  vibex: 'from-blue-500 to-blue-600',
   zcode: 'from-indigo-500 to-indigo-600',
   qoder: 'from-teal-500 to-teal-600',
   laya: 'from-violet-500 to-violet-600',
@@ -291,6 +303,7 @@ const GRADIENT_TEXT: Record<Platform, string> = {
   doubao: 'text-cyan-100',
   traework: 'text-lime-100',
   workbuddy: 'text-blue-100',
+  vibex: 'text-blue-100',
   zcode: 'text-indigo-100',
   qoder: 'text-teal-100',
   laya: 'text-violet-100',
@@ -313,6 +326,7 @@ const GRADIENT_SUBTEXT: Record<Platform, string> = {
   doubao: 'text-cyan-200',
   traework: 'text-lime-200',
   workbuddy: 'text-blue-200',
+  vibex: 'text-blue-200',
   zcode: 'text-indigo-200',
   qoder: 'text-teal-200',
   laya: 'text-violet-200',
@@ -337,7 +351,7 @@ function isPlatform(p: string): p is Platform {
     p === 'deepseek' ||
     p === 'doubao' ||
     p === 'traework' ||
-    p === 'workbuddy' ||
+    p === 'workbuddy' || p === 'vibex' ||
     p === 'zcode' ||
     p === 'qoder' ||
     p === 'laya' ||
@@ -412,6 +426,7 @@ export function platformLabel(p: string): string {
     case 'deepseek': return 'DeepSeek'
     case 'doubao': return 'Doubao'
     case 'traework': return 'TRAE Work'
+    case 'vibex': return 'VibeX'
     case 'workbuddy': return 'WorkBuddy'
     case 'zcode': return 'ZCode'
     case 'qoder': return 'Qoder'

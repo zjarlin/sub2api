@@ -22,6 +22,8 @@ services:
       - BUILTIN_ADAPTER_TRAEWORK_KEY=${TRAEWORK_ADAPTER_KEY:-}
       - BUILTIN_ADAPTER_WORKBUDDY_URL=http://sub2api-workbuddy:7863
       - BUILTIN_ADAPTER_WORKBUDDY_KEY=${WORKBUDDY_ADAPTER_KEY:-}
+      - BUILTIN_ADAPTER_VIBEX_URL=http://sub2api-vibex:7866
+      - BUILTIN_ADAPTER_VIBEX_KEY=${VIBEX_ADAPTER_KEY:-}
       - BUILTIN_ADAPTER_ZCODE_URL=http://sub2api-zcode:7865
       - BUILTIN_ADAPTER_ZCODE_KEY=${ZCODE_ADAPTER_KEY:-}
       - BUILTIN_ADAPTER_LAYA_URL=http://edge-laya:18082
@@ -37,6 +39,29 @@ services:
         condition: service_healthy
       sub2api-zcode:
         condition: service_healthy
+
+  sub2api-vibex:
+    build:
+      context: ./tools
+      dockerfile: vibex2api/Dockerfile
+    image: ${VIBEX_IMAGE:-sub2api-vibex:local}
+    restart: unless-stopped
+    environment:
+      V2A_LISTEN: 0.0.0.0:7866
+      V2A_API_KEY: "${VIBEX_ADAPTER_KEY:?Set VIBEX_ADAPTER_KEY to a shared adapter key}"
+      V2A_STATE_FILE: /app/data/credential.json
+    volumes:
+      - "${VIBEX_STATE_DIR:-vibex-data}:/app/data"
+    networks:
+      - sub2api-network
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 256m
+    healthcheck:
+      test: [CMD, wget, -qO-, http://127.0.0.1:7866/livez]
+      interval: 30s
+      timeout: 5s
+      retries: 3
 
   sub2api-desktop:
     build:
@@ -128,11 +153,15 @@ services:
       TZ: ${TZ:-Asia/Shanghai}
       Z2A_LISTEN: 0.0.0.0:7865
       Z2A_API_KEY: "${ZCODE_ADAPTER_KEY:?Set ZCODE_ADAPTER_KEY to a shared adapter key}"
-      # 上游 z.ai / 智谱 GLM Coding Plan 的 API key 与 Anthropic 端点。
+      # 显式 Start Plan 配置使用登录 JWT 和对应端点；网页授权会保存所选套餐。
+      Z2A_UPSTREAM_PLAN: "${ZCODE_UPSTREAM_PLAN:-coding-plan}"
+      Z2A_OAUTH_PROVIDER: "${ZCODE_OAUTH_PROVIDER:-zai}"
       Z2A_UPSTREAM_API_KEY: "${ZCODE_UPSTREAM_KEY:-}"
       Z2A_UPSTREAM_BASE_URL: "${ZCODE_UPSTREAM_BASE_URL:-https://open.bigmodel.cn/api/anthropic}"
       Z2A_UPSTREAM_PROVIDER_ID: "${ZCODE_UPSTREAM_PROVIDER_ID:-builtin:bigmodel-coding-plan}"
       Z2A_THINKING_EFFORT: "${ZCODE_THINKING_EFFORT:-max}"
+      Z2A_START_PLAN_VERIFIER_URL: "${ZCODE_START_PLAN_VERIFIER_URL:-}"
+      Z2A_START_PLAN_VERIFIER_KEY: "${ZCODE_START_PLAN_VERIFIER_KEY:-}"
       # 网页授权凭据落盘位置，指向命名卷，重建容器后仍保留。
       Z2A_CREDENTIAL_STORE_PATH: /app/data/credential.json
     volumes:
@@ -154,3 +183,4 @@ volumes:
   workbuddy-auths:
   workbuddy-data:
   zcode-data:
+  vibex-data:

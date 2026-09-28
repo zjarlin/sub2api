@@ -12,6 +12,38 @@ describe('BuiltinAdapterLogin', () => {
   beforeEach(() => { vi.useFakeTimers(); vi.clearAllMocks(); cancel.mockResolvedValue(undefined) })
   afterEach(() => { vi.useRealTimers() })
 
+  it('fixes the selected ZCode plan and provider for the authorization session', async () => {
+    start.mockResolvedValue(pending('callback'))
+    const wrapper = mount(BuiltinAdapterLogin, { props: { platform: 'zcode' } })
+    await wrapper.get('#zcode-login-plan').setValue('start-plan')
+    await wrapper.get('#zcode-login-provider').setValue('bigmodel')
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(start).toHaveBeenCalledWith('zcode', expect.any(AbortSignal), { plan: 'start-plan', provider: 'bigmodel' })
+    expect(wrapper.get('#zcode-login-plan').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('#zcode-login-provider').attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('admin.accounts.builtinLogin.zcodePoolHint')
+    wrapper.unmount()
+  })
+
+  it('imports VibeX credentials without polling and clears the input after success', async () => {
+    start.mockResolvedValue(pending('callback'))
+    complete.mockResolvedValue({ ...pending('callback'), status: 'completed', account: { uid: 'v1' } })
+    const wrapper = mount(BuiltinAdapterLogin, { props: { platform: 'vibex' } })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('admin.accounts.builtinLogin.vibexPoolHint')
+    expect(wrapper.get('input').attributes('type')).toBe('password')
+    await wrapper.get('input').setValue('test-vibex-token')
+    await wrapper.get('button.btn-primary').trigger('click')
+    await flushPromises()
+    expect(complete).toHaveBeenCalledWith('vibex', expect.anything(), 'test-vibex-token', expect.any(AbortSignal))
+    expect(wrapper.find('input').exists()).toBe(false)
+    await vi.advanceTimersByTimeAsync(5000)
+    expect(complete).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
   it('submits the TRAE callback and clears credentials after success', async () => {
     start.mockResolvedValue(pending('callback'))
     complete.mockResolvedValue({ ...pending('callback'), status: 'completed', account: { uid: 'u1' } })

@@ -14,6 +14,8 @@ func TestBuiltinAdapterEnvReachable(t *testing.T) {
 	t.Setenv("BUILTIN_ADAPTER_TRAEWORK_KEY", "shared-key")
 	t.Setenv("BUILTIN_ADAPTER_WORKBUDDY_KEY", "workbuddy-key")
 	t.Setenv("BUILTIN_ADAPTER_WORKBUDDY_URL", "http://sub2api-workbuddy:7863")
+	t.Setenv("BUILTIN_ADAPTER_VIBEX_KEY", "vibex-key")
+	t.Setenv("BUILTIN_ADAPTER_VIBEX_URL", "http://sub2api-vibex:7866")
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()
 	viper.SetDefault("builtin_adapter.enabled", false)
@@ -21,6 +23,8 @@ func TestBuiltinAdapterEnvReachable(t *testing.T) {
 	viper.SetDefault("builtin_adapter.traework_key", "")
 	viper.SetDefault("builtin_adapter.workbuddy_key", "")
 	viper.SetDefault("builtin_adapter.workbuddy_url", "")
+	viper.SetDefault("builtin_adapter.vibex_key", "")
+	viper.SetDefault("builtin_adapter.vibex_url", "")
 	var cfg Config
 	if err := viper.Unmarshal(&cfg); err != nil {
 		t.Fatal(err)
@@ -36,5 +40,8 @@ func TestBuiltinAdapterEnvReachable(t *testing.T) {
 	}
 	if cfg.BuiltinAdapter.WorkbuddyKey != "workbuddy-key" || cfg.BuiltinAdapter.WorkbuddyBaseURL() != "http://sub2api-workbuddy:7863" {
 		t.Fatal("workbuddy adapter environment not mapped")
+	}
+	if cfg.BuiltinAdapter.VibexKey != "vibex-key" || cfg.BuiltinAdapter.VibexBaseURL() != "http://sub2api-vibex:7866" {
+		t.Fatal("VibeX adapter environment not mapped")
 	}
 }

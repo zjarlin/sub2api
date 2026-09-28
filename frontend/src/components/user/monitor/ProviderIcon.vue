@@ -38,6 +38,7 @@ interface IconData {
 const PROVIDER_ICONS: Record<Provider, IconData> = {
   traework: { paths: ['M3 4h18v16H3z', 'M7 9l3 3-3 3', 'M13 15h4'] },
   workbuddy: { paths: ['M3 4h18v16H3z', 'M7 9l3 3-3 3', 'M13 15h4'] },
+  vibex: { paths: ['M3 4h18v16H3z', 'M7 9l3 3-3 3', 'M13 15h4'] },
   zcode: { paths: ['M4 4h16v16H4z', 'M9 9l6 6', 'M15 9l-6 6'] },
   laya: { paths: ['M4 4h16v16H4z', 'M8 12h8'] },
   jev: { paths: ['M4 4h16v16H4z', 'M8 8h8', 'M8 12h6', 'M8 16h8'] },

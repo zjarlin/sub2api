@@ -1,5 +1,16 @@
 export default {
     accounts: {
+      vibex: {
+        title: 'VibeX',
+        usage: 'RunningHub balance and quota',
+        balance: 'Wallet balance (CNY)',
+        liteTokens: 'Lite token usage',
+        liteCost: 'Lite quota (CNY)',
+        notLoaded: 'Not loaded',
+        usageFailed: 'Unable to read usage; check login status.',
+        baseUrlHint: 'Uses the built-in VibeX service; no URL is required.',
+        apiKeyHint: 'The connection key is managed by the server.',
+      },
       zcode: {
         title: 'ZCode',
         connectionHint: 'Uses the glm-zcode-2api adapter started with this Sub2API deployment. Complete the web authorization to sign in your z.ai / Zhipu account; the server injects the URL and key.',
@@ -46,9 +57,17 @@ export default {
         apiKeyHint: 'The server manages the adapter key. JEV returns decisions, not generated text.',
       },
       builtinLogin: {
+        vibexHint: 'Sign in to RunningHub and import the VibeX credential. Text conversations are supported.',
+        vibexPoolHint: 'This deployment shares one RunningHub account and a dedicated project. Import a new credential when login expires; automatic refresh is unavailable.',
+        vibexToken: 'RunningHub access token / sign-in return URL',
+        vibexTokenPlaceholder: 'Rh-Accesstoken or the VibeX return URL containing rh-sso-token',
         traeworkHint: 'Open TRAE authorization, sign in, then paste the full callback URL from the address bar. A connection error at 127.0.0.1 does not prevent import.',
         workbuddyHint: 'Open WorkBuddy CN authorization and sign in. This page retrieves the authorization result automatically.',
         zcodeHint: 'Open ZCode authorization and sign in with your z.ai / Zhipu account, then paste the full callback URL from the address bar. A connection error at 127.0.0.1 does not prevent import.',
+        zcodePoolHint: 'This deployment shares one ZCode login and the selected plan. Sign in again when Start Plan login expires. Complete interactive verification in the verification browser.',
+        zcodePlan: 'Plan',
+        zcodeProvider: 'Account Region',
+        zcodeBigmodel: 'BigModel',
         poolHint: 'Credentials join this deployment’s shared account pool and refresh on the server. You can save directly if credentials already exist. No URL or adapter key is required.',
         start: 'Sign in and connect', restart: 'Sign in again / add login', open: 'Open authorization page',
         callback: 'Full callback URL', callbackPlaceholder: 'http://127.0.0.1:18080/authorize?...',
@@ -204,6 +223,7 @@ export default {
         doubao: 'Doubao',
         traework: 'TRAE Work',
         workbuddy: 'WorkBuddy',
+        vibex: 'VibeX',
         zcode: 'ZCode',
         laya: 'Laya',
         jev: 'JEV',

@@ -1122,6 +1122,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 // Falls back to default models if no whitelist is configured
 func (h *GatewayHandler) Models(c *gin.Context) {
 	apiKey, _ := middleware2.GetAPIKeyFromContext(c)
+	h.PrepareAutoModelListing(c)
 	requireHealthCheck := h.gatewayService.ModelsRequireHealthCheck()
 
 	var groupID *int64
@@ -1143,6 +1144,9 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 
 	if platform == service.PlatformComposite {
 		availableModels := h.compositeAvailableModels(c.Request.Context(), groupID)
+		if apiKey != nil && h.autoModelAvailable(c.Request.Context(), apiKey.Group, availableModels) {
+			availableModels = prependAutoModel(availableModels)
+		}
 		if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
 			source := availableModels
 			if len(source) == 0 && !requireHealthCheck {
@@ -1250,6 +1254,9 @@ func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *servi
 	}
 	if platform == service.PlatformComposite {
 		availableModels := h.compositeAvailableModels(ctx, groupID)
+		if h.autoModelAvailable(ctx, group, availableModels) {
+			availableModels = prependAutoModel(availableModels)
+		}
 		fallbackModels := defaultCodexModelIDsForPlatform(service.PlatformComposite)
 		if h.gatewayService.ModelsRequireHealthCheck() {
 			fallbackModels = nil
@@ -1289,7 +1296,7 @@ func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *
 	models := make([]string, 0)
 	schedulablePlatforms := h.gatewayService.GetSchedulablePlatforms(ctx, groupID)
 	requireHealthCheck := h.gatewayService.ModelsRequireHealthCheck()
-	for _, platform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformOpenAI, service.PlatformAntigravity, service.PlatformGrok, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformDoubao, service.PlatformTraework, service.PlatformWorkbuddy, service.PlatformZcode, service.PlatformLaya, service.PlatformJev} {
+	for _, platform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformOpenAI, service.PlatformAntigravity, service.PlatformGrok, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformDoubao, service.PlatformTraework, service.PlatformWorkbuddy, service.PlatformVibex, service.PlatformZcode, service.PlatformLaya, service.PlatformJev} {
 		platformModels := h.gatewayService.GetAvailableModels(ctx, groupID, platform)
 		if len(platformModels) == 0 && !requireHealthCheck {
 			// CN 供应商没有静态默认模型列表（defaultModelIDsForPlatform 的
@@ -1475,6 +1482,8 @@ func defaultModelIDsForPlatform(platform string) []string {
 		return service.DefaultDoubaoModelIDs()
 	case service.PlatformTraework:
 		return service.DefaultTraeworkModelIDs()
+	case service.PlatformVibex:
+		return nil
 	case service.PlatformWorkbuddy:
 		return service.DefaultWorkbuddyModelIDs()
 	case service.PlatformZcode:
@@ -1491,7 +1500,7 @@ func defaultModelIDsForPlatform(platform string) []string {
 	case service.PlatformComposite:
 		ids := make([]string, 0)
 		seen := make(map[string]struct{})
-		for _, concretePlatform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformOpenAI, service.PlatformAntigravity, service.PlatformGrok, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformDoubao, service.PlatformTraework, service.PlatformWorkbuddy, service.PlatformZcode, service.PlatformQoder, service.PlatformLaya, service.PlatformJev} {
+		for _, concretePlatform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformOpenAI, service.PlatformAntigravity, service.PlatformGrok, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformDoubao, service.PlatformTraework, service.PlatformWorkbuddy, service.PlatformVibex, service.PlatformZcode, service.PlatformQoder, service.PlatformLaya, service.PlatformJev} {
 			for _, id := range defaultModelIDsForPlatform(concretePlatform) {
 				if _, ok := seen[id]; ok {
 					continue

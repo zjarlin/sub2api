@@ -47,6 +47,8 @@ func builtinAdapterBaseURL(platform string) string {
 		return strings.TrimRight(cfg.TraeworkBaseURL(), "/")
 	case PlatformWorkbuddy:
 		return strings.TrimRight(cfg.WorkbuddyBaseURL(), "/")
+	case PlatformVibex:
+		return strings.TrimRight(cfg.VibexBaseURL(), "/")
 	case PlatformZcode:
 		return strings.TrimRight(cfg.ZcodeBaseURL(), "/")
 	case PlatformLaya:
@@ -71,6 +73,8 @@ func builtinAdapterAPIKey(platform string) string {
 		return strings.TrimSpace(cfg.TraeworkKey)
 	case PlatformWorkbuddy:
 		return strings.TrimSpace(cfg.WorkbuddyKey)
+	case PlatformVibex:
+		return strings.TrimSpace(cfg.VibexKey)
 	case PlatformZcode:
 		return strings.TrimSpace(cfg.ZcodeKey)
 	case PlatformLaya:

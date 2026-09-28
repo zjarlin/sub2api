@@ -57,11 +57,11 @@ func TestModelFallbackPolicyRejectsAmbiguousOrUnboundedConfig(t *testing.T) {
 
 func TestModelFallbackPolicyBounds(t *testing.T) {
 	policy := &ModelFallbackPolicy{Enabled: true, Tiers: []ModelCapabilityTier{{Name: "tier"}}}
-	for i := 0; i < 65; i++ {
+	for i := 0; i <= maxModelFallbackModels; i++ {
 		policy.Tiers[0].Models = append(policy.Tiers[0].Models, fmt.Sprintf("m%d", i))
 	}
 	require.Error(t, policy.Validate())
-	policy.Tiers[0].Models = policy.Tiers[0].Models[:64]
+	policy.Tiers[0].Models = policy.Tiers[0].Models[:maxModelFallbackModels]
 	require.NoError(t, policy.Validate())
 }
 

@@ -117,6 +117,8 @@ type BuiltinAdapterConfig struct {
 	TraeworkKey  string `mapstructure:"traework_key"`
 	WorkbuddyURL string `mapstructure:"workbuddy_url"`
 	WorkbuddyKey string `mapstructure:"workbuddy_key"`
+	VibexURL     string `mapstructure:"vibex_url"`
+	VibexKey     string `mapstructure:"vibex_key"`
 	ZcodeURL     string `mapstructure:"zcode_url"`
 	ZcodeKey     string `mapstructure:"zcode_key"`
 	// System One 决策模型：Laya（本地 edge-laya）与 JEV（远端 / 内网 TypeSafe）。
@@ -148,6 +150,14 @@ func (c BuiltinAdapterConfig) WorkbuddyBaseURL() string {
 		return "http://sub2api-workbuddy:7863"
 	}
 	return strings.TrimSpace(c.WorkbuddyURL)
+}
+
+// VibexBaseURL 返回内置 VibeX 服务地址。
+func (c BuiltinAdapterConfig) VibexBaseURL() string {
+	if strings.TrimSpace(c.VibexURL) == "" {
+		return "http://sub2api-vibex:7866"
+	}
+	return strings.TrimSpace(c.VibexURL)
 }
 
 // ZcodeBaseURL 返回内置 ZCode 服务地址。
@@ -2136,6 +2146,8 @@ func setDefaults() {
 	viper.SetDefault("builtin_adapter.traework_key", "")
 	viper.SetDefault("builtin_adapter.workbuddy_url", "")
 	viper.SetDefault("builtin_adapter.workbuddy_key", "")
+	viper.SetDefault("builtin_adapter.vibex_url", "")
+	viper.SetDefault("builtin_adapter.vibex_key", "")
 	viper.SetDefault("builtin_adapter.zcode_url", "")
 	viper.SetDefault("builtin_adapter.zcode_key", "")
 	viper.SetDefault("builtin_adapter.laya_url", "")

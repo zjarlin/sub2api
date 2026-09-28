@@ -1,4 +1,4 @@
-// constants.go SOLO 上游技术常量（SPEC §1，来自实测，禁止改动）。
+// constants.go SOLO 上游技术常量，版本身份与 TraeCode CN 已验证的模型目录保持一致。
 package upstream
 
 const (
@@ -8,8 +8,8 @@ const (
 	ConsoleHost    = "https://www.trae.cn"
 	ClientID       = "en1oxy7wnw8j9n" // SOLO stable
 	AppID          = "6eefa01c-1036-4c7e-9ca5-d891f63bfcd8"
-	IdeVersion     = "0.1.43"
-	IdeVersionCode = "20260716"
+	IdeVersion     = "3.3.104"
+	IdeVersionCode = "20260920"
 	DeviceBrand    = "83DG"
 	OSVersion      = "Windows 11 Pro"
 	Function       = "solo_work_lite"

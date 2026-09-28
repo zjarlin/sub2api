@@ -1,0 +1,36 @@
+# 可选无头验证服务。仅在使用 Start Plan 时叠加到基础配置和内置适配器配置。
+services:
+  sub2api-zcode:
+    environment:
+      Z2A_START_PLAN_VERIFIER_URL: http://sub2api-zcode-verifier:7866
+      Z2A_START_PLAN_VERIFIER_KEY: "${ZCODE_START_PLAN_VERIFIER_KEY:?Set a separate Start Plan verifier key}"
+    depends_on:
+      sub2api-zcode-verifier:
+        condition: service_healthy
+
+  sub2api-zcode-verifier:
+    build:
+      context: ./tools/zcode2api/verifier
+      dockerfile: Dockerfile
+    image: ${ZCODE_VERIFIER_IMAGE:-sub2api-zcode-verifier:local}
+    restart: unless-stopped
+    init: true
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      ZCODE_VERIFY_KEY: "${ZCODE_START_PLAN_VERIFIER_KEY:?Set a separate Start Plan verifier key}"
+    volumes:
+      - zcode-verifier-data:/app/data
+    networks:
+      - sub2api-network
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    shm_size: 256m
+    mem_limit: 1g
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:7866/livez').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  zcode-verifier-data:

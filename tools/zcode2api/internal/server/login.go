@@ -18,12 +18,14 @@ import (
 
 // 授权端点可被测试覆盖，生产默认指向 Z.AI / ZCode 官方入口。
 var (
-	zcodeAuthorizeURL    = "https://chat.z.ai/api/oauth/authorize"
-	zcodeTokenURL        = "https://zcode.z.ai/api/v1/oauth/token"
-	zcodeUserInfoURL     = "https://chat.z.ai/api/oauth/userinfo"
-	zcodeCustomerInfoURL = "https://api.z.ai/api/biz/customer/getCustomerInfo"
-	zcodeBizLoginURL     = "https://api.z.ai/api/auth/z/login"
-	zcodeBizBaseURL      = "https://api.z.ai/api/biz"
+	zcodeAuthorizeURL         = "https://chat.z.ai/api/oauth/authorize"
+	zcodeTokenURL             = "https://zcode.z.ai/api/v1/oauth/token"
+	zcodeUserInfoURL          = "https://chat.z.ai/api/oauth/userinfo"
+	zcodeCustomerInfoURL      = "https://api.z.ai/api/biz/customer/getCustomerInfo"
+	zcodeBizLoginURL          = "https://api.z.ai/api/auth/z/login"
+	zcodeBizBaseURL           = "https://api.z.ai/api/biz"
+	zcodeBigmodelAuthorizeURL = "https://bigmodel.cn/login"
+	zcodeBigmodelBizBaseURL   = "https://bigmodel.cn/api/biz"
 )
 
 const (
@@ -32,9 +34,12 @@ const (
 	zcodeOAuthRedirectURI = "https://zcode.z.ai/app/oauth/login?redirect=zcode%3A%2F%2Foauth%2Fcallback"
 )
 
-// beginZcodeLogin 复用 Z.AI 网页授权入口：浏览器登录后把完整回调链接交回后台，
-// 由适配器兑换 Coding Plan 凭据并落盘，后续请求不再依赖桌面 config.json。
+// 浏览器授权后提交完整回调链接；套餐和区域固定在会话内，成功后保存对应凭据。
 func (s *Server) beginZcodeLogin(ctx context.Context) (*builtinlogin.Flow, error) {
+	options, ok := ctx.Value(loginOptionsKey{}).(loginOptions)
+	if !ok {
+		options = loginOptions{Plan: s.cfg.Upstream.Plan, Provider: s.cfg.Upstream.OAuthProvider}
+	}
 	state, err := randomHex(32)
 	if err != nil {
 		return nil, err
@@ -45,20 +50,39 @@ func (s *Server) beginZcodeLogin(ctx context.Context) (*builtinlogin.Flow, error
 		"client_id":     {zcodeOAuthClientID},
 		"state":         {state},
 	}.Encode()
+	if options.Provider == "bigmodel" {
+		authURL = zcodeBigmodelAuthorizeURL + "?" + url.Values{
+			"redirect": {zcodeOAuthRedirectURI},
+			"appId":    {"zcode"},
+			"state":    {state},
+		}.Encode()
+	}
 	store := s.loginCredStore
 	client := s.loginHTTP
 	flow := &builtinlogin.Flow{URL: authURL, Mode: "callback"}
 	flow.Complete = func(ctx context.Context, callback string) (*builtinlogin.Account, error) {
+		if u, err := url.Parse(callback); err == nil && u.Query().Get("state") != "" && u.Query().Get("state") != state {
+			return nil, &builtinlogin.PublicError{Status: http.StatusBadRequest, Message: "Authorization callback state does not match this login"}
+		}
 		code, err := extractZcodeCode(callback)
 		if err != nil {
 			return nil, err
 		}
-		data, err := exchangeZcodeToken(ctx, client, code, state, zcodeOAuthRedirectURI)
+		data, err := exchangeZcodeToken(ctx, client, code, state, zcodeOAuthRedirectURI, options.Provider)
 		if err != nil {
 			return nil, &builtinlogin.PublicError{Status: http.StatusBadGateway, Message: "Built-in authorization failed; retry or start a new login"}
 		}
-		cred, err := buildZcodeCredential(ctx, client, data)
+		var cred credential.Credential
+		if options.Plan == credential.PlanStart {
+			cred, err = s.buildStartPlanCredential(ctx, data, options.Provider)
+		} else {
+			cred, err = buildZcodeCredential(ctx, client, data, options.Provider)
+		}
 		if err != nil {
+			var public *builtinlogin.PublicError
+			if errors.As(err, &public) {
+				return nil, public
+			}
 			return nil, &builtinlogin.PublicError{Status: http.StatusBadGateway, Message: "Authorization response is incomplete; retry or start a new login"}
 		}
 		if err := store.Save(cred); err != nil {
@@ -88,7 +112,7 @@ func extractZcodeCode(raw string) (string, error) {
 		if err != nil {
 			return "", invalid
 		}
-		if code := u.Query().Get("code"); code != "" {
+		if code := firstNonEmpty(u.Query().Get("code"), u.Query().Get("authCode")); code != "" {
 			return code, nil
 		}
 		return "", invalid
@@ -96,8 +120,8 @@ func extractZcodeCode(raw string) (string, error) {
 	return raw, nil
 }
 
-func exchangeZcodeToken(ctx context.Context, client *http.Client, code, state, redirectURI string) (map[string]any, error) {
-	payload, _ := json.Marshal(map[string]string{"provider": "zai", "code": code, "redirect_uri": redirectURI, "state": state})
+func exchangeZcodeToken(ctx context.Context, client *http.Client, code, state, redirectURI, provider string) (map[string]any, error) {
+	payload, _ := json.Marshal(map[string]string{"provider": provider, "code": code, "redirect_uri": redirectURI, "state": state})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, zcodeTokenURL, bytes.NewReader(payload))
 	if err != nil {
 		return nil, err
@@ -110,6 +134,9 @@ func exchangeZcodeToken(ctx context.Context, client *http.Client, code, state, r
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, fmt.Errorf("authorization token exchange status %d", resp.StatusCode)
+	}
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	var v map[string]any
 	if err := json.Unmarshal(body, &v); err != nil {
@@ -123,7 +150,7 @@ func exchangeZcodeToken(ctx context.Context, client *http.Client, code, state, r
 	}
 	data, ok := v["data"].(map[string]any)
 	if !ok || stringVal(data, "token") == "" {
-		return nil, errors.New("authorization response is missing the Coding Plan token")
+		return nil, errors.New("authorization response is missing the ZCode login token")
 	}
 	return data, nil
 }
@@ -153,38 +180,45 @@ func fetchZcodeUserInfo(ctx context.Context, client *http.Client, accessToken st
 }
 
 // buildZcodeCredential 走 OAuth access_token → 业务 token → 机构/项目 → API Key 提取链。
-func buildZcodeCredential(ctx context.Context, client *http.Client, data map[string]any) (credential.Credential, error) {
-	zai, _ := data["zai"].(map[string]any)
-	accessToken := stringVal(zai, "access_token")
+func buildZcodeCredential(ctx context.Context, client *http.Client, data map[string]any, provider string) (credential.Credential, error) {
+	oauth, _ := data[provider].(map[string]any)
+	accessToken := stringVal(oauth, "access_token")
 	user, _ := data["user"].(map[string]any)
 	if user == nil {
 		user = map[string]any{}
 	}
-	if info := fetchZcodeUserInfo(ctx, client, accessToken); info != nil {
-		for k, v := range info {
-			if _, ok := user[k]; !ok && v != nil {
-				user[k] = v
+	if provider == "zai" {
+		if info := fetchZcodeUserInfo(ctx, client, accessToken); info != nil {
+			for k, v := range info {
+				if _, ok := user[k]; !ok && v != nil {
+					user[k] = v
+				}
 			}
 		}
 	}
-	providerID := firstNonEmpty(stringVal(user, "provider_id"), "builtin:bigmodel-coding-plan")
+	providerID := firstNonEmpty(stringVal(user, "provider_id"), "account:"+provider+"-individual-coding-plan")
 	baseURL := "https://open.bigmodel.cn/api/anthropic"
-	if strings.Contains(strings.ToLower(stringVal(user, "plan_name")), "z.ai") {
+	if provider == "zai" {
 		baseURL = "https://api.z.ai/api/anthropic"
 	}
 	displayName := firstNonEmpty(stringVal(user, "name"), stringVal(user, "display_name"), stringVal(user, "email"), "ZCode")
-	apiKey := ""
-	if accessToken != "" {
-		if bizToken, err := exchangeBizToken(ctx, client, accessToken); err == nil {
-			if key, err := zcodeAPIKey(ctx, client, bizToken); err == nil {
-				apiKey = key
-			}
-		}
-	}
-	if apiKey == "" {
+	if accessToken == "" {
 		return credential.Credential{}, errors.New("unable to derive an upstream API key from the authorization")
 	}
-	return credential.Credential{APIKey: apiKey, BaseURL: baseURL, ProviderID: providerID, Provider: displayName, Source: "builtin-login"}, nil
+	authorization, bizBase, customerURL := accessToken, zcodeBigmodelBizBaseURL, zcodeBigmodelBizBaseURL+"/customer/getCustomerInfo"
+	if provider == "zai" {
+		bizToken, err := exchangeBizToken(ctx, client, accessToken)
+		if err != nil {
+			return credential.Credential{}, err
+		}
+		authorization = "Bearer " + bizToken
+		bizBase, customerURL = zcodeBizBaseURL, zcodeCustomerInfoURL
+	}
+	apiKey, err := zcodeAPIKey(ctx, client, authorization, customerURL, bizBase)
+	if err != nil {
+		return credential.Credential{}, err
+	}
+	return credential.Credential{APIKey: apiKey, BaseURL: baseURL, ProviderID: providerID, Provider: displayName, Source: "builtin-login", Plan: credential.PlanCoding}, nil
 }
 
 func exchangeBizToken(ctx context.Context, client *http.Client, accessToken string) (string, error) {
@@ -200,9 +234,9 @@ func exchangeBizToken(ctx context.Context, client *http.Client, accessToken stri
 	return readDataString(resp, "access_token", "accessToken")
 }
 
-func zcodeAPIKey(ctx context.Context, client *http.Client, bizToken string) (string, error) {
-	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, zcodeCustomerInfoURL, nil)
-	req.Header.Set("Authorization", "Bearer "+bizToken)
+func zcodeAPIKey(ctx context.Context, client *http.Client, authorization, customerURL, bizBaseURL string) (string, error) {
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, customerURL, nil)
+	req.Header.Set("Authorization", authorization)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", upstreamUserAgent())
 	resp, err := client.Do(req)
@@ -223,12 +257,12 @@ func zcodeAPIKey(ctx context.Context, client *http.Client, bizToken string) (str
 	if org == nil || proj == nil {
 		return "", errors.New("authorization response has no usable organization or project")
 	}
-	keysURL := fmt.Sprintf("%s/v1/organization/%s/projects/%s/api_keys", strings.TrimRight(zcodeBizBaseURL, "/"), scalarString(org.OrganizationID), scalarString(proj.ProjectID))
-	apiKey, err := findOrCreateZcodeAPIKey(ctx, client, bizToken, keysURL)
+	keysURL := fmt.Sprintf("%s/v1/organization/%s/projects/%s/api_keys", strings.TrimRight(bizBaseURL, "/"), scalarString(org.OrganizationID), scalarString(proj.ProjectID))
+	apiKey, err := findOrCreateZcodeAPIKey(ctx, client, authorization, keysURL)
 	if err != nil {
 		return "", err
 	}
-	secret, err := copyZcodeAPIKey(ctx, client, bizToken, keysURL, apiKey)
+	secret, err := copyZcodeAPIKey(ctx, client, authorization, keysURL, apiKey)
 	if err != nil {
 		return "", err
 	}
@@ -273,9 +307,9 @@ func defaultZcodeProject(orgs []zcodeOrg) (*zcodeOrg, *zcodeProject) {
 	return &org, &proj
 }
 
-func findOrCreateZcodeAPIKey(ctx context.Context, client *http.Client, bizToken, keysURL string) (string, error) {
+func findOrCreateZcodeAPIKey(ctx context.Context, client *http.Client, authorization, keysURL string) (string, error) {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, keysURL, nil)
-	req.Header.Set("Authorization", "Bearer "+bizToken)
+	req.Header.Set("Authorization", authorization)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", upstreamUserAgent())
 	resp, err := client.Do(req)
@@ -300,7 +334,7 @@ func findOrCreateZcodeAPIKey(ctx context.Context, client *http.Client, bizToken,
 	}
 	createBody, _ := json.Marshal(map[string]string{"name": "zcode-api-key"})
 	req, _ = http.NewRequestWithContext(ctx, http.MethodPost, keysURL, bytes.NewReader(createBody))
-	req.Header.Set("Authorization", "Bearer "+bizToken)
+	req.Header.Set("Authorization", authorization)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", upstreamUserAgent())
@@ -324,9 +358,9 @@ func findOrCreateZcodeAPIKey(ctx context.Context, client *http.Client, bizToken,
 	return created.Data.APIKey, nil
 }
 
-func copyZcodeAPIKey(ctx context.Context, client *http.Client, bizToken, keysURL, apiKey string) (string, error) {
+func copyZcodeAPIKey(ctx context.Context, client *http.Client, authorization, keysURL, apiKey string) (string, error) {
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, keysURL+"/copy/"+apiKey, nil)
-	req.Header.Set("Authorization", "Bearer "+bizToken)
+	req.Header.Set("Authorization", authorization)
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", upstreamUserAgent())
 	resp, err := client.Do(req)

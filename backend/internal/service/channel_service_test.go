@@ -2572,15 +2572,17 @@ func TestValidatePricingTimePricing(t *testing.T) {
 	require.Nil(t, empty[0].TimePricing)
 }
 
-func TestValidateAccountStatsPricingRulesRejectsTimePricing(t *testing.T) {
+func TestValidateAccountStatsPricingRulesValidatesTimePricing(t *testing.T) {
 	rules := []AccountStatsPricingRule{{Pricing: []ChannelModelPricing{{
+		Models: []string{"deepseek-v4.1-flash"}, InputPrice: testPtrFloat64(1.5e-7),
 		BillingMode: BillingModeToken,
 		TimePricing: validTimePricingForTest(),
 	}}}}
-
+	require.NoError(t, validateAccountStatsPricingRules(rules))
+	rules[0].Pricing[0].TimePricing.Timezone = "invalid/timezone"
 	appErr := infraerrors.FromError(validateAccountStatsPricingRules(rules))
 	require.Equal(t, int32(http.StatusBadRequest), appErr.Code)
-	require.Equal(t, "ACCOUNT_STATS_TIME_PRICING_UNSUPPORTED", appErr.Reason)
+	require.Equal(t, "INVALID_TIME_PRICING", appErr.Reason)
 }
 
 // ---------------------------------------------------------------------------

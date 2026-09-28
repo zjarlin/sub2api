@@ -52,6 +52,7 @@ const (
 	PlatformDoubao     = domain.PlatformDoubao
 	PlatformTraework   = domain.PlatformTraework
 	PlatformWorkbuddy  = domain.PlatformWorkbuddy
+	PlatformVibex      = domain.PlatformVibex
 	PlatformZcode      = domain.PlatformZcode
 	PlatformQoder      = domain.PlatformQoder
 	PlatformLaya       = domain.PlatformLaya
@@ -112,7 +113,7 @@ const (
 // IsCNProvider 报告 platform 是否为国产 OpenAI 兼容供应商（含豆包桌面会话适配器）。
 func IsCNProvider(platform string) bool {
 	switch platform {
-	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformZcode, PlatformQoder, PlatformLaya, PlatformJev:
+	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformLaya, PlatformJev:
 		return true
 	default:
 		return false
@@ -145,6 +146,7 @@ var AllowedQuotaPlatforms = []string{
 	PlatformDoubao,
 	PlatformTraework,
 	PlatformWorkbuddy,
+	PlatformVibex,
 	PlatformZcode,
 	PlatformLaya,
 	PlatformJev,
@@ -781,6 +783,7 @@ var MixedSchedulingCompatibleTargets = map[string][]string{
 	PlatformDoubao:      {PlatformOpenAI},
 	PlatformTraework:    {PlatformOpenAI},
 	PlatformWorkbuddy:   {PlatformOpenAI},
+	PlatformVibex:       {PlatformOpenAI},
 	PlatformZcode:       {PlatformOpenAI},
 	PlatformLaya:        {PlatformOpenAI},
 	PlatformJev:         {PlatformOpenAI},

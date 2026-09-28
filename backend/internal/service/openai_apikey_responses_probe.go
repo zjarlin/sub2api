@@ -89,6 +89,17 @@ func selectResponsesProbeModel(account *Account) string {
 		}
 		candidates = append(candidates, upstream)
 	}
+	// 快速添加没有手工映射，使用同步后的真实上游模型列表。
+	if len(candidates) == 0 {
+		if snapshot := account.GetUpstreamSupportedModelsSnapshot(); snapshot != nil {
+			for _, model := range snapshot.Models {
+				model = strings.TrimSpace(model)
+				if model != "" && !strings.Contains(model, "*") {
+					candidates = append(candidates, model)
+				}
+			}
+		}
+	}
 	if len(candidates) == 0 {
 		return openai.DefaultTestModel
 	}
@@ -105,6 +116,7 @@ func selectResponsesProbeModel(account *Account) string {
 //   - 上游 404 / 405 → 端点不存在,写 false
 //   - 上游 2xx → 端点存在,进一步看工具能力:响应含 function_call 输出项才写 true;
 //     仅 reasoning / 无 function_call(如火山方舟 coding/v3 × kimi-k2.6)写 false
+//   - 501 或明确的 convert_request_failed + not implemented → 转换未实现,写 false
 //   - 其他非 2xx（401/422/400/5xx 等）→ 端点存在但无法判定工具能力,保守写 true
 //   - 网络层失败（连接错误、超时）→ 不写标记，保持 unknown
 //     （后续请求仍按"现状即证据"默认走 Responses）
@@ -300,16 +312,23 @@ func isResponsesEndpointSupportedByStatus(status int) bool {
 // 携带工具的请求。
 //
 //   - 404 / 405：端点不存在 → false
+//   - 501 或明确的 convert_request_failed + not implemented：转换未实现 → false
 //   - 其他非 2xx（401/403/422/5xx 等）：端点存在,但本次无法判定工具能力
 //     （鉴权/校验/瞬时故障）→ 保守按 true,保持既有"端点存在即支持"行为
 //   - 2xx：探测以 tool_choice=required 强制工具调用,响应必须含 function_call
 //     输出项才算真正可用;否则(如火山方舟 coding/v3 × kimi-k2.6 仅回 reasoning)
 //     判为 false,使网关改走 /v1/chat/completions 直转路径。
 func decideResponsesProbeSupport(status int, body []byte) bool {
-	if status == http.StatusNotFound || status == http.StatusMethodNotAllowed {
+	if status == http.StatusNotFound || status == http.StatusMethodNotAllowed || status == http.StatusNotImplemented {
 		return false
 	}
 	if status < 200 || status >= 300 {
+		// New API 的端点存在，但目标通道没有实现 Responses 转换。
+		code := strings.TrimSpace(gjson.GetBytes(body, "error.code").String())
+		message := strings.ToLower(gjson.GetBytes(body, "error.message").String())
+		if code == "convert_request_failed" && strings.Contains(message, "not implemented") {
+			return false
+		}
 		return true
 	}
 	return responsesProbeBodyHasFunctionCall(body)

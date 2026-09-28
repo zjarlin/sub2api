@@ -235,16 +235,16 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(syncUpstreamModelsMock).toHaveBeenCalledWith(42)
   })
 
-  it('creates WorkBuddy through the built-in service and exposes browser authorization', async () => {
+  it.each(['workbuddy', 'vibex'])('creates %s through the built-in service and exposes browser authorization', async (platform) => {
     const wrapper = mountModal()
-    await wrapper.get('[data-testid="platform-workbuddy"]').trigger('click')
+    await wrapper.get(`[data-testid="platform-${platform}"]`).trigger('click')
     expect(wrapper.find('[data-testid="builtin-adapter-login"]').exists()).toBe(true)
     expect(wrapper.find('form#create-account-form input[type="password"]').exists()).toBe(false)
     await wrapper.get('form#create-account-form input[type="text"]').setValue('WorkBuddy')
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
     await flushPromises()
     const payload = createAccountMock.mock.calls[0]?.[0]
-    expect(payload).toMatchObject({ platform: 'workbuddy', type: 'apikey', concurrency: 1 })
+    expect(payload).toMatchObject({ platform, type: 'apikey', concurrency: 1 })
     expect(payload.credentials.api_protocol).toBe('chat_completions')
     expect(payload.credentials.base_url).toBeUndefined()
     expect(payload.credentials.api_key).toBeUndefined()

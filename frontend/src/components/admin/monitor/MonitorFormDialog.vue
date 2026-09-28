@@ -274,6 +274,7 @@ import {
   PROVIDER_DOUBAO,
   PROVIDER_TRAEWORK,
   PROVIDER_WORKBUDDY,
+  PROVIDER_VIBEX,
   PROVIDER_ZCODE,
   PROVIDER_LAYA,
   PROVIDER_JEV,
@@ -488,6 +489,7 @@ const providerOptions = computed<ProviderOption[]>(() => [
   { value: PROVIDER_DOUBAO, label: t('monitorCommon.providers.doubao') },
   { value: PROVIDER_TRAEWORK, label: t('monitorCommon.providers.traework') },
   { value: PROVIDER_WORKBUDDY, label: t('monitorCommon.providers.workbuddy') },
+  { value: PROVIDER_VIBEX, label: t('monitorCommon.providers.vibex') },
   { value: PROVIDER_ZCODE, label: t('monitorCommon.providers.zcode') },
   { value: PROVIDER_LAYA, label: t('monitorCommon.providers.laya') },
   { value: PROVIDER_JEV, label: t('monitorCommon.providers.jev') },
@@ -521,14 +523,14 @@ const checkModeOptions = computed<CheckModeOption[]>(() => [
     value: CHECK_MODE_QUOTA,
     label: t('admin.channelMonitor.form.checkModeQuota'),
     hint: t('admin.channelMonitor.form.checkModeQuotaHint'),
-    disabled: form.provider === PROVIDER_DOUBAO || form.provider === PROVIDER_TRAEWORK || form.provider === PROVIDER_WORKBUDDY,
+    disabled: form.provider === PROVIDER_DOUBAO || form.provider === PROVIDER_TRAEWORK || form.provider === PROVIDER_WORKBUDDY || form.provider === PROVIDER_VIBEX,
   },
   {
     value: CHECK_MODE_QUOTA_PROBE,
     label: t('admin.channelMonitor.form.checkModeQuotaProbe'),
     hint: t('admin.channelMonitor.form.checkModeQuotaProbeHint'),
     // 豆包 / TRAE Work 不提供配额查询，antigravity 不提供探活。
-    disabled: form.provider === PROVIDER_ANTIGRAVITY || form.provider === PROVIDER_DOUBAO || form.provider === PROVIDER_TRAEWORK || form.provider === PROVIDER_WORKBUDDY,
+    disabled: form.provider === PROVIDER_ANTIGRAVITY || form.provider === PROVIDER_DOUBAO || form.provider === PROVIDER_TRAEWORK || form.provider === PROVIDER_WORKBUDDY || form.provider === PROVIDER_VIBEX,
   },
 ])
 
@@ -710,6 +712,11 @@ function selectProvider(provider: Provider) {
   if (provider === PROVIDER_TRAEWORK || provider === PROVIDER_WORKBUDDY) {
     form.check_mode = CHECK_MODE_PROBE
     form.primary_model = 'glm-5.2'
+    form.endpoint = ''
+  }
+  if (provider === PROVIDER_VIBEX) {
+    form.check_mode = CHECK_MODE_PROBE
+    form.primary_model = ''
     form.endpoint = ''
   }
   if (provider === PROVIDER_LAYA || provider === PROVIDER_JEV) {

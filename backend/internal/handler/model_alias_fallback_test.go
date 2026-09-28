@@ -25,7 +25,7 @@ func TestProviderAliasSameModelAndTierFallback(t *testing.T) {
 		endpoint string
 		stream   bool
 	}{{"responses", false}, {"responses", true}, {"chat/completions", false}, {"messages", false}} {
-		for _, target := range []string{"deepseek-v4-flash", "deepseek-v4.1-flash"} {
+		for _, target := range []string{"deepseek-v4-flash", "deepseek-v4.1-flash", "deepseek-v4-pro"} {
 			t.Run(fmt.Sprintf("%s/stream_%t/%s", protocol.endpoint, protocol.stream, target), func(t *testing.T) {
 				cfg := &config.Config{RunMode: config.RunModeSimple}
 				repo := &grokCredentialHandlerRepo{}
@@ -42,12 +42,13 @@ func TestProviderAliasSameModelAndTierFallback(t *testing.T) {
 				aliases := service.ModelAliasPolicy{Groups: []service.ModelAliasGroup{
 					{Canonical: "deepseek-v4-flash", Aliases: []string{"DeepSeek-V4-Flash", "deepseek/deepseek-v4-flash"}},
 					{Canonical: "deepseek-v4.1-flash", Aliases: []string{"deepseek/deepseek-v4.1-flash"}},
+					{Canonical: "deepseek-v4-pro", Aliases: []string{"deepseek/deepseek-v4-pro"}},
 				}}
 				aliasJSON, err := json.Marshal(aliases)
 				require.NoError(t, err)
 				settings := service.NewSettingService(&contentModerationHandlerSettingRepo{values: map[string]string{
 					service.SettingKeyModelAliases:        string(aliasJSON),
-					service.SettingKeyModelFallbackPolicy: `{"enabled":true,"tiers":[{"name":"same","models":["deepseek-v4-flash","deepseek-v4.1-flash"]}]}`,
+					service.SettingKeyModelFallbackPolicy: `{"enabled":true,"tiers":[{"name":"same","models":["deepseek-v4-flash","deepseek-v4.1-flash","deepseek-v4-pro"]}]}`,
 				}}, cfg)
 				billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 				t.Cleanup(billing.Stop)
@@ -73,6 +74,9 @@ func TestProviderAliasSameModelAndTierFallback(t *testing.T) {
 				router.POST("/v1/chat/completions", h.ChatCompletions)
 				router.POST("/v1/messages", h.Messages)
 				body := fmt.Sprintf(`{"model":"deepseek-v4-flash","input":"hi","messages":[{"role":"user","content":"hi"}],"max_tokens":32,"stream":%t}`, protocol.stream)
+				if target == "deepseek-v4-pro" && protocol.endpoint == "responses" {
+					body = fmt.Sprintf(`{"model":"deepseek-v4-flash","input":"hi","tools":[{"type":"custom","name":"apply_patch"},{"type":"tool_search","execution":"client"}],"stream":%t}`, protocol.stream)
+				}
 				response := httptest.NewRecorder()
 				router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/v1/"+protocol.endpoint, strings.NewReader(body)))
 				require.Equal(t, http.StatusOK, response.Code, response.Body.String())
@@ -80,7 +84,7 @@ func TestProviderAliasSameModelAndTierFallback(t *testing.T) {
 				require.Equal(t, models, upstream.models)
 				require.Contains(t, response.Body.String(), "ok")
 				require.NotContains(t, repo.accounts[2].GetModelMapping(), target)
-				if target == "deepseek-v4.1-flash" {
+				if target != "deepseek-v4-flash" {
 					require.Equal(t, target, response.Header().Get("X-Sub2api-Fallback-Model"))
 					require.Len(t, events, 3)
 					require.Equal(t, "model_fallback", events[2].Kind)

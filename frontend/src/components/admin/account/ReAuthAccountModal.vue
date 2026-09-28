@@ -266,10 +266,10 @@ const isGemini = computed(() => props.account?.platform === 'gemini')
 const isAnthropic = computed(() => props.account?.platform === 'anthropic')
 const isAntigravity = computed(() => props.account?.platform === 'antigravity')
 const isGrok = computed(() => props.account?.platform === 'grok')
-const isBuiltinAdapterAccount = computed(() => ['traework', 'workbuddy', 'zcode'].includes(props.account?.platform ?? ''))
+const isBuiltinAdapterAccount = computed(() => ['traework', 'workbuddy', 'vibex', 'zcode'].includes(props.account?.platform ?? ''))
 const builtinAdapterPlatform = computed<BuiltinLoginPlatform | null>(() => {
   const platform = props.account?.platform
-  return platform === 'traework' || platform === 'workbuddy' || platform === 'zcode' ? platform : null
+  return platform === 'traework' || platform === 'workbuddy' || platform === 'vibex' || platform === 'zcode' ? platform : null
 })
 
 /**

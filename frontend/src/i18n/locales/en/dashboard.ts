@@ -536,6 +536,7 @@ export default {
       doubao: 'Doubao',
       traework: 'TRAE Work',
       workbuddy: 'WorkBuddy',
+      vibex: 'VibeX',
       zcode: 'ZCode',
       laya: 'Laya',
       jev: 'JEV',

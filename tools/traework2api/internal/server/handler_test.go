@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"traework2api/internal/auth"
 	"traework2api/internal/pool"
@@ -86,6 +87,49 @@ func TestChatNonStreamAggregates(t *testing.T) {
 	}
 	if msg["reasoning_content"] != "想一下" {
 		t.Errorf("reasoning=%q", msg["reasoning_content"])
+	}
+}
+
+func TestModelsIncludesTraeCodeModelWithContextLength(t *testing.T) {
+	dynamicModelsCache.Lock()
+	oldIDs := dynamicModelsCache.ids
+	oldFetched := dynamicModelsCache.fetched
+	oldLastFail := dynamicModelsCache.lastFail
+	dynamicModelsCache.ids = nil
+	dynamicModelsCache.fetched = time.Time{}
+	dynamicModelsCache.lastFail = time.Time{}
+	dynamicModelsCache.Unlock()
+	t.Cleanup(func() {
+		dynamicModelsCache.Lock()
+		dynamicModelsCache.ids = oldIDs
+		dynamicModelsCache.fetched = oldFetched
+		dynamicModelsCache.lastFail = oldLastFail
+		dynamicModelsCache.Unlock()
+	})
+
+	up := newFakeUpstream(t, func(authz string) (int, string, bool) {
+		return 200, `{"config_info_list":[{"config_name":"deepseek-v4.1-flash","display_config":{"display_name":"DeepSeek-V4.1-Flash"}}]}`, false
+	})
+	h := NewHandler(Config{
+		Pool:     testPoolWith(&auth.Auth{UID: "u1", AccessToken: "at1", ExpiresAt: 9999999999}),
+		Upstream: up,
+	})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/models", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("code=%d body=%s", rec.Code, rec.Body)
+	}
+	var resp struct {
+		Data []struct {
+			ID            string `json:"id"`
+			ContextLength int64  `json:"context_length"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if len(resp.Data) != 1 || resp.Data[0].ID != "deepseek-v4.1-flash" || resp.Data[0].ContextLength != 131072 {
+		t.Errorf("models=%+v", resp.Data)
 	}
 }
 

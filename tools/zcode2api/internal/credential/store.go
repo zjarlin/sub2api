@@ -62,7 +62,10 @@ func (c *CredentialStore) Load() (Credential, bool, error) {
 		return Credential{}, false, err
 	}
 	if stored.APIKey == "" || stored.BaseURL == "" || stored.ProviderID == "" {
-		return Credential{}, false, nil
+		return Credential{}, false, errors.New("stored ZCode credential is incomplete; sign in again")
+	}
+	if stored.Plan != "" && stored.Plan != PlanCoding && stored.Plan != PlanStart {
+		return Credential{}, false, errors.New("unsupported stored ZCode plan")
 	}
 	cred := Credential{
 		APIKey:     stored.APIKey,
@@ -70,6 +73,7 @@ func (c *CredentialStore) Load() (Credential, bool, error) {
 		ProviderID: stored.ProviderID,
 		Provider:   stored.Provider,
 		Source:     path,
+		Plan:       stored.Plan,
 	}
 	c.mu.Lock()
 	c.cred, c.ok, c.modTime, c.size = cred, true, info.ModTime(), info.Size()
@@ -81,6 +85,9 @@ func (c *CredentialStore) Load() (Credential, bool, error) {
 func (c *CredentialStore) Save(cred Credential) error {
 	if cred.APIKey == "" || cred.BaseURL == "" || cred.ProviderID == "" {
 		return errors.New("credential is incomplete")
+	}
+	if cred.Plan != "" && cred.Plan != PlanCoding && cred.Plan != PlanStart {
+		return errors.New("unsupported ZCode plan")
 	}
 	path := c.PathWithDefault()
 	if path == "" {
@@ -96,6 +103,7 @@ func (c *CredentialStore) Save(cred Credential) error {
 		ProviderID: cred.ProviderID,
 		Provider:   cred.Provider,
 		SavedAt:    time.Now().UTC(),
+		Plan:       cred.Plan,
 	})
 	if err != nil {
 		return err
@@ -130,6 +138,7 @@ func (c *CredentialStore) Clear() error {
 }
 
 type storedCredential struct {
+	Plan       string    `json:"plan,omitempty"`
 	APIKey     string    `json:"api_key"`
 	BaseURL    string    `json:"base_url"`
 	ProviderID string    `json:"provider_id"`

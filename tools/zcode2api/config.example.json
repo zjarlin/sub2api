@@ -5,6 +5,11 @@
     "max_body_mb": 16
   },
   "upstream": {
+    "plan": "coding-plan",
+    "oauth_provider": "zai",
+    "start_plan_verifier_url": "",
+    "start_plan_verifier_key": "",
+    "app_version": "3.14.3",
     "base_url": "",
     "provider_id": "builtin:bigmodel-coding-plan",
     "gateway_origin": "https://zcode.z.ai",

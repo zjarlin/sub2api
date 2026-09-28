@@ -19,6 +19,7 @@ export type Provider =
   | 'doubao'
   | 'traework'
   | 'workbuddy'
+  | 'vibex'
   | 'zcode'
   | 'laya'
   | 'jev'

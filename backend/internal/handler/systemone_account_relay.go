@@ -312,5 +312,8 @@ func systemOneAccountBaseURL(account *service.Account) string {
 	if account == nil {
 		return ""
 	}
+	if baseURL := strings.TrimSpace(account.GetCredential("base_url")); baseURL != "" {
+		return baseURL
+	}
 	return service.BuiltinAdapterBaseURLForPlatform(account.Platform)
 }

@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -142,6 +143,18 @@ func TestParseOpenAIRateLimitResetTime_DoesNotParseUnknownErrorMessage(t *testin
 	body := []byte(`{"error":{"type":"rate_limit_error","message":"Resets in 2 days."}}`)
 
 	require.Nil(t, parseOpenAIRateLimitResetTime(body))
+}
+
+func TestParseOpenAIRateLimitResetTime_CommandCodeWeeklyLimit(t *testing.T) {
+	reset := time.Now().Add(5 * 24 * time.Hour).Truncate(time.Millisecond)
+	body := []byte(fmt.Sprintf(`{"error":{"code":"RATE_LIMITED","type":"rate_limit_error","message":"You've reached your weekly usage limit for your plan. Your limit resets at %s. Please wait for the window to reset or upgrade your plan to continue."}}`, reset.UTC().Format(time.RFC3339Nano)))
+	parsed := parseOpenAIRateLimitResetTime(body)
+	require.NotNil(t, parsed)
+	require.Equal(t, reset.Unix(), *parsed)
+	for _, value := range []string{"invalid", time.Now().Add(-time.Hour).UTC().Format(time.RFC3339), "2099-01-01T00:00:00Z-untrusted"} {
+		body := []byte(fmt.Sprintf(`{"error":{"code":"RATE_LIMITED","type":"rate_limit_error","message":"weekly usage limit for your plan. Your limit resets at %s. Please wait."}}`, value))
+		require.Nil(t, parseOpenAIRateLimitResetTime(body))
+	}
 }
 
 func TestCalculateOpenAI429ResetTime_ReversedWindowOrder(t *testing.T) {

@@ -24,7 +24,7 @@ export default {
   "models": "Tier {index} model IDs",
   "moveUp": "Move tier up",
   "moveDown": "Move tier down",
-  "modelsHint": "Order tiers from highest to lowest and enter one exact model ID per line. Models within a tier follow the listed order. Add aliases explicitly to the same tier. Unranked models only retry same-model accounts. Limit: 12 tiers and 64 models.",
+  "modelsHint": "Order tiers from highest to lowest and enter one exact model ID per line. Models within a tier follow the listed order. Add aliases explicitly to the same tier. Unranked models only retry same-model accounts. Limit: 12 tiers and 256 models.",
   "addTier": "Add lower tier",
   "preset": "Load public-data preset (unsaved)",
   "saved": "Tiers saved. Subsequent requests will use the new configuration.",
@@ -32,7 +32,7 @@ export default {
   "reference": "Preset tiers use the highest evaluated reasoning effort and 10-point score bands. They do not imply equivalence for every task or effort, and never automatically overwrite your configuration. Source:",
   "required": "Each tier needs a name and models. Keep at least one tier when enabled.",
   "duplicate": "Tier names and model IDs must be unique.",
-  "invalidModels": "Use at most 64 exact model IDs, each at most 200 characters, without wildcards."
+  "invalidModels": "Use at most 256 exact model IDs, each at most 200 characters, without wildcards."
 },
       modelSystemPrompts: {
   title: 'Model system prompts', description: 'Append a system prompt to specific models to enforce language, tone and similar constraints. Matches the canonical model ID after alias resolution and applies to OpenAI-compatible endpoints only.', model: 'Model ID {index}', prompt: 'Prompt {index}', promptPlaceholder: 'For example: Always answer in Simplified Chinese unless the user explicitly asks for another language.', hint: 'Use the canonical model ID (see Global model synonyms). When matched, the prompt is appended after existing system content and never replaces the client system prompt.', add: 'Add model prompt', saved: 'Model prompts saved and active for subsequent requests.', required: 'Each entry needs a model ID and a prompt.', duplicate: 'Model IDs must be unique.',

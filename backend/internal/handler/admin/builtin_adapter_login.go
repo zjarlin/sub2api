@@ -1,6 +1,8 @@
 package admin
 
 import (
+	"errors"
+	"io"
 	"net/http"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -13,6 +15,8 @@ func (h *AccountHandler) BuiltinAdapterLogin(c *gin.Context) {
 	owner := adminActorScope(c)
 	var body struct {
 		CallbackURL string `json:"callback_url"`
+		Plan        string `json:"plan"`
+		Provider    string `json:"provider"`
 	}
 	action := c.Param("action")
 	if c.Param("session") == "" {
@@ -28,7 +32,15 @@ func (h *AccountHandler) BuiltinAdapterLogin(c *gin.Context) {
 			return
 		}
 	}
-	result, err := service.BuiltinAdapterLogin(c.Request.Context(), c.Param("platform"), owner, c.Param("session"), action, body.CallbackURL)
+	if action == "start" && c.Param("platform") == service.PlatformZcode {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4096)
+		if err := c.ShouldBindJSON(&body); err != nil && !errors.Is(err, io.EOF) {
+			response.BadRequest(c, "Invalid ZCode login options")
+			return
+		}
+	}
+	options := service.BuiltinLoginOptions{Plan: body.Plan, Provider: body.Provider}
+	result, err := service.BuiltinAdapterLogin(c.Request.Context(), c.Param("platform"), owner, c.Param("session"), action, body.CallbackURL, options)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

@@ -79,10 +79,12 @@ func fallbackToolsReplayable(tools gjson.Result) bool {
 	allowed := true
 	tools.ForEach(func(_, tool gjson.Result) bool {
 		switch tool.Get("type").String() {
-		case "", "function":
+		case "", "function", "custom":
 			allowed = true
 		case "namespace":
 			allowed = fallbackToolsReplayable(tool.Get("tools"))
+		case "tool_search":
+			allowed = tool.Get("execution").String() == "client"
 		default:
 			allowed = false
 		}

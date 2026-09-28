@@ -1781,6 +1781,20 @@ func parseOpenAIRateLimitResetTime(body []byte) *int64 {
 
 	// 检查是否为已知的账号用量限制类型。
 	errType, _ := errObj["type"].(string)
+	if errType == "rate_limit_error" && errObj["code"] == "RATE_LIMITED" {
+		message, _ := errObj["message"].(string)
+		const marker = "Your limit resets at "
+		if _, tail, found := strings.Cut(message, marker); found && strings.Contains(message, "usage limit for your plan") {
+			// CommandCode 的额度错误把 RFC3339 重置时间放在句子中，保留时间里的小数点。
+			value, _, _ := strings.Cut(tail, " ")
+			reset, err := time.Parse(time.RFC3339Nano, strings.TrimSuffix(value, "."))
+			if err == nil && reset.After(time.Now()) {
+				ts := reset.Unix()
+				return &ts
+			}
+		}
+		return nil
+	}
 	if errType != "usage_limit_reached" && errType != "rate_limit_exceeded" && errType != "GoUsageLimitError" {
 		return nil
 	}

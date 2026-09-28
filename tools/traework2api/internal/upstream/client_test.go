@@ -155,13 +155,14 @@ func TestRefreshTokenUsesAuthApiHost(t *testing.T) {
 }
 
 func TestChatStreamSendsHeadersAndRewritesBody(t *testing.T) {
-	var gotAuth, gotUID, gotAppID, gotIdeVer string
+	var gotAuth, gotUID, gotAppID, gotIdeVer, gotIdeCode string
 	var gotBody []byte
 	c := testClient(func(r *http.Request) (*http.Response, error) {
 		gotAuth = r.Header.Get("Authorization")
 		gotUID = r.Header.Get("X-Uid")
 		gotAppID = r.Header.Get("X-App-Id")
 		gotIdeVer = r.Header.Get("X-Ide-Version")
+		gotIdeCode = r.Header.Get("X-Ide-Version-Code")
 		gotBody, _ = io.ReadAll(r.Body)
 		return &http.Response{
 			StatusCode: 200,
@@ -170,7 +171,7 @@ func TestChatStreamSendsHeadersAndRewritesBody(t *testing.T) {
 		}, nil
 	})
 	a := &auth.Auth{AccessToken: "at", UID: "u1", MachineID: "m1", DeviceID: "d1"}
-	rc, status, respBody, err := c.ChatStream(a, []byte(`{"model":"glm-5.2","messages":[]}`))
+	rc, status, respBody, err := c.ChatStream(a, []byte(`{"model":"deepseek-v4.1-flash","messages":[]}`))
 	if err != nil || status != 200 {
 		t.Fatalf("chat: status=%d err=%v", status, err)
 	}
@@ -181,11 +182,40 @@ func TestChatStreamSendsHeadersAndRewritesBody(t *testing.T) {
 	if gotAuth != "Cloud-IDE-JWT at" || gotUID != "u1" {
 		t.Errorf("headers: auth=%q uid=%q", gotAuth, gotUID)
 	}
-	if gotAppID != AppID || gotIdeVer != "0.1.43" {
-		t.Errorf("app headers: appid=%q idever=%q", gotAppID, gotIdeVer)
+	if gotAppID != AppID || gotIdeVer != "3.3.104" || gotIdeCode != "20260920" {
+		t.Errorf("app headers: appid=%q idever=%q idecode=%q", gotAppID, gotIdeVer, gotIdeCode)
 	}
 	if !bytes.Contains(gotBody, []byte(`"stream":true`)) || !bytes.Contains(gotBody, []byte(`"function":"solo_work_lite"`)) {
 		t.Errorf("body not rewritten: %s", gotBody)
+	}
+	if !bytes.Contains(gotBody, []byte(`"config_name":"deepseek-v4.1-flash"`)) {
+		t.Errorf("TraeCode model not sent as config_name: %s", gotBody)
+	}
+}
+
+func TestFetchModelsIncludesTraeCodeModel(t *testing.T) {
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path != EpModels {
+			return nil, errors.New("wrong path: " + r.URL.Path)
+		}
+		if r.Header.Get("X-Ide-Version") != "3.3.104" || r.Header.Get("X-Ide-Version-Code") != "20260920" {
+			return nil, errors.New("wrong TraeCode version headers")
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			return nil, err
+		}
+		if !bytes.Contains(body, []byte(`"function":"solo_work_lite"`)) {
+			return nil, errors.New("wrong model function")
+		}
+		return jsonResp(200, `{"config_info_list":[{"config_name":"glm-5.2","display_config":{"display_name":"GLM-5.2"}},{"config_name":"deepseek-v4.1-flash","display_config":{"display_name":"DeepSeek-V4.1-Flash"}}]}`), nil
+	})
+	models, err := c.FetchModels(&auth.Auth{AccessToken: "at"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 2 || models[1].ID != "deepseek-v4.1-flash" || models[1].Name != "DeepSeek-V4.1-Flash" {
+		t.Errorf("models=%+v", models)
 	}
 }
 

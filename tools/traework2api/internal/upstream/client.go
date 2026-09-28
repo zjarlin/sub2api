@@ -274,7 +274,7 @@ type ModelInfo struct {
 	MaxTokens     int64 // = maxOutputTokens
 }
 
-// FetchModels 拉 SOLO 模型表（get_detail_param，32 配置）。
+// FetchModels 拉当前版本身份对应的 SOLO 模型表（get_detail_param）。
 func (c *Client) FetchModels(a *auth.Auth) ([]ModelInfo, error) {
 	body := map[string]any{
 		"function":            Function,

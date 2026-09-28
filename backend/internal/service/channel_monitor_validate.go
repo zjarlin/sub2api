@@ -26,6 +26,7 @@ var monitorProviders = map[string]struct{}{
 	MonitorProviderDoubao:      {},
 	MonitorProviderTraework:    {},
 	MonitorProviderWorkbuddy:   {},
+	MonitorProviderVibex:       {},
 	MonitorProviderZcode:       {},
 	MonitorProviderLaya:        {},
 	MonitorProviderJev:         {},
@@ -47,6 +48,7 @@ var probeCapableProviders = map[string]struct{}{
 	MonitorProviderDoubao:    {},
 	MonitorProviderTraework:  {},
 	MonitorProviderWorkbuddy: {},
+	MonitorProviderVibex:     {},
 	MonitorProviderZcode:     {},
 	MonitorProviderLaya:      {},
 	MonitorProviderJev:       {},
@@ -87,7 +89,7 @@ func monitorCheckModeUsesQuota(checkMode string) bool {
 //	antigravity（无 adapter）|  N    |  Y    |  N
 func validateCheckMode(provider, checkMode string) error {
 	checkMode = defaultCheckMode(checkMode)
-	if (provider == MonitorProviderDoubao || provider == MonitorProviderTraework || provider == MonitorProviderWorkbuddy || provider == MonitorProviderZcode || provider == MonitorProviderLaya || provider == MonitorProviderJev) && monitorCheckModeUsesQuota(checkMode) {
+	if (provider == MonitorProviderDoubao || provider == MonitorProviderTraework || provider == MonitorProviderWorkbuddy || provider == MonitorProviderVibex || provider == MonitorProviderZcode || provider == MonitorProviderLaya || provider == MonitorProviderJev) && monitorCheckModeUsesQuota(checkMode) {
 		return ErrChannelMonitorAccountNotSupportable
 	}
 	switch checkMode {

@@ -41,7 +41,7 @@ Sub2API 已提供独立的 **TRAE Work（traework）** 平台类型。账号为 
    252 集群部署脚本在 `SUB2API_BUILTIN_ADAPTERS=1` 时会自动叠加该文件。
 
 4. 首次授权成功或已有账号池时，在「添加账号」选择 **TRAE Work**，填名称即可；模型默认 `glm-5.2`，可用 `/v1/models`
-   拉取到的 32 个 `config_name` 之一。
+   拉取该账号当前可用的 `config_name`。适配器使用已验证的 TraeCode CN 3.3.104 版本身份，模型目录和对话均可使用 `deepseek-v4.1-flash`；具体列表仍以上游实时结果为准。
 
 ## 运维
 

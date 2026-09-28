@@ -5,6 +5,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -26,6 +27,10 @@ type Server struct {
 }
 
 type Upstream struct {
+	Plan                 string `json:"plan"`
+	OAuthProvider        string `json:"oauth_provider"`
+	StartPlanVerifierURL string `json:"start_plan_verifier_url"`
+	StartPlanVerifierKey string `json:"start_plan_verifier_key"`
 	// BaseURL empty means: take it from the ZCode provider entry.
 	BaseURL    string `json:"base_url"`
 	ProviderID string `json:"provider_id"`
@@ -80,6 +85,9 @@ func Default() *Config {
 		Listen: "0.0.0.0:7864",
 		Server: Server{MaxBodyMB: 16},
 		Upstream: Upstream{
+			Plan:                 "coding-plan",
+			OAuthProvider:        "zai",
+			AppVersion:           "3.14.3",
 			GatewayOrigin:        "https://zcode.z.ai",
 			ProviderID:           "builtin:bigmodel-coding-plan",
 			AnthropicVersion:     "2023-06-01",
@@ -118,6 +126,18 @@ func Load(path string) (*Config, error) {
 }
 
 func (c *Config) applyEnv() {
+	if v := os.Getenv("Z2A_UPSTREAM_PLAN"); v != "" {
+		c.Upstream.Plan = v
+	}
+	if v := os.Getenv("Z2A_OAUTH_PROVIDER"); v != "" {
+		c.Upstream.OAuthProvider = v
+	}
+	if v := os.Getenv("Z2A_START_PLAN_VERIFIER_URL"); v != "" {
+		c.Upstream.StartPlanVerifierURL = v
+	}
+	if v := os.Getenv("Z2A_START_PLAN_VERIFIER_KEY"); v != "" {
+		c.Upstream.StartPlanVerifierKey = v
+	}
 	if v := os.Getenv("Z2A_LISTEN"); v != "" {
 		c.Listen = v
 	}
@@ -172,6 +192,27 @@ func (c *Config) applyEnv() {
 }
 
 func (c *Config) validate() error {
+	if c.Upstream.Plan != "coding-plan" && c.Upstream.Plan != "start-plan" {
+		return fmt.Errorf("upstream.plan must be coding-plan or start-plan")
+	}
+	if c.Upstream.OAuthProvider != "zai" && c.Upstream.OAuthProvider != "bigmodel" {
+		return fmt.Errorf("upstream.oauth_provider must be zai or bigmodel")
+	}
+	if c.Upstream.Plan == "start-plan" && c.Upstream.APIKey != "" {
+		u, err := url.Parse(c.Upstream.BaseURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.TrimRight(u.Path, "/") != "/api/v1/zcode-plan/anthropic" {
+			return fmt.Errorf("Start Plan requires its /api/v1/zcode-plan/anthropic endpoint and a ZCode login JWT")
+		}
+	}
+	if c.Upstream.StartPlanVerifierURL != "" {
+		u, err := url.Parse(c.Upstream.StartPlanVerifierURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
+			return fmt.Errorf("invalid Start Plan verifier URL")
+		}
+		if c.Upstream.StartPlanVerifierKey == "" {
+			return fmt.Errorf("Start Plan verifier requires a shared key")
+		}
+	}
 	if strings.TrimSpace(c.Listen) == "" {
 		return fmt.Errorf("listen must not be empty")
 	}

@@ -41,6 +41,7 @@ type Server struct {
 	// 内置网页授权：凭证落在本地凭据文件，登录会话由 builtinlogin 管理。
 	loginCredStore *credential.CredentialStore
 	loginHTTP      *http.Client
+	verifierHTTP   *http.Client
 	loginMu        sync.Mutex
 }
 
@@ -75,6 +76,7 @@ func New(cfg *config.Config, logger *log.Logger) *Server {
 	}
 	server.loginCredStore = &credential.CredentialStore{Path: cfg.Upstream.CredentialStorePath}
 	server.loginHTTP = upstream.NewHTTPClient(30*time.Second, 4)
+	server.verifierHTTP = upstream.NewHTTPClient(125*time.Second, 4)
 	return server
 }
 
@@ -89,7 +91,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/v1/models", s.auth(s.handleModels))
 	mux.HandleFunc("/v1/chat/completions", s.auth(s.handleChat))
 	// 网页授权会话接口仅供 Sub2API 后台调用，使用适配器共享密钥鉴权。
-	builtinlogin.New(s.beginZcodeLogin).Register(mux, s.auth)
+	loginMux := http.NewServeMux()
+	builtinlogin.New(s.beginZcodeLogin).Register(loginMux, s.auth)
+	mux.Handle("/internal/login/", s.loginOptionsHandler(loginMux))
 	return mux
 }
 
@@ -109,7 +113,11 @@ func (s *Server) resolveCredential() (credential.Credential, error) {
 			ProviderID: cfg.ProviderID,
 			Provider:   "explicit",
 			Source:     "config",
+			Plan:       cfg.Plan,
 		}, nil
+	}
+	if cfg.Plan == credential.PlanStart {
+		return credential.Credential{}, errors.New("Start Plan requires web authorization or an explicit ZCode login JWT and endpoint")
 	}
 	return s.resolver.Resolve()
 }
@@ -154,14 +162,30 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		"provider":    cred.Provider,
 		"base_url":    cred.BaseURL,
 		"source":      cred.Source,
+		"plan":        effectivePlan(cred),
 	}
+	payload["start_plan_verifier_configured"] = s.cfg.Upstream.StartPlanVerifierURL != "" && s.cfg.Upstream.StartPlanVerifierKey != ""
 	writeJSON(w, http.StatusOK, payload)
 }
 
 func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	created := s.started.Unix()
+	models := s.cfg.Models
+	cred, err := s.resolveCredential()
+	if err != nil {
+		writeError(w, http.StatusServiceUnavailable, "upstream_credential_unavailable", err.Error(), nil)
+		return
+	}
+	if cred.Plan == credential.PlanStart {
+		models, err = s.startPlanModels(r.Context(), cred)
+		if err != nil {
+			status, body := s.errorFor(err)
+			writeError(w, status, body.Type, body.Message, body.Code)
+			return
+		}
+	}
 	list := openai.ModelList{Object: "list", Data: make([]openai.ModelCard, 0, len(s.cfg.Models))}
-	for _, m := range s.cfg.Models {
+	for _, m := range models {
 		list.Data = append(list.Data, openai.ModelCard{
 			ID: m.ID, Object: "model", Created: created, OwnedBy: "zcode",
 		})
@@ -209,7 +233,7 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 		ThinkingEffort:   s.cfg.Thinking.Effort,
 		PromptCache:      s.cfg.Thinking.PromptCache,
 		Replay:           s.replay,
-		DeviceID:         mimicDeviceID(s.cfg.Upstream.MimicClient, s.deviceID),
+		DeviceID:         mimicDeviceID(s.cfg.Upstream.MimicClient || cred.Plan == credential.PlanStart, s.deviceID),
 		SessionID:        s.sessionID,
 	})
 	if err != nil {
@@ -218,6 +242,13 @@ func (s *Server) handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := s.clientFor(cred)
+	if cred.Plan == credential.PlanStart {
+		if err := s.prepareStartPlanRequest(r.Context(), cred, client); err != nil {
+			status, body := s.errorFor(err)
+			writeError(w, status, body.Type, body.Message, body.Code)
+			return
+		}
+	}
 	translator := convert.NewTranslator(spec.ID, start.Unix())
 	thinking := thinkingLabel(upstreamReq)
 	upstreamURL := upstream.MessagesURL(client.BaseURL, client.GatewayOrigin)
@@ -332,6 +363,18 @@ func thinkingLabel(req *anthropic.Request) string {
 
 func (s *Server) clientFor(cred credential.Credential) *upstream.Client {
 	client := *s.client
+	if cred.Plan == credential.PlanStart {
+		client.BaseURL = cred.BaseURL
+		client.APIKey = cred.APIKey
+		client.GatewayOrigin = ""
+		client.Headers = mimicHeaders(s.cfg.Upstream.AppVersion, s.cfg.Upstream.ClientTimezone, s.deviceID)
+		client.UserAgent = client.Headers["user-agent"]
+		return &client
+	}
+	if cred.Plan == credential.PlanCoding {
+		client.BaseURL = cred.BaseURL
+		client.APIKey = cred.APIKey
+	}
 	if client.BaseURL == "" {
 		client.BaseURL = cred.BaseURL
 	}
@@ -353,7 +396,7 @@ func (s *Server) clientFor(cred credential.Credential) *upstream.Client {
 // (off-peak discounts, free flash windows) as it does for the app.
 func mimicHeaders(appVersion, timezone, deviceID string) map[string]string {
 	if appVersion == "" {
-		appVersion = "3.14.0"
+		appVersion = "3.14.3"
 	}
 	if timezone == "" {
 		timezone = currentTimeZone()
@@ -457,6 +500,8 @@ func (s *Server) errorFor(err error) (int, openai.ErrorBody) {
 	if errors.As(err, &upstreamErr) {
 		status := upstreamErr.Status
 		switch {
+		case status == http.StatusConflict && upstreamErr.Type == "start_plan_interactive_verification_required",
+			status == http.StatusServiceUnavailable && upstreamErr.Type == "start_plan_verifier_unavailable":
 		case status == http.StatusBadRequest, status == http.StatusUnauthorized,
 			status == http.StatusForbidden, status == http.StatusNotFound,
 			status == http.StatusRequestEntityTooLarge, status == http.StatusUnprocessableEntity,

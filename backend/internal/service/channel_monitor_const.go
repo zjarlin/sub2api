@@ -73,6 +73,7 @@ const (
 	MonitorProviderDoubao      = "doubao"
 	MonitorProviderTraework    = "traework"
 	MonitorProviderWorkbuddy   = "workbuddy"
+	MonitorProviderVibex       = "vibex"
 	MonitorProviderZcode       = "zcode"
 	MonitorProviderLaya        = "laya"
 	MonitorProviderJev         = "jev"
