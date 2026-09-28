@@ -37,6 +37,8 @@ services:
         condition: service_healthy
       sub2api-workbuddy:
         condition: service_healthy
+      sub2api-vibex:
+        condition: service_healthy
       sub2api-zcode:
         condition: service_healthy
 
