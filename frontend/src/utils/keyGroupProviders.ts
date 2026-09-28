@@ -11,6 +11,7 @@ const PROVIDER_BY_PLATFORM: Record<GroupPlatform, KeyGroupProvider> = {
   kimi: 'domestic',
   zhipu: 'domestic',
   deepseek: 'domestic',
+  deepseek_web: 'domestic',
   doubao: 'domestic',
   traework: 'domestic',
   workbuddy: 'domestic',

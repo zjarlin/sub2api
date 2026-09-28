@@ -23,6 +23,20 @@ func validateBuiltinChatCredentials(platform, accountType string, credentials ma
 	if platform == PlatformZcode {
 		return validateZcodeCredentials(platform, accountType, credentials)
 	}
+	if platform == PlatformDeepseekWeb {
+		if accountType != AccountTypeAPIKey || !BuiltinAdapterEnabled() {
+			return infraerrors.BadRequest("INVALID_DEEPSEEK_WEB_CREDENTIALS", "deepseek_web requires the built-in adapter")
+		}
+		key, _ := credentials["api_key"].(string)
+		if strings.TrimSpace(key) == "" {
+			return infraerrors.BadRequest("INVALID_DEEPSEEK_WEB_CREDENTIALS", "deepseek_web requires the adapter key")
+		}
+		protocol, _ := credentials["api_protocol"].(string)
+		if protocol != "" && protocol != APIProtocolChatCompletions {
+			return infraerrors.BadRequest("INVALID_DEEPSEEK_WEB_CREDENTIALS", "deepseek_web only supports chat_completions")
+		}
+		return nil
+	}
 	if platform == PlatformQoder {
 		return validateQoderCredentials(platform, accountType, credentials)
 	}

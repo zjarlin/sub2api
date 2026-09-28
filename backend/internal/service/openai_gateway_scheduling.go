@@ -446,6 +446,9 @@ func openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx context.Con
 	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
 		return "model_not_supported"
 	}
+	if !AutoModelAllowed(ctx, requestedModel, ResolveOpenAIAccountUpstreamModelForRequest(account, requestedModel, requireCompact)) {
+		return "auto_model_excluded"
+	}
 	if !account.SupportsOpenAIEndpointCapability(requiredCapability) {
 		if account.IsGrok() && requiredCapability == OpenAIEndpointCapabilityGrokMediaGeneration {
 			_, reason := account.GrokMediaGenerationEligibility()
@@ -1040,6 +1043,11 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 		fresh = s.recheckSelectedOpenAIAccountFromDBBeforeProfit(ctx, fresh, groupID, platform, requestedModel, false, requiredCapability)
 		if fresh == nil {
 			filterStats.exclude("ineligible")
+			continue
+		}
+		// 预检为保留 compact 能力诊断传入 false，Auto 成本限制仍须检查实际映射。
+		if !AutoModelAllowed(ctx, requestedModel, ResolveOpenAIAccountUpstreamModelForRequest(fresh, requestedModel, requireCompact)) {
+			filterStats.exclude("auto_model_excluded")
 			continue
 		}
 		if needsUpstreamCheck && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, fresh, requestedModel, requireCompact) {

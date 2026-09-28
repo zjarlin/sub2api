@@ -53,6 +53,9 @@ func (h *OpenAIGatewayHandler) nextModelFallback(c *gin.Context, apiKey *service
 		if mapping.Mapped {
 			forwardModel = mapping.MappedModel
 		}
+		if !service.AutoModelAllowed(c.Request.Context(), candidate.Model, forwardModel) {
+			continue
+		}
 		original := clientRequestedModel(c, model)
 		ctx := context.WithValue(c.Request.Context(), ctxkey.RequestedPublicModel, original)
 		ctx = context.WithValue(ctx, ctxkey.ResolvedUpstreamModel, forwardModel)

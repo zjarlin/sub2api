@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
 
@@ -14,6 +15,8 @@ import (
 const SettingKeyModelFallbackPolicy = "model_fallback_policy"
 
 const maxModelFallbackModels = 256
+
+const AutoModelExcludedReason GatewayFailureReason = "auto_model_excluded"
 
 // 档位按数组顺序从高到低排列；模型 ID 精确匹配，不猜测未评级模型的能力。
 type ModelCapabilityTier struct {
@@ -29,6 +32,13 @@ type ModelFallbackPolicy struct {
 type ModelFallbackCandidate struct {
 	Model string
 	Tier  string
+}
+
+type autoModelRoutingPolicyContextKey struct{}
+
+type autoModelRoutingPolicy struct {
+	excluded map[string]struct{}
+	aliases  *ModelAliasPolicy
 }
 
 // 采用公开榜单最高已测推理强度的粗粒度分段，依据和局限见 docs/model-fallback-tiers.md。
@@ -117,6 +127,73 @@ func (s *SettingService) SetModelFallbackPolicy(ctx context.Context, policy *Mod
 	return s.settingRepo.Set(ctx, SettingKeyModelFallbackPolicy, string(data))
 }
 
+// Auto 请求固定最高档与别名快照；关闭降级开关不解除成本限制。
+func (s *SettingService) BindAutoModelRoutingPolicy(ctx context.Context) (context.Context, error) {
+	if _, bound := ctx.Value(autoModelRoutingPolicyContextKey{}).(*autoModelRoutingPolicy); bound {
+		return ctx, nil
+	}
+	policy, err := s.GetModelFallbackPolicy(ctx)
+	if err != nil {
+		return ctx, err
+	}
+	if policy == nil || len(policy.Tiers) == 0 {
+		return ctx, fmt.Errorf("auto model routing requires a highest capability tier")
+	}
+	aliases, err := s.GetModelAliasPolicy(ctx)
+	if err != nil {
+		return ctx, err
+	}
+	aliasSnapshot := &ModelAliasPolicy{Groups: make([]ModelAliasGroup, len(aliases.Groups))}
+	for i, group := range aliases.Groups {
+		aliasSnapshot.Groups[i] = ModelAliasGroup{Canonical: group.Canonical, Aliases: slices.Clone(group.Aliases)}
+	}
+	excluded := make(map[string]struct{}, len(policy.Tiers[0].Models))
+	for _, model := range policy.Tiers[0].Models {
+		excluded[aliasSnapshot.Canonicalize(model)] = struct{}{}
+	}
+	snapshot := &autoModelRoutingPolicy{excluded: excluded, aliases: aliasSnapshot}
+	ctx = WithModelAliases(ctx, aliasSnapshot)
+	return context.WithValue(ctx, autoModelRoutingPolicyContextKey{}, snapshot), nil
+}
+
+// 仅约束已绑定的 Auto 请求，模型和别名均精确匹配，不推断版本等价关系。
+func AutoModelAllowed(ctx context.Context, models ...string) bool {
+	if ctx == nil {
+		return true
+	}
+	snapshot, _ := ctx.Value(autoModelRoutingPolicyContextKey{}).(*autoModelRoutingPolicy)
+	if snapshot == nil {
+		return true
+	}
+	for _, model := range models {
+		if _, excluded := snapshot.excluded[snapshot.aliases.Canonicalize(model)]; excluded {
+			return false
+		}
+	}
+	return true
+}
+
+func (e *UpstreamFailoverError) IsAutoModelExcluded() bool {
+	return e != nil && e.Reason == AutoModelExcludedReason &&
+		e.Scope == GatewayFailureScopeRequest && e.SkipAccountScheduleFailure
+}
+
+// 最终转发仍需校验；本地成本限制允许外层换号，但不计为账号故障。
+func checkAutoModelUpstream(ctx context.Context, models ...string) error {
+	if AutoModelAllowed(ctx, models...) {
+		return nil
+	}
+	return &UpstreamFailoverError{
+		StatusCode:                 http.StatusServiceUnavailable,
+		Stage:                      GatewayFailureStageInference,
+		Scope:                      GatewayFailureScopeRequest,
+		Reason:                     AutoModelExcludedReason,
+		ClientStatusCode:           http.StatusServiceUnavailable,
+		ClientMessage:              "Auto model routing excludes the selected upstream model",
+		SkipAccountScheduleFailure: true,
+	}
+}
+
 // 只在同名账号耗尽后读取一次设置及分组目录，成功请求不增加数据库查询。
 func (s *OpenAIGatewayService) ModelFallbackCandidates(ctx context.Context, groupID *int64, model string, body []byte) ([]ModelFallbackCandidate, error) {
 	policy, err := s.settingService.GetModelFallbackPolicy(ctx)
@@ -138,6 +215,10 @@ func (s *OpenAIGatewayService) ModelFallbackCandidates(ctx context.Context, grou
 	if err != nil {
 		return nil, err
 	}
+	useCompactModelMapping := false
+	if forwardModel, ok := openAIForwardModelFromContext(ctx); ok {
+		useCompactModelMapping = forwardModel.useCompactModelMapping
+	}
 	return slices.DeleteFunc(candidates, func(candidate ModelFallbackCandidate) bool {
 		mapping, restricted := s.ResolveChannelMappingAndRestrict(ctx, groupID, candidate.Model)
 		if restricted {
@@ -147,8 +228,12 @@ func (s *OpenAIGatewayService) ModelFallbackCandidates(ctx context.Context, grou
 		if mapping.Mapped {
 			forward = mapping.MappedModel
 		}
+		if !AutoModelAllowed(ctx, candidate.Model, forward) {
+			return true
+		}
 		return !slices.ContainsFunc(accounts, func(account Account) bool {
-			return account.IsModelSupported(forward) && ModelFallbackAccountCompatible(&account, forward, body)
+			upstream := ResolveOpenAIAccountUpstreamModelForRequest(&account, forward, useCompactModelMapping)
+			return AutoModelAllowed(ctx, upstream) && account.IsModelSupported(forward) && ModelFallbackAccountCompatible(&account, forward, body)
 		})
 	}), nil
 }

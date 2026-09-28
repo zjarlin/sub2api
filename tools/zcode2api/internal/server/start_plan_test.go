@@ -173,13 +173,21 @@ func TestStartPlanWebLoginDoesNotDeriveCodingPlanAPIKey(t *testing.T) {
 	oauth := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
 		switch r.URL.Path {
-		case "/token":
+		case "/init":
 			var payload map[string]string
 			_ = json.NewDecoder(r.Body).Decode(&payload)
-			if payload["provider"] != "bigmodel" || payload["code"] != "native-code" {
-				t.Errorf("wrong native token exchange: %v", payload)
+			if payload["provider"] != "bigmodel" || !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+				t.Errorf("wrong polling initialization: %v", payload)
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{"token": jwt, "user": map[string]string{"name": "Start Plan user"}}})
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
+				"flow_id": "start-flow", "authorize_url": "https://bigmodel.cn/login?appId=zcode&state=flow-state",
+				"expires_at": time.Now().Add(5 * time.Minute).Unix(), "poll_interval_sec": 2,
+			}})
+		case "/poll/start-flow":
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
+				"status": "ready", "token": jwt, "user": map[string]string{"user_id": "user-1", "name": "Start Plan user"},
+				"bigmodel": map[string]string{"access_token": "bigmodel-access"},
+			}})
 		case "/api/v1/zcode-plan/billing/balance":
 			_, _ = io.WriteString(w, `{"code":0,"data":{"balances":[{"capabilities":["model:glm-5.3"]}]}}`)
 		default:
@@ -210,26 +218,29 @@ func TestStartPlanWebLoginDoesNotDeriveCodingPlanAPIKey(t *testing.T) {
 		URL string `json:"auth_url"`
 	}
 	_ = json.Unmarshal(start.Body.Bytes(), &session)
-	if start.Code != 201 || !strings.Contains(session.URL, "bigmodel.cn/login?") || !strings.Contains(session.URL, "appId=zcode") {
+	if start.Code != 201 || !strings.Contains(session.URL, "bigmodel.cn/login?") || !strings.Contains(session.URL, "appId=zcode") || !strings.Contains(session.URL, "app_version%3D3.14.3") {
 		t.Fatalf("wrong authorization entry: %d %s", start.Code, start.Body.String())
 	}
-	callback := call("/internal/login/sessions/"+session.ID+"/callback", `{"callback_url":"zcode://oauth/callback?authCode=native-code"}`)
+	callback := call("/internal/login/sessions/"+session.ID+"/poll", `{}`)
 	if callback.Code != 200 || strings.Contains(callback.Body.String(), jwt) {
 		t.Fatalf("login failed or exposed credentials: %d %s", callback.Code, callback.Body.String())
 	}
 	cred, ok, err := s.loginCredStore.Load()
-	if err != nil || !ok || cred.Plan != credential.PlanStart || cred.APIKey != jwt || cred.ProviderID != "account:bigmodel-start-plan" || requests != 2 {
+	if err != nil || !ok || cred.Plan != credential.PlanStart || cred.APIKey != jwt || cred.ProviderID != "account:bigmodel-start-plan" || requests != 3 {
 		t.Fatalf("wrong persisted plan or request chain: ok=%v err=%v requests=%d", ok, err, requests)
 	}
 }
 
 func TestStartPlanFailedLoginPreservesExistingCredential(t *testing.T) {
 	oauth := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/token" {
-			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{"token": startPlanJWT(time.Now().Add(time.Hour).Unix())}})
+		if r.URL.Path == "/init" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
+				"flow_id": "failed-flow", "authorize_url": "https://bigmodel.cn/login?state=failed-state",
+				"expires_at": time.Now().Add(5 * time.Minute).Unix(), "poll_interval_sec": 2,
+			}})
 			return
 		}
-		_, _ = io.WriteString(w, `{"code":0,"data":{"balances":[]}}`)
+		_, _ = io.WriteString(w, `{"code":0,"data":{"status":"failed"}}`)
 	}))
 	defer oauth.Close()
 	restore := overrideZcodeEndpoints(t, oauth.URL)
@@ -253,7 +264,7 @@ func TestStartPlanFailedLoginPreservesExistingCredential(t *testing.T) {
 	if start.Code != http.StatusCreated || json.Unmarshal(start.Body.Bytes(), &session) != nil || session.ID == "" {
 		t.Fatalf("start login: %d %s", start.Code, start.Body.String())
 	}
-	result := call("/internal/login/sessions/"+session.ID+"/callback", `{"callback_url":"zcode://oauth/callback?authCode=denied"}`)
+	result := call("/internal/login/sessions/"+session.ID+"/poll", `{}`)
 	after, ok, err := s.loginCredStore.Load()
 	if result.Code != http.StatusForbidden || err != nil || !ok || before.APIKey != after.APIKey || before.Plan != after.Plan {
 		t.Fatalf("failed login replaced credentials: status=%d ok=%v err=%v", result.Code, ok, err)

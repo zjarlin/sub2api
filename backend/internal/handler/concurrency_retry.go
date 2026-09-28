@@ -36,6 +36,9 @@ func tryRemainingOpenAIAccounts(account *service.Account, err *service.UpstreamF
 }
 
 func (b *openAIAccountSwitchBudget) exhausted(account *service.Account, err *service.UpstreamFailoverError) bool {
+	if err.IsAutoModelExcluded() {
+		return false
+	}
 	if tryRemainingOpenAIAccounts(account, err) {
 		return false
 	}

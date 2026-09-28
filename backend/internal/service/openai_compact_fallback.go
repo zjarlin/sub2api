@@ -256,6 +256,9 @@ func (s *OpenAIGatewayService) prepareOpenAICompactFallbackRetry(
 	if fallbackModel == "" || strings.EqualFold(fallbackModel, currentModel) {
 		return currentBody, "", false
 	}
+	if c != nil && c.Request != nil && !AutoModelAllowed(c.Request.Context(), requestedModel, fallbackModel) {
+		return currentBody, "", false
+	}
 	retryBody := ReplaceModelInBody(currentBody, fallbackModel)
 	if strings.EqualFold(strings.TrimSpace(gjson.GetBytes(retryBody, "model").String()), currentModel) {
 		return currentBody, "", false

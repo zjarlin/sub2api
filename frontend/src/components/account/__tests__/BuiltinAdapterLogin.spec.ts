@@ -13,7 +13,8 @@ describe('BuiltinAdapterLogin', () => {
   afterEach(() => { vi.useRealTimers() })
 
   it('fixes the selected ZCode plan and provider for the authorization session', async () => {
-    start.mockResolvedValue(pending('callback'))
+    start.mockResolvedValue(pending('poll'))
+    complete.mockResolvedValue({ ...pending('poll'), status: 'completed', account: { uid: 'zcode-user' } })
     const wrapper = mount(BuiltinAdapterLogin, { props: { platform: 'zcode' } })
     await wrapper.get('#zcode-login-plan').setValue('start-plan')
     await wrapper.get('#zcode-login-provider').setValue('bigmodel')
@@ -23,6 +24,11 @@ describe('BuiltinAdapterLogin', () => {
     expect(wrapper.get('#zcode-login-plan').attributes('disabled')).toBeDefined()
     expect(wrapper.get('#zcode-login-provider').attributes('disabled')).toBeDefined()
     expect(wrapper.text()).toContain('admin.accounts.builtinLogin.zcodePoolHint')
+    expect(wrapper.find('input').exists()).toBe(false)
+    await vi.advanceTimersByTimeAsync(2500)
+    await flushPromises()
+    expect(complete).toHaveBeenCalledWith('zcode', expect.objectContaining({ mode: 'poll' }), '', expect.any(AbortSignal))
+    expect(wrapper.emitted('authorized')).toHaveLength(1)
     wrapper.unmount()
   })
 
@@ -41,6 +47,24 @@ describe('BuiltinAdapterLogin', () => {
     expect(wrapper.find('input').exists()).toBe(false)
     await vi.advanceTimersByTimeAsync(5000)
     expect(complete).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
+  it('imports a DeepSeek browser session with its device ID', async () => {
+    start.mockResolvedValue(pending('callback'))
+    complete.mockResolvedValue({ ...pending('callback'), status: 'completed', account: { uid: 'deepseek-user' } })
+    const wrapper = mount(BuiltinAdapterLogin, { props: { platform: 'deepseek_web' } })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('a').attributes('href')).toBe('https://example.com/login')
+    await wrapper.get('#deepseek-web-token').setValue('browser-token')
+    expect(wrapper.get('button.btn-primary').attributes('disabled')).toBeDefined()
+    await wrapper.get('#deepseek-web-device').setValue('device-1')
+    await wrapper.get('button.btn-primary').trigger('click')
+    await flushPromises()
+    expect(complete).toHaveBeenCalledWith('deepseek_web', expect.anything(), JSON.stringify({ token: 'browser-token', device_id: 'device-1' }), expect.any(AbortSignal))
+    expect(wrapper.find('#deepseek-web-token').exists()).toBe(false)
+    expect(wrapper.emitted('authorized')).toHaveLength(1)
     wrapper.unmount()
   })
 

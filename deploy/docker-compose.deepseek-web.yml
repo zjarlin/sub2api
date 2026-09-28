@@ -1,0 +1,37 @@
+services:
+  sub2api:
+    environment:
+      - BUILTIN_ADAPTER_ENABLED=true
+      - BUILTIN_ADAPTER_DEEPSEEK_WEB_URL=http://sub2api-deepseek-web:7867
+      - BUILTIN_ADAPTER_DEEPSEEK_WEB_KEY=${DEEPSEEK_WEB_ADAPTER_KEY:?Set DEEPSEEK_WEB_ADAPTER_KEY to a shared adapter key}
+    depends_on:
+      sub2api-deepseek-web:
+        condition: service_healthy
+
+  sub2api-deepseek-web:
+    build:
+      context: ./tools
+      dockerfile: deepseek2api/Dockerfile.sub2api
+    image: ${DEEPSEEK_WEB_IMAGE:-sub2api-deepseek-web:local}
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      DEEPSEEK_WEB_LISTEN: 0.0.0.0:7867
+      DEEPSEEK_WEB_ADAPTER_KEY: ${DEEPSEEK_WEB_ADAPTER_KEY:?Set DEEPSEEK_WEB_ADAPTER_KEY to a shared adapter key}
+      DEEPSEEK_WEB_STATE_FILE: /app/data/accounts.json
+      DEEPSEEK_WEB_WASM_URL: ${DEEPSEEK_WEB_WASM_URL:-https://fe-static.deepseek.com/chat/static/sha3_wasm_bg.7b9ca65ddd.wasm}
+    volumes:
+      - "${DEEPSEEK_WEB_STATE_DIR:-deepseek-web-data}:/app/data"
+    networks:
+      - sub2api-network
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    mem_limit: 512m
+    healthcheck:
+      test: [CMD, wget, -qO-, "http://127.0.0.1:7867/livez"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  deepseek-web-data:

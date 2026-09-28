@@ -196,6 +196,39 @@ func TestStreamGuaranteesDone(t *testing.T) {
 	}
 }
 
+func TestStreamPreservesUpstreamErrorForChatCompletions(t *testing.T) {
+	rec := httptest.NewRecorder()
+	var reported *SOLOStreamError
+	err := StreamWithError(rec, strings.NewReader("event:error\ndata:{\"code\":4008,\"message\":\"Your requests have exceeded the quota.\"}\n\n"), func(se *SOLOStreamError) {
+		reported = se
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reported == nil || reported.Code != 4008 {
+		t.Fatalf("reported error=%v", reported)
+	}
+	var payload struct {
+		Error struct {
+			Code    int64  `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	for _, line := range strings.Split(rec.Body.String(), "\n") {
+		if strings.HasPrefix(line, "data: {") {
+			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &payload); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if payload.Error.Code != 4008 || !strings.Contains(payload.Error.Message, "exceeded the quota") {
+		t.Errorf("error payload=%+v", payload.Error)
+	}
+	if !strings.Contains(rec.Body.String(), "data: [DONE]") {
+		t.Errorf("missing [DONE]: %q", rec.Body.String())
+	}
+}
+
 func TestPrepareBodyToolsParametersStringified(t *testing.T) {
 	src := `{"model":"glm-5.2","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"get_weather","description":"weather","parameters":{"type":"object","properties":{"city":{"type":"string"}},"required":["city"]}}}]}`
 	out := PrepareBody([]byte(src))

@@ -110,17 +110,19 @@ type Config struct {
 // BuiltinAdapterConfig 控制随 Sub2API 部署一起启动的豆包、TRAE 和 WorkBuddy 适配器。
 // 启用后账号表单不再要求手填地址与密钥，后端统一注入内部地址和共享密钥。
 type BuiltinAdapterConfig struct {
-	Enabled      bool   `mapstructure:"enabled"`
-	DesktopURL   string `mapstructure:"desktop_url"`
-	DesktopKey   string `mapstructure:"desktop_key"`
-	TraeworkURL  string `mapstructure:"traework_url"`
-	TraeworkKey  string `mapstructure:"traework_key"`
-	WorkbuddyURL string `mapstructure:"workbuddy_url"`
-	WorkbuddyKey string `mapstructure:"workbuddy_key"`
-	VibexURL     string `mapstructure:"vibex_url"`
-	VibexKey     string `mapstructure:"vibex_key"`
-	ZcodeURL     string `mapstructure:"zcode_url"`
-	ZcodeKey     string `mapstructure:"zcode_key"`
+	Enabled        bool   `mapstructure:"enabled"`
+	DesktopURL     string `mapstructure:"desktop_url"`
+	DesktopKey     string `mapstructure:"desktop_key"`
+	TraeworkURL    string `mapstructure:"traework_url"`
+	TraeworkKey    string `mapstructure:"traework_key"`
+	WorkbuddyURL   string `mapstructure:"workbuddy_url"`
+	WorkbuddyKey   string `mapstructure:"workbuddy_key"`
+	VibexURL       string `mapstructure:"vibex_url"`
+	VibexKey       string `mapstructure:"vibex_key"`
+	ZcodeURL       string `mapstructure:"zcode_url"`
+	ZcodeKey       string `mapstructure:"zcode_key"`
+	DeepseekWebURL string `mapstructure:"deepseek_web_url"`
+	DeepseekWebKey string `mapstructure:"deepseek_web_key"`
 	// System One 决策模型：Laya（本地 edge-laya）与 JEV（远端 / 内网 TypeSafe）。
 	LayaURL string `mapstructure:"laya_url"`
 	LayaKey string `mapstructure:"laya_key"`
@@ -166,6 +168,14 @@ func (c BuiltinAdapterConfig) ZcodeBaseURL() string {
 		return "http://sub2api-zcode:7865"
 	}
 	return strings.TrimSpace(c.ZcodeURL)
+}
+
+// DeepseekWebBaseURL 返回仓库内 DeepSeek 网页适配器地址。
+func (c BuiltinAdapterConfig) DeepseekWebBaseURL() string {
+	if strings.TrimSpace(c.DeepseekWebURL) == "" {
+		return "http://sub2api-deepseek-web:7867"
+	}
+	return strings.TrimSpace(c.DeepseekWebURL)
 }
 
 // LayaBaseURL 返回内置 Laya 决策服务地址。
@@ -2150,6 +2160,8 @@ func setDefaults() {
 	viper.SetDefault("builtin_adapter.vibex_key", "")
 	viper.SetDefault("builtin_adapter.zcode_url", "")
 	viper.SetDefault("builtin_adapter.zcode_key", "")
+	viper.SetDefault("builtin_adapter.deepseek_web_url", "")
+	viper.SetDefault("builtin_adapter.deepseek_web_key", "")
 	viper.SetDefault("builtin_adapter.laya_url", "")
 	viper.SetDefault("builtin_adapter.laya_key", "")
 	viper.SetDefault("builtin_adapter.jev_url", "")

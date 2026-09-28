@@ -839,6 +839,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		imageSizeTier = imageCfg.SizeTier
 		imageInputSize = imageCfg.InputSize
 	}
+	if err := checkAutoModelUpstream(ctx, requestedModel, billingModel, upstreamModel, requestView.Model); err != nil {
+		return nil, err
+	}
 	// Get access token
 	token, _, err := s.GetAccessToken(ctx, account)
 	if err != nil {

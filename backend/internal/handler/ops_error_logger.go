@@ -1117,6 +1117,17 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 				parsed = terminal
 			}
 		}
+		streamErrs := service.GetOpsStreamErrors(c)
+		if opsStreamErrorsAllRequestScoped(streamErrs) {
+			logOpsStreamError(c, ops, status)
+			// 最终请求错误已单独记录，先前上游尝试以诊断状态保留，避免重复计入请求错误率。
+			telemetryStatus := status
+			if telemetryStatus >= 400 {
+				telemetryStatus = http.StatusOK
+			}
+			logOpsRecoveredUpstream(c, ops, telemetryStatus)
+			return
+		}
 		if status < 400 {
 			if parsed.StreamFailure {
 				status = inferStreamFailureStatus(c, parsed)
@@ -1124,12 +1135,8 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 				// A marked in-band error is a visible request failure even though its
 				// wire status is already 200. Otherwise retain recovered attempts as a
 				// provider-health row whose 2xx status keeps it outside request SLA.
-				if streamErrs := service.GetOpsStreamErrors(c); len(streamErrs) > 0 {
+				if len(streamErrs) > 0 {
 					logOpsStreamError(c, ops, status)
-					// 请求级带内结果不承载上游归因，此前尝试的上游错误仍按恢复行记录。
-					if opsStreamErrorsAllRequestScoped(streamErrs) {
-						logOpsRecoveredUpstream(c, ops, status)
-					}
 				} else {
 					logOpsRecoveredUpstream(c, ops, status)
 				}
@@ -1307,8 +1314,10 @@ func logOpsRecoveredUpstream(c *gin.Context, ops *service.OpsService, finalStatu
 	}
 	lastStage := ""
 	lastKind := ""
+	var lastEvent *service.OpsUpstreamErrorEvent
 	for i := len(entry.UpstreamErrors) - 1; i >= 0; i-- {
 		if event := entry.UpstreamErrors[i]; event != nil {
+			lastEvent = event
 			lastStage = event.Stage
 			lastKind = event.Kind
 			if event.AccountID > 0 {
@@ -1405,6 +1414,17 @@ func logOpsRecoveredUpstream(c *gin.Context, ops *service.OpsService, finalStatu
 			entry.Platform = apiKey.Group.Platform
 		}
 	}
+	if opsStreamErrorsAllRequestScoped(service.GetOpsStreamErrors(c)) &&
+		service.OpsClientBusinessLimitedReason(c) == service.OpsClientBusinessLimitedReasonLocalPolicyDenied {
+		entry.UpstreamEndpoint = ""
+		entry.UpstreamModel = ""
+		if lastEvent != nil {
+			entry.UpstreamModel = strings.TrimSpace(lastEvent.Model)
+			if platform := strings.TrimSpace(lastEvent.Platform); platform != "" {
+				entry.Platform = platform
+			}
+		}
+	}
 	if clientIP := strings.TrimSpace(ip.GetClientIP(c)); clientIP != "" {
 		entry.ClientIP = &clientIP
 	}
@@ -1429,10 +1449,9 @@ func opsRequestTypeFromContext(c *gin.Context) *int16 {
 	return nil
 }
 
-// logOpsStreamError 记录挂在 2xx 响应上的带内错误（就地 SSE error 帧、非流式正文里的
-// 请求级结果等）。由于 wire 状态码停留在 2xx，常规的 status>=400 捕获路径不会触发；
-// 标记方通过 service.MarkOpsStreamError / MarkOpsStreamErrorValue 登记，此函数据此补记
-// 错误日志。上游错误上下文（若有）是否参与分类与归因由标记的 RequestScoped 决定。
+// logOpsStreamError 记录带内错误及显式标记的请求级终态，支持 SSE 和非流式正文。
+// 标记方通过 service.MarkOpsStreamError / MarkOpsStreamErrorValue 登记；上游错误上下文
+// 是否参与分类与归因由 RequestScoped 决定。
 func logOpsStreamError(c *gin.Context, ops *service.OpsService, wireStatus int) {
 	for _, streamErr := range service.GetOpsStreamErrors(c) {
 		logOpsStreamErrorValue(c, ops, wireStatus, streamErr)
@@ -1571,6 +1590,12 @@ func logOpsStreamErrorValue(c *gin.Context, ops *service.OpsService, wireStatus 
 		ErrorOwner:   errorOwner,
 
 		CreatedAt: time.Now(),
+	}
+	if streamErr.RequestScoped && service.HasOpsClientBusinessLimited(c) &&
+		service.OpsClientBusinessLimitedReason(c) == service.OpsClientBusinessLimitedReasonLocalPolicyDenied {
+		entry.AccountID = nil
+		entry.UpstreamEndpoint = ""
+		entry.UpstreamModel = ""
 	}
 	applyOpsLatencyFieldsFromContext(c, entry)
 	if !streamErr.RequestScoped {

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"glm-zcode-2api/internal/credential"
 	"sub2api/builtinlogin"
@@ -18,59 +19,44 @@ import (
 
 // 授权端点可被测试覆盖，生产默认指向 Z.AI / ZCode 官方入口。
 var (
-	zcodeAuthorizeURL         = "https://chat.z.ai/api/oauth/authorize"
-	zcodeTokenURL             = "https://zcode.z.ai/api/v1/oauth/token"
-	zcodeUserInfoURL          = "https://chat.z.ai/api/oauth/userinfo"
-	zcodeCustomerInfoURL      = "https://api.z.ai/api/biz/customer/getCustomerInfo"
-	zcodeBizLoginURL          = "https://api.z.ai/api/auth/z/login"
-	zcodeBizBaseURL           = "https://api.z.ai/api/biz"
-	zcodeBigmodelAuthorizeURL = "https://bigmodel.cn/login"
-	zcodeBigmodelBizBaseURL   = "https://bigmodel.cn/api/biz"
+	zcodeOAuthCLIURL        = "https://zcode.z.ai/api/v1/oauth/cli"
+	zcodeUserInfoURL        = "https://chat.z.ai/api/oauth/userinfo"
+	zcodeCustomerInfoURL    = "https://api.z.ai/api/biz/customer/getCustomerInfo"
+	zcodeBizLoginURL        = "https://api.z.ai/api/auth/z/login"
+	zcodeBizBaseURL         = "https://api.z.ai/api/biz"
+	zcodeBigmodelBizBaseURL = "https://bigmodel.cn/api/biz"
 )
 
-const (
-	zcodeOAuthClientID = "client_P8X5CMWmlaRO9gyO-KSqtg"
-	// 官方客户端登记的官网中转页；适配器监听地址不能作为 OAuth 回调地址。
-	zcodeOAuthRedirectURI = "https://zcode.z.ai/app/oauth/login?redirect=zcode%3A%2F%2Foauth%2Fcallback"
-)
+const zcodeOAuthRedirectURI = "https://zcode.z.ai/app/oauth/login?redirect=zcode%3A%2F%2Foauth%2Fcallback&app_version=3.14.3"
 
-// 浏览器授权后提交完整回调链接；套餐和区域固定在会话内，成功后保存对应凭据。
+// 官方网页登录在中转页完成兑换，适配器只轮询当前会话的授权结果。
 func (s *Server) beginZcodeLogin(ctx context.Context) (*builtinlogin.Flow, error) {
 	options, ok := ctx.Value(loginOptionsKey{}).(loginOptions)
 	if !ok {
 		options = loginOptions{Plan: s.cfg.Upstream.Plan, Provider: s.cfg.Upstream.OAuthProvider}
 	}
-	state, err := randomHex(32)
+	pollToken, err := randomHex(32)
 	if err != nil {
 		return nil, err
 	}
-	authURL := zcodeAuthorizeURL + "?" + url.Values{
-		"redirect_uri":  {zcodeOAuthRedirectURI},
-		"response_type": {"code"},
-		"client_id":     {zcodeOAuthClientID},
-		"state":         {state},
-	}.Encode()
-	if options.Provider == "bigmodel" {
-		authURL = zcodeBigmodelAuthorizeURL + "?" + url.Values{
-			"redirect": {zcodeOAuthRedirectURI},
-			"appId":    {"zcode"},
-			"state":    {state},
-		}.Encode()
+	flow, err := startZcodeOAuthFlow(ctx, s.loginHTTP, pollToken, options.Provider)
+	if err != nil {
+		return nil, err
 	}
 	store := s.loginCredStore
 	client := s.loginHTTP
-	flow := &builtinlogin.Flow{URL: authURL, Mode: "callback"}
-	flow.Complete = func(ctx context.Context, callback string) (*builtinlogin.Account, error) {
-		if u, err := url.Parse(callback); err == nil && u.Query().Get("state") != "" && u.Query().Get("state") != state {
-			return nil, &builtinlogin.PublicError{Status: http.StatusBadRequest, Message: "Authorization callback state does not match this login"}
+	nextPoll := time.Time{}
+	return &builtinlogin.Flow{URL: flow.AuthURL, Mode: "poll", Complete: func(ctx context.Context, _ string) (*builtinlogin.Account, error) {
+		if time.Now().After(flow.ExpiresAt) {
+			return nil, &builtinlogin.PublicError{Status: http.StatusGone, Message: "ZCode login expired; start a new login"}
 		}
-		code, err := extractZcodeCode(callback)
+		if time.Now().Before(nextPoll) {
+			return nil, builtinlogin.ErrPending
+		}
+		nextPoll = time.Now().Add(flow.PollInterval)
+		data, err := pollZcodeOAuthFlow(ctx, client, pollToken, flow.ID, options.Provider)
 		if err != nil {
 			return nil, err
-		}
-		data, err := exchangeZcodeToken(ctx, client, code, state, zcodeOAuthRedirectURI, options.Provider)
-		if err != nil {
-			return nil, &builtinlogin.PublicError{Status: http.StatusBadGateway, Message: "Built-in authorization failed; retry or start a new login"}
 		}
 		var cred credential.Credential
 		if options.Plan == credential.PlanStart {
@@ -89,8 +75,7 @@ func (s *Server) beginZcodeLogin(ctx context.Context) (*builtinlogin.Flow, error
 			return nil, &builtinlogin.PublicError{Status: http.StatusBadGateway, Message: "Unable to persist the authorization result"}
 		}
 		return &builtinlogin.Account{UID: credentialUID(cred), Nickname: cred.Provider}, nil
-	}
-	return flow, nil
+	}}, nil
 }
 
 // credentialUID 用上游账号身份作为登录结果标识；不含密钥。
@@ -101,58 +86,103 @@ func credentialUID(cred credential.Credential) string {
 	return cred.ProviderID
 }
 
-func extractZcodeCode(raw string) (string, error) {
-	invalid := &builtinlogin.PublicError{Status: http.StatusBadRequest, Message: "Paste the complete ZCode callback URL or the authorization code"}
-	raw = strings.TrimSpace(strings.Trim(raw, "'\""))
-	if raw == "" {
-		return "", invalid
-	}
-	if strings.Contains(raw, "://") || strings.Contains(raw, "code=") {
-		u, err := url.Parse(raw)
-		if err != nil {
-			return "", invalid
-		}
-		if code := firstNonEmpty(u.Query().Get("code"), u.Query().Get("authCode")); code != "" {
-			return code, nil
-		}
-		return "", invalid
-	}
-	return raw, nil
+type zcodeOAuthFlow struct {
+	ID           string
+	AuthURL      string
+	ExpiresAt    time.Time
+	PollInterval time.Duration
 }
 
-func exchangeZcodeToken(ctx context.Context, client *http.Client, code, state, redirectURI, provider string) (map[string]any, error) {
-	payload, _ := json.Marshal(map[string]string{"provider": provider, "code": code, "redirect_uri": redirectURI, "state": state})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, zcodeTokenURL, bytes.NewReader(payload))
+func startZcodeOAuthFlow(ctx context.Context, client *http.Client, pollToken, provider string) (zcodeOAuthFlow, error) {
+	payload, _ := json.Marshal(map[string]string{"provider": provider})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, zcodeOAuthCLIURL+"/init", bytes.NewReader(payload))
 	if err != nil {
-		return nil, err
+		return zcodeOAuthFlow{}, err
 	}
+	req.Header.Set("Authorization", "Bearer "+pollToken)
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", upstreamUserAgent())
 	resp, err := client.Do(req)
 	if err != nil {
-		return nil, err
+		return zcodeOAuthFlow{}, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, fmt.Errorf("authorization token exchange status %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		return zcodeOAuthFlow{}, fmt.Errorf("ZCode login initialization status %d", resp.StatusCode)
 	}
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-	var v map[string]any
-	if err := json.Unmarshal(body, &v); err != nil {
-		return nil, fmt.Errorf("invalid token response: %w", err)
+	var result struct {
+		Code *int `json:"code"`
+		Data struct {
+			FlowID          string  `json:"flow_id"`
+			AuthorizeURL    string  `json:"authorize_url"`
+			ExpiresAt       int64   `json:"expires_at"`
+			PollIntervalSec float64 `json:"poll_interval_sec"`
+		} `json:"data"`
 	}
-	if codeVal, ok := v["code"]; ok {
-		n, _ := toFloat(codeVal)
-		if n != 0 && n != 200 {
-			return nil, fmt.Errorf("authorization business code %v", n)
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result); err != nil || result.Code == nil || *result.Code != 0 {
+		return zcodeOAuthFlow{}, errors.New("invalid ZCode login initialization response")
+	}
+	authURL, err := url.Parse(result.Data.AuthorizeURL)
+	if err != nil || authURL.Scheme != "https" || authURL.Hostname() == "" || result.Data.FlowID == "" {
+		return zcodeOAuthFlow{}, errors.New("invalid ZCode authorization URL")
+	}
+	query := authURL.Query()
+	if provider == "bigmodel" {
+		query.Set("redirect", zcodeOAuthRedirectURI)
+	} else {
+		query.Set("redirect_uri", zcodeOAuthRedirectURI)
+	}
+	authURL.RawQuery = query.Encode()
+	expiresAt := time.Unix(result.Data.ExpiresAt, 0)
+	interval := time.Duration(result.Data.PollIntervalSec * float64(time.Second))
+	if !expiresAt.After(time.Now()) || interval < time.Second || interval >= time.Until(expiresAt) {
+		return zcodeOAuthFlow{}, errors.New("invalid ZCode login polling interval")
+	}
+	return zcodeOAuthFlow{ID: result.Data.FlowID, AuthURL: authURL.String(), ExpiresAt: expiresAt, PollInterval: interval}, nil
+}
+
+func pollZcodeOAuthFlow(ctx context.Context, client *http.Client, pollToken, flowID, provider string) (map[string]any, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, zcodeOAuthCLIURL+"/poll/"+url.PathEscape(flowID), nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+pollToken)
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("User-Agent", upstreamUserAgent())
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, builtinlogin.ErrPending
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusRequestTimeout || resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
+		return nil, builtinlogin.ErrPending
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, &builtinlogin.PublicError{Status: http.StatusBadGateway, Message: "ZCode login was rejected; start a new login"}
+	}
+	var result struct {
+		Code *int           `json:"code"`
+		Data map[string]any `json:"data"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&result); err != nil || result.Code == nil || *result.Code != 0 {
+		return nil, &builtinlogin.PublicError{Status: http.StatusBadGateway, Message: "Invalid ZCode login response; start a new login"}
+	}
+	switch stringVal(result.Data, "status") {
+	case "pending":
+		return nil, builtinlogin.ErrPending
+	case "failed":
+		return nil, &builtinlogin.PublicError{Status: http.StatusForbidden, Message: "ZCode authorization failed; start a new login"}
+	case "ready":
+		oauth, _ := result.Data[provider].(map[string]any)
+		user, _ := result.Data["user"].(map[string]any)
+		if stringVal(result.Data, "token") == "" || firstNonEmpty(stringVal(oauth, "access_token"), stringVal(oauth, "accessToken")) == "" || stringVal(user, "user_id") == "" {
+			return nil, &builtinlogin.PublicError{Status: http.StatusBadGateway, Message: "ZCode login response is incomplete; start a new login"}
 		}
+		return result.Data, nil
+	default:
+		return nil, &builtinlogin.PublicError{Status: http.StatusBadGateway, Message: "Invalid ZCode login status; start a new login"}
 	}
-	data, ok := v["data"].(map[string]any)
-	if !ok || stringVal(data, "token") == "" {
-		return nil, errors.New("authorization response is missing the ZCode login token")
-	}
-	return data, nil
 }
 
 func fetchZcodeUserInfo(ctx context.Context, client *http.Client, accessToken string) map[string]any {
@@ -182,7 +212,7 @@ func fetchZcodeUserInfo(ctx context.Context, client *http.Client, accessToken st
 // buildZcodeCredential 走 OAuth access_token → 业务 token → 机构/项目 → API Key 提取链。
 func buildZcodeCredential(ctx context.Context, client *http.Client, data map[string]any, provider string) (credential.Credential, error) {
 	oauth, _ := data[provider].(map[string]any)
-	accessToken := stringVal(oauth, "access_token")
+	accessToken := firstNonEmpty(stringVal(oauth, "access_token"), stringVal(oauth, "accessToken"))
 	user, _ := data["user"].(map[string]any)
 	if user == nil {
 		user = map[string]any{}

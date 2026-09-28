@@ -304,6 +304,10 @@ func (a *Account) IsDeepseek() bool {
 	return a.Platform == PlatformDeepseek
 }
 
+func (a *Account) IsDeepseekWeb() bool {
+	return a != nil && a.Platform == PlatformDeepseekWeb
+}
+
 func (a *Account) IsMiniMax() bool {
 	return a.Platform == PlatformMiniMax
 }
@@ -1424,7 +1428,7 @@ func (a *Account) GetOpenAIBaseURL() string {
 	case PlatformQoder:
 		// Qoder 直连官方 Model Server，不依赖内置适配器配置。
 		return QoderModelServerURL()
-	case PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformLaya, PlatformJev:
+	case PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformDeepseekWeb, PlatformLaya, PlatformJev:
 		// 内置适配器模式下由部署注入地址，账号本身不存默认公网端点。
 		return builtinAdapterBaseURL(a.Platform)
 	case PlatformKimi:
@@ -1451,7 +1455,7 @@ func (a *Account) GetOpenAIBaseURL() string {
 // GetAccountMode 返回国产供应商账号的接入模式（payg / coding）；非国产供应商或未设置时
 // 返回空串。存储于 credentials["account_mode"]。
 func (a *Account) GetAccountMode() string {
-	if a == nil || a.IsDoubao() || a.IsTraework() || a.IsWorkbuddy() || a.IsVibex() || a.IsZcode() || a.IsLaya() || a.IsJev() {
+	if a == nil || a.IsDoubao() || a.IsTraework() || a.IsWorkbuddy() || a.IsVibex() || a.IsZcode() || a.IsDeepseekWeb() || a.IsLaya() || a.IsJev() {
 		return ""
 	}
 	mode := strings.TrimSpace(a.GetCredential("account_mode"))
@@ -1480,7 +1484,7 @@ func (a *Account) GetAPIProtocol() string {
 		// System One 决策模型共用 /v1/systemone，不生成文本，不存在 chat/responses 变体。
 		return APIProtocolSystemOne
 	}
-	if a.IsDoubao() || a.IsTraework() || a.IsWorkbuddy() || a.IsVibex() || a.IsZcode() || a.IsQoder() || !a.IsMultiProtocolAPIKey() {
+	if a.IsDoubao() || a.IsTraework() || a.IsWorkbuddy() || a.IsVibex() || a.IsZcode() || a.IsDeepseekWeb() || a.IsQoder() || !a.IsMultiProtocolAPIKey() {
 		return APIProtocolChatCompletions
 	}
 	switch strings.TrimSpace(a.GetCredential("api_protocol")) {

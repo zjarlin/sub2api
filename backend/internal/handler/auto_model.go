@@ -71,6 +71,26 @@ func autoModelCandidatesForGroup(group *service.Group, models []string) []string
 	return filtered
 }
 
+func (h *GatewayHandler) autoModelTargetAllowed(ctx context.Context, groupID int64, model string) bool {
+	if !service.AutoModelAllowed(ctx, model) {
+		return false
+	}
+	mapping := h.gatewayService.ResolveChannelMapping(ctx, groupID, model)
+	return !mapping.Mapped || service.AutoModelAllowed(ctx, mapping.MappedModel)
+}
+
+// 最高档排除在决策前生效，渠道改名也不能绕过本轮成本限制。
+func (h *GatewayHandler) autoModelEligibleCandidates(ctx context.Context, group *service.Group, models []string) []string {
+	candidates := service.ModelAliasesFromContext(ctx).CanonicalIDs(autoModelCandidatesForGroup(group, models))
+	filtered := make([]string, 0, len(candidates))
+	for _, model := range candidates {
+		if h.autoModelTargetAllowed(ctx, group.ID, model) {
+			filtered = append(filtered, model)
+		}
+	}
+	return filtered
+}
+
 func autoModelTextCandidate(model string) bool {
 	platform, ok := service.DetectModelPlatform(model)
 	if !ok || !autoModelTextPlatform(platform) {
@@ -101,8 +121,11 @@ func autoModelTextPlatform(platform string) bool {
 func (h *GatewayHandler) autoModelAvailable(ctx context.Context, group *service.Group, models []string) bool {
 	if h == nil || h.gatewayService == nil || group == nil ||
 		(group.Platform != service.PlatformComposite && group.Platform != service.PlatformOpenAI) ||
-		(group.ModelAllowlistEnabled() && !group.ModelAllowlist.Allows(autoModelID)) ||
-		len(autoModelCandidatesForGroup(group, models)) == 0 {
+		(group.ModelAllowlistEnabled() && !group.ModelAllowlist.Allows(autoModelID)) {
+		return false
+	}
+	ctx, err := h.settingService.BindAutoModelRoutingPolicy(ctx)
+	if err != nil || len(h.autoModelEligibleCandidates(ctx, group, models)) == 0 {
 		return false
 	}
 	platforms := h.gatewayService.GetSchedulablePlatforms(ctx, &group.ID)
@@ -205,14 +228,37 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 			c.Abort()
 			return
 		}
+		ctx, err := h.settingService.BindAutoModelRoutingPolicy(c.Request.Context())
+		if err != nil {
+			logger.FromContext(c.Request.Context()).Warn("gateway.auto_model_policy_unavailable", zap.Error(err))
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "scheduling_error", "message": "Auto model routing policy is unavailable"}})
+			c.Abort()
+			return
+		}
+		c.Request = c.Request.WithContext(ctx)
 		models := h.autoModelCatalog(c.Request.Context(), apiKey.Group)
 		if !h.autoModelAvailable(c.Request.Context(), apiKey.Group, models) {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "scheduling_error", "message": "Auto model routing is unavailable for this group"}})
 			c.Abort()
 			return
 		}
-		candidates := autoModelCandidatesForGroup(apiKey.Group, models)
-		candidates = service.ModelAliasesFromContext(c.Request.Context()).CanonicalIDs(candidates)
+		candidates := h.autoModelEligibleCandidates(ctx, apiKey.Group, models)
+		if resolver != nil && apiKey.Group.Platform == service.PlatformComposite {
+			filtered := make([]string, 0, len(candidates))
+			for _, candidate := range candidates {
+				decision, resolveErr := resolver.Resolve(ctx, apiKey.Group.ID, candidate, autoModelEndpoint(c.FullPath()))
+				if resolveErr == nil && decision.Matched && autoModelTextPlatform(decision.TargetPlatform) &&
+					h.autoModelTargetAllowed(ctx, apiKey.Group.ID, decision.UpstreamModel) {
+					filtered = append(filtered, candidate)
+				}
+			}
+			candidates = filtered
+		}
+		if len(candidates) == 0 {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "scheduling_error", "message": "Auto model routing has no eligible model"}})
+			c.Abort()
+			return
+		}
 		if h.billingCacheService != nil {
 			subscription, _ := middleware2.GetSubscriptionFromContext(c)
 			if billingErr := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); billingErr != nil {
@@ -238,7 +284,8 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 		}
 		if resolver != nil && apiKey.Group.Platform == service.PlatformComposite {
 			decision, resolveErr := resolver.Resolve(c.Request.Context(), apiKey.Group.ID, model, autoModelEndpoint(c.FullPath()))
-			if resolveErr != nil || !decision.Matched || !autoModelTextPlatform(decision.TargetPlatform) {
+			if resolveErr != nil || !decision.Matched || !autoModelTextPlatform(decision.TargetPlatform) ||
+				!h.autoModelTargetAllowed(c.Request.Context(), apiKey.Group.ID, decision.UpstreamModel) {
 				c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "scheduling_error", "message": "Selected model has no available text route"}})
 				c.Abort()
 				return

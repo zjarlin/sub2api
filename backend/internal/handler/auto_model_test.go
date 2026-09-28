@@ -297,12 +297,12 @@ func TestAutoModelMiddlewareUsesSystemOneForMultipleCandidates(t *testing.T) {
 func TestAutoModelOpenAIGroupUsesSystemOne(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = w.Write([]byte(`{"answers":{"model":{"choice":"gpt-6-astra"}}}`))
+		_, _ = w.Write([]byte(`{"answers":{"model":{"choice":"gpt-5.6-sol"}}}`))
 	}))
 	defer upstream.Close()
 	accounts := autoModelTestAccounts()
 	accounts[1].Platform = service.PlatformOpenAI
-	accounts[1].Credentials["model_mapping"] = map[string]any{"gpt-6-astra": "gpt-6-astra"}
+	accounts[1].Credentials["model_mapping"] = map[string]any{"gpt-5.6-sol": "gpt-5.6-sol"}
 	accounts[2].Type = service.AccountTypeAPIKey
 	accounts[2].Credentials["base_url"] = upstream.URL
 	h := newAutoModelTestHandler(accounts)
@@ -320,7 +320,7 @@ func TestAutoModelOpenAIGroupUsesSystemOne(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"auto","messages":[{"role":"user","content":"write a parser"}]}`)))
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
-	require.Equal(t, "gpt-6-astra", recorder.Body.String())
+	require.Equal(t, "gpt-5.6-sol", recorder.Body.String())
 }
 
 func TestAutoModelFallsBackToLayaDecisionAccount(t *testing.T) {

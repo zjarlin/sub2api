@@ -305,6 +305,11 @@
             <PlatformIcon platform="zcode" size="sm" />
             {{ t('admin.accounts.zcode.title') }}
           </button>
+          <button type="button" data-testid="platform-deepseek-web" @click="selectDeepseekWebPlatform"
+            :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'deepseek_web' ? 'bg-white text-teal-600 shadow-sm dark:bg-dark-600 dark:text-teal-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
+            <PlatformIcon platform="deepseek_web" size="sm" />
+            {{ t('admin.accounts.deepseekWeb.title') }}
+          </button>
           <button type="button" data-testid="platform-qoder" @click="selectQoderPlatform"
             :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'qoder' ? 'bg-white text-teal-600 shadow-sm dark:bg-dark-600 dark:text-teal-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
             <PlatformIcon platform="qoder" size="sm" />
@@ -332,13 +337,16 @@
       <p v-if="form.platform === 'zcode'" class="input-hint" data-testid="zcode-connection-hint">
         {{ t('admin.accounts.zcode.connectionHint') }}
       </p>
+      <p v-if="form.platform === 'deepseek_web'" class="input-hint" data-testid="deepseek-web-connection-hint">
+        {{ t('admin.accounts.deepseekWeb.connectionHint') }}
+      </p>
       <p v-if="form.platform === 'laya'" class="input-hint" data-testid="laya-connection-hint">
         {{ t('admin.accounts.laya.baseUrlHint') }}
       </p>
       <p v-if="form.platform === 'jev'" class="input-hint" data-testid="jev-connection-hint">
         {{ t('admin.accounts.jev.baseUrlHint') }}
       </p>
-      <BuiltinAdapterLogin v-if="show && (form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'vibex' || form.platform === 'zcode')" :key="form.platform" :platform="form.platform" />
+      <BuiltinAdapterLogin v-if="show && (form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'vibex' || form.platform === 'zcode' || form.platform === 'deepseek_web')" :key="form.platform" :platform="form.platform" />
 
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
@@ -4234,6 +4242,7 @@ const baseUrlHint = computed(() => {
   if (form.platform === 'workbuddy') return t('admin.accounts.workbuddy.baseUrlHint')
   if (form.platform === 'vibex') return t('admin.accounts.vibex.baseUrlHint')
   if (form.platform === 'zcode') return t('admin.accounts.zcode.baseUrlHint')
+  if (form.platform === 'deepseek_web') return t('admin.accounts.deepseekWeb.baseUrlHint')
   if (form.platform === 'laya') return t('admin.accounts.laya.baseUrlHint')
   if (form.platform === 'jev') return t('admin.accounts.jev.baseUrlHint')
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
@@ -4248,6 +4257,7 @@ const apiKeyHint = computed(() => {
   if (form.platform === 'workbuddy') return t('admin.accounts.workbuddy.apiKeyHint')
   if (form.platform === 'vibex') return t('admin.accounts.vibex.apiKeyHint')
   if (form.platform === 'zcode') return t('admin.accounts.zcode.apiKeyHint')
+  if (form.platform === 'deepseek_web') return t('admin.accounts.deepseekWeb.apiKeyHint')
   if (form.platform === 'laya') return t('admin.accounts.laya.apiKeyHint')
   if (form.platform === 'jev') return t('admin.accounts.jev.apiKeyHint')
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
@@ -4556,6 +4566,11 @@ function selectZcodePlatform() {
   form.platform = 'zcode'
 }
 
+function selectDeepseekWebPlatform() {
+  selectTraeworkPlatform()
+  form.platform = 'deepseek_web'
+}
+
 // Qoder 使用官方 Model Server：默认走设备流 OAuth，也可手动粘贴访问令牌（apikey）。
 function selectQoderPlatform() {
   upstreamBillingAutoProbeEnabled.value = false
@@ -4592,7 +4607,7 @@ function selectJevPlatform() {
 
 // 内置适配器平台（地址与共享密钥由后端注入）的单一权威列表。
 // 新增此类平台时只改这里，避免平台按钮 / base_url 复位 / 密钥必填等分支各漏一处。
-const BUILTIN_ADAPTER_PLATFORMS = ['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'qoder', 'laya', 'jev'] as const
+const BUILTIN_ADAPTER_PLATFORMS = ['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'qoder', 'laya', 'jev'] as const
 const isBuiltinAdapterPlatform = computed(() =>
   (BUILTIN_ADAPTER_PLATFORMS as readonly string[]).includes(form.platform)
 )
@@ -6270,7 +6285,7 @@ const handleSubmit = async () => {
   if (form.platform === 'gemini') {
     credentials.tier_id = geminiTierAIStudio.value
   }
-  if (form.platform === 'doubao' || form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'vibex' || form.platform === 'zcode' || form.platform === 'qoder') {
+  if (form.platform === 'doubao' || form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'vibex' || form.platform === 'zcode' || form.platform === 'deepseek_web' || form.platform === 'qoder') {
     credentials.api_protocol = 'chat_completions'
     credentials.openai_capabilities = ['chat_completions']
   }

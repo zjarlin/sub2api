@@ -915,6 +915,7 @@ export default {
         kimi: 'Kimi',
         zhipu: 'Zhipu GLM',
         deepseek: 'DeepSeek',
+        deepseek_web: 'DeepSeek 网页版',
         minimax: 'MiniMax',
         doubao: '豆包',
         traework: 'TRAE Work',

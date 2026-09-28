@@ -35,7 +35,7 @@ type BuiltinLoginOptions struct {
 // BuiltinAdapterLogin 只连接部署配置指定的内部服务，不接受浏览器提供的目标地址或密钥。
 func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action, callback string, options ...BuiltinLoginOptions) (*BuiltinLoginResult, error) {
 	switch platform {
-	case PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformLaya, PlatformJev:
+	case PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformDeepseekWeb, PlatformQoder, PlatformLaya, PlatformJev:
 	default:
 		return nil, infraerrors.BadRequest("INVALID_LOGIN_PLATFORM", "Unsupported login platform")
 	}
@@ -103,6 +103,12 @@ func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action
 		}
 		if status == 400 {
 			message = "Invalid authorization credential or callback URL"
+		}
+		if platform == PlatformZcode && status == http.StatusForbidden {
+			message = "ZCode authorization failed or the selected plan has no active entitlement"
+		}
+		if platform == PlatformZcode && status == http.StatusGone {
+			message = "ZCode login expired; start a new login"
 		}
 		return nil, infraerrors.New(status, "ADAPTER_LOGIN_FAILED", message)
 	}

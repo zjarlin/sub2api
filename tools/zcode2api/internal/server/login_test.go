@@ -3,17 +3,19 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"glm-zcode-2api/internal/config"
 	"glm-zcode-2api/internal/credential"
+	"sub2api/builtinlogin"
 )
 
 func TestBigmodelCodingPlanUsesNativeBusinessAuthorization(t *testing.T) {
@@ -50,25 +52,34 @@ func TestBigmodelCodingPlanUsesNativeBusinessAuthorization(t *testing.T) {
 	}
 }
 
-// fakeZcodeOAuth 模拟 Z.AI 授权、token 兑换和 API Key 提取链。
-func fakeZcodeOAuth(t *testing.T, seenCode *string) *httptest.Server {
+// fakeZcodeOAuth 模拟官方轮询授权和 Coding Plan API Key 提取链。
+func fakeZcodeOAuth(t *testing.T, seenPollToken *string) *httptest.Server {
 	t.Helper()
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/token":
+		case "/init":
 			body, _ := io.ReadAll(r.Body)
 			var payload map[string]string
 			_ = json.Unmarshal(body, &payload)
-			if payload["redirect_uri"] != "https://zcode.z.ai/app/oauth/login?redirect=zcode%3A%2F%2Foauth%2Fcallback" {
-				t.Errorf("token exchange redirect_uri = %q", payload["redirect_uri"])
+			if payload["provider"] != "zai" || !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+				t.Errorf("invalid polling initialization: provider=%q", payload["provider"])
 			}
-			*seenCode = payload["code"]
+			*seenPollToken = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+			_ = json.NewEncoder(w).Encode(map[string]any{"code": 0, "data": map[string]any{
+				"flow_id": "test-flow", "authorize_url": "https://chat.z.ai/api/oauth/authorize?state=flow-state",
+				"expires_at": time.Now().Add(5 * time.Minute).Unix(), "poll_interval_sec": 2,
+			}})
+		case "/poll/test-flow":
+			if r.Header.Get("Authorization") != "Bearer "+*seenPollToken {
+				t.Error("poll token changed during login")
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
-				"code": 200,
+				"code": 0,
 				"data": map[string]any{
-					"token": "coding-plan-jwt",
-					"zai":   map[string]any{"access_token": "oauth-access", "refresh_token": "oauth-refresh"},
-					"user":  map[string]any{"email": "me@example.com"},
+					"status": "ready",
+					"token":  "coding-plan-jwt",
+					"zai":    map[string]any{"access_token": "oauth-access", "refresh_token": "oauth-refresh"},
+					"user":   map[string]any{"user_id": "user-1", "email": "me@example.com"},
 				},
 			})
 		case "/userinfo":
@@ -99,8 +110,8 @@ func fakeZcodeOAuth(t *testing.T, seenCode *string) *httptest.Server {
 
 // 网页授权完成后凭据落盘，且优先于桌面 config.json 被用于上游请求。
 func TestZcodeWebAuthorizationPersistsCredential(t *testing.T) {
-	var seenCode string
-	oauth := fakeZcodeOAuth(t, &seenCode)
+	var seenPollToken string
+	oauth := fakeZcodeOAuth(t, &seenPollToken)
 	base := oauth.URL
 
 	restore := overrideZcodeEndpoints(t, base)
@@ -136,29 +147,21 @@ func TestZcodeWebAuthorizationPersistsCredential(t *testing.T) {
 	if err := json.Unmarshal(start.Body.Bytes(), &session); err != nil {
 		t.Fatal(err)
 	}
-	if session.Mode != "callback" || session.AuthURL == "" {
+	if session.Mode != "poll" || session.AuthURL == "" {
 		t.Fatalf("unexpected session: %+v", session)
 	}
-	authURL, err := url.Parse(session.AuthURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := authURL.Query().Get("redirect_uri"); got != "https://zcode.z.ai/app/oauth/login?redirect=zcode%3A%2F%2Foauth%2Fcallback" {
-		t.Fatalf("authorization redirect_uri = %q", got)
+	if !strings.Contains(session.AuthURL, "app_version%3D3.14.3") || seenPollToken == "" {
+		t.Fatalf("authorization URL or poll token missing: %s", session.AuthURL)
 	}
 
 	callback := httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/internal/login/sessions/"+session.SessionID+"/callback", strings.NewReader(`{"callback_url":"https://zcode.z.ai/app/oauth/login?redirect=zcode%3A%2F%2Foauth%2Fcallback&code=auth-code"}`))
+	req = httptest.NewRequest(http.MethodPost, "/internal/login/sessions/"+session.SessionID+"/poll", nil)
 	req.Header.Set("Authorization", "Bearer local-key")
 	req.Header.Set("X-Login-Owner", "admin:1")
 	handler.ServeHTTP(callback, req)
 	if callback.Code != http.StatusOK {
 		t.Fatalf("callback status = %d: %s", callback.Code, callback.Body.String())
 	}
-	if seenCode != "auth-code" {
-		t.Fatalf("authorization code not forwarded: %q", seenCode)
-	}
-
 	stored, ok, err := (&credential.CredentialStore{Path: storePath}).Load()
 	if err != nil || !ok {
 		t.Fatalf("credential not persisted: %v %v", ok, err)
@@ -177,23 +180,40 @@ func TestZcodeWebAuthorizationPersistsCredential(t *testing.T) {
 	}
 }
 
-func TestExtractZcodeCode(t *testing.T) {
+func TestZcodePollingRejectsIncompleteResults(t *testing.T) {
 	for _, tc := range []struct {
-		name string
-		raw  string
-		code string
+		name    string
+		body    string
+		status  int
+		pending bool
 	}{
-		{name: "website callback", raw: "https://zcode.z.ai/app/oauth/login?code=auth-code&state=state", code: "auth-code"},
-		{name: "desktop callback", raw: "zcode://oauth/callback?code=auth-code&state=state", code: "auth-code"},
-		{name: "authorization code", raw: "auth-code", code: "auth-code"},
-		{name: "authorization URL", raw: "https://chat.z.ai/api/oauth/authorize?client_id=client-id"},
-		{name: "error callback", raw: "https://zcode.z.ai/app/oauth/login?error=access_denied"},
-		{name: "empty code", raw: "zcode://oauth/callback?code="},
+		{"pending", `{"code":0,"data":{"status":"pending"}}`, 200, true},
+		{"failed", `{"code":0,"data":{"status":"failed"}}`, 200, false},
+		{"missing provider token", `{"code":0,"data":{"status":"ready","token":"secret","user":{"user_id":"u1"}}}`, 200, false},
+		{"upstream error", `{"secret":"must-not-leak"}`, 500, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := extractZcodeCode(tc.raw)
-			if got != tc.code || (err != nil) != (tc.code == "") {
-				t.Fatalf("extractZcodeCode() = %q, %v; want %q", got, err, tc.code)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Header.Get("Authorization") != "Bearer poll-secret" || r.URL.Path != "/poll/flow" {
+					t.Error("poll request lost its session binding")
+				}
+				w.WriteHeader(tc.status)
+				_, _ = io.WriteString(w, tc.body)
+			}))
+			defer server.Close()
+			before := zcodeOAuthCLIURL
+			zcodeOAuthCLIURL = server.URL
+			defer func() { zcodeOAuthCLIURL = before }()
+			_, err := pollZcodeOAuthFlow(context.Background(), server.Client(), "poll-secret", "flow", "bigmodel")
+			if tc.pending {
+				if !errors.Is(err, builtinlogin.ErrPending) {
+					t.Fatalf("want pending, got %v", err)
+				}
+				return
+			}
+			var public *builtinlogin.PublicError
+			if !errors.As(err, &public) || strings.Contains(public.Message, "secret") {
+				t.Fatalf("want sanitized public error, got %v", err)
 			}
 		})
 	}
@@ -201,14 +221,13 @@ func TestExtractZcodeCode(t *testing.T) {
 
 func overrideZcodeEndpoints(t *testing.T, base string) func() {
 	t.Helper()
-	prev := []string{zcodeAuthorizeURL, zcodeTokenURL, zcodeUserInfoURL, zcodeCustomerInfoURL, zcodeBizLoginURL, zcodeBizBaseURL}
-	zcodeAuthorizeURL = base + "/authorize"
-	zcodeTokenURL = base + "/token"
+	prev := []string{zcodeOAuthCLIURL, zcodeUserInfoURL, zcodeCustomerInfoURL, zcodeBizLoginURL, zcodeBizBaseURL}
+	zcodeOAuthCLIURL = base
 	zcodeUserInfoURL = base + "/userinfo"
 	zcodeBizLoginURL = base + "/biz/login"
 	zcodeCustomerInfoURL = base + "/customer"
 	zcodeBizBaseURL = base + "/biz"
 	return func() {
-		zcodeAuthorizeURL, zcodeTokenURL, zcodeUserInfoURL, zcodeCustomerInfoURL, zcodeBizLoginURL, zcodeBizBaseURL = prev[0], prev[1], prev[2], prev[3], prev[4], prev[5]
+		zcodeOAuthCLIURL, zcodeUserInfoURL, zcodeCustomerInfoURL, zcodeBizLoginURL, zcodeBizBaseURL = prev[0], prev[1], prev[2], prev[3], prev[4]
 	}
 }

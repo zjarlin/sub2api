@@ -16,6 +16,8 @@ func TestBuiltinAdapterEnvReachable(t *testing.T) {
 	t.Setenv("BUILTIN_ADAPTER_WORKBUDDY_URL", "http://sub2api-workbuddy:7863")
 	t.Setenv("BUILTIN_ADAPTER_VIBEX_KEY", "vibex-key")
 	t.Setenv("BUILTIN_ADAPTER_VIBEX_URL", "http://sub2api-vibex:7866")
+	t.Setenv("BUILTIN_ADAPTER_DEEPSEEK_WEB_KEY", "deepseek-key")
+	t.Setenv("BUILTIN_ADAPTER_DEEPSEEK_WEB_URL", "http://sub2api-deepseek-web:7867")
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()
 	viper.SetDefault("builtin_adapter.enabled", false)
@@ -25,6 +27,8 @@ func TestBuiltinAdapterEnvReachable(t *testing.T) {
 	viper.SetDefault("builtin_adapter.workbuddy_url", "")
 	viper.SetDefault("builtin_adapter.vibex_key", "")
 	viper.SetDefault("builtin_adapter.vibex_url", "")
+	viper.SetDefault("builtin_adapter.deepseek_web_key", "")
+	viper.SetDefault("builtin_adapter.deepseek_web_url", "")
 	var cfg Config
 	if err := viper.Unmarshal(&cfg); err != nil {
 		t.Fatal(err)
@@ -43,5 +47,8 @@ func TestBuiltinAdapterEnvReachable(t *testing.T) {
 	}
 	if cfg.BuiltinAdapter.VibexKey != "vibex-key" || cfg.BuiltinAdapter.VibexBaseURL() != "http://sub2api-vibex:7866" {
 		t.Fatal("VibeX adapter environment not mapped")
+	}
+	if cfg.BuiltinAdapter.DeepseekWebKey != "deepseek-key" || cfg.BuiltinAdapter.DeepseekWebBaseURL() != "http://sub2api-deepseek-web:7867" {
+		t.Fatal("DeepSeek web adapter environment not mapped")
 	}
 }

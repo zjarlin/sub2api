@@ -59,7 +59,7 @@ func TestZcodeBuiltinAdapterLoginReachable(t *testing.T) {
 		gotAuth = r.Header.Get("Authorization")
 		gotOwner = r.Header.Get("X-Login-Owner")
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"session_id": id, "status": "pending", "mode": "callback",
+			"session_id": id, "status": "pending", "mode": "poll",
 			"auth_url": "https://chat.z.ai/api/oauth/authorize?client_id=test", "expires_at": 1,
 		})
 	}))
@@ -70,7 +70,7 @@ func TestZcodeBuiltinAdapterLoginReachable(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "Bearer zcode-internal-key", gotAuth)
 	require.Equal(t, "admin:7", gotOwner)
-	require.Equal(t, "callback", result.Mode)
+	require.Equal(t, "poll", result.Mode)
 	require.Contains(t, result.AuthURL, "chat.z.ai")
 }
 
@@ -83,7 +83,7 @@ func TestZcodeLoginPlanOptionsForwardedAndValidated(t *testing.T) {
 		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
 		require.Equal(t, "start-plan", body["plan"])
 		require.Equal(t, "bigmodel", body["provider"])
-		_ = json.NewEncoder(w).Encode(map[string]any{"session_id": id, "status": "pending", "mode": "callback"})
+		_ = json.NewEncoder(w).Encode(map[string]any{"session_id": id, "status": "pending", "mode": "poll"})
 	}))
 	defer server.Close()
 	SetBuiltinAdapterConfig(&config.BuiltinAdapterConfig{Enabled: true, ZcodeURL: server.URL, ZcodeKey: "key"})
@@ -93,4 +93,25 @@ func TestZcodeLoginPlanOptionsForwardedAndValidated(t *testing.T) {
 	_, err = BuiltinAdapterLogin(context.Background(), PlatformZcode, "admin:1", "", "start", "", BuiltinLoginOptions{Plan: "unsupported", Provider: "bigmodel"})
 	require.Error(t, err)
 	require.Equal(t, 1, calls)
+}
+
+func TestZcodeLoginErrorsDistinguishDeniedAndExpired(t *testing.T) {
+	for _, tc := range []struct {
+		status  int
+		message string
+	}{
+		{http.StatusForbidden, "ZCode authorization failed or the selected plan has no active entitlement"},
+		{http.StatusGone, "ZCode login expired"},
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(tc.status)
+			_, _ = w.Write([]byte(`{"token":"must-not-leak"}`))
+		}))
+		SetBuiltinAdapterConfig(&config.BuiltinAdapterConfig{Enabled: true, ZcodeURL: server.URL, ZcodeKey: "key"})
+		_, err := BuiltinAdapterLogin(context.Background(), PlatformZcode, "admin:1", strings.Repeat("a", 64), "poll", "")
+		require.ErrorContains(t, err, tc.message)
+		require.NotContains(t, err.Error(), "must-not-leak")
+		server.Close()
+	}
+	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
 }

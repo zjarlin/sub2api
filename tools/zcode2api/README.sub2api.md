@@ -38,17 +38,14 @@ Anthropic Messages 通道包装成 OpenAI 兼容接口（`/v1/chat/completions`�
 ## 调用
 
 添加账号时选择 **ZCode**，类型 `apikey`，然后点击「登录并接入」完成 **网页授权**：
-先选择套餐与账号区域，浏览器登录后把完整回调链接粘贴回来。适配器会兑换所选套餐
+先选择套餐与账号区域，在浏览器完成登录后等待管理页自动接入。适配器通过官方轮询接口取得所选套餐
 凭据并落盘到凭据存储文件，运行时优先使用它；成功重新登录会覆盖旧凭据，失败保留旧凭据。账号表单无需填写
 地址与共享密钥（后端注入）。账号 API Key 是内部共享密钥，不能替代上游凭据。保存时固定
 Chat Completions 上游与单并发，创建后自动同步模型目录。
 
-OAuth 使用官方登记的官网中转页
-`https://zcode.z.ai/app/oauth/login?redirect=zcode%3A%2F%2Foauth%2Fcallback`，授权请求与
-token 兑换必须使用同一地址，不能替换成适配器端口或任意本机回调地址。登录后可提交
-含 `code` / `authCode` 的官网回调链接、`zcode://oauth/callback` 链接或授权码。
-BigModel 使用 `/login` 的 `appId=zcode`、`redirect`、`state` 参数；Z.ai 使用 OAuth client ID。
-回调包含 state 时必须与本次授权一致。
+OAuth 使用 ZCode 官方 `/api/v1/oauth/cli/init` 与 `/poll/{flow_id}` 流程。授权链接中的
+`redirect` / `redirect_uri` 指向带 `app_version` 的官网中转页，由官网完成一次性 code 兑换；
+适配器只持有当前会话的随机轮询令牌，不需要浏览器回调链接或桌面应用凭据。
 
 凭据解析顺序：网页授权凭据 → `ZCODE_UPSTREAM_KEY`/`ZCODE_UPSTREAM_BASE_URL` 显式配置 →
 本机 `~/.zcode/v2/config.json` 桌面配置。
@@ -94,7 +91,7 @@ docker compose --project-directory . --env-file .env \
 
 ## 验证边界
 
-覆盖平台创建/路由、内置地址注入、协议固定与单并发，以及网页授权的授权码兑换、
+覆盖平台创建/路由、内置地址注入、协议固定与单并发，以及网页授权的初始化、轮询、
 凭据落盘和凭据优先级。Start Plan 测试覆盖 JWT/端点隔离、套餐目录、新验证参数、
 失败授权保留旧凭据、交互验证、缺少验证服务和过期登录。
 运行 Go 的 `go test ./...` 与验证服务的 `npm test`；真实上游模型调用须单独验收。

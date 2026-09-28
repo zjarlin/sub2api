@@ -423,7 +423,17 @@ func streamOpts(w http.ResponseWriter, r io.Reader, onErr func(*SOLOStreamError)
 					onErr(se)
 				}
 				msg := fmt.Sprintf("solo error code=%d msg=%s", ev.ErrorCode, ev.ErrorMessage)
-				if _, err := io.WriteString(w, "event: error\n"+"data: "+jsonEscape(msg)+"\n\n"); err != nil {
+				errorData, err := json.Marshal(map[string]any{
+					"error": map[string]any{
+						"message": msg,
+						"type":    "upstream_error",
+						"code":    ev.ErrorCode,
+					},
+				})
+				if err != nil {
+					return err
+				}
+				if _, err := io.WriteString(w, "event: error\n"+"data: "+string(errorData)+"\n\n"); err != nil {
 					return err
 				}
 				if err := writeDONE(); err != nil {
@@ -441,9 +451,4 @@ func streamOpts(w http.ResponseWriter, r io.Reader, onErr func(*SOLOStreamError)
 		return writeDONE()
 	}
 	return nil
-}
-
-func jsonEscape(s string) string {
-	raw, _ := json.Marshal(s)
-	return string(raw)
 }

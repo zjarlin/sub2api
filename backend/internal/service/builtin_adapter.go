@@ -51,6 +51,8 @@ func builtinAdapterBaseURL(platform string) string {
 		return strings.TrimRight(cfg.VibexBaseURL(), "/")
 	case PlatformZcode:
 		return strings.TrimRight(cfg.ZcodeBaseURL(), "/")
+	case PlatformDeepseekWeb:
+		return strings.TrimRight(cfg.DeepseekWebBaseURL(), "/")
 	case PlatformLaya:
 		return strings.TrimRight(cfg.LayaBaseURL(), "/")
 	case PlatformJev:
@@ -77,6 +79,8 @@ func builtinAdapterAPIKey(platform string) string {
 		return strings.TrimSpace(cfg.VibexKey)
 	case PlatformZcode:
 		return strings.TrimSpace(cfg.ZcodeKey)
+	case PlatformDeepseekWeb:
+		return strings.TrimSpace(cfg.DeepseekWebKey)
 	case PlatformLaya:
 		return strings.TrimSpace(cfg.LayaKey)
 	case PlatformJev:

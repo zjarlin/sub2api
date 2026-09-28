@@ -186,6 +186,9 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
 	}
+	if err := checkAutoModelUpstream(ctx, originalModel, billingModel, upstreamModel, gjson.GetBytes(upstreamBody, "model").String()); err != nil {
+		return nil, err
+	}
 	SetActualOpenAIUpstreamEndpoint(c, grokChatRawEndpoint)
 	customUA := account.GetOpenAIUserAgent()
 	if customUA == "" && account.IsGrokOAuth() {

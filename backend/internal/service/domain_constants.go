@@ -45,20 +45,21 @@ const (
 	PlatformAntigravity = domain.PlatformAntigravity
 	PlatformGrok        = domain.PlatformGrok
 	// 国产 OpenAI 兼容供应商（与 grok 一样经 OpenAI 网关转发）。
-	PlatformKimi       = domain.PlatformKimi
-	PlatformZhipu      = domain.PlatformZhipu
-	PlatformDeepseek   = domain.PlatformDeepseek
-	PlatformMiniMax    = domain.PlatformMiniMax
-	PlatformDoubao     = domain.PlatformDoubao
-	PlatformTraework   = domain.PlatformTraework
-	PlatformWorkbuddy  = domain.PlatformWorkbuddy
-	PlatformVibex      = domain.PlatformVibex
-	PlatformZcode      = domain.PlatformZcode
-	PlatformQoder      = domain.PlatformQoder
-	PlatformLaya       = domain.PlatformLaya
-	PlatformJev        = domain.PlatformJev
-	PlatformOpenCodeGo = domain.PlatformOpenCodeGo
-	PlatformComposite  = domain.PlatformComposite
+	PlatformKimi        = domain.PlatformKimi
+	PlatformZhipu       = domain.PlatformZhipu
+	PlatformDeepseek    = domain.PlatformDeepseek
+	PlatformDeepseekWeb = domain.PlatformDeepseekWeb
+	PlatformMiniMax     = domain.PlatformMiniMax
+	PlatformDoubao      = domain.PlatformDoubao
+	PlatformTraework    = domain.PlatformTraework
+	PlatformWorkbuddy   = domain.PlatformWorkbuddy
+	PlatformVibex       = domain.PlatformVibex
+	PlatformZcode       = domain.PlatformZcode
+	PlatformQoder       = domain.PlatformQoder
+	PlatformLaya        = domain.PlatformLaya
+	PlatformJev         = domain.PlatformJev
+	PlatformOpenCodeGo  = domain.PlatformOpenCodeGo
+	PlatformComposite   = domain.PlatformComposite
 	// PlatformKiro is retained for unsupported-platform threshold tests and legacy
 	// account rows. Scheduling-threshold evaluation never pauses kiro accounts.
 	PlatformKiro = "kiro"
@@ -113,7 +114,7 @@ const (
 // IsCNProvider 报告 platform 是否为国产 OpenAI 兼容供应商（含豆包桌面会话适配器）。
 func IsCNProvider(platform string) bool {
 	switch platform {
-	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformLaya, PlatformJev:
+	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformMiniMax, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformLaya, PlatformJev:
 		return true
 	default:
 		return false
@@ -141,6 +142,7 @@ var AllowedQuotaPlatforms = []string{
 	PlatformKimi,
 	PlatformZhipu,
 	PlatformDeepseek,
+	PlatformDeepseekWeb,
 	PlatformMiniMax,
 	PlatformOpenCodeGo,
 	PlatformDoubao,

@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -82,4 +83,98 @@ func TestModelFallbackChecksAccountCapabilities(t *testing.T) {
 	} {
 		require.False(t, ModelFallbackAccountCompatible(account, "target", []byte(body)), body)
 	}
+}
+
+func TestAutoModelRoutingPolicyDefaultHighestTier(t *testing.T) {
+	ctx, err := (&SettingService{}).BindAutoModelRoutingPolicy(context.Background())
+	require.NoError(t, err)
+	require.False(t, AutoModelAllowed(ctx, "gpt-6-astra"))
+	require.True(t, AutoModelAllowed(ctx, "gpt-5.6-sol", "gpt-6-astra-high", "openai/gpt-6-astra"))
+	require.True(t, AutoModelAllowed(context.Background(), "gpt-6-astra"))
+}
+
+func TestAutoModelRoutingPolicyUsesConfiguredOrderAndAliases(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
+		t.Run(fmt.Sprintf("fallback_enabled_%t", enabled), func(t *testing.T) {
+			repo := newMockSettingRepo()
+			settings := NewSettingService(repo, nil)
+			policy := &ModelFallbackPolicy{Enabled: enabled, Tiers: []ModelCapabilityTier{
+				{Name: "custom first", Models: []string{"Expensive"}},
+				{Name: "custom second", Models: []string{"gpt-6-astra"}},
+			}}
+			require.NoError(t, settings.SetModelFallbackPolicy(context.Background(), policy))
+			require.NoError(t, settings.SetModelAliasPolicy(context.Background(), &ModelAliasPolicy{Groups: []ModelAliasGroup{{
+				Canonical: "gpt-5.5", Aliases: []string{"Expensive", "provider/gpt-5.5"},
+			}}}))
+			ctx, err := settings.BindAutoModelRoutingPolicy(context.Background())
+			require.NoError(t, err)
+			for _, model := range []string{"gpt-5.5", "Expensive", "provider/gpt-5.5"} {
+				require.False(t, AutoModelAllowed(ctx, "gpt-6-astra", model), model)
+			}
+			require.True(t, AutoModelAllowed(ctx, "gpt-6-astra", "expensive", "gpt-5.5-latest"))
+		})
+	}
+}
+
+func TestAutoModelRoutingPolicyRejectsUnavailableConfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		fallback string
+		aliases  string
+		readErr  error
+	}{
+		{name: "empty tiers", fallback: `{"enabled":false,"tiers":[]}`},
+		{name: "malformed fallback", fallback: `{bad`},
+		{name: "invalid fallback", fallback: `{"enabled":true,"tiers":[{"name":"empty","models":[]}]}`},
+		{name: "malformed aliases", aliases: `{bad`},
+		{name: "settings read error", readErr: errors.New("settings unavailable")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := newMockSettingRepo()
+			repo.data[SettingKeyModelFallbackPolicy] = tc.fallback
+			repo.data[SettingKeyModelAliases] = tc.aliases
+			repo.getValueErr = tc.readErr
+			_, err := NewSettingService(repo, nil).BindAutoModelRoutingPolicy(context.Background())
+			require.Error(t, err)
+		})
+	}
+}
+
+func TestAutoModelRoutingPolicySnapshotSurvivesSettingsUpdates(t *testing.T) {
+	repo := newMockSettingRepo()
+	settings := NewSettingService(repo, nil)
+	aliases := &ModelAliasPolicy{Groups: []ModelAliasGroup{{Canonical: "gpt-6-astra", Aliases: []string{"provider/expensive"}}}}
+	require.NoError(t, settings.SetModelAliasPolicy(context.Background(), aliases))
+	ctx, err := settings.BindAutoModelRoutingPolicy(context.Background())
+	require.NoError(t, err)
+	require.False(t, AutoModelAllowed(ctx, "provider/expensive"))
+
+	require.NoError(t, settings.SetModelFallbackPolicy(context.Background(), &ModelFallbackPolicy{Enabled: false, Tiers: []ModelCapabilityTier{
+		{Name: "new highest", Models: []string{"gpt-5.5"}},
+	}}))
+	aliases.Groups[0] = ModelAliasGroup{Canonical: "gpt-5.5", Aliases: []string{"provider/expensive"}}
+	require.NoError(t, settings.SetModelAliasPolicy(context.Background(), aliases))
+	updated, err := settings.BindAutoModelRoutingPolicy(context.Background())
+	require.NoError(t, err)
+	require.False(t, AutoModelAllowed(updated, "gpt-5.5", "provider/expensive"))
+	require.True(t, AutoModelAllowed(updated, "gpt-6-astra"))
+	reads := repo.getValueCalls
+	repo.getValueErr = errors.New("settings unavailable")
+	rebound, err := settings.BindAutoModelRoutingPolicy(ctx)
+	require.NoError(t, err)
+	require.Equal(t, reads, repo.getValueCalls)
+	require.Same(t, ctx, rebound)
+	require.False(t, AutoModelAllowed(rebound, "gpt-6-astra", "provider/expensive"))
+	require.True(t, AutoModelAllowed(rebound, "gpt-5.5"))
+}
+
+func TestAutoModelRoutingPolicyCopiesBoundAliases(t *testing.T) {
+	aliases := &ModelAliasPolicy{Groups: []ModelAliasGroup{{Canonical: "gpt-6-astra", Aliases: []string{"provider/expensive"}}}}
+	ctx := WithModelAliases(context.Background(), aliases)
+	ctx, err := (&SettingService{}).BindAutoModelRoutingPolicy(ctx)
+	require.NoError(t, err)
+	aliases.Groups[0].Canonical = "gpt-5.5"
+	aliases.Groups[0].Aliases[0] = "provider/changed"
+	require.False(t, AutoModelAllowed(ctx, "provider/expensive"))
+	require.True(t, AutoModelAllowed(ctx, "gpt-5.5", "provider/changed"))
 }

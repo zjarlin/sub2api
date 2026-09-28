@@ -994,7 +994,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 							continue
 						}
 					}
-					h.gatewayService.RecordOpenAIAccountSwitch()
+					if !failoverErr.IsAutoModelExcluded() {
+						h.gatewayService.RecordOpenAIAccountSwitch()
+					}
 					poolRound.failed(account.ID, failoverErr)
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
@@ -1006,8 +1008,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
 						return
 					}
-					switchCount++
-					if !tryRemainingOpenAIAccounts(account, failoverErr) && h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, switchCount, &oauth429FailoverState) {
+					if !failoverErr.IsAutoModelExcluded() {
+						switchCount++
+					}
+					if !failoverErr.IsAutoModelExcluded() && !tryRemainingOpenAIAccounts(account, failoverErr) && h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, switchCount, &oauth429FailoverState) {
 						if advanceModel() {
 							continue
 						}
@@ -1648,7 +1652,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 							continue
 						}
 					}
-					h.gatewayService.RecordOpenAIAccountSwitch()
+					if !failoverErr.IsAutoModelExcluded() {
+						h.gatewayService.RecordOpenAIAccountSwitch()
+					}
 					poolRound.failed(account.ID, failoverErr)
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
@@ -1660,8 +1666,10 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						h.handleAnthropicFailoverExhausted(c, failoverErr, streamStarted)
 						return
 					}
-					switchCount++
-					if !tryRemainingOpenAIAccounts(account, failoverErr) && h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, switchCount, &oauth429FailoverState) {
+					if !failoverErr.IsAutoModelExcluded() {
+						switchCount++
+					}
+					if !failoverErr.IsAutoModelExcluded() && !tryRemainingOpenAIAccounts(account, failoverErr) && h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, switchCount, &oauth429FailoverState) {
 						if advanceModel() {
 							continue
 						}
@@ -2783,15 +2791,19 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		if ctx.Err() != nil {
 			return false
 		}
-		h.gatewayService.RecordOpenAIAccountSwitch()
+		if !failoverErr.IsAutoModelExcluded() {
+			h.gatewayService.RecordOpenAIAccountSwitch()
+		}
 		failedAccountIDs[account.ID] = struct{}{}
 		lastFailoverErr = failoverErr
 		if switchBudget.exhausted(account, failoverErr) {
 			closeOpenAIWSFailoverExhausted(c, wsConn, failoverErr)
 			return false
 		}
-		switchCount++
-		if !tryRemainingOpenAIAccounts(account, failoverErr) && h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, switchCount, &oauth429FailoverState) {
+		if !failoverErr.IsAutoModelExcluded() {
+			switchCount++
+		}
+		if !failoverErr.IsAutoModelExcluded() && !tryRemainingOpenAIAccounts(account, failoverErr) && h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, switchCount, &oauth429FailoverState) {
 			closeOpenAIWSFailoverExhausted(c, wsConn, failoverErr)
 			return false
 		}
@@ -3545,6 +3557,18 @@ func (h *OpenAIGatewayHandler) handleConcurrencyError(c *gin.Context, err error,
 func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, streamStarted bool) {
 	if failoverErr == nil {
 		h.handleFailoverExhaustedSimple(c, http.StatusBadGateway, streamStarted)
+		return
+	}
+	if failoverErr.IsAutoModelExcluded() {
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalPolicyDenied)
+		service.MarkOpsStreamErrorValue(c, service.OpsStreamError{
+			ErrType:        "scheduling_error",
+			Message:        failoverErr.ClientMessage,
+			IntendedStatus: http.StatusServiceUnavailable,
+			RequestScoped:  true,
+			NonStream:      !streamStarted,
+		})
+		h.handleStreamingAwareError(c, http.StatusServiceUnavailable, "scheduling_error", failoverErr.ClientMessage, streamStarted)
 		return
 	}
 	if failoverErr.Stage == service.GatewayFailureStageRouting {

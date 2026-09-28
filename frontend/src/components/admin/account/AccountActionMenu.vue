@@ -131,7 +131,7 @@ const isAntigravityOAuth = computed(() => props.account?.platform === 'antigravi
 const isOpenAIOAuth = computed(() => props.account?.platform === 'openai' && props.account?.type === 'oauth')
 // 影子账号(链接型,持 parent_account_id)不持凭据、type 不可变,凭据/隐私类操作对其无效。
 const isShadow = computed(() => props.account?.parent_account_id != null)
-const isBuiltinAdapterAccount = computed(() => ['traework', 'workbuddy', 'vibex', 'zcode'].includes(props.account?.platform ?? ''))
+const isBuiltinAdapterAccount = computed(() => ['traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web'].includes(props.account?.platform ?? ''))
 const canReauthorize = computed(() => !isShadow.value && (
   props.account?.type === 'oauth' ||
   props.account?.type === 'setup-token' ||

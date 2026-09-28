@@ -1,7 +1,7 @@
 <template>
   <div class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-dark-600" data-testid="builtin-adapter-login">
     <p class="text-sm text-gray-600 dark:text-gray-300">{{ t(`admin.accounts.builtinLogin.${platform}Hint`) }}</p>
-    <p class="input-hint">{{ t(platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexPoolHint' : platform === 'zcode' ? 'admin.accounts.builtinLogin.zcodePoolHint' : 'admin.accounts.builtinLogin.poolHint') }}</p>
+    <p class="input-hint">{{ t(platform === 'deepseek_web' ? 'admin.accounts.builtinLogin.deepseekWebPoolHint' : platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexPoolHint' : platform === 'zcode' ? 'admin.accounts.builtinLogin.zcodePoolHint' : 'admin.accounts.builtinLogin.poolHint') }}</p>
     <div v-if="platform === 'zcode'" class="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <div>
         <label for="zcode-login-plan" class="input-label">{{ t('admin.accounts.builtinLogin.zcodePlan') }}</label>
@@ -26,9 +26,21 @@
         {{ t('admin.accounts.builtinLogin.open') }}
       </a>
       <template v-if="session.mode === 'callback'">
-        <label :for="`builtin-callback-${platform}`" class="input-label">{{ t(platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexToken' : 'admin.accounts.builtinLogin.callback') }}</label>
-        <input :id="`builtin-callback-${platform}`" v-model="callback" type="password" autocomplete="off" class="input" :placeholder="t(platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexTokenPlaceholder' : 'admin.accounts.builtinLogin.callbackPlaceholder')" />
-        <button type="button" class="btn btn-primary" :disabled="busy || !callback.trim()" @click="complete">
+        <div v-if="platform === 'deepseek_web'" class="space-y-3">
+          <div>
+            <label for="deepseek-web-token" class="input-label">{{ t('admin.accounts.builtinLogin.deepseekWebToken') }}</label>
+            <input id="deepseek-web-token" v-model="browserToken" type="password" autocomplete="off" class="input" />
+          </div>
+          <div>
+            <label for="deepseek-web-device" class="input-label">{{ t('admin.accounts.builtinLogin.deepseekWebDevice') }}</label>
+            <input id="deepseek-web-device" v-model="browserDeviceID" type="text" autocomplete="off" class="input" />
+          </div>
+        </div>
+        <template v-else>
+          <label :for="`builtin-callback-${platform}`" class="input-label">{{ t(platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexToken' : 'admin.accounts.builtinLogin.callback') }}</label>
+          <input :id="`builtin-callback-${platform}`" v-model="callback" type="password" autocomplete="off" class="input" :placeholder="t(platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexTokenPlaceholder' : 'admin.accounts.builtinLogin.callbackPlaceholder')" />
+        </template>
+        <button type="button" class="btn btn-primary" :disabled="busy || (platform === 'deepseek_web' ? !browserToken.trim() || !browserDeviceID.trim() : !callback.trim())" @click="complete">
           {{ t('admin.accounts.builtinLogin.complete') }}
         </button>
       </template>
@@ -54,6 +66,8 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const session = ref<BuiltinLoginSession | null>(null)
 const callback = ref('')
+const browserToken = ref('')
+const browserDeviceID = ref('')
 const error = ref('')
 const busy = ref(false)
 const zcodePlan = ref<ZcodeLoginOptions['plan']>('coding-plan')
@@ -71,6 +85,8 @@ function stop() {
   controller?.abort()
   busy.value = false
   callback.value = ''
+  browserToken.value = ''
+  browserDeviceID.value = ''
   authorizedEmitted = false
 }
 
@@ -129,11 +145,16 @@ async function complete() {
   const version = generation
   controller = new AbortController()
   try {
-    const result = await completeBuiltinLogin(props.platform, current, callback.value.trim(), controller.signal)
+    const credential = props.platform === 'deepseek_web'
+      ? JSON.stringify({ token: browserToken.value.trim(), device_id: browserDeviceID.value.trim() })
+      : callback.value.trim()
+    const result = await completeBuiltinLogin(props.platform, current, credential, controller.signal)
     if (version !== generation) return
     session.value = result
     if (result.status === 'completed') {
       callback.value = ''
+      browserToken.value = ''
+      browserDeviceID.value = ''
       if (!authorizedEmitted) {
         authorizedEmitted = true
         emit('authorized')

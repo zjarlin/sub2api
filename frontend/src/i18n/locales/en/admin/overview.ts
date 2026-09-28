@@ -982,6 +982,7 @@ export default {
         kimi: 'Kimi',
         zhipu: 'Zhipu GLM',
         deepseek: 'DeepSeek',
+        deepseek_web: 'DeepSeek Web',
         minimax: 'MiniMax',
         doubao: 'Doubao',
         traework: 'TRAE Work',

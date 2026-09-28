@@ -763,9 +763,9 @@ const form = reactive({
 let abortController: AbortController | null = null
 
 // ── Platform config ──
-const platformOrder: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'laya', 'jev']
+const platformOrder: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'deepseek_web', 'minimax', 'opencode_go', 'doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'laya', 'jev']
 // Composite pricing/mapping may target every concrete schedulable provider.
-const compositePlatforms: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'laya', 'jev']
+const compositePlatforms: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'deepseek_web', 'minimax', 'opencode_go', 'doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'laya', 'jev']
 
 // ── Helpers ──
 function formatDate(value: string): string {

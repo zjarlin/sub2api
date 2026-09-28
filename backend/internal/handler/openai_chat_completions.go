@@ -436,7 +436,9 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 							continue
 						}
 					}
-					h.gatewayService.RecordOpenAIAccountSwitch()
+					if !failoverErr.IsAutoModelExcluded() {
+						h.gatewayService.RecordOpenAIAccountSwitch()
+					}
 					poolRound.failed(account.ID, failoverErr)
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
@@ -448,8 +450,10 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
 						return
 					}
-					switchCount++
-					if !tryRemainingOpenAIAccounts(account, failoverErr) && h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, switchCount, &oauth429FailoverState) {
+					if !failoverErr.IsAutoModelExcluded() {
+						switchCount++
+					}
+					if !failoverErr.IsAutoModelExcluded() && !tryRemainingOpenAIAccounts(account, failoverErr) && h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, switchCount, &oauth429FailoverState) {
 						if advanceModel() {
 							continue
 						}
