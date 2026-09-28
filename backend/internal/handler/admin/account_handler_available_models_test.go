@@ -37,6 +37,33 @@ func setupAvailableModelsRouter(adminSvc service.AdminService) *gin.Engine {
 	return router
 }
 
+func TestAccountHandlerGetAvailableModels_QoderUsesAccountCatalog(t *testing.T) {
+	account := service.Account{ID: 855, Platform: service.PlatformQoder, Type: service.AccountTypeOAuth}
+	account.SetUpstreamSupportedModelsSnapshot(service.UpstreamSupportedModelsSnapshot{Source: "upstream", Models: []string{"qmodel_38max", "qfmodel"}})
+	account.SetUpstreamModelMetadataSnapshot(service.UpstreamModelMetadataSnapshot{Source: "upstream", Models: map[string]service.UpstreamModelMetadata{
+		"qmodel_38max": {ID: "qmodel_38max", DisplayName: "Qwen3.8-Max"},
+		"qfmodel":      {ID: "qfmodel", DisplayName: "Qwen3.8-Flash"},
+	}})
+	router := setupAvailableModelsRouter(&availableModelsAdminService{stubAdminService: newStubAdminService(), account: account})
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/855/models", nil))
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response struct {
+		Data []struct {
+			ID          string `json:"id"`
+			DisplayName string `json:"display_name"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.Len(t, response.Data, 2)
+	require.Equal(t, "qmodel_38max", response.Data[0].ID)
+	require.Equal(t, "Qwen3.8-Max", response.Data[0].DisplayName)
+	require.Equal(t, "qfmodel", response.Data[1].ID)
+	require.Equal(t, "Qwen3.8-Flash", response.Data[1].DisplayName)
+	require.NotContains(t, recorder.Body.String(), "claude")
+	require.NotContains(t, recorder.Body.String(), `"auto"`)
+}
+
 type syncUpstreamHTTPUpstream struct {
 	resp      *http.Response
 	responses []*http.Response

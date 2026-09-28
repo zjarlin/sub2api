@@ -20,7 +20,7 @@ describe('CreateAccountModal Qoder OAuth (device flow)', () => {
     expect(source).toContain("form.platform === 'qoder'")
     expect(source).toContain('startQoderAuth')
     expect(source).toContain('adminAPI.qoder.generateAuthURL()')
-    expect(source).toContain('adminAPI.qoder.pollToken(qoderSessionId.value)')
+    expect(source).toContain('adminAPI.qoder.pollToken(sessionId)')
     expect(source).toContain("createAccountAndFinish('qoder', 'oauth'")
   })
 

@@ -3720,8 +3720,8 @@
         <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
           <p class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.accounts.qoder.oauthDesc') }}</p>
           <div class="mt-3 flex flex-wrap items-center gap-3">
-            <button type="button" class="btn btn-primary" :disabled="qoderOAuthLoading" @click="startQoderAuth">
-              {{ qoderAuthUrl ? t('admin.accounts.qoder.reopenAuthPage') : t('admin.accounts.qoder.openAuthPage') }}
+            <button type="button" data-testid="qoder-auth-action" class="btn btn-primary" :disabled="qoderOAuthLoading || submitting" @click="startQoderAuth">
+              {{ qoderOAuthError ? t('admin.accounts.qoder.restartAuthorization') : qoderAuthUrl ? t('admin.accounts.qoder.reopenAuthPage') : t('admin.accounts.qoder.openAuthPage') }}
             </button>
             <span v-if="qoderPolling" class="text-sm text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.qoder.waitingAuthorization') }}
@@ -4086,7 +4086,8 @@
 
 <script setup lang="ts">
 import BuiltinAdapterLogin from './BuiltinAdapterLogin.vue'
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, onBeforeUnmount } from 'vue'
+import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 
@@ -4209,6 +4210,7 @@ const oauthStepTitle = computed(() => {
   if (form.platform === 'gemini') return t('admin.accounts.oauth.gemini.title')
   if (form.platform === 'antigravity') return t('admin.accounts.oauth.antigravity.title')
   if (form.platform === 'grok') return t('admin.accounts.oauth.grok.title')
+  if (form.platform === 'qoder') return t('admin.accounts.qoder.oauthTitle')
   return t('admin.accounts.oauth.title')
 })
 
@@ -4324,6 +4326,7 @@ const qoderOAuthLoading = ref(false)
 const qoderOAuthError = ref('')
 const qoderPolling = ref(false)
 const qoderPollTimer = ref<number | null>(null)
+let qoderPollGeneration = 0
 
 // Computed: current OAuth state for template binding
 const currentAuthUrl = computed(() => {
@@ -5239,7 +5242,7 @@ watch(
     // 必须清空 base_url，否则会保留上一个平台的默认值（例如 Anthropic）而打到错误上游。
     if ((BUILTIN_ADAPTER_PLATFORMS as readonly string[]).includes(newPlatform)) {
       apiKeyBaseUrl.value = ''
-      accountCategory.value = 'apikey'
+      accountCategory.value = newPlatform === 'qoder' ? 'oauth-based' : 'apikey'
       form.concurrency = 1
     } else if (isCNProviderPlatform(newPlatform) || newPlatform === 'opencode_go') {
       const mode = newPlatform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
@@ -5873,6 +5876,7 @@ const resetForm = () => {
 }
 
 const handleClose = () => {
+  resetQoderOAuth()
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
   emit('close')
@@ -7460,6 +7464,7 @@ const handleAnthropicExchange = async (authCode: string) => {
 // 主入口：根据平台路由到对应处理函数
 // ── Qoder 设备流授权 ──
 const stopQoderPolling = () => {
+  qoderPollGeneration += 1
   qoderPolling.value = false
   if (qoderPollTimer.value !== null) {
     window.clearTimeout(qoderPollTimer.value)
@@ -7476,46 +7481,82 @@ const resetQoderOAuth = () => {
 }
 
 const startQoderAuth = async () => {
+  if (qoderOAuthLoading.value || submitting.value) {
+    return
+  }
+  // 重新打开仍在等待的页面时复用会话，避免浏览器授权了已被替换的链接。
+  if (qoderPolling.value && qoderAuthUrl.value) {
+    window.open(qoderAuthUrl.value, '_blank', 'noopener,noreferrer')
+    return
+  }
+  stopQoderPolling()
+  const generation = qoderPollGeneration
   qoderOAuthLoading.value = true
   qoderOAuthError.value = ''
   qoderAuthUrl.value = ''
   qoderSessionId.value = ''
   try {
     const result = await adminAPI.qoder.generateAuthURL()
+    if (generation !== qoderPollGeneration) {
+      return
+    }
     qoderAuthUrl.value = result.auth_url
     qoderSessionId.value = result.session_id
     window.open(result.auth_url, '_blank', 'noopener,noreferrer')
+    qoderOAuthLoading.value = false
     scheduleQoderPoll()
   } catch (error: any) {
+    if (generation !== qoderPollGeneration) {
+      return
+    }
     qoderOAuthError.value =
       error.response?.data?.detail || error.message || t('admin.accounts.qoder.failedToGenerateUrl')
     appStore.showError(qoderOAuthError.value)
   } finally {
-    qoderOAuthLoading.value = false
+    if (generation === qoderPollGeneration) {
+      qoderOAuthLoading.value = false
+    }
   }
 }
 
 const scheduleQoderPoll = () => {
   stopQoderPolling()
+  const generation = qoderPollGeneration
+  const sessionId = qoderSessionId.value
   qoderPolling.value = true
   const deadline = Date.now() + 5 * 60 * 1000
   const poll = async () => {
-    if (!qoderPolling.value) return
-    if (!qoderSessionId.value) {
+    if (!qoderPolling.value || generation !== qoderPollGeneration) {
+      return
+    }
+    if (!sessionId) {
       stopQoderPolling()
       return
     }
     try {
-      const result = await adminAPI.qoder.pollToken(qoderSessionId.value)
+      const result = await adminAPI.qoder.pollToken(sessionId)
+      // 关闭弹窗或重新发起授权后，旧请求不得修改新会话或创建账号。
+      if (generation !== qoderPollGeneration) {
+        return
+      }
       if (result.done && result.token) {
-        stopQoderPolling()
+        qoderPolling.value = false
         await finishQoderOAuth(result.token)
+        if (generation === qoderPollGeneration) {
+          stopQoderPolling()
+        }
         return
       }
     } catch (error: any) {
+      if (generation !== qoderPollGeneration) {
+        return
+      }
       stopQoderPolling()
-      qoderOAuthError.value =
-        error.response?.data?.detail || error.message || t('admin.accounts.qoder.pollFailed')
+      const code = extractApiErrorCode(error)
+      const expired = code === 'QODER_OAUTH_SESSION_NOT_FOUND' || code === 'QODER_OAUTH_SESSION_EXPIRED'
+      qoderOAuthError.value = expired
+        ? t('admin.accounts.qoder.authorizationExpired')
+        : extractApiErrorMessage(error, t('admin.accounts.qoder.pollFailed'))
       appStore.showError(qoderOAuthError.value)
       return
     }
@@ -7528,6 +7569,13 @@ const scheduleQoderPoll = () => {
   }
   qoderPollTimer.value = window.setTimeout(poll, 1500)
 }
+
+watch(() => props.show, (show) => {
+  if (!show) {
+    resetQoderOAuth()
+  }
+})
+onBeforeUnmount(resetQoderOAuth)
 
 const finishQoderOAuth = async (token: { access_token: string; refresh_token?: string; expires_at?: number }) => {
   const credentials: Record<string, unknown> = {

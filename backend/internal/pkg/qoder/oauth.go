@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -202,10 +203,42 @@ func BuildAuthURL(challenge, nonce, machineID, clientID string) (string, error) 
 
 // DeviceToken 是设备流返回的令牌。
 type DeviceToken struct {
-	Token        string `json:"token"`
-	RefreshToken string `json:"refresh_token"`
-	ExpiresAt    int64  `json:"expires_at"`
-	ExpiresIn    int64  `json:"expires_in"`
+	Token        string      `json:"token"`
+	RefreshToken string      `json:"refresh_token"`
+	ExpiresAt    tokenExpiry `json:"expires_at"`
+	ExpiresIn    int64       `json:"expires_in"`
+}
+
+// tokenExpiry 将授权和刷新响应中的 RFC3339 日期或 Unix 秒数统一为秒级时间戳。
+type tokenExpiry int64
+
+func (e *tokenExpiry) UnmarshalJSON(data []byte) error {
+	value := strings.TrimSpace(string(data))
+	if value == "null" {
+		*e = 0
+		return nil
+	}
+	if strings.HasPrefix(value, `"`) {
+		if err := json.Unmarshal(data, &value); err != nil {
+			return errors.New("qoder expires_at contains an invalid JSON string")
+		}
+		value = strings.TrimSpace(value)
+		if value == "" {
+			*e = 0
+			return nil
+		}
+		if parsed, err := time.Parse(time.RFC3339Nano, value); err == nil {
+			*e = tokenExpiry(parsed.Unix())
+			return nil
+		}
+	}
+	seconds, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		// 不把响应值写入错误，避免上游异常内容泄漏令牌。
+		return errors.New("qoder expires_at must be an RFC3339 timestamp or Unix seconds")
+	}
+	*e = tokenExpiry(seconds)
+	return nil
 }
 
 // TokenResult 是暴露给上层的令牌信息（access_token 即 device token）。
@@ -296,7 +329,7 @@ func (c *Client) PollOnce(ctx context.Context, nonce, verifier, challengeMethod 
 	return PollResult{Done: true, Token: &TokenResult{
 		AccessToken:  payload.Token,
 		RefreshToken: payload.RefreshToken,
-		ExpiresAt:    payload.ExpiresAt,
+		ExpiresAt:    int64(payload.ExpiresAt),
 		ExpiresIn:    payload.ExpiresIn,
 	}}, nil
 }
@@ -363,10 +396,10 @@ func (c *Client) Refresh(ctx context.Context, refreshToken string) (*TokenResult
 		return nil, fmt.Errorf("qoder token refresh failed (%d): %s", response.StatusCode, strings.TrimSpace(string(body)))
 	}
 	var refreshPayload struct {
-		DeviceToken  string `json:"device_token"`
-		RefreshToken string `json:"refresh_token"`
-		ExpiresAt    string `json:"expires_at"`
-		ExpiresIn    int64  `json:"expires_in"`
+		DeviceToken  string      `json:"device_token"`
+		RefreshToken string      `json:"refresh_token"`
+		ExpiresAt    tokenExpiry `json:"expires_at"`
+		ExpiresIn    int64       `json:"expires_in"`
 	}
 	if err := json.Unmarshal(body, &refreshPayload); err != nil {
 		return nil, fmt.Errorf("parse qoder refresh response: %w", err)
@@ -377,12 +410,8 @@ func (c *Client) Refresh(ctx context.Context, refreshToken string) (*TokenResult
 	result := &TokenResult{
 		AccessToken:  refreshPayload.DeviceToken,
 		RefreshToken: refreshPayload.RefreshToken,
+		ExpiresAt:    int64(refreshPayload.ExpiresAt),
 		ExpiresIn:    refreshPayload.ExpiresIn,
-	}
-	if strings.TrimSpace(refreshPayload.ExpiresAt) != "" {
-		if parsed, err := time.Parse(time.RFC3339, refreshPayload.ExpiresAt); err == nil {
-			result.ExpiresAt = parsed.Unix()
-		}
 	}
 	if result.RefreshToken == "" {
 		result.RefreshToken = refreshToken

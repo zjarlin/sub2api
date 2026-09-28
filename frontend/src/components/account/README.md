@@ -8,7 +8,7 @@ OpenAI API Key 账号没有目录且未配置模型时，不参与模型调度�
 默认每个账号至少间隔 168 小时、每轮最多发起一次真实测试请求。GPT 系列（含映射目标）不参与自动测试。
 真实请求的健康记录会推迟自动测试；关闭探测不会关闭业务调度、模型目录读取或管理员手动测试。
 
-豆包、TRAE Work、WorkBuddy 使用随部署启动的内置 HTTP 适配器。表单隐藏地址和共享密钥，由后端配置注入；保存时固定 Chat Completions 上游与单并发，创建后自动同步模型。
+豆包、TRAE Work、WorkBuddy 使用随部署启动的内置 HTTP 适配器。表单隐藏地址和共享密钥，由后端配置注入；保存时固定 Chat Completions 上游，创建后自动同步模型。TRAE Work 并发默认 1，可按已验证的上游容量调整；豆包与 WorkBuddy 保持单并发。
 
 Grok、Kimi、智谱、DeepSeek、MiniMax、OpenCode Go、豆包、TRAE Work、WorkBuddy、Zcode 按协议自动兼容 OpenAI/Codex 分组，不需要写入或开启 `mixed_scheduling`。账号只有在用户显式选择并绑定分组后才参与该分组调度。Antigravity 仍需显式开启混合调度后，才可选择 Anthropic/Gemini 分组。
 
@@ -17,3 +17,7 @@ Grok、Kimi、智谱、DeepSeek、MiniMax、OpenCode Go、豆包、TRAE Work、W
 `BuiltinAdapterLogin.vue` 在新建 TRAE / WorkBuddy 账号，或编辑缺少内置适配器连接凭据的账号时提供登录入口。TRAE 手工提交浏览器回调链接，WorkBuddy 国内版自动轮询授权；登录凭证持久化到适配器共享账号池并立即加载，刷新由适配器维护。表单关闭会中止轮询，重新授权会取消旧会话。已有登录账号池可直接创建 Sub2API 路由账号；多个同平台路由账号共用该池。
 
 部署、首次登录和验收边界见 `tools/traework2api/README.sub2api.md`、`tools/workbuddy2api/README.sub2api.md`。
+
+Qoder 测试模型列表优先使用账号已保存的官方目录及展示名，默认候选使用官方模型键。
+提交消息测试先于通用供应商分支处理，OAuth 使用设备令牌，并应用账号模型映射。
+目录启用状态和实际推理额度是独立信息；上游额度不足会按真实 HTTP 错误显示。

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/google/uuid"
 )
 
@@ -31,10 +32,32 @@ const (
 	qoderModelServerProdHost = "api2-v2.qoder.sh"
 )
 
-// DefaultQoderModelIDs 返回 Qoder 提交消息可用模型候选。Qoder 客户端默认使用
-// "auto"，由服务端按套餐路由到具体模型。
+// DefaultQoderModelIDs 只提供官方目录中的模型候选，账号套餐权限由目录快照决定。
 func DefaultQoderModelIDs() []string {
-	return []string{DefaultQoderModel, "claude-sonnet-4-5", "claude-opus-4-5", "qwen3.8-max"}
+	return []string{DefaultQoderModel, "qmodel_38max", "qfmodel"}
+}
+
+// QoderAccountModels 优先返回已同步的账号目录，展示名来自同一份上游元数据。
+func QoderAccountModels(account *Account) []openai.Model {
+	ids := DefaultQoderModelIDs()
+	if snapshot := account.GetUpstreamSupportedModelsSnapshot(); snapshot != nil {
+		ids = snapshot.Models
+	}
+	models := make([]openai.Model, 0, len(ids))
+	seen := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" || strings.Contains(id, "*") || seen[id] {
+			continue
+		}
+		seen[id] = true
+		name := id
+		if metadata, ok := account.GetUpstreamModelMetadata(id); ok && strings.TrimSpace(metadata.DisplayName) != "" {
+			name = metadata.DisplayName
+		}
+		models = append(models, openai.Model{ID: id, Object: "model", Type: "model", OwnedBy: PlatformQoder, DisplayName: name})
+	}
+	return models
 }
 
 func (a *Account) IsQoder() bool { return a != nil && a.Platform == PlatformQoder }

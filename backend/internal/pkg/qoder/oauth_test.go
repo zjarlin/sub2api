@@ -4,10 +4,12 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestGeneratePKCEChallengeMatchesVerifier(t *testing.T) {
@@ -132,6 +134,83 @@ func TestRefreshReturnsRotatedToken(t *testing.T) {
 	}
 	if result.ExpiresAt == 0 {
 		t.Fatal("expected expires_at to be parsed")
+	}
+}
+
+func TestTokenExpirationFormats(t *testing.T) {
+	wantExpiry := time.Date(2030, 1, 2, 3, 4, 5, 0, time.UTC).Unix()
+	cases := []struct {
+		name    string
+		value   string
+		want    int64
+		wantErr bool
+	}{
+		{name: "RFC3339", value: `"2030-01-02T03:04:05Z"`, want: wantExpiry},
+		{name: "fractional with offset", value: `"2030-01-02T11:04:05.123456789+08:00"`, want: wantExpiry},
+		{name: "Unix seconds", value: fmt.Sprint(wantExpiry), want: wantExpiry},
+		{name: "quoted Unix seconds", value: fmt.Sprintf(`"%d"`, wantExpiry), want: wantExpiry},
+		{name: "missing"},
+		{name: "null", value: "null"},
+		{name: "empty", value: `""`},
+		{name: "invalid date", value: `"not-a-date"`, wantErr: true},
+		{name: "object", value: `{}`, wantErr: true},
+		{name: "boolean", value: `true`, wantErr: true},
+		{name: "fractional number", value: `1.5`, wantErr: true},
+		{name: "overflow", value: `9223372036854775808`, wantErr: true},
+	}
+	for _, endpoint := range []string{"poll", "refresh"} {
+		t.Run(endpoint, func(t *testing.T) {
+			for _, tc := range cases {
+				t.Run(tc.name, func(t *testing.T) {
+					tokenField := "token"
+					if endpoint == "refresh" {
+						tokenField = "device_token"
+					}
+					body := fmt.Sprintf(`{"%s":"device-token","expires_in":3600`, tokenField)
+					if tc.value != "" {
+						body += `,"expires_at":` + tc.value
+					}
+					body += "}"
+					server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+						w.Header().Set("Content-Type", "application/json")
+						_, _ = w.Write([]byte(body))
+					}))
+					defer server.Close()
+					t.Setenv(envOpenAPIBaseURL, server.URL)
+					client := &Client{HTTPClient: server.Client()}
+					var token *TokenResult
+					var err error
+					if endpoint == "poll" {
+						var result PollResult
+						result, err = client.PollOnce(context.Background(), "nonce", "verifier", "S256")
+						token = result.Token
+						if !tc.wantErr && !result.Done {
+							t.Fatalf("authorized poll did not complete: %v", err)
+						}
+					} else {
+						token, err = client.Refresh(context.Background(), "old-rt")
+					}
+					if tc.wantErr {
+						if err == nil || token != nil {
+							t.Fatal("invalid expiration must fail without returning a token")
+						}
+						if strings.Contains(err.Error(), "device-token") || strings.Contains(err.Error(), "not-a-date") {
+							t.Fatal("parse error must not include response values")
+						}
+						return
+					}
+					if err != nil || token == nil {
+						t.Fatalf("token request failed: %v", err)
+					}
+					if token.AccessToken != "device-token" || token.ExpiresAt != tc.want || token.ExpiresIn != 3600 {
+						t.Fatalf("unexpected token result: %+v", token)
+					}
+					if endpoint == "refresh" && token.RefreshToken != "old-rt" {
+						t.Fatal("refresh must retain the existing refresh token when no replacement is returned")
+					}
+				})
+			}
+		})
 	}
 }
 

@@ -5,11 +5,11 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
-	"sync"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/qoder"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/redissession"
 )
 
 // qoderOAuthSessionTTL 是设备授权会话在服务端的有效时长，与官方 5 分钟一致。
@@ -17,19 +17,20 @@ const qoderOAuthSessionTTL = 5 * time.Minute
 
 // QoderOAuthSession 保存一次设备流授权所需的 PKCE 与 nonce。
 type QoderOAuthSession struct {
-	Nonce        string
-	CodeVerifier string
-	CreatedAt    time.Time
+	Nonce        string    `json:"nonce"`
+	CodeVerifier string    `json:"code_verifier"`
+	CreatedAt    time.Time `json:"created_at"`
 }
 
 // QoderOAuthService 负责 Qoder 设备流授权与令牌刷新。
 type QoderOAuthService struct {
 	client   *qoder.Client
-	sessions sync.Map // sessionID -> *QoderOAuthSession
+	sessions *redissession.Store
 }
 
-func NewQoderOAuthService() *QoderOAuthService {
+func NewQoderOAuthService(sessions *redissession.Store) *QoderOAuthService {
 	return &QoderOAuthService{
+		sessions: sessions,
 		client: &qoder.Client{
 			HTTPClient: &http.Client{Timeout: 30 * time.Second},
 			UserAgent:  "qoder-cli",
@@ -59,34 +60,8 @@ func newSessionID() (string, error) {
 	return hex.EncodeToString(b[:]), nil
 }
 
-func (s *QoderOAuthService) storeSession(sessionID string, session *QoderOAuthSession) {
-	s.sessions.Store(sessionID, session)
-	// 过期会话按需清理，避免长期占用内存。
-	time.AfterFunc(qoderOAuthSessionTTL, func() {
-		if value, ok := s.sessions.Load(sessionID); ok {
-			if stored, ok := value.(*QoderOAuthSession); ok && time.Since(stored.CreatedAt) >= qoderOAuthSessionTTL {
-				s.sessions.Delete(sessionID)
-			}
-		}
-	})
-}
-
-func (s *QoderOAuthService) takeSession(sessionID string) (*QoderOAuthSession, error) {
-	value, ok := s.sessions.Load(sessionID)
-	if !ok {
-		return nil, infraerrors.BadRequest("QODER_OAUTH_SESSION_NOT_FOUND", "Qoder authorization session not found or already used")
-	}
-	session, _ := value.(*QoderOAuthSession)
-	s.sessions.Delete(sessionID)
-	if session == nil || time.Since(session.CreatedAt) > qoderOAuthSessionTTL {
-		return nil, infraerrors.BadRequest("QODER_OAUTH_SESSION_EXPIRED", "Qoder authorization session expired, please start again")
-	}
-	return session, nil
-}
-
 // GenerateAuthURL 生成设备授权链接并保存 PKCE 会话。
 func (s *QoderOAuthService) GenerateAuthURL(ctx context.Context) (*QoderAuthURLResult, error) {
-	_ = ctx
 	pkce, err := qoder.GeneratePKCE()
 	if err != nil {
 		return nil, infraerrors.Newf(http.StatusInternalServerError, "QODER_OAUTH_PKCE_FAILED", "failed to generate PKCE: %v", err)
@@ -107,23 +82,29 @@ func (s *QoderOAuthService) GenerateAuthURL(ctx context.Context) (*QoderAuthURLR
 	if err != nil {
 		return nil, infraerrors.Newf(http.StatusBadRequest, "QODER_OAUTH_INVALID_AUTHORIZE_URL", "%v", err)
 	}
-	s.storeSession(sessionID, &QoderOAuthSession{
+	session := &QoderOAuthSession{
 		Nonce:        nonce,
 		CodeVerifier: pkce.Verifier,
 		CreatedAt:    time.Now(),
-	})
+	}
+	// 会话必须写入共享存储成功后才能交给浏览器，禁止回退到单副本内存。
+	if err := s.sessions.Set(ctx, sessionID, session); err != nil {
+		return nil, infraerrors.ServiceUnavailable("QODER_OAUTH_SESSION_STORE_FAILED", "Unable to save Qoder authorization session, please try again").WithCause(err)
+	}
 	return &QoderAuthURLResult{AuthURL: authURL, SessionID: sessionID}, nil
 }
 
 // PollToken 轮询授权结果；尚未完成时返回 done=false。
 func (s *QoderOAuthService) PollToken(ctx context.Context, sessionID string) (*QoderTokenResult, bool, error) {
-	value, ok := s.sessions.Load(sessionID)
+	var session QoderOAuthSession
+	ok, err := s.sessions.Get(ctx, sessionID, &session)
+	if err != nil {
+		return nil, false, infraerrors.ServiceUnavailable("QODER_OAUTH_SESSION_STORE_FAILED", "Unable to read Qoder authorization session, please try again").WithCause(err)
+	}
 	if !ok {
 		return nil, false, infraerrors.BadRequest("QODER_OAUTH_SESSION_NOT_FOUND", "Qoder authorization session not found or expired")
 	}
-	session, _ := value.(*QoderOAuthSession)
-	if session == nil || time.Since(session.CreatedAt) > qoderOAuthSessionTTL {
-		s.sessions.Delete(sessionID)
+	if time.Since(session.CreatedAt) >= qoderOAuthSessionTTL {
 		return nil, false, infraerrors.BadRequest("QODER_OAUTH_SESSION_EXPIRED", "Qoder authorization session expired, please start again")
 	}
 	result, err := s.client.PollOnce(ctx, session.Nonce, session.CodeVerifier, "S256")
@@ -133,7 +114,9 @@ func (s *QoderOAuthService) PollToken(ctx context.Context, sessionID string) (*Q
 	if !result.Done {
 		return nil, false, nil
 	}
-	s.sessions.Delete(sessionID)
+	if err := s.sessions.Delete(ctx, sessionID); err != nil {
+		return nil, false, infraerrors.ServiceUnavailable("QODER_OAUTH_SESSION_STORE_FAILED", "Unable to complete Qoder authorization session, please try again").WithCause(err)
+	}
 	return &QoderTokenResult{
 		AccessToken:  result.Token.AccessToken,
 		RefreshToken: result.Token.RefreshToken,

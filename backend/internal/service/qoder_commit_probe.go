@@ -29,6 +29,7 @@ func (s *AccountTestService) testQoderCommitMessageConnection(c *gin.Context, ac
 	if testModelID == "" {
 		testModelID = DefaultQoderModel
 	}
+	testModelID = account.GetMappedModel(testModelID)
 	token := qoderAccountToken(account)
 	if token == "" {
 		return s.sendErrorAndEnd(c, "No Qoder access token available")

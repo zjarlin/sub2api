@@ -430,6 +430,20 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		}
 	}()
 
+	// Qoder 设备流凭证与提交消息契约必须先于通用供应商分支处理。
+	if account.IsQoder() {
+		if strings.TrimSpace(modelID) == "" {
+			models := QoderAccountModels(account)
+			if len(models) > 0 {
+				modelID = models[0].ID
+			}
+		}
+		if normalizeAccountTestMode(mode) == AccountTestModeQoderCommitMessage {
+			return s.testQoderCommitMessageConnection(c, account, modelID, prompt)
+		}
+		return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt)
+	}
+
 	// Route to platform-specific test method
 	if account.IsCNProvider() {
 		switch account.GetAPIProtocol() {
@@ -462,12 +476,6 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 
 	if account.IsOpenCodeGo() {
 		return s.testOpenCodeGoAccountConnection(c, account, modelID, prompt)
-	}
-
-	// Qoder 的提交消息生成是独立的 Chat Completions 契约，管理员可用
-	// commit-message 模式复现 Qoder IDE / CLI 的真实请求。
-	if account.IsQoder() && normalizeAccountTestMode(mode) == AccountTestModeQoderCommitMessage {
-		return s.testQoderCommitMessageConnection(c, account, modelID, prompt)
 	}
 
 	return s.testClaudeAccountConnection(c, account, modelID)
@@ -539,6 +547,9 @@ func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Cont
 	testModelID = account.GetMappedModel(testModelID)
 
 	authToken := strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
+	if account.IsQoder() {
+		authToken = qoderAccountToken(account)
+	}
 	if authToken == "" {
 		return s.sendErrorAndEnd(c, "No API key available")
 	}

@@ -10,6 +10,8 @@ const {
   importCodexSessionMock,
   createOpenAICodexPATMock,
   authIsSimpleMode,
+  qoderGenerateMock,
+  qoderPollMock,
 } = vi.hoisted(() => ({
   createAccountMock: vi.fn(),
   probeUpstreamBillingMock: vi.fn(),
@@ -18,6 +20,8 @@ const {
   importCodexSessionMock: vi.fn(),
   createOpenAICodexPATMock: vi.fn(),
   authIsSimpleMode: { value: true },
+  qoderGenerateMock: vi.fn(),
+  qoderPollMock: vi.fn(),
 }))
 
 vi.mock('@/stores/app', () => ({
@@ -38,6 +42,7 @@ vi.mock('@/stores/auth', () => ({
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
+    qoder: { generateAuthURL: qoderGenerateMock, pollToken: qoderPollMock },
     accounts: {
       create: createAccountMock,
       probeUpstreamBilling: probeUpstreamBillingMock,
@@ -331,6 +336,8 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
   })
 
   beforeEach(() => {
+    qoderGenerateMock.mockReset()
+    qoderPollMock.mockReset()
     authIsSimpleMode.value = true
     createAccountMock.mockReset().mockResolvedValue({ id: 42, platform: 'openai', type: 'apikey' })
     probeUpstreamBillingMock.mockReset().mockResolvedValue({})
@@ -347,7 +354,72 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     createOpenAICodexPATMock.mockReset().mockResolvedValue({})
   })
 
-  afterEach(() => vi.useRealTimers())
+  afterEach(() => {
+    vi.useRealTimers()
+    if (vi.isMockFunction(window.open)) {
+      vi.mocked(window.open).mockRestore()
+    }
+  })
+
+  async function startQoderFlow() {
+    vi.useFakeTimers()
+    vi.spyOn(window, 'open').mockReturnValue(null)
+    qoderGenerateMock.mockResolvedValue({ auth_url: 'https://qoder.com/device/first', session_id: 'first' })
+    qoderPollMock.mockResolvedValue({ done: false })
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="platform-qoder"]').trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Qoder account')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    await wrapper.get('[data-testid="qoder-auth-action"]').trigger('click')
+    await flushPromises()
+    return wrapper
+  }
+
+  it('keeps the Qoder session when reopening its authorization page', async () => {
+    const wrapper = await startQoderFlow()
+    expect(wrapper.text()).toContain('admin.accounts.qoder.oauthTitle')
+    await wrapper.get('[data-testid="qoder-auth-action"]').trigger('click')
+    expect(qoderGenerateMock).toHaveBeenCalledTimes(1)
+    expect(window.open).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(qoderPollMock).toHaveBeenCalledWith('first')
+    wrapper.unmount()
+  })
+
+  it('starts a new Qoder session after expiry and saves its completed authorization', async () => {
+    const wrapper = await startQoderFlow()
+    qoderPollMock.mockRejectedValueOnce({ reason: 'QODER_OAUTH_SESSION_NOT_FOUND', message: 'missing' })
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(wrapper.text()).toContain('admin.accounts.qoder.authorizationExpired')
+    expect(wrapper.get('[data-testid="qoder-auth-action"]').text()).toContain('restartAuthorization')
+    qoderGenerateMock.mockResolvedValueOnce({ auth_url: 'https://qoder.com/device/second', session_id: 'second' })
+    await wrapper.get('[data-testid="qoder-auth-action"]').trigger('click')
+    await flushPromises()
+    qoderPollMock.mockResolvedValueOnce({ done: true, token: { access_token: 'device', refresh_token: 'refresh' } })
+    await vi.advanceTimersByTimeAsync(1500)
+    await flushPromises()
+    expect(qoderPollMock).toHaveBeenLastCalledWith('second')
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0][0]).toMatchObject({
+      platform: 'qoder', type: 'oauth', credentials: { access_token: 'device', refresh_token: 'refresh' },
+    })
+    wrapper.unmount()
+  })
+
+  it('ignores a Qoder poll result after the authorization dialog closes', async () => {
+    const wrapper = await startQoderFlow()
+    let finishPoll!: (result: unknown) => void
+    qoderPollMock.mockReturnValueOnce(new Promise(resolve => { finishPoll = resolve }))
+    await vi.advanceTimersByTimeAsync(1500)
+    await wrapper.setProps({ show: false })
+    finishPoll({ done: true, token: { access_token: 'stale-device' } })
+    await flushPromises()
+    expect(createAccountMock).not.toHaveBeenCalled()
+    await vi.advanceTimersByTimeAsync(3000)
+    expect(qoderPollMock).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
 
   it('sets month and year expiry presets without submitting the account form', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })

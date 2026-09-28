@@ -2867,20 +2867,9 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
-	// Handle Qoder accounts: return the Qoder model catalog used by the
-	// commit-message probe and the forwarding layer.
+	// Qoder 使用账号已同步的官方目录，避免把默认候选误报为套餐可用模型。
 	if account.Platform == service.PlatformQoder {
-		ids := service.DefaultQoderModelIDs()
-		models := make([]openai.Model, 0, len(ids))
-		for _, id := range ids {
-			models = append(models, openai.Model{
-				ID:          id,
-				Object:      "model",
-				Type:        "model",
-				DisplayName: id,
-			})
-		}
-		response.Success(c, models)
+		response.Success(c, service.QoderAccountModels(account))
 		return
 	}
 
