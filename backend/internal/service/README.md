@@ -51,7 +51,7 @@ compaction v2，将压缩请求转换为摘要回合，再输出单个 `compacti
 该状态依赖部署的 JWT secret，轮换密钥后不能解密旧压缩项。空摘要、未完成的
 响应和无法解密的压缩项均明确报错，不作为成功压缩返回。
 
-Responses 视觉辅助由 `vision_fallback.go` 和 `vision_fallback_policy.go` 提供：
+Responses 视觉辅助由 `vision_fallback.go`、`vision_fallback_policy.go` 和 `vision_fallback_scheduler.go` 提供：
 仅用当前分组内已确认支持视觉的账号描述图片，随后继续调用原模型；能力目录、
 HTTP/WebSocket 转发、缓存和辅助计费同步生效。配置和客户端刷新方式见
 [视觉辅助说明](VISION_FALLBACK.md)。

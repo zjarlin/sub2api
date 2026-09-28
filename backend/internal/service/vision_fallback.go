@@ -358,10 +358,17 @@ func (s *OpenAIGatewayService) describeVisionInput(ctx context.Context, parent *
 		return text, nil
 	}
 	lastErr := state.lastErr
-	for candidateIndex, candidate := range candidates {
+	remaining := candidates
+	for candidateIndex := 0; len(remaining) > 0; candidateIndex++ {
 		if ctx.Err() != nil {
 			break
 		}
+		remaining = s.rankVisionFallbackCandidates(ctx, primary, state, remaining)
+		if len(remaining) == 0 {
+			break
+		}
+		candidate := remaining[0]
+		remaining = remaining[1:]
 		id := visionHelperID{candidate.account.ID, candidate.model}
 		if state.failed[id] {
 			continue
@@ -574,6 +581,9 @@ func (s *OpenAIGatewayService) callVisionHelper(ctx context.Context, parent *gin
 		s.observeVisionHelperFailure(candidate.account, candidate.model, helperObservedErr)
 		return "", helperFailoverErr
 	}
+	// 与失败样本一起回写同一评分；非流式调用只有实际测得的首响应延迟才参与 TTFT。
+	model := canonicalOpenAIAccountSchedulingModel(candidate.account, candidate.model)
+	s.ReportOpenAIAccountScheduleResult(candidate.account, model, true, result.FirstTokenMs)
 	logger.FromContext(ctx).Info("gateway.vision_helper_succeeded",
 		zap.Int64("account_id", candidate.account.ID), zap.String("model", candidate.model),
 		zap.String("request_role", "vision"),
@@ -637,5 +647,6 @@ func (s *OpenAIGatewayService) observeVisionHelperFailure(account *Account, mode
 	if s == nil || account == nil {
 		return
 	}
+	model = canonicalOpenAIAccountSchedulingModel(account, model)
 	_ = s.ReportOpenAIAccountScheduleResult(account, model, false, nil, err)
 }

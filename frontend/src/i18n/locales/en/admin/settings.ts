@@ -2,10 +2,10 @@ export default {
     settings: {
       visionFallback: {
         title: 'Vision assistants and fallback',
-        description: 'A vision assistant describes images for the primary model. If it fails, backup assistants are tried in order while the primary model continues the original task.',
+        description: 'Vision assistants describe images for the primary model. Assistants run sequentially using scheduler scores; the primary model continues after a successful description.',
         enabled: 'Enable vision assistance and fallback',
-        models: 'Vision models in order (preferred model first)',
-        modelsHint: 'One exact model ID per line, up to 64. Available accounts for each model are tried before the next model. Only permitted native vision accounts in the API key group are eligible.',
+        models: 'Vision model preference order',
+        modelsHint: 'One exact model ID per line, up to 64. Advanced scheduling ranks models and accounts by available account scores, using this order to break ties. With advanced scheduling disabled, this order is strict. Only permitted native vision accounts in the current group are eligible.',
         allowUnlisted: 'Try other vision models in the group after this list',
         candidateTimeout: 'Timeout per assistant (seconds)',
         totalTimeout: 'Total vision assistance timeout (seconds)',

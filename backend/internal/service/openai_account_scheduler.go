@@ -993,6 +993,26 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 		return plan
 	}
 
+	s.scoreOpenAIAccountLoadPlan(ctx, req, &plan)
+
+	plan.topK = s.service.openAIWSLBTopKForRequest(ctx)
+	if plan.topK > len(candidates) {
+		plan.topK = len(candidates)
+	}
+	if plan.topK <= 0 {
+		plan.topK = 1
+	}
+
+	plan.selectionOrder = s.buildOpenAISelectionOrder(req, plan)
+	return plan
+}
+
+// 主请求与视觉辅助使用同一组权重和归一化范围，避免各自实现评分公式。
+func (s *defaultOpenAIAccountScheduler) scoreOpenAIAccountLoadPlan(ctx context.Context, req OpenAIAccountScheduleRequest, plan *openAIAccountLoadPlan) {
+	candidates := plan.candidates
+	if len(candidates) == 0 {
+		return
+	}
 	minPriority, maxPriority := openAIAccountSchedulingPriority(candidates[0].account), openAIAccountSchedulingPriority(candidates[0].account)
 	maxWaiting := 1
 	loadRateSum := 0.0
@@ -1123,18 +1143,6 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 			}
 		}
 	}
-	plan.candidates = candidates
-
-	plan.topK = s.service.openAIWSLBTopKForRequest(ctx)
-	if plan.topK > len(candidates) {
-		plan.topK = len(candidates)
-	}
-	if plan.topK <= 0 {
-		plan.topK = 1
-	}
-
-	plan.selectionOrder = s.buildOpenAISelectionOrder(req, plan)
-	return plan
 }
 
 func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
