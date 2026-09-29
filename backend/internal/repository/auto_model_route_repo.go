@@ -28,13 +28,13 @@ func (r *usageLogRepository) SaveAutoModelRoute(ctx context.Context, apiKeyID in
 		return err
 	}
 	_, err = r.sql.ExecContext(ctx, `INSERT INTO auto_model_routes
-		(api_key_id, session_id, run_id, request_id, selected_model, resolved_model, attempted_models, plan_id, state, started_at, updated_at, revision)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+		(api_key_id, session_id, run_id, request_id, requested_model, selected_model, resolved_model, attempted_models, plan_id, state, started_at, updated_at, revision)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
 		ON CONFLICT (api_key_id, session_id, request_id) DO UPDATE SET
 		resolved_model = EXCLUDED.resolved_model, attempted_models = EXCLUDED.attempted_models,
 		plan_id = EXCLUDED.plan_id, state = EXCLUDED.state, updated_at = EXCLUDED.updated_at, revision = EXCLUDED.revision
 		WHERE auto_model_routes.revision < EXCLUDED.revision`,
-		apiKeyID, route.SessionID, route.RunID, route.RequestID, route.SelectedModel, route.ResolvedModel,
+		apiKeyID, route.SessionID, route.RunID, route.RequestID, route.RequestedModel, route.SelectedModel, route.ResolvedModel,
 		string(attempts), route.PlanID, route.State, route.StartedAt, route.UpdatedAt, route.Revision)
 	return err
 }
@@ -46,7 +46,7 @@ func (r *usageLogRepository) ListAutoModelRoutes(ctx context.Context, apiKeyID i
 		args = append(args, runID)
 		filter += " AND run_id = $3"
 	}
-	rows, err := r.sql.QueryContext(ctx, `SELECT request_id, run_id, selected_model, resolved_model,
+	rows, err := r.sql.QueryContext(ctx, `SELECT request_id, run_id, requested_model, selected_model, resolved_model,
 		attempted_models, plan_id, state, started_at, updated_at FROM auto_model_routes WHERE `+filter+`
 		ORDER BY started_at DESC, request_id DESC LIMIT 128`, args...)
 	if err != nil {
@@ -54,9 +54,9 @@ func (r *usageLogRepository) ListAutoModelRoutes(ctx context.Context, apiKeyID i
 	}
 	routes := make([]service.AutoModelRouteObservation, 0)
 	for rows.Next() {
-		route := service.AutoModelRouteObservation{SessionID: sessionID, RequestedModel: "auto"}
+		route := service.AutoModelRouteObservation{SessionID: sessionID}
 		var attempts []byte
-		if err := rows.Scan(&route.RequestID, &route.RunID, &route.SelectedModel, &route.ResolvedModel,
+		if err := rows.Scan(&route.RequestID, &route.RunID, &route.RequestedModel, &route.SelectedModel, &route.ResolvedModel,
 			&attempts, &route.PlanID, &route.State, &route.StartedAt, &route.UpdatedAt); err != nil {
 			_ = rows.Close()
 			return nil, err

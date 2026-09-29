@@ -28,6 +28,7 @@ vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
     showError: vi.fn(),
     showSuccess: vi.fn(),
+    showInfo: vi.fn(),
     showWarning: showWarningMock,
   }),
 }))
@@ -128,14 +129,20 @@ const ModelWhitelistSelectorStub = defineComponent({
       default: () => [],
     },
     platform: String,
+    enableAliasMapping: Boolean,
     syncCredentials: Object,
   },
-  emits: ['update:modelValue', 'upstream-synced'],
+  emits: ['update:modelValue', 'upstream-synced', 'global-aliases-mapped'],
   template: `<button
     type="button"
     data-testid="model-whitelist-selector"
     @click="$emit('update:modelValue', ['public-glm']); $emit('upstream-synced')"
-  >models</button>`,
+  >models</button>
+  <button
+    type="button"
+    data-testid="sync-model-aliases"
+    @click="$emit('global-aliases-mapped', [{ from: 'glm-5.3', to: 'public-glm' }])"
+  >aliases</button>`,
 })
 
 function mountModal(groups: any[] = []) {
@@ -202,6 +209,45 @@ async function openCodexImportStep(toggleClicks = 0) {
 }
 
 describe('CreateAccountModal OpenAI long-context billing', () => {
+  it.each(['', 'https://cursor-adapter.example/v1'])('creates a Cursor account with an optional adapter URL (%s)', async (baseUrl) => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="platform-cursor"]').trigger('click')
+    expect(wrapper.findComponent({ name: 'BuiltinAdapterLogin' }).exists()).toBe(false)
+    expect(wrapper.get('[data-testid="account-api-key"]').attributes('required')).toBeDefined()
+    expect(wrapper.get('[data-testid="account-base-url"]').attributes('required')).toBeUndefined()
+    await wrapper.get('[data-tour="account-form-name"]').setValue('Cursor account')
+    await wrapper.get('[data-testid="account-api-key"]').setValue(' cursor-dashboard-key ')
+    await wrapper.get('[data-testid="account-base-url"]').setValue(baseUrl)
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    const payload = createAccountMock.mock.calls[0]?.[0]
+    expect(payload).toMatchObject({
+      platform: 'cursor', type: 'apikey', concurrency: 1,
+      credentials: {
+        api_key: 'cursor-dashboard-key', api_protocol: 'chat_completions',
+        openai_capabilities: ['chat_completions'],
+      },
+    })
+    if (baseUrl) {
+      expect(payload.credentials.base_url).toBe(baseUrl)
+    } else {
+      expect(payload.credentials).not.toHaveProperty('base_url')
+    }
+    expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
+  })
+
+  it('blocks Cursor account creation without a Dashboard API key', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="platform-cursor"]').trigger('click')
+    await wrapper.get('[data-tour="account-form-name"]').setValue('Cursor account')
+    await wrapper.get('[data-testid="account-api-key"]').setValue('  ')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).not.toHaveBeenCalled()
+  })
+
   it('requires Arena web login before creating an account', async () => {
     const wrapper = mountModal()
     await wrapper.get('[data-testid="platform-arena"]').trigger('click')
@@ -630,6 +676,31 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       'public-glm': 'glm-5.3'
     })
     expect(syncUpstreamModelsMock).toHaveBeenCalledWith(42)
+  })
+
+  it.each(['mapping', 'whitelist'])('preserves the whitelist and imported aliases when saving in %s view', async view => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Alias account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('enableAliasMapping')).toBe(true)
+    wrapper.getComponent(ModelWhitelistSelectorStub).vm.$emit('update:modelValue', ['public-glm', 'other-model'])
+    await wrapper.get('[data-testid="sync-model-aliases"]').trigger('click')
+    expect(wrapper.get('input[placeholder="admin.accounts.requestModel"]').element).toHaveProperty('value', 'glm-5.3')
+    if (view === 'whitelist') {
+      await selectButtonByText(wrapper, 'admin.accounts.modelWhitelist')
+      expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('modelValue')).toEqual(['public-glm', 'other-model'])
+      await wrapper.get('[data-testid="sync-model-aliases"]').trigger('click')
+    }
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials?.model_mapping).toEqual({
+      'public-glm': 'public-glm',
+      'other-model': 'other-model',
+      'glm-5.3': 'public-glm'
+    })
   })
 
   it('warns when post-create capability metadata remains incomplete', async () => {

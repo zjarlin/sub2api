@@ -58,3 +58,13 @@ func TestDeterministicUnsupportedModelError(t *testing.T) {
 func TestUnsupportedModelKeyRejectsOversizedValues(t *testing.T) {
 	require.Empty(t, normalizeUnsupportedModelKey(string(make([]byte, unsupportedModelKeyMaxBytes+1))))
 }
+
+func TestMissingNVIDIAFunctionFailsOver(t *testing.T) {
+	body := []byte(`{"detail":"Function 'e503b15c-62b0-4d69-b532-a88f0bfa2656': Not found for account 'account-id'","status":404,"title":"Not Found"}`)
+	require.True(t, isDeterministicUnsupportedModelError(404, body))
+	svc := &OpenAIGatewayService{}
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(nil, 404, "", body))
+	require.False(t, isDeterministicUnsupportedModelError(400, body))
+	require.False(t, isDeterministicUnsupportedModelError(404, []byte(`{"detail":"Not Found"}`)))
+	require.False(t, isDeterministicUnsupportedModelError(404, []byte(`{"request":{"detail":"Function 'e503b15c-62b0-4d69-b532-a88f0bfa2656': Not found for account 'account-id'"},"detail":"Unknown route"}`)))
+}

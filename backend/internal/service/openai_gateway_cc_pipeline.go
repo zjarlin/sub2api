@@ -219,6 +219,11 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	upstreamReq = upstreamReq.WithContext(WithHTTPUpstreamProfile(upstreamReq.Context(), HTTPUpstreamProfileOpenAI))
 	upstreamReq.Header.Set("Content-Type", "application/json")
 	upstreamReq.Header.Set("Authorization", "Bearer "+bearerToken)
+	if account.IsCursor() {
+		if adapterKey := builtinAdapterSharedKeyForTarget(account.Platform, targetURL); adapterKey != "" {
+			upstreamReq.Header.Set("X-Sub2API-Adapter-Key", adapterKey)
+		}
+	}
 	if stream {
 		upstreamReq.Header.Set("Accept", "text/event-stream")
 	} else {
@@ -386,6 +391,9 @@ func (s *OpenAIGatewayService) scanCCStream(
 	if st.Err == nil && !outputStarted && !st.SawDone && !sawFinish {
 		st.Err = parseCCStreamError(`{"error":{"code":"upstream_stream_incomplete","type":"upstream_error","message":"Upstream Chat Completions stream ended before output without a finish reason or [DONE]; please retry"}}`, "error")
 	}
+	if st.Err == nil && !outputStarted && !openAIUsageHasTokens(&st.Usage) && (st.SawDone || sawFinish) {
+		st.Err = parseCCStreamError(`{"error":{"code":"openai_silent_refusal","type":"upstream_error","message":"Upstream returned an empty completion without usage; please retry"}}`, "error")
+	}
 	// 空但正常结束的流仍保留原协议事件顺序；错误或截断时丢弃未提交前导。
 	if st.Err == nil && (st.SawDone || sawFinish) {
 		flushPending()
@@ -405,6 +413,7 @@ func logCCStreamMissingDoneSentinel(logPrefix, requestID string) {
 func (s *OpenAIGatewayService) readCCUpstreamJSONResponse(
 	c *gin.Context,
 	resp *http.Response,
+	account *Account,
 	writeError compatErrorWriter,
 ) (*apicompat.ChatCompletionsResponse, OpenAIUsage, error) {
 	respBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
@@ -416,6 +425,10 @@ func (s *OpenAIGatewayService) readCCUpstreamJSONResponse(
 	}
 
 	var ccResp apicompat.ChatCompletionsResponse
+	respBody = unwrapOpenAIChatCompletionEnvelope(respBody)
+	if gjson.ValidBytes(respBody) && !gjson.GetBytes(respBody, "choices").IsArray() {
+		return nil, OpenAIUsage{}, newOpenAIInvalidChatCompletionFailoverError(c, account, resp.Header.Get("x-request-id"), respBody)
+	}
 	if err := json.Unmarshal(respBody, &ccResp); err != nil {
 		writeError(c, http.StatusBadGateway, "api_error", "Failed to parse upstream response")
 		return nil, OpenAIUsage{}, fmt.Errorf("parse chat completions response: %w", err)
@@ -430,7 +443,42 @@ func (s *OpenAIGatewayService) readCCUpstreamJSONResponse(
 	if parsed, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
 		usage = parsed
 	}
+	if openAIChatResponseIsEmpty(respBody, &usage) {
+		return nil, OpenAIUsage{}, newOpenAISilentRefusalFailoverError(c, account, resp.Header.Get("x-request-id"))
+	}
 	return &ccResp, usage, nil
+}
+
+// Cline 的非流式结果包装为 success/data；先取出标准 CC 对象，避免正文和 usage 被忽略。
+func unwrapOpenAIChatCompletionEnvelope(body []byte) []byte {
+	root := gjson.ParseBytes(body)
+	if root.Get("choices").Exists() || root.Get("error").Exists() ||
+		(root.Get("success").Exists() && !root.Get("success").Bool()) {
+		return body
+	}
+	data := root.Get("data")
+	if data.IsObject() && data.Get("choices").IsArray() && !data.Get("error").Exists() {
+		return []byte(data.Raw)
+	}
+	return body
+}
+
+// HTTP 200 的错误对象或非 CC 对象不能转换成伪成功的空消息。
+func newOpenAIInvalidChatCompletionFailoverError(c *gin.Context, account *Account, requestID string, body []byte) *UpstreamFailoverError {
+	message := "OpenAI upstream returned JSON without Chat Completions choices"
+	setOpsUpstreamError(c, http.StatusBadGateway, message, string(body))
+	event := OpsUpstreamErrorEvent{
+		Platform: PlatformOpenAI, ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
+		UpstreamStatusCode: http.StatusOK, UpstreamRequestID: requestID, Kind: "failover", Message: message, Detail: string(body),
+	}
+	if account != nil {
+		event.AccountID, event.AccountName, event.Platform = account.ID, account.Name, account.Platform
+	}
+	appendOpsUpstreamError(c, event)
+	return &UpstreamFailoverError{
+		StatusCode: http.StatusBadGateway, Reason: "invalid_chat_completion_response",
+		ResponseBody: body, ResponseHeaders: http.Header{"X-Request-Id": []string{requestID}},
+	}
 }
 
 // writeOpenAIResponsesFallbackError 以 /v1/responses 回退路径的既有错误格式回写

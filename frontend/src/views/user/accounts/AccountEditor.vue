@@ -43,11 +43,13 @@
       <template v-if="usesApiKey">
         <div>
           <label class="input-label">{{ t('myAccounts.baseUrl') }}</label>
-          <input v-model="form.baseUrl" type="url" required class="input" />
+          <input v-model="form.baseUrl" type="url" :required="form.platform !== 'cursor'" class="input" data-testid="owned-account-base-url" :placeholder="form.platform === 'cursor' ? t('admin.accounts.cursor.baseUrlPlaceholder') : undefined" />
+          <p v-if="form.platform === 'cursor'" class="input-hint">{{ t('admin.accounts.cursor.baseUrlHint') }}</p>
         </div>
         <div>
-          <label class="input-label">{{ t('myAccounts.apiKey') }}</label>
-          <input v-model="form.apiKey" type="password" autocomplete="new-password" :required="!account" class="input" />
+          <label class="input-label">{{ t(form.platform === 'cursor' ? 'admin.accounts.cursor.apiKey' : 'myAccounts.apiKey') }}</label>
+          <input v-model="form.apiKey" type="password" autocomplete="new-password" :required="!account" class="input" data-testid="owned-account-api-key" />
+          <p v-if="form.platform === 'cursor'" class="input-hint">{{ t('admin.accounts.cursor.apiKeyHint') }}</p>
           <p v-if="account" class="input-hint">{{ t('myAccounts.redactedNotice') }}</p>
         </div>
       </template>
@@ -206,7 +208,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, reactive, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
@@ -263,7 +265,7 @@ const modelRestrictionMode = ref<ModelRestrictionMode>(
 )
 const usesApiKey = computed(() => ['apikey', 'upstream'].includes(form.type))
 const platforms = CONCRETE_PLATFORM_OPTIONS.map(option => ({ value: option.value, label: option.label }))
-const types = [
+const accountTypes = [
   { value: 'apikey' as AccountType, label: t('admin.accounts.apiKey'), hint: t('myAccounts.typeApiKeyHint') },
   { value: 'oauth' as AccountType, label: t('admin.accounts.oauthType'), hint: t('myAccounts.typeAdvancedJsonHint') },
   { value: 'setup-token' as AccountType, label: t('admin.accounts.setupToken'), hint: t('myAccounts.typeAdvancedJsonHint') },
@@ -271,6 +273,17 @@ const types = [
   { value: 'bedrock' as AccountType, label: t('admin.accounts.bedrockLabel'), hint: t('myAccounts.typeAdvancedJsonHint') },
   { value: 'service_account' as AccountType, label: 'Service Account', hint: t('myAccounts.typeAdvancedJsonHint') },
 ]
+const types = computed(() => form.platform === 'cursor'
+  ? accountTypes.filter(option => option.value === 'apikey')
+  : accountTypes)
+watch(() => form.platform, platform => {
+  if (platform === 'cursor') {
+    form.type = 'apikey'
+    if (!props.account) {
+      form.baseUrl = ''
+    }
+  }
+}, { immediate: true })
 const statuses = computed(() => ['active', 'inactive', 'error'].map(value => ({ value, label: t(`admin.accounts.status.${value}`) })))
 const expiresAtInput = computed({
   get: () => formatDateTimeLocalInput(form.expiresAt),
@@ -308,6 +321,17 @@ async function save() {
       nextCredentials.base_url = form.baseUrl.trim()
       if (form.apiKey.trim()) {
         nextCredentials.api_key = form.apiKey.trim()
+      }
+      if (form.platform === 'cursor') {
+        const hasStoredKey = props.account?.credentials_status?.has_api_key ?? Boolean(credentials.api_key)
+        if (!nextCredentials.api_key && !hasStoredKey) {
+          throw new Error(t('admin.accounts.apiKeyIsRequired'))
+        }
+        if (!form.baseUrl.trim()) {
+          delete nextCredentials.base_url
+        }
+        nextCredentials.api_protocol = 'chat_completions'
+        nextCredentials.openai_capabilities = ['chat_completions']
       }
     } else if (!props.account && Object.keys(advanced).length === 0) {
       throw new Error(t('myAccounts.credentialsRequired'))

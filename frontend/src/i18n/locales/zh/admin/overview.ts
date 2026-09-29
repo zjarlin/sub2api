@@ -909,6 +909,7 @@ export default {
         all: '全部平台',
         anthropic: 'Anthropic',
         openai: 'OpenAI',
+        cursor: 'Cursor',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
         grok: 'Grok',

@@ -155,11 +155,10 @@ func appendVirtualModelsToCatalog(body []byte, modelIDs []string) ([]byte, error
 		}
 		if modelID == askModelID {
 			item["display_name"] = json.RawMessage(`"Ask"`)
-			item["input_modalities"] = json.RawMessage(`["text"]`)
 		} else {
 			item["display_name"] = json.RawMessage(`"Auto"`)
-			item["input_modalities"] = json.RawMessage(`["text","image"]`)
 		}
+		item["input_modalities"] = json.RawMessage(`["text","image"]`)
 		item["supports_image_detail_original"] = json.RawMessage(`false`)
 		encoded, err := json.Marshal(item)
 		if err != nil {

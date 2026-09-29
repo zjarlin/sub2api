@@ -22,6 +22,59 @@ type autoInventoryRepo struct {
 	platforms      []string
 }
 
+type autoPlanCompositeRouteRepo struct {
+	service.CompositeModelRouteRepository
+	routes []service.CompositeModelRoute
+}
+
+func (r autoPlanCompositeRouteRepo) ListByGroup(context.Context, int64, bool) ([]service.CompositeModelRoute, error) {
+	return r.routes, nil
+}
+
+func TestAskRoutesTextAdaptersInCodexGroup(t *testing.T) {
+	accounts := []service.Account{
+		{ID: 862, Platform: service.PlatformDeepseekWeb, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Credentials: map[string]any{"model_mapping": map[string]any{"deepseek-web-chat": "deepseek-web-chat"}}},
+		{ID: 863, Platform: service.PlatformDoubao, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Credentials: map[string]any{"model_mapping": map[string]any{"doubao-pro": "doubao-pro"}}},
+		{ID: 864, Platform: service.PlatformCursor, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Credentials: map[string]any{"model_mapping": map[string]any{"cursor-model": "cursor-model"}}},
+	}
+	h := newAutoModelTestHandler(accounts)
+	ctx, err := h.settingService.BindAutoModelRoutingPolicy(context.Background())
+	require.NoError(t, err)
+	ctx, models, err := h.gatewayService.BindAutoModelInventory(ctx, 71)
+	require.NoError(t, err)
+	group := &service.Group{ID: 71, Platform: service.PlatformOpenAI}
+	for _, virtual := range []string{"auto", "ask"} {
+		body := []byte(`{"model":"` + virtual + `","input":"hello"}`)
+		requestCtx := service.WithAutoModelRequestCapabilities(ctx, body)
+		routes, _, err := h.autoModelPlan(requestCtx, group, nil, "/v1/responses", body, models)
+		require.NoError(t, err)
+		if virtual == "ask" {
+			require.Len(t, routes, 3)
+			require.True(t, h.askModelAvailable(requestCtx, group, models))
+		} else {
+			require.Empty(t, routes)
+			require.False(t, h.autoModelAvailable(requestCtx, group, models))
+		}
+	}
+}
+
+func TestAutoModelPlanSelectsVerifiedClineBeforeGLM(t *testing.T) {
+	accounts := autoModelTestAccounts()
+	accounts[0].Credentials = map[string]any{"model_mapping": map[string]any{"deepseek-v4.1-flash": "cline-pass/deepseek-v4.1-flash", "cline-pass/deepseek-v4.1-flash": "cline-pass/deepseek-v4.1-flash"}}
+	accounts[0].Extra = map[string]any{service.VerifiedModelsExtraKey: map[string]any{"cline-pass/deepseek-v4.1-flash": time.Now().Format(time.RFC3339Nano)}}
+	accounts[0].SetUpstreamSupportedModelsSnapshot(service.UpstreamSupportedModelsSnapshot{Source: "upstream", SyncedAt: time.Now().Format(time.RFC3339), Models: []string{"deepseek/deepseek-v4.1-flash"}})
+	accounts[1].Credentials = map[string]any{"model_mapping": map[string]any{"glm-5.3": "glm-5.3"}}
+	h := newAutoModelTestHandler(accounts)
+	ctx, err := h.settingService.BindAutoModelRoutingPolicy(context.Background())
+	require.NoError(t, err)
+	ctx, models, err := h.gatewayService.BindAutoModelInventory(ctx, 71)
+	require.NoError(t, err)
+	routes, _, err := h.autoModelPlan(ctx, &service.Group{ID: 71, Platform: service.PlatformOpenAI}, nil, "/v1/responses", []byte(`{"model":"auto","input":"OK"}`), models)
+	require.NoError(t, err)
+	require.NotEmpty(t, routes)
+	require.Equal(t, "deepseek-v4.1-flash", routes[0].model)
+}
+
 func (r *autoInventoryRepo) ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]service.Account, error) {
 	r.reads++
 	r.requestedGroup, r.platforms, r.includeGrouped = groupID, platforms, includeGrouped
@@ -351,7 +404,7 @@ func TestAutoModelPlanFiltersDecisionOnlyDiscoveryAndExplicitRoutes(t *testing.T
 	ctx, models, err := h.gatewayService.BindAutoModelInventory(ctx, 71)
 	require.NoError(t, err)
 	group := &service.Group{ID: 71, Platform: service.PlatformComposite}
-	resolver := service.NewCompositeRouteResolver(autoCostCompositeRouteRepo{routes: []service.CompositeModelRoute{
+	resolver := service.NewCompositeRouteResolver(autoPlanCompositeRouteRepo{routes: []service.CompositeModelRoute{
 		{PublicModel: "misleading-text-alias", UpstreamModel: service.DefaultJevModel, TargetPlatform: service.PlatformJev,
 			MatchType: service.CompositeRouteMatchExact, Endpoint: service.CompositeRouteEndpointAny, Enabled: true},
 		{PublicModel: "valid-public-alias", UpstreamModel: "gpt-5.5", TargetPlatform: service.PlatformOpenAI,

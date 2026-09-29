@@ -2402,6 +2402,9 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 		// 兜底：尝试从 SSE 文本中解析 usage
 		usage = s.parseSSEUsageFromBody(string(body))
 	}
+	if gjson.GetBytes(body, "status").String() == "completed" && openAIResponsesCompletedEventIsEmpty(body, usage) {
+		return nil, newOpenAIResponsesEmptyCompletedFailoverError(c, account, resp.Header.Get("x-request-id"))
+	}
 	logOpenAISuccessMissingUsage(ctx, c, account, resp, usage, "json", false)
 
 	writeOpenAIPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
@@ -2461,16 +2464,20 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 		if parsedUsage, parsed := extractOpenAIUsageFromJSONBytes(finalResponse); parsed {
 			*usage = parsedUsage
 		}
-		// When the terminal event has an empty output array, reconstruct
-		// output from accumulated delta events so the client gets full content.
-		if len(gjson.GetBytes(finalResponse, "output").Array()) == 0 {
+		// 空终态占位从 delta 恢复正文，已有 usage 同样需要恢复。
+		if !openAIResponsesOutputHasContent(gjson.GetBytes(finalResponse, "output")) {
 			if outputJSON, reconstructed := reconstructResponseOutputFromSSE(bodyText); reconstructed {
+				outputJSON = preserveEmptyResponsesMessageIdentity([]byte(gjson.GetBytes(finalResponse, "output").Raw), outputJSON)
 				if patched, err := sjson.SetRawBytes(finalResponse, "output", outputJSON); err == nil {
 					finalResponse = patched
 				}
 			}
 		}
 		finalResponse = supplementCompactionItemFromSSE(c, finalResponse, bodyText)
+		if (terminalType == "response.completed" || terminalType == "response.done") &&
+			openAIResponsesCompletedEventIsEmpty(finalResponse, usage) {
+			return nil, newOpenAIResponsesEmptyCompletedFailoverError(c, account, resp.Header.Get("x-request-id"))
+		}
 		body = finalResponse
 		body = s.preserveDeepSeekReasoning(c, account, body)
 		if originalModel != "" && mappedModel != "" && originalModel != mappedModel {

@@ -45,6 +45,7 @@ type autoModelRoutingPolicyContextKey struct{}
 type autoModelRequestCapabilitiesContextKey struct{}
 
 type autoModelRequestCapabilities struct {
+	ask            bool
 	tools          bool
 	images         bool
 	visionFallback bool
@@ -57,10 +58,11 @@ type autoModelToolCapabilityBlock struct {
 }
 
 type autoModelRoutingPolicy struct {
-	excluded map[string]struct{}
-	ranks    map[string]int
-	aliases  *ModelAliasPolicy
-	policy   *AutoModelPolicy
+	highestExcluded map[string]struct{}
+	excluded        map[string]struct{}
+	ranks           map[string]int
+	aliases         *ModelAliasPolicy
+	policy          *AutoModelPolicy
 }
 
 // 采用公开榜单最高已测推理强度的粗粒度分段，依据和局限见 docs/model-fallback-tiers.md。
@@ -181,6 +183,10 @@ func (s *SettingService) BindAutoModelRoutingPolicy(ctx context.Context) (contex
 	for _, model := range policy.Tiers[0].Models {
 		excluded[aliasSnapshot.Canonicalize(model)] = struct{}{}
 	}
+	highestExcluded := make(map[string]struct{}, len(excluded))
+	for model := range excluded {
+		highestExcluded[model] = struct{}{}
+	}
 	for _, group := range aliasSnapshot.Groups {
 		if autoPolicy.excludes(group.Canonical) || slices.ContainsFunc(group.Aliases, autoPolicy.excludes) {
 			excluded[group.Canonical] = struct{}{}
@@ -192,7 +198,7 @@ func (s *SettingService) BindAutoModelRoutingPolicy(ctx context.Context) (contex
 			ranks[aliasSnapshot.Canonicalize(model)] = rank*1000 + index
 		}
 	}
-	snapshot := &autoModelRoutingPolicy{excluded: excluded, aliases: aliasSnapshot, policy: autoPolicy, ranks: ranks}
+	snapshot := &autoModelRoutingPolicy{highestExcluded: highestExcluded, excluded: excluded, aliases: aliasSnapshot, policy: autoPolicy, ranks: ranks}
 	ctx = WithModelAliases(ctx, aliasSnapshot)
 	return context.WithValue(ctx, autoModelRoutingPolicyContextKey{}, snapshot), nil
 }
@@ -212,10 +218,23 @@ func WithAutoModelRequestCapabilities(ctx context.Context, body []byte) context.
 		ctx = context.Background()
 	}
 	capabilities := autoModelRequestCapabilities{
+		ask:    gjson.GetBytes(body, "model").String() == "ask",
 		tools:  gjson.GetBytes(body, "tools.#").Int() > 0,
 		images: autoModelInputHasImages(gjson.GetBytes(body, "input")) || autoModelInputHasImages(gjson.GetBytes(body, "messages")),
 	}
 	return context.WithValue(ctx, autoModelRequestCapabilitiesContextKey{}, capabilities)
+}
+
+// 文本适配器的提示词模拟工具不视为原生工具能力，只参与 Ask 调度。
+func AutoModelPlatformAllowed(ctx context.Context, platform string) bool {
+	if platform != PlatformDoubao && platform != PlatformDeepseekWeb && platform != PlatformCursor {
+		return true
+	}
+	if ctx == nil {
+		return false
+	}
+	capabilities, _ := ctx.Value(autoModelRequestCapabilitiesContextKey{}).(autoModelRequestCapabilities)
+	return capabilities.ask
 }
 
 func autoModelRequestNeedsTools(ctx context.Context) bool {
@@ -307,6 +326,13 @@ func AutoModelAllowed(ctx context.Context, models ...string) bool {
 	}
 	for _, model := range models {
 		canonical := snapshot.aliases.Canonicalize(model)
+		capabilities, _ := ctx.Value(autoModelRequestCapabilitiesContextKey{}).(autoModelRequestCapabilities)
+		if capabilities.ask {
+			if _, excluded := snapshot.highestExcluded[canonical]; excluded {
+				return false
+			}
+			continue
+		}
 		if _, excluded := snapshot.excluded[canonical]; excluded || snapshot.policy.excludes(model) || snapshot.policy.excludes(canonical) {
 			return false
 		}
@@ -443,6 +469,17 @@ func ModelAccountCompatible(account *Account, model string, body []byte) bool {
 func modelAccountCompatible(account *Account, model string, body []byte, assistedVision bool) bool {
 	if account == nil || !modelAccountPreservesSearchTools(account, model, body) {
 		return false
+	}
+	if account.IsCursor() {
+		if gjson.GetBytes(body, "tools.#").Int() > 0 {
+			return false
+		}
+		for _, field := range []string{"max_output_tokens", "max_completion_tokens", "max_tokens", "temperature", "top_p"} {
+			value := gjson.GetBytes(body, field)
+			if value.Exists() && value.Type != gjson.Null {
+				return false
+			}
+		}
 	}
 	upstream := account.GetMappedModel(model)
 	metadata, known := account.GetUpstreamModelMetadata(upstream)

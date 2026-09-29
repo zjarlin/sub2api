@@ -78,6 +78,12 @@ describe('GroupSelector mixed-scheduling platform filter', () => {
     expect(wrapper.text()).not.toContain('Gemini')
   })
 
+  it('shows Codex groups to DeepSeek Web accounts', () => {
+    const wrapper = mountMixed({ platform: 'deepseek_web' })
+    expect(wrapper.text()).toContain('Codex')
+    expect(wrapper.text()).not.toContain('Claude')
+  })
+
   it('shows openai groups to automatic compatible accounts when the flag is omitted', () => {
     const wrapper = mountMixed({ platform: 'workbuddy' })
     expect(wrapper.text()).toContain('Codex')

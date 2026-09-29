@@ -344,6 +344,8 @@
               <ModelWhitelistSelector
                 v-model="allowedModels"
                 :platforms="targetSelectedPlatforms"
+                enable-alias-mapping
+                @global-aliases-mapped="addGlobalModelMappings"
               />
 
               <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -1678,6 +1680,7 @@ const mixedChannelWarningMessage = ref('')
 const pendingUpdatesForConfirm = ref<Record<string, unknown> | null>(null)
 const baseUrl = ref('')
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
+const preserveModelWhitelist = ref(false)
 const allowedModels = ref<string[]>([])
 const modelMappings = ref<ModelMapping[]>([])
 const selectedErrorCodes = ref<number[]>([])
@@ -1837,6 +1840,32 @@ const addModelMapping = () => {
   modelMappings.value.push({ from: '', to: '' })
 }
 
+const addGlobalModelMappings = (mappings: ModelMapping[]) => {
+  const existingFromModels = new Set(
+    modelMappings.value
+      .map(mapping => mapping.from.trim())
+      .filter(Boolean)
+  )
+  let addedCount = 0
+
+  for (const mapping of mappings) {
+    const from = mapping.from.trim()
+    const to = mapping.to.trim()
+    if (!from || !to || from === to || existingFromModels.has(from)) continue
+    modelMappings.value.push({ from, to })
+    existingFromModels.add(from)
+    addedCount += 1
+  }
+
+  if (addedCount > 0) {
+    preserveModelWhitelist.value = true
+    modelRestrictionMode.value = 'mapping'
+    appStore.showSuccess(t('admin.accounts.syncModelAliasesSuccess', { count: addedCount }))
+  } else {
+    appStore.showInfo(t('admin.accounts.syncModelAliasesNoChanges'))
+  }
+}
+
 const removeModelMapping = (index: number) => {
   modelMappings.value.splice(index, 1)
 }
@@ -1911,7 +1940,7 @@ const removeErrorCode = (code: number) => {
 
 const buildModelMappingObject = (): Record<string, string> | null => {
   return buildModelMappingPayload(
-    modelRestrictionMode.value,
+    preserveModelWhitelist.value ? 'combined' : modelRestrictionMode.value,
     allowedModels.value,
     modelMappings.value
   )
@@ -2016,7 +2045,7 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
 
   if (enableModelRestriction.value && !isOpenAIModelRestrictionDisabled.value) {
     // 统一使用 model_mapping 字段
-    if (modelRestrictionMode.value === 'whitelist') {
+    if (modelRestrictionMode.value === 'whitelist' && !preserveModelWhitelist.value) {
       // 白名单模式：将模型转换为 model_mapping 格式（key=value）
       // 空白名单表示“支持所有模型”，需显式发送空对象以覆盖已有限制。
       const mapping: Record<string, string> = {}
@@ -2390,6 +2419,7 @@ watch(
       modelRestrictionMode.value = 'whitelist'
       allowedModels.value = []
       modelMappings.value = []
+      preserveModelWhitelist.value = false
       selectedErrorCodes.value = []
       customErrorCodeInput.value = null
       interceptWarmupRequests.value = false

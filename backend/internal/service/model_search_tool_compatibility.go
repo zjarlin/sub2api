@@ -1,6 +1,11 @@
 package service
 
-import "github.com/tidwall/gjson"
+import (
+	"net/url"
+	"strings"
+
+	"github.com/tidwall/gjson"
+)
 
 // 搜索声明本身可以重放，但 Chat 桥接会丢弃这些服务端工具，不能据此宣称候选兼容。
 func modelRequestNeedsNativeSearchTools(body []byte) bool {
@@ -52,9 +57,29 @@ func modelAccountPreservesSearchTools(account *Account, model string, body []byt
 		upstream = normalizeOpenAIModelForUpstream(account, upstream)
 		return openCodeGoNativeProtocol(account, upstream) == APIProtocolResponses
 	}
+	if accountUsesOpenRouter(account) {
+		return false
+	}
 	if account.IsAnthropicProtocol() || shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
 		return false
 	}
 	// 这里只保证原生工具声明不被转换丢弃；上游能力拒绝仍由 Auto 换候选处理。
 	return account.IsOpenAI() || account.UsesNativeCNResponses()
+}
+
+// OpenRouter 的 OpenAI 兼容端点不提供本项目依赖的 Responses 原生搜索工具。
+func accountUsesOpenRouter(account *Account) bool {
+	if account == nil || account.Type != AccountTypeAPIKey {
+		return false
+	}
+	baseURL := strings.TrimSpace(account.GetCredential("base_url"))
+	if baseURL == "" {
+		return false
+	}
+	parsed, err := url.Parse(baseURL)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(strings.TrimSuffix(parsed.Hostname(), "."))
+	return host == "openrouter.ai" || strings.HasSuffix(host, ".openrouter.ai")
 }

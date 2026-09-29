@@ -1,0 +1,13 @@
+{
+  "name": "Cursor SDK",
+  "platform": "cursor",
+  "type": "apikey",
+  "concurrency": 1,
+  "credentials": {
+    "api_key": "YOUR_CURSOR_DASHBOARD_API_KEY",
+    "api_protocol": "chat_completions"
+  },
+  "extra": {
+    "model_health_probe_enabled": false
+  }
+}

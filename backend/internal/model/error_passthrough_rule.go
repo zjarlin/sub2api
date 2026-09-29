@@ -45,6 +45,7 @@ const (
 	PlatformZhipu       = domain.PlatformZhipu
 	PlatformDeepseek    = domain.PlatformDeepseek
 	PlatformMiniMax     = domain.PlatformMiniMax
+	PlatformCursor      = domain.PlatformCursor
 	PlatformOpenCodeGo  = domain.PlatformOpenCodeGo
 	PlatformDoubao      = domain.PlatformDoubao
 	PlatformTraework    = domain.PlatformTraework
@@ -68,6 +69,7 @@ func AllPlatforms() []string {
 		PlatformZhipu,
 		PlatformDeepseek,
 		PlatformMiniMax,
+		PlatformCursor,
 		PlatformOpenCodeGo,
 		PlatformDoubao,
 		PlatformTraework,

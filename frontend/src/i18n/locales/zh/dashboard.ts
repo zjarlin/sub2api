@@ -208,6 +208,14 @@ export default {
         noteWindows:
           '按 Win+R，输入 %userprofile%\\.codex 打开配置目录。如目录不存在，请先手动创建。'
       },
+      cursor: {
+        description:
+          '使用此 API 密钥通过 OpenAI 兼容的 Chat Completions API 接入 Cursor。请先获取可用模型 ID，再发送纯文本请求。',
+        modelsRequest: 'GET /v1/models',
+        completionRequest: 'POST /v1/chat/completions',
+        note:
+          'Cursor 分组仅提供纯文本 Chat Completions。发送请求前请先调用 /v1/models 获取当前模型 ID。不支持工具调用、Anthropic Messages，也不提供 Claude Code、Codex、OpenCode 配置。'
+      },
       cliTabs: {
         claudeCode: 'Claude Code',
         geminiCli: 'Gemini CLI',

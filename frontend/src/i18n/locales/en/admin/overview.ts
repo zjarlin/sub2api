@@ -976,6 +976,7 @@ export default {
         all: 'All Platforms',
         anthropic: 'Anthropic',
         openai: 'OpenAI',
+        cursor: 'Cursor',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
         grok: 'Grok',

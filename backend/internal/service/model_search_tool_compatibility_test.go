@@ -47,3 +47,33 @@ func TestSearchToolsMatchGrokAndOpenCodeActualProtocol(t *testing.T) {
 	account.Credentials["protocol_rules"] = []any{map[string]any{"pattern": "gpt-*", "protocol": "chat_completions"}}
 	require.False(t, ModelAccountCompatible(account, "public-native", body))
 }
+
+func TestSearchToolsRejectOpenRouterHostedSearch(t *testing.T) {
+	body := []byte(`{"tools":[{"type":"web_search"}]}`)
+	openrouter := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"base_url": "https://openrouter.ai/api/v1",
+			"model_mapping": map[string]any{
+				"deepseek-v4.1-flash": "cohere/north-mini-code:free",
+			},
+		},
+	}
+	require.False(t, ModelAccountCompatible(openrouter, "deepseek-v4.1-flash", body))
+	require.False(t, AutoModelRequestAccountCompatible(context.Background(), openrouter, "deepseek-v4.1-flash", body))
+	require.False(t, ModelFallbackAccountCompatible(openrouter, "deepseek-v4.1-flash", body))
+
+	plain := []byte(`{"input":"hello"}`)
+	require.True(t, ModelAccountCompatible(openrouter, "deepseek-v4.1-flash", plain))
+
+	clientFunction := []byte(`{"tools":[{"type":"function","name":"web_search"}]}`)
+	require.True(t, ModelAccountCompatible(openrouter, "deepseek-v4.1-flash", clientFunction))
+}
+
+func TestAccountUsesOpenRouterMatchesOnlyConfiguredHost(t *testing.T) {
+	require.True(t, accountUsesOpenRouter(&Account{Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://openrouter.ai/api/v1"}}))
+	require.True(t, accountUsesOpenRouter(&Account{Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://proxy.openrouter.ai/v1"}}))
+	require.False(t, accountUsesOpenRouter(&Account{Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://openrouter.ai.example.com/v1"}}))
+	require.False(t, accountUsesOpenRouter(&Account{Type: AccountTypeOAuth, Credentials: map[string]any{"base_url": "https://openrouter.ai/api/v1"}}))
+}

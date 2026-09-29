@@ -31,8 +31,8 @@ func applyAccountHealthProbePayload(c *gin.Context, account *Account, payload ma
 		}
 	case APIProtocolChatCompletions:
 		payload["messages"] = []map[string]any{{"role": "user", "content": accountHealthProbePrompt}}
-		// VibeX 明确拒绝 token 上限参数，保留短提示和请求超时约束。
-		if !account.IsVibex() {
+		// VibeX 和 Cursor 无 token 上限参数，保留短提示和请求超时约束。
+		if !account.IsVibex() && !account.IsCursor() {
 			model, _ := payload["model"].(string)
 			budgetField := "max_tokens"
 			if hasOpenAISeriesPrefix(strings.ToLower(codexProviderQualifiedModelID(model))) || isOpenAICodexReasoningGPTModel(model) {

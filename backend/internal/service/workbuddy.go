@@ -14,6 +14,24 @@ func (a *Account) IsWorkbuddy() bool { return a != nil && a.Platform == Platform
 
 // validateBuiltinChatCredentials 统一校验内置适配器账号。
 func validateBuiltinChatCredentials(platform, accountType string, credentials map[string]any) error {
+	if platform == PlatformCursor {
+		if accountType != AccountTypeAPIKey {
+			return infraerrors.BadRequest("INVALID_CURSOR_CREDENTIALS", "cursor requires an API key account")
+		}
+		key, _ := credentials["api_key"].(string)
+		if strings.TrimSpace(key) == "" {
+			return infraerrors.BadRequest("INVALID_CURSOR_CREDENTIALS", "cursor requires a Cursor Dashboard API key")
+		}
+		protocol, _ := credentials["api_protocol"].(string)
+		if protocol != "" && protocol != APIProtocolChatCompletions {
+			return infraerrors.BadRequest("INVALID_CURSOR_CREDENTIALS", "cursor only supports chat_completions")
+		}
+		baseURL, _ := credentials["base_url"].(string)
+		if strings.TrimSpace(baseURL) == "" && !BuiltinAdapterEnabled() {
+			return infraerrors.BadRequest("INVALID_CURSOR_CREDENTIALS", "cursor requires a base_url when the built-in adapter is disabled")
+		}
+		return nil
+	}
 	if platform == PlatformArena {
 		return validateArenaCredentials(accountType, credentials)
 	}

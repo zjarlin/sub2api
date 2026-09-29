@@ -24,6 +24,7 @@ const (
 	modelsDevRegistryTTL                      = 6 * time.Hour
 	UpstreamModelMetadataExtraKey             = "upstream_model_metadata"
 	UpstreamSupportedModelsExtraKey           = "upstream_supported_models"
+	VerifiedModelsExtraKey                    = "verified_upstream_models"
 	UpstreamModelMetadataIncompleteCode       = "upstream_model_metadata_incomplete"
 	upstreamSupportedModelsFreshness          = 12 * time.Hour
 	UpstreamModelMetadataPartialCode          = "upstream_model_metadata_partial"
@@ -104,6 +105,15 @@ func (a *Account) upstreamModelCatalogSupport(requestedModel string, now time.Ti
 	for _, candidate := range snapshot.Models {
 		if normalizeUnsupportedModelKey(candidate) == model {
 			return true, true
+		}
+	}
+	if verified, ok := a.Extra[VerifiedModelsExtraKey].(map[string]any); ok {
+		if stamp, ok := verified[model].(string); ok {
+			checkedAt, err := time.Parse(time.RFC3339Nano, stamp)
+			// 与目录的历史正向证据一致；支持该 ID 不等于实时健康，失败记录负责撤销。
+			if err == nil && !checkedAt.After(now.Add(5*time.Minute)) {
+				return true, true
+			}
 		}
 	}
 	if !upstreamSupportedModelsSnapshotFresh(snapshot, now) {
@@ -285,7 +295,7 @@ func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, accou
 	liveListAvailable := err == nil
 	if err != nil {
 		configuredModels := configuredUpstreamModelsForCapabilitySync(account)
-		if !upstreamModelListEndpointUnsupported(err) || len(configuredModels) == 0 {
+		if account != nil && account.IsCursor() || !upstreamModelListEndpointUnsupported(err) || len(configuredModels) == 0 {
 			return nil, err
 		}
 		models = configuredModels
@@ -726,7 +736,7 @@ func upstreamModelRegistryBaseURL(account *Account) string {
 		return ""
 	}
 	switch {
-	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo():
+	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo() || account.IsCursor():
 		return account.GetOpenAIFormatBaseURL()
 	case account.IsGrok():
 		return account.GetGrokBaseURL()
@@ -893,7 +903,7 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 		return s.buildAntigravityAPIKeyModelsRequest(ctx, account)
 	case account.IsGrok():
 		return s.buildGrokUpstreamModelsRequest(ctx, account)
-	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo() || account.IsArena():
+	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo() || account.IsArena() || account.IsCursor():
 		// 国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）与 OpenCode Go
 		// 复用 OpenAI /v1/models 探测。
 		return s.buildOpenAIUpstreamModelsRequest(ctx, account)
@@ -1138,6 +1148,11 @@ func buildOpenAIAPIKeyModelsRequest(ctx context.Context, account *Account, valid
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
+	if account.IsCursor() {
+		if adapterKey := builtinAdapterSharedKeyForTarget(account.Platform, normalizedBaseURL); adapterKey != "" {
+			req.Header.Set("X-Sub2API-Adapter-Key", adapterKey)
+		}
+	}
 	// 账号级请求头覆写：模型列表探测与真实转发保持一致的最终头
 	account.ApplyHeaderOverrides(req.Header)
 	return req, nil

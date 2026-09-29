@@ -129,6 +129,29 @@ func TestAutoModelObservationBoundsAndOptionalMetadata(t *testing.T) {
 	require.Equal(t, "completed", w.route.State)
 }
 
+func TestAutoModelObservationRecordsPreflightFailure(t *testing.T) {
+	cache := &observationCache{}
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.RequestID, "319e0350-6d27-4962-b6bb-f2e9c3197b99"))
+	c.Request.Header.Set("X-Codex-Turn-Metadata", `{"session_id":"`+observationSession+`","turn_id":"turn-1"}`)
+	c.Set("virtual_model_id", "auto")
+	c.Set(autoModelPlanKey, []service.AutoModelCandidate{{Model: "gpt-5.5", Platform: service.PlatformOpenAI, Reason: "no_compatible_account"}})
+
+	finish := observationHandler(cache).observeAutoModelRoute(c, &service.APIKey{ID: 81}, "")
+	c.Status(http.StatusServiceUnavailable)
+	finish()
+
+	require.NotEmpty(t, cache.routes)
+	route := cache.routes[len(cache.routes)-1]
+	require.Equal(t, "319e0350-6d27-4962-b6bb-f2e9c3197b99", route.RequestID)
+	require.Equal(t, "auto", route.RequestedModel)
+	require.Equal(t, "failed", route.State)
+	require.Empty(t, route.SelectedModel)
+	require.Empty(t, route.AttemptedModels)
+	require.Equal(t, []service.AutoModelCandidate{{Model: "gpt-5.5", Platform: service.PlatformOpenAI, Reason: "no_compatible_account"}}, route.Candidates)
+}
+
 func TestAutoModelObservationPrefersNativeThreadOverRootSession(t *testing.T) {
 	cache := &observationCache{}
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())

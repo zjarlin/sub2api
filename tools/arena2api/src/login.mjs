@@ -1,5 +1,6 @@
 import crypto from "node:crypto";
 import { ArenaError } from "./request.mjs";
+import { loginFailure } from "./arena-login.mjs";
 
 // 登录任务只保存状态；密码仅在调用期间传给浏览器，结果按管理员身份隔离。
 export class LoginSessions {
@@ -46,9 +47,12 @@ export class LoginSessions {
           session.status = "completed";
         }
       })
-      .catch(() => {
-        // 上游错误可能含 Cookie 或账号详情，不保存或透传原文。
+      .catch((error) => {
+        session.error = loginFailure(error);
         session.status = "failed";
+        if (!session.controller.signal.aborted) {
+          console.warn(JSON.stringify({ event: "arena_login_failed", code: session.error.code, stage: session.error.stage, ...(session.error.upstreamStatus ? { upstream_status: session.error.upstreamStatus } : {}) }));
+        }
       })
       .finally(() => {
         clearTimeout(session.timer);
@@ -73,7 +77,7 @@ export class LoginSessions {
   poll(owner, id) {
     const session = this.get(owner, id);
     if (session.status === "failed") {
-      throw new ArenaError(502, "login_failed", "Arena login or session preparation failed. Check the account and retry.");
+      throw session.error;
     }
     return this.result(session);
   }

@@ -141,9 +141,9 @@ func TestOpenAIResponsesCompletedEventIsEmpty(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "completed with output item",
+			name: "completed with empty message placeholder",
 			data: `{"type":"response.completed","response":{"id":"r1","status":"completed","output":[{"type":"message","id":"msg_1"}]}}`,
-			want: false,
+			want: true,
 		},
 		{
 			name: "accumulated usage",

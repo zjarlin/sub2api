@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { LoginSessions } from "../src/login.mjs";
+import { ArenaError } from "../src/request.mjs";
 import { createServer } from "../src/server.mjs";
 
 const input = { email: "owner@example.com", password: "private-password" };
@@ -54,6 +55,20 @@ test("failed login never returns upstream secrets and permits retry", async () =
   await logins.close();
 });
 
+test("failed login preserves only the whitelisted classification in status and diagnostics", async (t) => {
+  const warn = t.mock.method(console, "warn", () => {});
+  const error = new ArenaError(503, "arena_access_blocked", `${input.email} ${input.password} private-cookie`);
+  error.stage = "arena_home";
+  error.upstreamStatus = 403;
+  const logins = new LoginSessions({ loginAndPrepare: async () => { throw error; } });
+  const pending = logins.start("admin:1", input);
+  await tick();
+  assert.throws(() => logins.poll("admin:1", pending.session_id), { code: "arena_access_blocked", status: 503 });
+  assert.deepEqual(JSON.parse(warn.mock.calls[0].arguments[0]), { event: "arena_login_failed", code: "arena_access_blocked", stage: "arena_home", upstream_status: 403 });
+  assert.ok(!JSON.stringify(logins.sessions.get(pending.session_id)).includes(input.password));
+  await logins.close();
+});
+
 test("expired login aborts work and is no longer pollable", async () => {
   let signal;
   const logins = new LoginSessions({ loginAndPrepare: (_email, _password, current) => {
@@ -89,4 +104,24 @@ test("HTTP login requires adapter auth and owner, supports poll and cancel", asy
   const completed = await (await fetch(poll, { method: "POST", headers })).json();
   assert.equal(completed.status, "completed");
   assert.equal((await fetch(`${url}/${pending.session_id}`, { method: "DELETE", headers })).status, 204);
+});
+
+test("HTTP login exposes a static blocked-access reason and no upstream secrets", async (t) => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "arena-login-blocked-"));
+  t.mock.method(console, "warn", () => {});
+  const runtime = {
+    loginAndPrepare: async () => { throw new ArenaError(503, "arena_access_blocked", `${input.email} ${input.password} private-cookie`); },
+    close: async () => {},
+  };
+  const server = createServer({ config: { apiKey: "adapter-key", stateFile: path.join(directory, "state.json") }, runtime });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(async () => { await server.stop(); fs.rmSync(directory, { recursive: true, force: true }); });
+  const url = `http://127.0.0.1:${server.address().port}/internal/login/sessions`;
+  const headers = { Authorization: "Bearer adapter-key", "Content-Type": "application/json", "X-Login-Owner": "admin:1" };
+  const pending = await (await fetch(url, { method: "POST", headers, body: JSON.stringify(input) })).json();
+  const response = await fetch(`${url}/${pending.session_id}/poll`, { method: "POST", headers });
+  assert.equal(response.status, 503);
+  const text = await response.text();
+  assert.equal(JSON.parse(text).error.code, "arena_access_blocked");
+  assert.ok(!text.includes(input.email) && !text.includes(input.password) && !text.includes("private-cookie"));
 });

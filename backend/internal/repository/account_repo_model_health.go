@@ -20,14 +20,24 @@ func (r *accountRepository) RecordAccountModelHealthSuccess(
 		return nil
 	}
 	_, err := r.sql.ExecContext(ctx, `
-		INSERT INTO account_model_health (account_id, model, last_success_at, source)
+		WITH health AS (INSERT INTO account_model_health (account_id, model, last_success_at, source)
 		VALUES ($1, $2, $3, 'account_test')
 		ON CONFLICT (account_id, model) DO UPDATE
 		SET last_success_at = GREATEST(account_model_health.last_success_at, EXCLUDED.last_success_at),
 			source = CASE
 				WHEN account_model_health.last_success_at IS NULL OR EXCLUDED.last_success_at >= account_model_health.last_success_at THEN EXCLUDED.source
 				ELSE account_model_health.source
-			END`, accountID, model, checkedAt)
+			END
+		RETURNING account_id, model, last_success_at, last_failure_at),
+		changed AS (
+			UPDATE accounts a SET extra = jsonb_set(COALESCE(a.extra, '{}'::jsonb),
+				'{verified_upstream_models}', COALESCE(a.extra->'verified_upstream_models', '{}'::jsonb) ||
+				jsonb_build_object(LOWER(BTRIM(h.model)), h.last_success_at)), updated_at = CURRENT_TIMESTAMP
+			FROM health h WHERE a.id = h.account_id AND a.deleted_at IS NULL
+				AND (h.last_failure_at IS NULL OR h.last_success_at > h.last_failure_at)
+			RETURNING a.id)
+		INSERT INTO scheduler_outbox(event_type, account_id, payload)
+		SELECT 'account_changed', id, '{}'::jsonb FROM changed`, accountID, model, checkedAt)
 	return err
 }
 
@@ -42,10 +52,20 @@ func (r *accountRepository) RecordAccountModelHealthFailure(
 		return nil
 	}
 	_, err := r.sql.ExecContext(ctx, `
-		INSERT INTO account_model_health (account_id, model, last_success_at, last_failure_at, source)
+		WITH health AS (INSERT INTO account_model_health (account_id, model, last_success_at, last_failure_at, source)
 		VALUES ($1, $2, NULL, $3, 'account_test')
 		ON CONFLICT (account_id, model) DO UPDATE
-		SET last_failure_at = GREATEST(COALESCE(account_model_health.last_failure_at, EXCLUDED.last_failure_at), EXCLUDED.last_failure_at)`,
+		SET last_failure_at = GREATEST(COALESCE(account_model_health.last_failure_at, EXCLUDED.last_failure_at), EXCLUDED.last_failure_at)
+		RETURNING account_id, model, last_success_at, last_failure_at),
+		changed AS (
+			UPDATE accounts a SET extra = jsonb_set(a.extra, '{verified_upstream_models}',
+				(a.extra->'verified_upstream_models') - LOWER(BTRIM(h.model))), updated_at = CURRENT_TIMESTAMP
+			FROM health h WHERE a.id = h.account_id AND a.deleted_at IS NULL
+				AND a.extra->'verified_upstream_models' ? LOWER(BTRIM(h.model))
+				AND (h.last_success_at IS NULL OR h.last_failure_at >= h.last_success_at)
+			RETURNING a.id)
+		INSERT INTO scheduler_outbox(event_type, account_id, payload)
+		SELECT 'account_changed', id, '{}'::jsonb FROM changed`,
 		accountID, model, checkedAt)
 	return err
 }

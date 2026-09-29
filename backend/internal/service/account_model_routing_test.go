@@ -37,6 +37,23 @@ func TestOpenAIModelRoutingRequiresEvidence(t *testing.T) {
 	}
 }
 
+func TestVerifiedMappedModelOverridesSharedCatalogAbsence(t *testing.T) {
+	now := time.Now()
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"model_mapping": map[string]any{"deepseek-v4.1-flash": "cline-pass/deepseek-v4.1-flash", "cline-pass/deepseek-v4.1-flash": "cline-pass/deepseek-v4.1-flash"}},
+		Extra:       map[string]any{VerifiedModelsExtraKey: map[string]any{"cline-pass/deepseek-v4.1-flash": now.Format(time.RFC3339Nano)}},
+	}
+	account.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{Source: "upstream", SyncedAt: now.Format(time.RFC3339), Models: []string{"deepseek/deepseek-v4.1-flash"}})
+	require.True(t, account.IsModelSupported("deepseek-v4.1-flash"))
+	require.True(t, account.IsModelSupported("cline-pass/deepseek-v4.1-flash"))
+	require.False(t, account.IsModelSupported("deepseek/deepseek-v4.1-flash"))
+	account.Extra[VerifiedModelsExtraKey].(map[string]any)["cline-pass/deepseek-v4.1-flash"] = now.Add(-MinimumModelHealthProbeInterval - time.Minute).Format(time.RFC3339Nano)
+	require.True(t, account.IsModelSupported("deepseek-v4.1-flash"))
+	account.Extra[VerifiedModelsExtraKey].(map[string]any)["cline-pass/deepseek-v4.1-flash"] = now.Format(time.RFC3339Nano)
+	account.Extra[UnsupportedModelsExtraKey] = map[string]any{"cline-pass/deepseek-v4.1-flash": map[string]any{}}
+	require.False(t, account.IsModelSupported("deepseek-v4.1-flash"))
+}
+
 func TestOpenAIModelRoutingStaleCatalogDoesNotAllowUnknownModels(t *testing.T) {
 	account := &Account{
 		Platform: PlatformOpenAI, Type: AccountTypeAPIKey,

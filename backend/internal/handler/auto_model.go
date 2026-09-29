@@ -126,7 +126,7 @@ func autoModelTextPlatform(platform string) bool {
 	switch platform {
 	case service.PlatformOpenAI, service.PlatformGrok, service.PlatformKimi,
 		service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax,
-		service.PlatformOpenCodeGo, service.PlatformDoubao, service.PlatformTraework,
+		service.PlatformOpenCodeGo, service.PlatformDoubao, service.PlatformDeepseekWeb, service.PlatformCursor, service.PlatformTraework,
 		service.PlatformWorkbuddy, service.PlatformVibex, service.PlatformZcode,
 		service.PlatformQoder:
 		return true
@@ -144,6 +144,7 @@ func (h *GatewayHandler) askModelAvailable(ctx context.Context, group *service.G
 }
 
 func (h *GatewayHandler) virtualModelAvailable(ctx context.Context, group *service.Group, models []string, virtualModel string) bool {
+	ctx = service.WithAutoModelRequestCapabilities(ctx, []byte(`{"model":"`+virtualModel+`"}`))
 	if h == nil || h.gatewayService == nil || group == nil ||
 		(group.Platform != service.PlatformComposite && group.Platform != service.PlatformOpenAI) ||
 		(group.ModelAllowlistEnabled() && !group.ModelAllowlist.Allows(virtualModel)) {
@@ -159,7 +160,7 @@ func (h *GatewayHandler) virtualModelAvailable(ctx context.Context, group *servi
 	}
 	platforms := h.gatewayService.GetSchedulablePlatforms(ctx, &group.ID)
 	for platform := range platforms {
-		if autoModelTextPlatform(platform) {
+		if autoModelTextPlatform(platform) && service.AutoModelPlatformAllowed(ctx, platform) {
 			return true
 		}
 	}
@@ -236,6 +237,7 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 			c.Next()
 			return
 		}
+		c.Set("virtual_model_id", virtualModel)
 		modelNames := requestmodel.FromBodyCandidates(c.FullPath(), c.GetHeader("Content-Type"), body)
 		if len(modelNames) != 1 || modelNames[0] != virtualModel || !gjson.ValidBytes(body) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": "model must have one unambiguous value"}})
@@ -251,8 +253,8 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 		}
 		ctx = service.WithAutoModelRequestCapabilities(ctx, body)
 		c.Request = c.Request.WithContext(ctx)
-		if virtualModel == askModelID && (service.AutoModelRequestNeedsTools(ctx) || service.AutoModelRequestNeedsImages(ctx)) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "unsupported_request", "message": "ask only supports text conversation requests without tools"}})
+		if virtualModel == askModelID && service.AutoModelRequestNeedsTools(ctx) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "unsupported_request", "message": "ask supports conversation requests without tools"}})
 			c.Abort()
 			return
 		}
@@ -292,6 +294,11 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 			return
 		}
 		if len(routes) == 0 {
+			// Keep the rejected plan observable too: no model is selected yet, but
+			// the per-candidate reasons are needed to diagnose request capabilities.
+			c.Set(autoModelPlanKey, plan)
+			finishObservation := h.observeAutoModelRoute(c, apiKey, "")
+			defer finishObservation()
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "scheduling_error", "message": "Auto model routing has no eligible model"}})
 			c.Abort()
 			return

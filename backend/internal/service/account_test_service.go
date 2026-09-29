@@ -229,7 +229,7 @@ func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, accou
 		}
 	}
 	// 专属会话目录只取上游实际配置，不补充目录中不存在的手填模型。
-	if isArenaSessionAdapter(account) {
+	if isArenaSessionAdapter(account) || account.IsCursor() {
 		return payload.Data, nil
 	}
 	// Manual self-mappings are authoritative test-picker entries even when the
@@ -430,6 +430,11 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 			if err := recorder.RecordAccountModelHealthFailure(recordCtx, accountID, model, checkedAt); err != nil {
 				log.Printf("Account test model health failure persistence failed: account=%d model=%s error=%v", accountID, model, err)
 			}
+			if upstreamModel := account.GetMappedModel(model); !account.IsOpenAIPassthroughEnabled() && upstreamModel != model {
+				if err := recorder.RecordAccountModelHealthFailure(recordCtx, accountID, upstreamModel, checkedAt); err != nil {
+					log.Printf("Account test upstream model health failure persistence failed: account=%d model=%s error=%v", accountID, upstreamModel, err)
+				}
+			}
 			return
 		}
 		recorder, ok := s.accountRepo.(AccountModelHealthRecorder)
@@ -438,6 +443,15 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		}
 		if err := recorder.RecordAccountModelHealthSuccess(recordCtx, accountID, model, checkedAt); err != nil {
 			log.Printf("Account test model health persistence failed: account=%d model=%s error=%v", accountID, model, err)
+		}
+		upstreamModel := model
+		if !account.IsOpenAIPassthroughEnabled() {
+			upstreamModel = account.GetMappedModel(model)
+		}
+		if upstreamModel != model {
+			if err := recorder.RecordAccountModelHealthSuccess(recordCtx, accountID, upstreamModel, checkedAt); err != nil {
+				log.Printf("Account test upstream model health persistence failed: account=%d model=%s error=%v", accountID, upstreamModel, err)
+			}
 		}
 	}()
 
@@ -459,7 +473,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	if account.IsDoubao() {
 		return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt)
 	}
-	if account.IsCNProvider() {
+	if account.IsCNProvider() || account.IsCursor() {
 		switch account.GetAPIProtocol() {
 		case APIProtocolAdaptive:
 			return s.testCNProviderAdaptiveConnection(c, account, modelID, prompt)
@@ -540,6 +554,23 @@ func (s *AccountTestService) testOpenCodeGoResponsesConnection(c *gin.Context, a
 
 func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
 	testModelID := strings.TrimSpace(modelID)
+	if testModelID == "" && account.IsCursor() {
+		models := configuredUpstreamModelsForCapabilitySync(account)
+		if snapshot := account.GetUpstreamSupportedModelsSnapshot(); len(models) == 0 && snapshot != nil {
+			models = dedupeAndSortModelIDs(snapshot.Models)
+		}
+		if len(models) == 0 {
+			var err error
+			models, err = s.FetchUpstreamSupportedModels(c.Request.Context(), account)
+			if err != nil {
+				return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to fetch Cursor models: %s", err.Error()))
+			}
+		}
+		if len(models) == 0 {
+			return s.sendErrorAndEnd(c, "Cursor account has no available models")
+		}
+		testModelID = models[0]
+	}
 	if testModelID == "" {
 		if account.IsVibex() {
 			return s.sendErrorAndEnd(c, "Select a model synchronized from the VibeX account")
@@ -2258,6 +2289,11 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Authorization", "Bearer "+authToken)
+	if account.IsCursor() {
+		if adapterKey := builtinAdapterSharedKeyForTarget(account.Platform, apiURL); adapterKey != "" {
+			req.Header.Set("X-Sub2API-Adapter-Key", adapterKey)
+		}
+	}
 	if customUA := account.GetOpenAIUserAgent(); customUA != "" {
 		req.Header.Set("User-Agent", customUA)
 	}

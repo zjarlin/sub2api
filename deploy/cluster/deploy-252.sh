@@ -47,6 +47,24 @@ if [ "$DEEPSEEK_WEB_ENABLED" = "1" ]; then
   COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.deepseek-web.yml")
 fi
 
+# Cursor 独立启用，真实账号 Key 在管理页面保存，部署仅生成内部共享密钥。
+CURSOR_ENABLED="${SUB2API_CURSOR:-}"
+if [ -z "$CURSOR_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
+  CURSOR_ENABLED="$(awk -F= '
+    $1 ~ /^[[:space:]]*(export[[:space:]]+)?SUB2API_CURSOR[[:space:]]*$/ {
+      value=$2
+      sub(/#.*/, "", value)
+      gsub(/[[:space:]"\047]/, "", value)
+      result=value
+    }
+    END { if (result == "1") print "1"; else print "0" }
+  ' "$DEPLOY_DIR/.env")"
+fi
+if [ "$CURSOR_ENABLED" = "1" ]; then
+  test -f "$DEPLOY_DIR/deploy/docker-compose.cursor.yml"
+  COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.cursor.yml")
+fi
+
 # Arena 独立启用，只启动私网文本适配器；真实登录与专属会话另行配置。
 ARENA_ENABLED="${SUB2API_ARENA:-}"
 if [ -z "$ARENA_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
@@ -60,9 +78,28 @@ if [ -z "$ARENA_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
     END { if (result == "1") print "1"; else print "0" }
   ' "$DEPLOY_DIR/.env")"
 fi
+ARENA_PROXY_ENABLED=0
 if [ "$ARENA_ENABLED" = "1" ]; then
   test -f "$DEPLOY_DIR/deploy/docker-compose.arena.yml"
   COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.arena.yml" --profile arena)
+
+  # 专属代理只随 Arena 启用；显式环境变量优先于私有 .env。
+  ARENA_PROXY_ENABLED="${SUB2API_ARENA_PROXY:-}"
+  if [ -z "$ARENA_PROXY_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
+    ARENA_PROXY_ENABLED="$(awk -F= '
+      $1 ~ /^[[:space:]]*(export[[:space:]]+)?SUB2API_ARENA_PROXY[[:space:]]*$/ {
+        value=$2
+        sub(/#.*/, "", value)
+        gsub(/[[:space:]"\047]/, "", value)
+        result=value
+      }
+      END { if (result == "1") print "1"; else print "0" }
+    ' "$DEPLOY_DIR/.env")"
+  fi
+  if [ "$ARENA_PROXY_ENABLED" = "1" ]; then
+    test -f "$DEPLOY_DIR/deploy/docker-compose.arena-proxy.yml"
+    COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.arena-proxy.yml")
+  fi
 fi
 
 # 只读取编排开关，不执行 .env 中的 shell 内容；显式环境变量优先。
@@ -127,6 +164,9 @@ fi
 if [ "$DEEPSEEK_WEB_ENABLED" = "1" ]; then
   ensure_adapter_key DEEPSEEK_WEB_ADAPTER_KEY
 fi
+if [ "$CURSOR_ENABLED" = "1" ]; then
+  ensure_adapter_key CURSOR_ADAPTER_KEY
+fi
 if [ "$ARENA_ENABLED" = "1" ]; then
   ensure_adapter_key ARENA_AGENT_BRIDGE_KEY
 fi
@@ -174,7 +214,15 @@ if [ "$DEEPSEEK_WEB_ENABLED" = "1" ]; then
   echo "Building and starting DeepSeek web adapter"
   "${COMPOSE[@]}" up -d --build sub2api-deepseek-web
 fi
+if [ "$CURSOR_ENABLED" = "1" ]; then
+  echo "Building and starting Cursor SDK adapter"
+  "${COMPOSE[@]}" up -d --build --wait --wait-timeout 180 sub2api-cursor
+fi
 if [ "$ARENA_ENABLED" = "1" ]; then
+  if [ "$ARENA_PROXY_ENABLED" = "1" ]; then
+    echo "Starting dedicated Arena proxy"
+    "${COMPOSE[@]}" up -d --wait --wait-timeout 180 sub2api-arena-proxy
+  fi
   echo "Building and starting Arena adapter"
   "${COMPOSE[@]}" up -d --build sub2api-arena
 fi

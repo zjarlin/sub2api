@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -148,6 +149,61 @@ func TestArenaWebLoginUsesInternalCredentials(t *testing.T) {
 	require.Equal(t, server.URL+"/v1", credentials["base_url"])
 	require.Equal(t, "internal-arena", credentials["api_key"])
 	require.NoError(t, validateBuiltinChatCredentials(PlatformArena, AccountTypeAPIKey, credentials))
+}
+
+func TestArenaLoginFailureCodesAreSanitized(t *testing.T) {
+	for _, tc := range []struct {
+		code   string
+		reason string
+		status int
+	}{
+		{"arena_access_blocked", "ARENA_ACCESS_BLOCKED", http.StatusServiceUnavailable},
+		{"login_invalid_credentials", "ARENA_INVALID_CREDENTIALS", http.StatusBadRequest},
+		{"session_not_usable", "ARENA_SESSION_UNUSABLE", http.StatusForbidden},
+		{"session_not_ready", "ARENA_SESSION_NOT_READY", http.StatusBadGateway},
+		{"browser_unavailable", "ARENA_BROWSER_UNAVAILABLE", http.StatusServiceUnavailable},
+		{"arena_network_error", "ARENA_NETWORK_ERROR", http.StatusBadGateway},
+		{"arena_login_timeout", "ARENA_LOGIN_TIMEOUT", http.StatusGatewayTimeout},
+		{"arena_session_prepare_failed", "ARENA_SESSION_PREPARE_FAILED", http.StatusBadGateway},
+	} {
+		t.Run(tc.code, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusUnauthorized)
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"error": map[string]string{"code": tc.code, "message": "private-password private-cookie"},
+				})
+			}))
+			defer server.Close()
+			SetBuiltinAdapterConfig(&config.BuiltinAdapterConfig{Enabled: true, ArenaURL: server.URL, ArenaKey: "private-key"})
+			t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
+			_, err := BuiltinAdapterLogin(context.Background(), PlatformArena, "admin:1", strings.Repeat("a", 64), "poll", "")
+			require.Error(t, err)
+			require.Equal(t, tc.reason, infraerrors.Reason(err))
+			require.Equal(t, tc.status, infraerrors.Code(err))
+			require.NotContains(t, err.Error(), "private")
+		})
+	}
+}
+
+func TestArenaUnknownLoginFailuresDoNotInvalidateAdminAuth(t *testing.T) {
+	for _, body := range []string{
+		`{"error":{"code":"private-unknown-code","message":"private-cookie"}}`,
+		`<html>private-cookie</html>`,
+		`{"error":{"message":"` + strings.Repeat("x", 16<<10) + `","code":"arena_access_blocked"}}`,
+	} {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(body))
+		}))
+		SetBuiltinAdapterConfig(&config.BuiltinAdapterConfig{Enabled: true, ArenaURL: server.URL, ArenaKey: "private-key"})
+		_, err := BuiltinAdapterLogin(context.Background(), PlatformArena, "admin:1", strings.Repeat("a", 64), "poll", "")
+		require.Error(t, err)
+		require.Equal(t, "ADAPTER_LOGIN_FAILED", infraerrors.Reason(err))
+		require.Equal(t, http.StatusBadGateway, infraerrors.Code(err))
+		require.NotContains(t, err.Error(), "private")
+		server.Close()
+	}
+	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
 }
 
 func TestDeepseekWebLoginAutoReloginOptionsAndSanitizedStatus(t *testing.T) {

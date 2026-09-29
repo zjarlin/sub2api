@@ -70,12 +70,13 @@ const BaseDialogStub = defineComponent({
 const ModelWhitelistSelectorStub = defineComponent({
   name: 'ModelWhitelistSelector',
   props: {
+    enableAliasMapping: Boolean,
     modelValue: {
       type: Array,
       default: () => []
     }
   },
-  emits: ['update:modelValue'],
+  emits: ['update:modelValue', 'global-aliases-mapped'],
   template: `
     <div>
       <button
@@ -324,6 +325,49 @@ function mountModal(account = buildAccount(), renderGroupSelector = false) {
 }
 
 describe('EditAccountModal', () => {
+  it('edits Cursor with a redacted stored key and clears its optional adapter URL', async () => {
+    const account = buildAccount()
+    account.platform = 'cursor'
+    account.credentials = {
+      base_url: 'http://sub2api-cursor:7868/v1',
+      api_protocol: 'responses',
+      openai_capabilities: ['responses'],
+    }
+    account.credentials_status = { has_api_key: true }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    expect(wrapper.findComponent({ name: 'BuiltinAdapterLogin' }).exists()).toBe(false)
+    expect(wrapper.get('[data-testid="account-api-key"]').attributes('placeholder')).toBe('admin.accounts.cursor.apiKeyPlaceholder')
+    await wrapper.get('[data-testid="account-base-url"]').setValue('')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const credentials = updateAccountMock.mock.lastCall?.[1]?.credentials
+    expect(credentials).toMatchObject({ api_protocol: 'chat_completions', openai_capabilities: ['chat_completions'] })
+    expect(credentials).not.toHaveProperty('api_key')
+    expect(credentials).not.toHaveProperty('base_url')
+  })
+
+  it('requires a replacement Cursor Dashboard key when no stored key exists', async () => {
+    const account = buildAccount()
+    account.platform = 'cursor'
+    account.credentials = {}
+    account.credentials_status = { has_api_key: false }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).not.toHaveBeenCalled()
+
+    await wrapper.get('[data-testid="account-api-key"]').setValue(' new-cursor-key ')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.lastCall?.[1]?.credentials).toMatchObject({
+      api_key: 'new-cursor-key', api_protocol: 'chat_completions', openai_capabilities: ['chat_completions'],
+    })
+  })
+
   it('preserves TRAE Work configured concurrency and pins its adapter protocol when editing', async () => {
     const account = buildAccount()
     account.platform = 'traework'
@@ -851,6 +895,30 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.model_mapping).toEqual({
       'gpt-5.2-2025-12-11': 'gpt-5.2-2025-12-11',
       'gpt-latest': 'gpt-5.2'
+    })
+  })
+
+  it('imports aliases without overriding existing mappings or dropping the whitelist', async () => {
+    const account = buildAccount()
+    account.credentials.model_mapping['gpt-latest'] = 'custom-target'
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('enableAliasMapping')).toBe(true)
+    wrapper.getComponent(ModelWhitelistSelectorStub).vm.$emit('global-aliases-mapped', [
+      { from: ' gpt-latest ', to: 'gpt-5.2' },
+      { from: ' gpt-alias ', to: 'gpt-5.2' },
+      { from: 'gpt-alias', to: 'other-target' }
+    ])
+    await flushPromises()
+    expect(wrapper.findAll('input[placeholder="admin.accounts.requestModel"]')).toHaveLength(2)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock.mock.lastCall?.[1].credentials.model_mapping).toEqual({
+      'gpt-5.2': 'gpt-5.2',
+      'gpt-latest': 'custom-target',
+      'gpt-alias': 'gpt-5.2'
     })
   })
 

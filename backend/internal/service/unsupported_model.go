@@ -3,11 +3,14 @@ package service
 import (
 	"context"
 	"log/slog"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/tidwall/gjson"
 )
+
+var missingNVIDIAFunctionPattern = regexp.MustCompile(`(?i)^Function '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}': Not found for account '[^'\r\n]+'$`)
 
 const (
 	UnsupportedModelsExtraKey       = "unsupported_models"
@@ -97,6 +100,10 @@ func (a *Account) rememberUnsupportedModel(model string, observation Unsupported
 func isDeterministicUnsupportedModelError(statusCode int, body []byte) bool {
 	if statusCode != 400 && statusCode != 404 && statusCode != 422 {
 		return false
+	}
+	// NVIDIA 用函数不存在表示该账号无权调用模型；普通路由 404 不能据此重试。
+	if statusCode == 404 && missingNVIDIAFunctionPattern.MatchString(strings.TrimSpace(gjson.GetBytes(body, "detail").String())) {
+		return true
 	}
 	for _, path := range []string{
 		"error.code", "error.type", "error.message",

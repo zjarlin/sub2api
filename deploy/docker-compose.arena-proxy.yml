@@ -1,0 +1,41 @@
+# 可选的 Arena 专属代理，叠加在 Arena 编排后；节点配置仅保存在私有目录。
+services:
+  sub2api-arena:
+    environment:
+      ARENA_AGENT_PROXY: http://sub2api-arena-proxy:7890
+    depends_on:
+      sub2api-arena-proxy:
+        condition: service_healthy
+
+  sub2api-arena-proxy:
+    profiles: [arena]
+    image: ${ARENA_PROXY_IMAGE:-sub2api-arena:local}
+    entrypoint: [/usr/bin/tini, --]
+    command: [/usr/local/bin/mihomo, -d, /app/proxy, -f, /app/proxy/config.json]
+    restart: unless-stopped
+    user: "1000:1000"
+    read_only: true
+    volumes:
+      - type: bind
+        source: ${ARENA_PROXY_BINARY_PATH:?Set ARENA_PROXY_BINARY_PATH to the Linux mihomo binary}
+        target: /usr/local/bin/mihomo
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ARENA_PROXY_STATE_DIR:?Set ARENA_PROXY_STATE_DIR to a private proxy state directory}
+        target: /app/proxy
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    networks: [sub2api-network]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 512m
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:9090/version',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

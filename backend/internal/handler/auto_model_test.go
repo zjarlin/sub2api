@@ -200,7 +200,7 @@ func TestAppendAutoModelUpdatesExistingVisionCapability(t *testing.T) {
 	}
 }
 
-func TestAskModelRejectsToolsAndImages(t *testing.T) {
+func TestAskModelRejectsTools(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := newAutoModelTestHandler(autoModelTestAccounts())
 	group := &service.Group{ID: 71, Platform: service.PlatformOpenAI}
@@ -211,12 +211,11 @@ func TestAskModelRejectsToolsAndImages(t *testing.T) {
 	router.POST("/v1/chat/completions", func(c *gin.Context) { c.Status(http.StatusOK) })
 	for _, body := range []string{
 		`{"model":"ask","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"lookup"}}]}`,
-		`{"model":"ask","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}]}]}`,
 	} {
 		recorder := httptest.NewRecorder()
 		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)))
 		require.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())
-		require.Contains(t, recorder.Body.String(), "ask only supports text conversation")
+		require.Contains(t, recorder.Body.String(), "without tools")
 	}
 }
 

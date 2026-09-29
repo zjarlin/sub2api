@@ -3,10 +3,38 @@ package repository
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
+
+func TestSchedulerMetadataAccountKeepsVerifiedMappedModel(t *testing.T) {
+	account := service.Account{
+		ID:       863,
+		Platform: service.PlatformOpenAI,
+		Type:     service.AccountTypeAPIKey,
+		Credentials: map[string]any{"model_mapping": map[string]any{
+			"deepseek-v4.1-flash": "cline-pass/deepseek-v4.1-flash",
+		}},
+		Extra: map[string]any{
+			service.UpstreamSupportedModelsExtraKey: service.UpstreamSupportedModelsSnapshot{
+				Source: "upstream", SyncedAt: time.Now().UTC().Format(time.RFC3339),
+				Models: []string{"deepseek/deepseek-v4.1-flash"},
+			},
+			service.VerifiedModelsExtraKey: map[string]any{
+				"cline-pass/deepseek-v4.1-flash": time.Now().UTC().Format(time.RFC3339Nano),
+			},
+		},
+	}
+
+	require.True(t, account.IsModelSupported("deepseek-v4.1-flash"))
+	metadata := buildSchedulerMetadataAccount(account)
+	require.Contains(t, metadata.Extra, service.VerifiedModelsExtraKey)
+	require.True(t, metadata.IsModelSupported("deepseek-v4.1-flash"))
+	delete(metadata.Extra, service.VerifiedModelsExtraKey)
+	require.False(t, metadata.IsModelSupported("deepseek-v4.1-flash"))
+}
 
 func TestFilterSchedulerCredentialsKeepsSubscriptionPlanType(t *testing.T) {
 	filtered := filterSchedulerCredentials(map[string]any{

@@ -322,6 +322,24 @@ func openAISilentRefusalErrorBody() []byte {
 	return body
 }
 
+// 只将无正文、无工具或扩展输出且零用量的正常停止判为静默拒绝。
+func openAIChatResponseIsEmpty(data []byte, usage *OpenAIUsage) bool {
+	if !gjson.ValidBytes(data) || openAIUsageHasTokens(usage) || openAIJSONUsageHasTokens(gjson.GetBytes(data, "usage")) ||
+		gjson.GetBytes(data, "error").Type != gjson.Null {
+		return false
+	}
+	choices := gjson.GetBytes(data, "choices")
+	if !choices.IsArray() {
+		return false
+	}
+	for _, choice := range choices.Array() {
+		if choice.Get("finish_reason").String() != "stop" || chatObjectHasUnknownOutput(choice.Get("message"), "role") {
+			return false
+		}
+	}
+	return true
+}
+
 // IsOpenAISilentRefusalErrorBody reports whether a failover body was produced
 // by the OpenAI silent-refusal detector.
 func IsOpenAISilentRefusalErrorBody(body []byte) bool {

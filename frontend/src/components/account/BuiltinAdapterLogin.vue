@@ -95,6 +95,17 @@ const deepseekPassword = ref('')
 const deepseekAutoRelogin = ref(true)
 const loginViewURL = ref('')
 const error = ref('')
+const arenaErrorKeys = new Map<string, string>([
+  ['BUILTIN_ADAPTER_DISABLED', 'admin.accounts.arena.unavailable'],
+  ['ARENA_ACCESS_BLOCKED', 'admin.accounts.arena.accessBlocked'],
+  ['ARENA_INVALID_CREDENTIALS', 'admin.accounts.arena.invalidCredentials'],
+  ['ARENA_SESSION_UNUSABLE', 'admin.accounts.arena.sessionUnusable'],
+  ['ARENA_SESSION_NOT_READY', 'admin.accounts.arena.sessionNotReady'],
+  ['ARENA_BROWSER_UNAVAILABLE', 'admin.accounts.arena.browserUnavailable'],
+  ['ARENA_NETWORK_ERROR', 'admin.accounts.arena.networkError'],
+  ['ARENA_LOGIN_TIMEOUT', 'admin.accounts.arena.loginTimeout'],
+  ['ARENA_SESSION_PREPARE_FAILED', 'admin.accounts.arena.sessionPrepareFailed']
+])
 const busy = ref(false)
 const zcodePlan = ref<ZcodeLoginOptions['plan']>('coding-plan')
 const zcodeProvider = ref<ZcodeLoginOptions['provider']>('zai')
@@ -141,7 +152,7 @@ function stop() {
 function showError(err: unknown) {
   const detail = err as { code?: string; message?: string }
   if (props.platform === 'arena') {
-    error.value = t(detail.code === 'BUILTIN_ADAPTER_DISABLED' ? 'admin.accounts.arena.unavailable' : 'admin.accounts.arena.loginFailed')
+    error.value = t(arenaErrorKeys.get(detail.code || '') || 'admin.accounts.arena.loginFailed')
     return
   }
   if (props.platform === 'deepseek_web' && detail.code === 'BUILTIN_ADAPTER_DISABLED') {

@@ -353,7 +353,7 @@ func normalizeAccountConcurrency(platform, accountType string, concurrency int) 
 	if platform == PlatformTraework {
 		return max(1, concurrency)
 	}
-	if platform == PlatformDoubao || platform == PlatformWorkbuddy || platform == PlatformVibex || platform == PlatformZcode || platform == PlatformDeepseekWeb || platform == PlatformArena || platform == PlatformQoder || IsSystemOneDecisionPlatform(platform) {
+	if platform == PlatformDoubao || platform == PlatformWorkbuddy || platform == PlatformVibex || platform == PlatformZcode || platform == PlatformDeepseekWeb || platform == PlatformArena || platform == PlatformQoder || platform == PlatformCursor || IsSystemOneDecisionPlatform(platform) {
 		return 1
 	}
 	if platform == PlatformGrok && accountType == AccountTypeOAuth {

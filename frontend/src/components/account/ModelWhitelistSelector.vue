@@ -15,7 +15,7 @@
             :key="model"
             class="inline-flex items-center justify-between gap-1 rounded bg-gray-100 px-2 py-1 text-xs text-gray-700 dark:bg-dark-600 dark:text-gray-300"
           >
-            <span class="flex items-center gap-1 truncate">
+            <span class="flex min-w-0 flex-1 items-center gap-1 truncate" :title="model">
               <ModelIcon :model="model" size="14px" />
               <span class="truncate">{{ model }}</span>
             </span>
@@ -25,6 +25,16 @@
               class="shrink-0 rounded-full hover:bg-gray-200 dark:hover:bg-dark-500"
             >
               <Icon name="x" size="xs" class="h-3.5 w-3.5" :stroke-width="2" />
+            </button>
+            <button
+              type="button"
+              data-testid="copy-selected-model-id"
+              class="shrink-0 rounded p-0.5 text-gray-400 hover:bg-gray-200 hover:text-primary-600 dark:text-gray-500 dark:hover:bg-dark-500 dark:hover:text-primary-400"
+              :title="`${t('common.copy')} ${model}`"
+              :aria-label="`${t('common.copy')} ${model}`"
+              @click.stop.prevent="copyModelId(model)"
+            >
+              <Icon name="copy" size="xs" />
             </button>
           </span>
         </div>
@@ -75,7 +85,7 @@
                 </svg>
               </span>
               <ModelIcon :model="model.value" size="18px" />
-              <span class="truncate text-gray-900 dark:text-white">{{ model.value }}</span>
+              <span class="truncate text-gray-900 dark:text-white" :title="model.value">{{ model.value }}</span>
             </button>
             <button
               type="button"
@@ -83,7 +93,7 @@
               class="mr-2 rounded p-1.5 text-gray-400 opacity-70 transition-colors hover:bg-gray-200 hover:text-primary-600 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 group-hover:opacity-100 dark:text-gray-500 dark:hover:bg-dark-500 dark:hover:text-primary-400"
               :title="`${t('common.copy')} ${model.value}`"
               :aria-label="`${t('common.copy')} ${model.value}`"
-              @click="copyModelId(model.value)"
+              @click.stop.prevent="copyModelId(model.value)"
             >
               <Icon name="copy" size="sm" />
             </button>
@@ -113,6 +123,16 @@
         class="rounded-lg border border-emerald-200 px-3 py-1.5 text-sm text-emerald-600 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-900/30"
       >
         {{ isSyncingUpstream ? t('admin.accounts.syncUpstreamModelsLoading') : t('admin.accounts.syncUpstreamModels') }}
+      </button>
+      <button
+        v-if="enableAliasMapping"
+        type="button"
+        data-testid="sync-model-aliases"
+        @click="syncGlobalAliases"
+        :disabled="isSyncingAliases"
+        class="rounded-lg border border-violet-200 px-3 py-1.5 text-sm text-violet-600 hover:bg-violet-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-violet-800 dark:text-violet-400 dark:hover:bg-violet-900/30"
+      >
+        {{ isSyncingAliases ? t('admin.accounts.syncModelAliasesLoading') : t('admin.accounts.syncModelAliases') }}
       </button>
       <button
         type="button"
@@ -154,6 +174,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { accountsAPI } from '@/api/admin/accounts'
 import type { SyncUpstreamPreviewParams } from '@/api/admin/accounts'
+import { getModelAliasPolicy, type ModelAliasGroup } from '@/api/admin/settings'
 import { useClipboard } from '@/composables/useClipboard'
 import ModelIcon from '@/components/common/ModelIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -163,6 +184,7 @@ const { t } = useI18n()
 
 const props = defineProps<{
   modelValue: string[]
+  enableAliasMapping?: boolean
   platform?: string
   platforms?: string[]
   accountId?: number
@@ -177,6 +199,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [value: string[]]
   'upstream-synced': []
+  'global-aliases-mapped': [mappings: Array<{ from: string; to: string }>]
 }>()
 
 const appStore = useAppStore()
@@ -187,6 +210,7 @@ const searchQuery = ref('')
 const customModel = ref('')
 const isComposing = ref(false)
 const isSyncingUpstream = ref(false)
+const isSyncingAliases = ref(false)
 const syncedModels = ref<string[]>([])
 const isArena = computed(() => normalizedPlatforms.value.includes('arena'))
 const normalizedPlatforms = computed(() => {
@@ -290,6 +314,47 @@ const toggleModel = (model: string) => {
 
 const copyModelId = async (model: string) => {
   await copyToClipboard(model)
+}
+
+const modelAliasMappings = (groups: ModelAliasGroup[]) => {
+  const mappings = new Map<string, string>()
+  const targetIDs = props.modelValue.length > 0 || syncedModels.value.length > 0
+    ? [...syncedModels.value, ...props.modelValue]
+    : availableOptions.value.map(model => model.value)
+  for (const group of groups) {
+    const equivalentIDs = [group.canonical, ...group.aliases]
+      .map(model => model.trim())
+      .filter(Boolean)
+
+    // 优先使用上游目录中的真实 ID；同义词来源无需出现在候选列表中。
+    const target = targetIDs.find(model => equivalentIDs.includes(model))
+    if (!target) continue
+    for (const model of equivalentIDs) {
+      if (model !== target) mappings.set(model, target)
+    }
+  }
+  return [...mappings].map(([from, to]) => ({ from, to }))
+}
+
+const syncGlobalAliases = async () => {
+  if (isSyncingAliases.value) return
+  isSyncingAliases.value = true
+  const requestVersion = catalogVersion
+  try {
+    const policy = await getModelAliasPolicy()
+    if (requestVersion !== catalogVersion) return
+    const mappings = modelAliasMappings(policy.groups)
+    if (mappings.length === 0) {
+      appStore.showInfo(t('admin.accounts.syncModelAliasesEmpty'))
+      return
+    }
+    emit('global-aliases-mapped', mappings)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : t('admin.accounts.syncModelAliasesFailed')
+    appStore.showError(t('admin.accounts.syncModelAliasesError', { message }))
+  } finally {
+    isSyncingAliases.value = false
+  }
 }
 
 const addCustom = () => {

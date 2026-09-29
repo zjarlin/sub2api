@@ -1033,6 +1033,7 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"auto_pause_7d_disabled",
 		"model_rate_limits",
 		service.UpstreamSupportedModelsExtraKey,
+		service.VerifiedModelsExtraKey,
 		service.UnsupportedModelsExtraKey,
 		service.UpstreamBillingProbeExtraKey,
 		service.GrokMediaEligibleExtraKey,

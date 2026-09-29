@@ -51,12 +51,18 @@ func autoModelAccountSupportsImages(ctx context.Context, account *Account, model
 		return true
 	}
 	capabilities, _ := ctx.Value(autoModelRequestCapabilitiesContextKey{}).(autoModelRequestCapabilities)
+	if IsAutoModelRouting(ctx) && !AutoModelPlatformAllowed(ctx, account.Platform) {
+		return false
+	}
 	return !capabilities.images || accountHasNativeVision(account, model) ||
 		(capabilities.visionFallback && accountNeedsVisionFallback(account, model))
 }
 
 // Auto 的预检和取得账号槽位后的复检共用辅助能力，保留其余上下文和工具限制。
 func AutoModelRequestAccountCompatible(ctx context.Context, account *Account, model string, body []byte) bool {
+	if account == nil || (IsAutoModelRouting(ctx) && !AutoModelPlatformAllowed(ctx, account.Platform)) {
+		return false
+	}
 	capabilities, _ := ctx.Value(autoModelRequestCapabilitiesContextKey{}).(autoModelRequestCapabilities)
 	assistedVision := capabilities.visionFallback && accountNeedsVisionFallback(account, model)
 	return modelAccountCompatible(account, model, body, assistedVision)

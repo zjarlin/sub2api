@@ -1,0 +1,37 @@
+# Cursor 官方 SDK 文本适配器；账号 API Key 由主服务按请求发送，不保存在容器中。
+services:
+  sub2api:
+    environment:
+      - BUILTIN_ADAPTER_ENABLED=true
+      - BUILTIN_ADAPTER_CURSOR_URL=http://sub2api-cursor:7868
+      - BUILTIN_ADAPTER_CURSOR_KEY=${CURSOR_ADAPTER_KEY:?Set CURSOR_ADAPTER_KEY to a shared adapter key}
+    depends_on:
+      sub2api-cursor:
+        condition: service_healthy
+
+  sub2api-cursor:
+    build:
+      context: ./tools/cursor2api
+      dockerfile: Dockerfile
+    image: ${CURSOR_IMAGE:-sub2api-cursor:local}
+    restart: unless-stopped
+    environment:
+      CURSOR_ADAPTER_KEY: ${CURSOR_ADAPTER_KEY:?Set CURSOR_ADAPTER_KEY to a shared adapter key}
+      CURSOR_REQUEST_TIMEOUT_MS: ${CURSOR_REQUEST_TIMEOUT_MS:-300000}
+      CURSOR_MAX_CONCURRENT: ${CURSOR_MAX_CONCURRENT:-4}
+      CURSOR_MAX_BODY_BYTES: ${CURSOR_MAX_BODY_BYTES:-4194304}
+    networks: [sub2api-network]
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=0700,size=256m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 1g
+    stop_grace_period: 30s
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:7868/livez').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

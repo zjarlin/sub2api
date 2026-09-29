@@ -501,7 +501,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	}
 
 	if scanErr == nil && !clientDisconnected && !clientOutputStarted {
-		if refusalDetector.IsSilentRefusal() {
+		if refusalDetector.IsSilentRefusal() || (!semanticOutputSeen && !openAIUsageHasTokens(&usage)) {
 			return nil, newOpenAISilentRefusalFailoverError(c, account, requestID)
 		}
 		if len(pendingLines) > 0 {
@@ -587,11 +587,18 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
 	}
+	respBody = unwrapOpenAIChatCompletionEnvelope(respBody)
+	if gjson.ValidBytes(respBody) && !gjson.GetBytes(respBody, "choices").IsArray() {
+		return nil, newOpenAIInvalidChatCompletionFailoverError(c, account, requestID, respBody)
+	}
 	observer.ObserveOpenAI(respBody, strings.TrimSpace(gjson.GetBytes(respBody, "type").String()))
 
 	var usage OpenAIUsage
 	if parsedUsage, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
 		usage = parsedUsage
+	}
+	if openAIChatResponseIsEmpty(respBody, &usage) {
+		return nil, newOpenAISilentRefusalFailoverError(c, account, requestID)
 	}
 	responseModel := gjson.GetBytes(respBody, "model").String()
 	if requiresBillableGrokChatUsage(account, billingModel, upstreamModel, responseModel) && !hasBillableGrokChatUsage(usage) {

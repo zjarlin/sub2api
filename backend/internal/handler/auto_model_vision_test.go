@@ -58,6 +58,7 @@ func (u *autoVisionUpstream) Do(req *http.Request, _ string, _ int64, _ int) (*h
 func TestAutoModelVisionHTTPUsesHelperBeforeTextModel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, tc := range []struct {
+		model      string
 		endpoint   string
 		stream     bool
 		toolOutput bool
@@ -67,8 +68,15 @@ func TestAutoModelVisionHTTPUsesHelperBeforeTextModel(t *testing.T) {
 		{endpoint: "/v1/responses", toolOutput: true, stream: true},
 		{endpoint: "/v1/chat/completions"},
 		{endpoint: "/v1/chat/completions", stream: true},
+		{model: "ask", endpoint: "/v1/responses"},
+		{model: "ask", endpoint: "/v1/responses", stream: true},
+		{model: "ask", endpoint: "/v1/chat/completions"},
+		{model: "ask", endpoint: "/v1/chat/completions", stream: true},
 	} {
-		t.Run(fmt.Sprintf("%s/stream=%t/tool=%t", tc.endpoint, tc.stream, tc.toolOutput), func(t *testing.T) {
+		if tc.model == "" {
+			tc.model = "auto"
+		}
+		t.Run(fmt.Sprintf("%s/%s/stream=%t/tool=%t", tc.model, tc.endpoint, tc.stream, tc.toolOutput), func(t *testing.T) {
 			accounts := autoModelTestAccounts()[:1]
 			primary := &accounts[0]
 			primary.Type, primary.Concurrency = service.AccountTypeAPIKey, 1
@@ -110,7 +118,7 @@ func TestAutoModelVisionHTTPUsesHelperBeforeTextModel(t *testing.T) {
 			}, h.AutoModelMiddleware(nil))
 			router.POST("/v1/responses", openAI.Responses)
 			router.POST("/v1/chat/completions", openAI.ChatCompletions)
-			payload := map[string]any{"model": "auto", "stream": tc.stream}
+			payload := map[string]any{"model": tc.model, "stream": tc.stream}
 			if tc.toolOutput {
 				payload["input"] = []any{
 					map[string]any{"type": "function_call", "name": "view_image", "call_id": "c1", "arguments": "{}"},

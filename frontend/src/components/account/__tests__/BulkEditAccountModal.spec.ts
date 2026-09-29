@@ -167,6 +167,35 @@ describe('BulkEditAccountModal', () => {
     })
   })
 
+  it.each(['mapping', 'whitelist'])('preserves selected models and imported aliases when saving in %s view', async view => {
+    const wrapper = mountModal({ selectedPlatforms: ['openai'], selectedTypes: ['apikey'] })
+    await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(true)
+    const selector = wrapper.getComponent(ModelWhitelistSelector)
+    selector.vm.$emit('update:modelValue', ['actual-model', 'other-model'])
+    selector.vm.$emit('global-aliases-mapped', [
+      { from: 'public-model', to: 'actual-model' },
+      { from: 'public-model', to: 'other-model' }
+    ])
+    await nextTick()
+    expect(wrapper.findAll('input[placeholder="admin.accounts.requestModel"]')).toHaveLength(1)
+    if (view === 'whitelist') {
+      const tab = wrapper.findAll('button').find(button => button.text().includes('admin.accounts.modelWhitelist'))!
+      await tab.trigger('click')
+    }
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      credentials: {
+        model_mapping: {
+          'actual-model': 'actual-model',
+          'other-model': 'other-model',
+          'public-model': 'actual-model'
+        }
+      }
+    })
+  })
+
   it('全部目标为 Grok OAuth 时，官方主机 base_url 作为手动端点切换正常提交', async () => {
     const wrapper = mountModal({
       selectedPlatforms: ['grok'],

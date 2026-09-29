@@ -323,6 +323,7 @@ let codexModelManifestRequestID = 0
 
 const showCodexModelCatalog = computed(() =>
   props.show &&
+  props.platform !== 'cursor' &&
   (activeClientTab.value === 'codex' ||
     (props.platform === 'openai' && activeClientTab.value === 'codex-ws'))
 )
@@ -349,6 +350,8 @@ const defaultClientTab = computed(() => {
       return 'gemini'
     case 'antigravity':
       return 'claude'
+    case 'cursor':
+      return 'api'
     default:
       return 'claude'
   }
@@ -445,6 +448,8 @@ const SparkleIcon = {
 const clientTabs = computed((): TabConfig[] => {
   if (!props.platform) return []
   switch (props.platform) {
+    case 'cursor':
+      return []
     case 'openai': {
       const tabs: TabConfig[] = [
         { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
@@ -506,7 +511,7 @@ const openaiTabs: TabConfig[] = [
   { id: 'windows', label: 'Windows', icon: WindowsIcon }
 ]
 
-const showShellTabs = computed(() => activeClientTab.value !== 'opencode')
+const showShellTabs = computed(() => props.platform !== 'cursor' && activeClientTab.value !== 'opencode')
 
 const showCodexAuthMode = computed(() =>
   props.platform === 'openai' &&
@@ -522,6 +527,9 @@ const currentTabs = computed(() => {
 })
 
 const platformDescription = computed(() => {
+  if (props.platform === 'cursor') {
+    return t('keys.useKeyModal.cursor.description')
+  }
   if (activeClientTab.value === 'codex' &&
     props.platform !== 'openai' &&
     props.platform !== 'grok' &&
@@ -566,6 +574,9 @@ const platformDescription = computed(() => {
 })
 
 const platformNote = computed(() => {
+  if (props.platform === 'cursor') {
+    return t('keys.useKeyModal.cursor.note')
+  }
   if (activeClientTab.value === 'codex' &&
     props.platform !== 'openai' &&
     props.platform !== 'grok' &&
@@ -701,6 +712,10 @@ const string = (value: string) => wrapToken('text-amber-200', value)
 const comment = (value: string) => wrapToken('text-slate-500', value)
 
 // Syntax highlighting helpers
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`
+}
+
 // Generate file configs based on platform and active tab
 const currentFiles = computed((): FileConfig[] => {
   const baseUrl = props.baseUrl || window.location.origin
@@ -720,6 +735,28 @@ const currentFiles = computed((): FileConfig[] => {
     const trimmed = baseRoot.replace(/\/+$/, '')
     return trimmed.endsWith('/v1beta') ? trimmed : `${trimmed}/v1beta`
   })()
+
+  if (props.platform === 'cursor') {
+    const authorization = shellQuote(`Authorization: Bearer ${apiKey}`)
+    return [
+      {
+        path: t('keys.useKeyModal.cursor.modelsRequest'),
+        content: [
+          `curl -sS ${shellQuote(`${apiBase}/models`)} \\`,
+          `  -H ${authorization}`
+        ].join('\n')
+      },
+      {
+        path: t('keys.useKeyModal.cursor.completionRequest'),
+        content: [
+          `curl -sS ${shellQuote(`${apiBase}/chat/completions`)} \\`,
+          `  -H ${authorization} \\`,
+          "  -H 'Content-Type: application/json' \\",
+          `  -d '{"model":"<model-id-from-models>","messages":[{"role":"user","content":"Hello"}],"stream":false}'`
+        ].join('\n')
+      }
+    ]
+  }
 
   if (activeClientTab.value === 'opencode') {
     switch (props.platform) {
@@ -1338,6 +1375,7 @@ function generateRoutedCodexFiles(
     vibex: '',
    zcode: 'glm-5.3',
    qoder: 'auto',
+    cursor: '',
     laya: 'laya',
     jev: 'typesafe/jev',
     minimax: 'MiniMax-M3',
@@ -1363,6 +1401,7 @@ function generateRoutedCodexFiles(
     vibex: 'VibeX',
    zcode: 'ZCode',
    qoder: 'Qoder',
+    cursor: 'Cursor',
     laya: 'Laya',
     jev: 'JEV',
     minimax: 'MiniMax',

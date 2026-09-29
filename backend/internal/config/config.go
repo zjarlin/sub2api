@@ -107,11 +107,13 @@ type Config struct {
 	BuiltinAdapter          BuiltinAdapterConfig          `mapstructure:"builtin_adapter"`
 }
 
-// BuiltinAdapterConfig 控制随 Sub2API 部署一起启动的豆包、TRAE 和 WorkBuddy 适配器。
+// BuiltinAdapterConfig 控制随 Sub2API 部署一起启动的协议适配器。
 // 启用后账号表单不再要求手填地址与密钥，后端统一注入内部地址和共享密钥。
 type BuiltinAdapterConfig struct {
 	ArenaURL       string `mapstructure:"arena_url"`
 	ArenaKey       string `mapstructure:"arena_key"`
+	CursorURL      string `mapstructure:"cursor_url"`
+	CursorKey      string `mapstructure:"cursor_key"`
 	Enabled        bool   `mapstructure:"enabled"`
 	DesktopURL     string `mapstructure:"desktop_url"`
 	DesktopKey     string `mapstructure:"desktop_key"`
@@ -178,6 +180,14 @@ func (c BuiltinAdapterConfig) ArenaBaseURL() string {
 		return "http://sub2api-arena:7867"
 	}
 	return strings.TrimSpace(c.ArenaURL)
+}
+
+// CursorBaseURL 返回内置 Cursor SDK 适配器地址。
+func (c BuiltinAdapterConfig) CursorBaseURL() string {
+	if strings.TrimSpace(c.CursorURL) == "" {
+		return "http://sub2api-cursor:7868"
+	}
+	return strings.TrimSpace(c.CursorURL)
 }
 
 // DeepseekWebBaseURL 返回仓库内 DeepSeek 网页适配器地址。
@@ -2170,6 +2180,8 @@ func setDefaults() {
 	viper.SetDefault("builtin_adapter.vibex_key", "")
 	viper.SetDefault("builtin_adapter.arena_url", "")
 	viper.SetDefault("builtin_adapter.arena_key", "")
+	viper.SetDefault("builtin_adapter.cursor_url", "")
+	viper.SetDefault("builtin_adapter.cursor_key", "")
 	viper.SetDefault("builtin_adapter.zcode_url", "")
 	viper.SetDefault("builtin_adapter.zcode_key", "")
 	viper.SetDefault("builtin_adapter.deepseek_web_url", "")

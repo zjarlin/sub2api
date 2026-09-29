@@ -29,6 +29,7 @@ export const CONCRETE_PLATFORM_OPTIONS = [
   { value: 'vibex', label: 'VibeX' },
   { value: 'zcode', label: 'ZCode' },
   { value: 'qoder', label: 'Qoder' },
+  { value: 'cursor', label: 'Cursor' },
   { value: 'laya', label: 'Laya' },
   { value: 'jev', label: 'JEV' }
 ] as const satisfies readonly PlatformOption<AccountPlatform>[]
@@ -49,6 +50,7 @@ export const MIXED_SCHEDULING_TARGETS: Partial<Record<AccountPlatform, GroupPlat
   kimi: ['openai'],
   zhipu: ['openai'],
   deepseek: ['openai'],
+  deepseek_web: ['openai'],
   minimax: ['openai'],
   opencode_go: ['openai'],
   doubao: ['openai'],
@@ -57,6 +59,7 @@ export const MIXED_SCHEDULING_TARGETS: Partial<Record<AccountPlatform, GroupPlat
   vibex: ['openai'],
   zcode: ['openai'],
   qoder: ['openai'],
+  cursor: ['openai'],
   laya: ['openai'],
   jev: ['openai'],
 }

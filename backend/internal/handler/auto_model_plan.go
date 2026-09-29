@@ -87,6 +87,8 @@ func (h *GatewayHandler) autoModelPlan(ctx context.Context, group *service.Group
 				entry.Reason = "auto_policy_excluded"
 			case !autoModelTextPlatform(platform):
 				entry.Reason = "protocol_not_supported"
+			case !service.AutoModelPlatformAllowed(ctx, platform):
+				entry.Reason = "ask_only_platform"
 			default:
 				compatible, err := h.gatewayService.AutoModelAccountCompatible(ctx, &group.ID, platform, upstream, body)
 				if err != nil {

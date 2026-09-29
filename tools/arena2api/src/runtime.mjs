@@ -9,6 +9,8 @@ import { requireSecret } from "arena-local-bridge/src/secret.mjs";
 import { readEntries, sessionIdFromUrl } from "arena-local-bridge/src/archive.mjs";
 import { ArenaError } from "./request.mjs";
 import { parseAgentOutput } from "arena-local-bridge/src/parser.mjs";
+import { loginArena, loginFailure } from "./arena-login.mjs";
+import { createArenaSession } from "./arena-session.mjs";
 import { readJSON, saveJSON } from "./state.mjs";
 
 export function adapterConfig(env = process.env) {
@@ -143,7 +145,7 @@ export function createRuntime(config) {
           if (!login?.password) {
             throw new ArenaError(401, "login_expired", "Arena login expired. Run npm run manage -- login.");
           }
-          const refreshed = await bridge.browser.login(login.email, login.password);
+          const refreshed = await loginArena(bridge.browser, login.email, login.password, signal);
           signal.throwIfAborted();
           credentials.replaceCookie(refreshed.email, refreshed.cookieHeader);
           await bridge.browser.close();
@@ -167,6 +169,7 @@ export function createRuntime(config) {
     },
     async loginAndPrepare(email, password, signal) {
       let cancellation = Promise.resolve();
+      let stage = "email_sign_in";
       const cancel = () => {
         cancellation = bridge.browser.close();
         cancellation.catch(() => undefined);
@@ -174,14 +177,16 @@ export function createRuntime(config) {
       signal.addEventListener("abort", cancel, { once: true });
       try {
         signal.throwIfAborted();
-        const result = await bridge.browser.login(email, password);
+        const result = await loginArena(bridge.browser, email, password, signal);
         signal.throwIfAborted();
+        stage = "agent_session";
         const page = await bridge.browser.getPage(result.cookieHeader, crypto.randomUUID());
         signal.throwIfAborted();
         // 自动创建全新会话并完成一次文本探测，不复用其他客户端的历史。
-        const state = await bridge.createAgentSession(page, "Reply with READY only. Do not use tools or ask questions.");
+        const state = await createArenaSession(page, "Reply with READY only. Do not use tools or ask questions.", signal);
         signal.throwIfAborted();
         state.readBudgetMs = config.timeoutMs;
+        stage = "session_probe";
         const raw = await bridge.readAgentOutput(page, state);
         signal.throwIfAborted();
         const reply = parseAgentOutput(raw);
@@ -191,6 +196,7 @@ export function createRuntime(config) {
         if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(state.id)) {
           throw new ArenaError(502, "invalid_session", "Arena returned an invalid session.");
         }
+        stage = "save_session";
         const models = readJSON(config.modelsFile, []);
         if (!Array.isArray(models)) {
           throw new ArenaError(503, "invalid_models", "models.json must be an array.");
@@ -200,6 +206,9 @@ export function createRuntime(config) {
         credentials.upsert({ email: result.email, cookieHeader: result.cookieHeader, password: result.password });
         saveJSON(config.modelsFile, [...models, model]);
         return { uid: result.email, nickname: result.email, model_id: model.id };
+      } catch (error) {
+        signal.throwIfAborted();
+        throw loginFailure(error, stage);
       } finally {
         signal.removeEventListener("abort", cancel);
         await cancellation;
@@ -207,10 +216,13 @@ export function createRuntime(config) {
       }
     },
     async login(email, password) {
-      const result = await bridge.browser.login(email, password);
-      credentials.upsert({ email: result.email, cookieHeader: result.cookieHeader, password: result.password });
-      await bridge.browser.close();
-      return { loggedIn: true };
+      try {
+        const result = await loginArena(bridge.browser, email, password);
+        credentials.upsert({ email: result.email, cookieHeader: result.cookieHeader, password: result.password });
+        return { loggedIn: true };
+      } finally {
+        await bridge.browser.close();
+      }
     },
     close: () => bridge.browser.close(),
   };

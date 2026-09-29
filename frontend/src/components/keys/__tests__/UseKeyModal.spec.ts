@@ -85,6 +85,82 @@ describe('UseKeyModal', () => {
     }
   })
 
+  it('renders Cursor as text-only OpenAI-compatible curl examples', async () => {
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: "sk-cursor'$(touch /tmp/pwn)",
+        baseUrl: 'https://example.com/v1',
+        platform: 'cursor'
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            template: '<div><slot /><slot name="footer" /></div>'
+          },
+          Icon: {
+            template: '<span />'
+          }
+        }
+      }
+    })
+
+    expect(wrapper.find('nav[aria-label="Client"]').exists()).toBe(false)
+    expect(wrapper.find('nav[aria-label="Tabs"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="codex-model-catalog"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('keys.useKeyModal.cursor.description')
+    expect(wrapper.text()).toContain('keys.useKeyModal.cursor.note')
+
+    const codeBlocks = wrapper.findAll('pre code').map((code) => code.text())
+    expect(codeBlocks).toHaveLength(2)
+    const allCode = codeBlocks.join('\n')
+    expect(allCode).toContain("https://example.com/v1/models")
+    expect(allCode).toContain("https://example.com/v1/chat/completions")
+    expect(allCode).toContain('stream":false')
+    expect(allCode).toContain('"messages":[{"role":"user","content":"Hello"}]')
+    expect(allCode).toContain("  -H 'Authorization: Bearer sk-cursor'\\''$(touch /tmp/pwn)'")
+    expect(allCode).not.toContain('wire_api')
+    expect(allCode).not.toContain('ANTHROPIC_')
+    expect(allCode).not.toContain('tools')
+    expect(allCode).not.toContain('tool_calls')
+    expect(allCode).not.toContain('config.toml')
+    expect(allCode).not.toContain('opencode.json')
+  })
+
+  it('removes the previous client configuration when switching from OpenAI to Cursor', async () => {
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-test',
+        baseUrl: 'https://example.com/v1',
+        platform: 'openai'
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            template: '<div><slot /><slot name="footer" /></div>'
+          },
+          Icon: {
+            template: '<span />'
+          }
+        }
+      }
+    })
+
+    expect(wrapper.find('nav[aria-label="Client"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="codex-model-catalog"]').exists()).toBe(true)
+
+    await wrapper.setProps({ platform: 'cursor' })
+    await nextTick()
+
+    expect(wrapper.find('nav[aria-label="Client"]').exists()).toBe(false)
+    expect(wrapper.find('nav[aria-label="Tabs"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="codex-model-catalog"]').exists()).toBe(false)
+    expect(wrapper.findAll('pre code')).toHaveLength(2)
+    expect(wrapper.findAll('pre code').map((code) => code.text()).join('\n'))
+      .toContain('/v1/chat/completions')
+  })
+
   it('renders Grok Build and OpenCode setup for Grok groups', async () => {
     const wrapper = mount(UseKeyModal, {
       props: {

@@ -183,13 +183,13 @@ func TestAccountTestService_OpenAIAccountTestCanonicalizesGlobalAliasBeforeMappi
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeOAuth,
 		Concurrency: 1,
-		Credentials: map[string]any{"access_token": "test-token", "model_mapping": map[string]any{"deepseek-v4.1-flash": "cline-pass/deepseek-v4.1-flash"}},
+		Credentials: map[string]any{"access_token": "test-token", "model_mapping": map[string]any{"deepseek-v4.1-flash": "upstream-deepseek-flash"}},
 	}
 
 	require.NoError(t, svc.testOpenAIAccountConnection(ctx, account, "cline-pass/deepseek-v4.1-flash", "", ""))
 	body, err := io.ReadAll(upstream.requests[0].Body)
 	require.NoError(t, err)
-	require.Equal(t, "cline-pass/deepseek-v4.1-flash", gjson.GetBytes(body, "model").String())
+	require.Equal(t, "upstream-deepseek-flash", gjson.GetBytes(body, "model").String())
 }
 
 func TestAccountTestService_OpenAIShadowUsesParentCredentialsAndShadowModel(t *testing.T) {

@@ -1348,30 +1348,59 @@ func extractOpenAIUsageFromJSONBytes(body []byte) (OpenAIUsage, bool) {
 	return OpenAIUsage{}, false
 }
 
-// openAIResponsesCompletedEventIsEmpty reports whether a response.completed /
-// response.done SSE payload carries no usage, no error and no output items.
-// The accumulated usage is consulted too, because OpenAI may deliver usage on
-// an earlier event. An empty terminal event after a stream with no semantic
-// output is treated as a silent upstream refusal (issue #5009).
+// 空消息占位和全零 usage 不能把无输出的终态伪装成成功；未知输出类型保守保留。
 func openAIResponsesCompletedEventIsEmpty(data []byte, usage *OpenAIUsage) bool {
 	if len(data) == 0 || !gjson.ValidBytes(data) {
 		return false
 	}
-	if usage != nil && (usage.InputTokens > 0 || usage.OutputTokens > 0 ||
-		usage.ImageInputTokens > 0 || usage.ImageOutputTokens > 0 ||
-		usage.CacheCreationInputTokens > 0 || usage.CacheReadInputTokens > 0) {
+	if openAIUsageHasTokens(usage) {
 		return false
 	}
-	if gjson.GetBytes(data, "usage").Exists() || gjson.GetBytes(data, "response.usage").Exists() {
+	response := gjson.ParseBytes(data)
+	if nested := response.Get("response"); nested.IsObject() {
+		response = nested
+	}
+	if openAIJSONUsageHasTokens(response.Get("usage")) || openAIJSONUsageHasTokens(gjson.GetBytes(data, "usage")) {
 		return false
 	}
-	if gjson.GetBytes(data, "error").Exists() || gjson.GetBytes(data, "response.error").Exists() {
+	if response.Get("error").Type != gjson.Null || gjson.GetBytes(data, "error").Type != gjson.Null {
 		return false
 	}
-	if output := gjson.GetBytes(data, "response.output"); output.Exists() && output.IsArray() && len(output.Array()) > 0 {
+	if response.Get("output_text").String() != "" {
 		return false
 	}
-	return true
+	return !openAIResponsesOutputHasContent(response.Get("output"))
+}
+
+// 正文恢复只检查交付内容，已有计费 token 不能证明终态包含正文。
+func openAIResponsesOutputHasContent(output gjson.Result) bool {
+	for _, item := range output.Array() {
+		if item.Get("type").String() != "message" || chatObjectHasUnknownOutput(item, "id", "type", "role", "status", "content") {
+			return true
+		}
+		for _, part := range item.Get("content").Array() {
+			if part.Get("type").String() != "output_text" || part.Get("text").String() != "" ||
+				chatObjectHasUnknownOutput(part, "type", "text", "annotations", "logprobs") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// 保留缓存、推理和图像等扩展用量，不能只检查两个顶层 token 字段。
+func openAIJSONUsageHasTokens(value gjson.Result) bool {
+	if value.Type == gjson.Number {
+		return value.Float() > 0
+	}
+	found := false
+	if value.IsObject() || value.IsArray() {
+		value.ForEach(func(_, child gjson.Result) bool {
+			found = openAIJSONUsageHasTokens(child)
+			return !found
+		})
+	}
+	return found
 }
 
 func mergeHostedImageGenToolUsage(imageGen gjson.Result, usage *OpenAIUsage) {
@@ -1644,6 +1673,9 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 		return nil, fmt.Errorf("parse response: invalid json response")
 	}
 	usage := &usageValue
+	if gjson.GetBytes(body, "status").String() == "completed" && openAIResponsesCompletedEventIsEmpty(body, usage) {
+		return nil, newOpenAIResponsesEmptyCompletedFailoverError(c, account, resp.Header.Get("x-request-id"))
+	}
 	logOpenAISuccessMissingUsage(ctx, c, account, resp, usage, "json", false)
 
 	// Replace model in response if needed
@@ -1733,11 +1765,10 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 		if parsedUsage, parsed := extractOpenAIUsageFromJSONBytes(finalResponse); parsed {
 			*usage = parsedUsage
 		}
-		// When the terminal event has an empty output array, reconstruct
-		// output from accumulated delta events so the client gets full content.
-		// gjson Array() returns empty slice for null, missing, or empty arrays.
-		if len(gjson.GetBytes(finalResponse, "output").Array()) == 0 {
+		// 空数组或空消息占位都需尝试从 delta 恢复正文，再决定是否回退。
+		if !openAIResponsesOutputHasContent(gjson.GetBytes(finalResponse, "output")) {
 			if outputJSON, reconstructed := reconstructResponseOutputFromSSE(bodyText); reconstructed {
+				outputJSON = preserveEmptyResponsesMessageIdentity([]byte(gjson.GetBytes(finalResponse, "output").Raw), outputJSON)
 				if patched, err := sjson.SetRawBytes(finalResponse, "output", outputJSON); err == nil {
 					finalResponse = patched
 				}
@@ -1751,6 +1782,10 @@ func (s *OpenAIGatewayService) handleSSEToJSON(resp *http.Response, c *gin.Conte
 			finalResponse = converted
 		}
 		finalResponse = supplementCompactionItemFromSSE(c, finalResponse, bodyText)
+		if (terminalType == "response.completed" || terminalType == "response.done") &&
+			openAIResponsesCompletedEventIsEmpty(finalResponse, usage) {
+			return nil, newOpenAIResponsesEmptyCompletedFailoverError(c, account, resp.Header.Get("x-request-id"))
+		}
 		body = finalResponse
 		body = s.preserveDeepSeekReasoning(c, account, body)
 		if originalModel != mappedModel {
@@ -2124,7 +2159,7 @@ func normalizeResponsesStreamingTerminalOutput(data []byte, acc *apicompat.Buffe
 		// reported is left untouched. Carrying fewer means the terminal
 		// dropped items the stream already reported as done, and those
 		// reported items are the authoritative record of the turn.
-		if terminalCount > 0 && terminalCount >= doneItems.Count() {
+		if terminalCount > 0 && terminalCount >= doneItems.Count() && openAIResponsesOutputHasContent(output) {
 			return data, false
 		}
 		if terminalCount == 0 && !hasAccumulatedOutput {
@@ -2136,11 +2171,12 @@ func normalizeResponsesStreamingTerminalOutput(data []byte, acc *apicompat.Buffe
 	// Same precedence as reconstructResponseOutputFromSSE: the items the stream
 	// actually reported win over anything rebuilt from deltas. Image generation
 	// items arrive as done events too, so imageOutputs would duplicate them here.
-	if reconstructed, ok := doneItems.BuildOutput(); ok {
+	if reconstructed, ok := doneItems.BuildOutput(); ok && openAIResponsesOutputHasContent(gjson.ParseBytes(reconstructed)) {
 		outputJSON = reconstructed
 	} else if reconstructed, ok := buildResponsesOutputJSON(acc, imageOutputs); ok {
 		outputJSON = reconstructed
 	}
+	outputJSON = preserveEmptyResponsesMessageIdentity([]byte(output.Raw), outputJSON)
 	updated, err := sjson.SetRawBytes(data, "response.output", outputJSON)
 	if err != nil {
 		return data, false
@@ -2308,8 +2344,9 @@ func findRawCompactionItemFromSSE(bodyText string) (json.RawMessage, bool) {
 // "expected exactly one compaction output item, got 0" (#3887).
 // Returns (nil, false) if nothing could be reconstructed.
 func reconstructResponseOutputFromSSE(bodyText string) ([]byte, bool) {
-	if outputJSON, ok := collectRawResponsesOutputItemsFromSSE(bodyText); ok {
-		return outputJSON, true
+	doneOutput, doneOK := collectRawResponsesOutputItemsFromSSE(bodyText)
+	if doneOK && openAIResponsesOutputHasContent(gjson.ParseBytes(doneOutput)) {
+		return doneOutput, true
 	}
 	acc := apicompat.NewBufferedResponseAccumulator()
 	imageOutputs := make([]json.RawMessage, 0, 1)
@@ -2326,7 +2363,26 @@ func reconstructResponseOutputFromSSE(bodyText string) ([]byte, bool) {
 			}
 		}
 	})
-	return buildResponsesOutputJSON(acc, imageOutputs)
+	output, ok := buildResponsesOutputJSON(acc, imageOutputs)
+	if ok && doneOK {
+		output = preserveEmptyResponsesMessageIdentity(doneOutput, output)
+	}
+	return output, ok
+}
+
+// 单消息空占位只补正文，保留流中已经交付的消息 ID 和状态。
+func preserveEmptyResponsesMessageIdentity(original, recovered []byte) []byte {
+	before, after := gjson.ParseBytes(original), gjson.ParseBytes(recovered)
+	if len(before.Array()) != 1 || len(after.Array()) != 1 ||
+		before.Get("0.type").String() != "message" || after.Get("0.type").String() != "message" ||
+		openAIResponsesOutputHasContent(before) || !openAIResponsesOutputHasContent(after) {
+		return recovered
+	}
+	patched, err := sjson.SetRawBytes(original, "0.content", []byte(after.Get("0.content").Raw))
+	if err != nil {
+		return recovered
+	}
+	return patched
 }
 
 func buildResponsesOutputJSON(acc *apicompat.BufferedResponseAccumulator, imageOutputs []json.RawMessage) ([]byte, bool) {

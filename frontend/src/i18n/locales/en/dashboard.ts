@@ -207,6 +207,14 @@ export default {
         note: 'Make sure the config directory exists. macOS/Linux users can run mkdir -p ~/.codex to create it.',
         noteWindows: 'Press Win+R and enter %userprofile%\\.codex to open the config directory. Create it manually if it does not exist.',
       },
+      cursor: {
+        description:
+          'Use this API key with Cursor through the OpenAI-compatible Chat Completions API. Fetch available model IDs first, then send text-only requests.',
+        modelsRequest: 'GET /v1/models',
+        completionRequest: 'POST /v1/chat/completions',
+        note:
+          'Cursor groups expose text-only Chat Completions. Call /v1/models to get a current model ID before sending a request. Tool calling, Anthropic Messages, Claude Code, Codex, and OpenCode configurations are not supported.',
+      },
       cliTabs: {
         claudeCode: 'Claude Code',
         geminiCli: 'Gemini CLI',

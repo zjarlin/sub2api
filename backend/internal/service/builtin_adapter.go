@@ -1,6 +1,8 @@
 package service
 
 import (
+	"net/url"
+	"path"
 	"strings"
 	"sync/atomic"
 
@@ -51,6 +53,8 @@ func builtinAdapterBaseURL(platform string) string {
 		return strings.TrimRight(cfg.VibexBaseURL(), "/")
 	case PlatformArena:
 		return strings.TrimRight(cfg.ArenaBaseURL(), "/")
+	case PlatformCursor:
+		return strings.TrimRight(cfg.CursorBaseURL(), "/")
 	case PlatformZcode:
 		return strings.TrimRight(cfg.ZcodeBaseURL(), "/")
 	case PlatformDeepseekWeb:
@@ -81,6 +85,8 @@ func builtinAdapterAPIKey(platform string) string {
 		return strings.TrimSpace(cfg.VibexKey)
 	case PlatformArena:
 		return strings.TrimSpace(cfg.ArenaKey)
+	case PlatformCursor:
+		return strings.TrimSpace(cfg.CursorKey)
 	case PlatformZcode:
 		return strings.TrimSpace(cfg.ZcodeKey)
 	case PlatformDeepseekWeb:
@@ -105,11 +111,56 @@ func applyBuiltinAdapterCredentials(platform string, credentials map[string]any)
 		return
 	}
 	if existing, _ := credentials["base_url"].(string); strings.TrimSpace(existing) == "" {
-		credentials["base_url"] = baseURL + "/v1"
+		base, err := url.Parse(baseURL)
+		if err != nil {
+			return
+		}
+		if !strings.HasSuffix(strings.TrimRight(base.Path, "/"), "/v1") {
+			base.Path = strings.TrimRight(base.Path, "/") + "/v1"
+			base.RawPath = ""
+		}
+		credentials["base_url"] = strings.TrimRight(base.String(), "/")
+	}
+	if platform == PlatformCursor {
+		return
 	}
 	if existing, _ := credentials["api_key"].(string); strings.TrimSpace(existing) == "" {
 		if key := builtinAdapterAPIKey(platform); key != "" {
 			credentials["api_key"] = key
 		}
 	}
+}
+
+// builtinAdapterSharedKeyForTarget 返回仅可用于指定内置目标地址的共享密钥。
+// 自定义中转地址永远不应收到部署内部密钥。
+func builtinAdapterSharedKeyForTarget(platform, targetURL string) string {
+	if strings.TrimSpace(targetURL) == "" {
+		return ""
+	}
+	baseURL := builtinAdapterBaseURL(platform)
+	key := builtinAdapterAPIKey(platform)
+	if baseURL == "" || key == "" || !builtinAdapterURLMatches(baseURL, targetURL) {
+		return ""
+	}
+	return key
+}
+
+func builtinAdapterURLMatches(baseURL, targetURL string) bool {
+	base, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil || base.Scheme == "" || base.Host == "" {
+		return false
+	}
+	target, err := url.Parse(strings.TrimSpace(targetURL))
+	if err != nil || target.Scheme == "" || target.Host == "" {
+		return false
+	}
+	if !strings.EqualFold(base.Scheme, target.Scheme) || !strings.EqualFold(base.Host, target.Host) {
+		return false
+	}
+	basePath := path.Clean("/" + strings.TrimLeft(base.Path, "/"))
+	targetPath := path.Clean("/" + strings.TrimLeft(target.Path, "/"))
+	if basePath == "/" {
+		return true
+	}
+	return targetPath == basePath || strings.HasPrefix(targetPath, basePath+"/")
 }

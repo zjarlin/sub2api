@@ -56,6 +56,11 @@ func TestFilterCNProviderBillingModelCandidates(t *testing.T) {
 		[]string{"claude-sonnet-4-5", "gpt-5.4"})
 	require.Equal(t, []string{"claude-sonnet-4-5", "gpt-5.4"}, passthrough)
 
+	cursorAccount := &Account{ID: 4, Platform: PlatformCursor}
+	cursorCandidates := svc.filterCNProviderBillingModelCandidates(context.Background(), cursorAccount, apiKey,
+		[]string{"claude-sonnet-4-5", "gpt-5.4"})
+	require.Equal(t, []string{"claude-sonnet-4-5", "gpt-5.4"}, cursorCandidates)
+
 	require.Nil(t, svc.filterCNProviderBillingModelCandidates(context.Background(), nil, apiKey, nil))
 
 	openCodeAccount := &Account{ID: 3, Platform: PlatformOpenCodeGo}

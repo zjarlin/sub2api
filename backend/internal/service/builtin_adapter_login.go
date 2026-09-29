@@ -117,6 +117,11 @@ func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action
 		return &BuiltinLoginResult{SessionID: sessionID, Status: "cancelled"}, nil
 	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		if platform == PlatformArena {
+			if err := arenaLoginError(res); err != nil {
+				return nil, err
+			}
+		}
 		// 错误由后台按状态归一化，不透传可能带凭据的上游响应。
 		status := res.StatusCode
 		if status < 400 || status > 599 {
@@ -130,7 +135,11 @@ func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action
 			message = "Invalid authorization credential or callback URL"
 		}
 		if platform == PlatformArena {
-			message = "Arena login or session preparation failed; check the account and try again"
+			message = "Arena login or session preparation failed; retry after checking the service status"
+			// 适配器认证失败不能触发管理页面的登录失效处理。
+			if status == http.StatusUnauthorized {
+				status = http.StatusBadGateway
+			}
 			if status == http.StatusTooManyRequests {
 				message = "Arena is busy; wait for the current login or request to finish"
 			}
@@ -163,6 +172,37 @@ func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action
 		return nil, fmt.Errorf("invalid adapter login status")
 	}
 	return &result, nil
+}
+
+func arenaLoginError(res *http.Response) error {
+	var body struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.NewDecoder(io.LimitReader(res.Body, 16<<10)).Decode(&body); err != nil {
+		return nil
+	}
+	// 仅识别内部定义的错误码，消息和状态由后台决定，不透传上游原文。
+	failures := map[string]struct {
+		status  int
+		reason  string
+		message string
+	}{
+		"arena_access_blocked":         {http.StatusServiceUnavailable, "ARENA_ACCESS_BLOCKED", "The server's access to Arena was blocked by Cloudflare before credentials could be verified; configure an accessible Arena proxy"},
+		"login_invalid_credentials":    {http.StatusBadRequest, "ARENA_INVALID_CREDENTIALS", "Arena rejected the supplied sign-in credentials"},
+		"session_not_usable":           {http.StatusForbidden, "ARENA_SESSION_UNUSABLE", "Arena accepted the sign-in but the account cannot access Agent sessions"},
+		"session_not_ready":            {http.StatusBadGateway, "ARENA_SESSION_NOT_READY", "Arena signed in but the new Agent session did not return a completed text response"},
+		"browser_unavailable":          {http.StatusServiceUnavailable, "ARENA_BROWSER_UNAVAILABLE", "The Arena login browser is unavailable; check the adapter service"},
+		"arena_network_error":          {http.StatusBadGateway, "ARENA_NETWORK_ERROR", "The server could not reach Arena; check the adapter network or proxy"},
+		"arena_login_timeout":          {http.StatusGatewayTimeout, "ARENA_LOGIN_TIMEOUT", "Arena login timed out; check the adapter network and try again"},
+		"arena_session_prepare_failed": {http.StatusBadGateway, "ARENA_SESSION_PREPARE_FAILED", "Arena signed in but preparing the new Agent session failed"},
+	}
+	failure, ok := failures[body.Error.Code]
+	if !ok {
+		return nil
+	}
+	return infraerrors.New(failure.status, failure.reason, failure.message)
 }
 
 func BuiltinAdapterLoginView(ctx context.Context, platform, owner, sessionID string) (*BuiltinLoginView, error) {

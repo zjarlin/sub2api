@@ -315,6 +315,11 @@
             <PlatformIcon platform="qoder" size="sm" />
             {{ t('admin.accounts.qoder.title') }}
           </button>
+          <button type="button" data-testid="platform-cursor" @click="selectCursorPlatform"
+            :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'cursor' ? 'bg-white text-zinc-800 shadow-sm dark:bg-dark-600 dark:text-zinc-200' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
+            <PlatformIcon platform="cursor" size="sm" />
+            {{ t('admin.accounts.cursor.title') }}
+          </button>
           <button type="button" data-testid="platform-arena" @click="selectArenaPlatform"
             :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'arena' ? 'bg-white text-emerald-600 shadow-sm dark:bg-dark-600 dark:text-emerald-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
             <PlatformIcon platform="arena" size="sm" />
@@ -1548,6 +1553,7 @@
             type="text"
             class="input"
             :placeholder="apiKeyBaseUrlPlaceholder"
+            data-testid="account-base-url"
           />
           <p v-if="baseUrlHint" class="input-hint">{{ baseUrlHint }}</p>
           <GrokBaseUrlPresets
@@ -1590,13 +1596,14 @@
           :plan="openCodeAccountMode"
         />
         <div v-if="!isBuiltinAdapterPlatform">
-          <label class="input-label">{{ t('admin.accounts.apiKeyRequired') }}</label>
+          <label class="input-label">{{ t(form.platform === 'cursor' ? 'admin.accounts.cursor.apiKey' : 'admin.accounts.apiKeyRequired') }}</label>
           <input
             v-model="apiKeyValue"
             type="password"
             required
             class="input font-mono"
             :placeholder="apiKeyValuePlaceholder"
+            data-testid="account-api-key"
           />
           <p v-if="apiKeyHint" class="input-hint">{{ apiKeyHint }}</p>
         </div>
@@ -1703,6 +1710,8 @@
                 :platform="form.platform"
                 :sync-credentials="syncPreviewCredentials"
                 @upstream-synced="upstreamModelsPreviewed = true"
+                :enable-alias-mapping="!props.accountAPI"
+                @global-aliases-mapped="addGlobalModelMappings"
               />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
@@ -2190,6 +2199,8 @@
               platform="anthropic"
               :sync-credentials="syncPreviewCredentials"
               @upstream-synced="upstreamModelsPreviewed = true"
+              :enable-alias-mapping="!props.accountAPI"
+              @global-aliases-mapped="addGlobalModelMappings"
             />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
@@ -2531,6 +2542,8 @@
               :platform="form.platform"
               :sync-credentials="syncPreviewCredentials"
               @upstream-synced="upstreamModelsPreviewed = true"
+              :enable-alias-mapping="!props.accountAPI"
+              @global-aliases-mapped="addGlobalModelMappings"
             />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
@@ -4243,6 +4256,7 @@ const withUpstreamRequestIdHeader = <T extends Record<string, unknown> | undefin
 }
 
 const baseUrlHint = computed(() => {
+  if (form.platform === 'cursor') return t('admin.accounts.cursor.baseUrlHint')
   if (form.platform === 'doubao') return t('admin.accounts.doubao.baseUrlHint')
   if (form.platform === 'traework') return t('admin.accounts.traework.baseUrlHint')
   if (form.platform === 'workbuddy') return t('admin.accounts.workbuddy.baseUrlHint')
@@ -4259,6 +4273,7 @@ const baseUrlHint = computed(() => {
 })
 
 const apiKeyHint = computed(() => {
+  if (form.platform === 'cursor') return t('admin.accounts.cursor.apiKeyHint')
   if (form.platform === 'doubao') return t('admin.accounts.doubao.apiKeyHint')
   if (form.platform === 'traework') return t('admin.accounts.traework.apiKeyHint')
   if (form.platform === 'workbuddy') return t('admin.accounts.workbuddy.apiKeyHint')
@@ -4276,6 +4291,7 @@ const apiKeyHint = computed(() => {
 
 // Base URL / API Key 占位符：国产供应商随账号类型变化。
 const apiKeyBaseUrlPlaceholder = computed(() => {
+  if (form.platform === 'cursor') return t('admin.accounts.cursor.baseUrlPlaceholder')
   if (form.platform === 'arena') return 'http://sub2api-arena:7867/v1'
   if (form.platform === 'doubao') return 'http://sub2api-doubao-desktop:8080/v1'
   if (isMultiProtocolPlatform.value) {
@@ -4296,6 +4312,8 @@ const apiKeyBaseUrlPlaceholder = computed(() => {
 
 const apiKeyValuePlaceholder = computed(() => {
   switch (form.platform) {
+    case 'cursor':
+      return t('admin.accounts.cursor.apiKeyPlaceholder')
     case 'openai':
       return 'sk-proj-...'
     case 'gemini':
@@ -4603,6 +4621,18 @@ function selectQoderPlatform() {
   form.concurrency = 1
 }
 
+// Cursor 使用用户的 Dashboard Key，地址留空时由后端选择内置服务。
+function selectCursorPlatform() {
+  upstreamBillingAutoProbeEnabled.value = false
+  form.platform = 'cursor'
+  accountCategory.value = 'apikey'
+  form.type = 'apikey'
+  apiProtocol.value = 'chat_completions'
+  apiKeyBaseUrl.value = ''
+  apiKeyValue.value = ''
+  form.concurrency = 1
+}
+
 // Laya / JEV 是 System One 决策模型：属内置适配器平台，地址与共享密钥由后端注入。
 // 协议由平台固定为 systemone（见 buildCredentials），表单不提供协议选择——
 // 决策模型不生成文本，不存在 chat / anthropic / responses 变体。
@@ -4691,7 +4721,7 @@ const syncPreviewCredentials = computed(() => {
     ? adaptiveBaseUrls.value.chat_completions.trim() || apiKeyBaseUrl.value.trim()
     : apiKeyBaseUrl.value.trim()
   const modelMapping = buildModelMappingObject(
-    modelRestrictionMode.value,
+    modelMappingMode.value,
     allowedModels.value,
     modelMappings.value
   )
@@ -4716,6 +4746,8 @@ const editResetTimezone = ref<string | null>(null)
 const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
+const preserveModelWhitelist = ref(false)
+const modelMappingMode = computed(() => preserveModelWhitelist.value ? 'combined' : modelRestrictionMode.value)
 const allowedModels = ref<string[]>([])
 const arenaLoginReady = ref(false)
 function handleArenaAuthorized(session: BuiltinLoginSession) {
@@ -5296,7 +5328,11 @@ watch(
     // Reset base URL based on platform.
     // 内置适配器平台（豆包 / TRAE / WorkBuddy / ZCode / Laya / JEV）地址由后端注入，
     // 必须清空 base_url，否则会保留上一个平台的默认值（例如 Anthropic）而打到错误上游。
-    if ((BUILTIN_ADAPTER_PLATFORMS as readonly string[]).includes(newPlatform)) {
+    if (newPlatform === 'cursor') {
+      apiKeyBaseUrl.value = ''
+      accountCategory.value = 'apikey'
+      apiProtocol.value = 'chat_completions'
+    } else if ((BUILTIN_ADAPTER_PLATFORMS as readonly string[]).includes(newPlatform)) {
       apiKeyBaseUrl.value = ''
       accountCategory.value = newPlatform === 'qoder' ? 'oauth-based' : 'apikey'
       form.concurrency = 1
@@ -5318,6 +5354,7 @@ watch(
     allowedModels.value = []
     upstreamModelsPreviewed.value = false
     modelMappings.value = []
+    preserveModelWhitelist.value = false
     // Antigravity: 默认使用映射模式并填充默认映射
     if (newPlatform === 'antigravity') {
       antigravityModelRestrictionMode.value = 'mapping'
@@ -5438,7 +5475,7 @@ const handleSelectGeminiOAuthType = (oauthType: 'code_assist' | 'google_one' | '
 watch(
   [modelRestrictionMode, () => form.platform],
   ([newMode]) => {
-    if (newMode === 'whitelist') {
+    if (newMode === 'whitelist' && !preserveModelWhitelist.value) {
       allowedModels.value = [...getModelsByPlatform(form.platform)]
     }
   }
@@ -5456,6 +5493,32 @@ watch(
 // Model mapping helpers
 const addModelMapping = () => {
   modelMappings.value.push({ from: '', to: '' })
+}
+
+const addGlobalModelMappings = (mappings: ModelMapping[]) => {
+  const existingFromModels = new Set(
+    modelMappings.value
+      .map(mapping => mapping.from.trim())
+      .filter(Boolean)
+  )
+  let addedCount = 0
+
+  for (const mapping of mappings) {
+    const from = mapping.from.trim()
+    const to = mapping.to.trim()
+    if (!from || !to || from === to || existingFromModels.has(from)) continue
+    modelMappings.value.push({ from, to })
+    existingFromModels.add(from)
+    addedCount += 1
+  }
+
+  if (addedCount > 0) {
+    preserveModelWhitelist.value = true
+    modelRestrictionMode.value = 'mapping'
+    appStore.showSuccess(t('admin.accounts.syncModelAliasesSuccess', { count: addedCount }))
+  } else {
+    appStore.showInfo(t('admin.accounts.syncModelAliasesNoChanges'))
+  }
 }
 
 const addOpenAICompactModelMapping = () => {
@@ -5851,6 +5914,7 @@ const resetForm = () => {
   editWeeklyResetHour.value = null
   editResetTimezone.value = null
   modelMappings.value = []
+  preserveModelWhitelist.value = false
   openAICompactModelMappings.value = []
   modelRestrictionMode.value = 'whitelist'
   allowedModels.value = [...claudeModels] // Default fill related models
@@ -6204,7 +6268,7 @@ const handleSubmit = async () => {
 
     // Model mapping
     const modelMapping = buildModelMappingObject(
-      modelRestrictionMode.value, allowedModels.value, modelMappings.value
+      modelMappingMode.value, allowedModels.value, modelMappings.value
     )
     if (modelMapping) {
       credentials.model_mapping = modelMapping
@@ -6297,7 +6361,7 @@ const handleSubmit = async () => {
   // Determine default base URL based on platform.
   // 内置适配器平台（含 Laya / JEV）地址由后端按平台注入，不能落到 Anthropic 默认值，
   // 否则会把决策请求发到错误的上游。
-  const defaultBaseUrl = isBuiltinAdapterPlatform.value
+  const defaultBaseUrl = isBuiltinAdapterPlatform.value || form.platform === 'cursor'
     ? ''
     : form.platform === 'openai'
       ? 'https://api.openai.com'
@@ -6316,6 +6380,13 @@ const handleSubmit = async () => {
   if ((BUILTIN_ADAPTER_PLATFORMS as readonly string[]).includes(form.platform)) {
     if (!apiKeyBaseUrl.value.trim()) delete credentials.base_url
     if (!apiKeyValue.value.trim()) delete credentials.api_key
+  }
+  if (form.platform === 'cursor') {
+    if (!apiKeyBaseUrl.value.trim()) {
+      delete credentials.base_url
+    }
+    credentials.api_protocol = 'chat_completions'
+    credentials.openai_capabilities = ['chat_completions']
   }
   if (form.platform === 'gemini') {
     credentials.tier_id = geminiTierAIStudio.value
@@ -6364,7 +6435,7 @@ const handleSubmit = async () => {
   }
 
   // 模型配置同时用于普通转发和透传账号的调度资格。
-  const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+  const modelMapping = buildModelMappingObject(modelMappingMode.value, allowedModels.value, modelMappings.value)
   if (modelMapping) {
     credentials.model_mapping = modelMapping
   }
@@ -6525,7 +6596,7 @@ const createAccountAndFinish = async (
     if (!credentials.base_url) {
       credentials.base_url = apiKeyBaseUrl.value.trim() || 'https://api.x.ai/v1'
     }
-    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    const modelMapping = buildModelMappingObject(modelMappingMode.value, allowedModels.value, modelMappings.value)
     if (modelMapping) {
       credentials.model_mapping = modelMapping
     } else {
@@ -6591,7 +6662,7 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
         const extra = grokOAuth.buildExtraInfo(tokenInfo)
         const accountName = refreshTokens.length > 1 ? `${form.name || tokenInfo.email || 'Grok OAuth Account'} #${i + 1}` : (form.name || tokenInfo.email || 'Grok OAuth Account')
 
-        const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+        const modelMapping = buildModelMappingObject(modelMappingMode.value, allowedModels.value, modelMappings.value)
         if (modelMapping) {
           credentials.model_mapping = modelMapping
         }
@@ -6658,7 +6729,7 @@ const handleGrokImportSSO = async (ssoInput: string) => {
 
   const credentials: Record<string, unknown> = {}
   applyGrokOAuthUpstreamConfig(credentials)
-  const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+  const modelMapping = buildModelMappingObject(modelMappingMode.value, allowedModels.value, modelMappings.value)
   if (modelMapping) {
     credentials.model_mapping = modelMapping
   }
@@ -6768,7 +6839,7 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
             : form.name || tokenInfo.email || 'Grok OAuth Account'
 
         const modelMapping = buildModelMappingObject(
-          modelRestrictionMode.value,
+          modelMappingMode.value,
           allowedModels.value,
           modelMappings.value
         )
@@ -6860,7 +6931,7 @@ const handleOpenAIExchange = async (authCode: string) => {
 
     // 透传账号也保存模型调度白名单。
     if (shouldCreateOpenAI) {
-      const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+      const modelMapping = buildModelMappingObject(modelMappingMode.value, allowedModels.value, modelMappings.value)
       if (modelMapping) {
         credentials.model_mapping = modelMapping
       }
@@ -6913,7 +6984,7 @@ const OPENAI_MOBILE_RT_CLIENT_ID = 'app_LlGpXReQgckcGGUo2JrYvtJK'
 
 const buildOpenAICodexImportCredentialExtras = (): Record<string, unknown> | null => {
   const credentials: Record<string, unknown> = {}
-  const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+  const modelMapping = buildModelMappingObject(modelMappingMode.value, allowedModels.value, modelMappings.value)
   if (modelMapping) {
     credentials.model_mapping = modelMapping
   }
@@ -7146,7 +7217,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
 
         // 透传账号也保存模型调度白名单。
         if (shouldCreateOpenAI) {
-          const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+          const modelMapping = buildModelMappingObject(modelMappingMode.value, allowedModels.value, modelMappings.value)
           if (modelMapping) {
             credentials.model_mapping = modelMapping
           }
@@ -7650,7 +7721,7 @@ const finishQoderOAuth = async (token: { access_token: string; refresh_token?: s
     credentials.expires_at = new Date(token.expires_at * 1000).toISOString()
   }
   const modelMapping = buildModelMappingObject(
-    modelRestrictionMode.value,
+    modelMappingMode.value,
     allowedModels.value,
     modelMappings.value
   )

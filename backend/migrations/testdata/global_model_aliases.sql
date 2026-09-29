@@ -9,6 +9,8 @@ CREATE TEMP TABLE settings (
 ) ON COMMIT DROP;
 \ir ../244_model_aliases_and_fallback_policy.sql
 \ir ../246_deepseek_provider_model_aliases.sql
+\ir ../248_provider_free_model_aliases.sql
+\ir ../249_complete_model_aliases.sql
 CREATE TEMP TABLE initial_settings ON COMMIT DROP AS SELECT * FROM settings;
 \ir ../254_global_model_aliases.sql
 DO $$
@@ -20,6 +22,7 @@ BEGIN
         ('deepseek-v4-flash', 'deepseek/deepseek-v4-flash'),
         ('deepseek-v4-pro', 'deepseek/deepseek-v4-pro'),
         ('deepseek-v4.1-flash', 'deepseek/deepseek-v4.1-flash'),
+        ('deepseek-v4.1-flash', 'cline-pass/deepseek-v4.1-flash'),
         ('deepseek-v4.1-flash', 'DeepSeek-V4.1-Flash'),
         ('deepseek-v4.1-flash', 'deepseek-flash'),
         ('glm-5.3', 'free-glm-5.3'),

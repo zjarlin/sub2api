@@ -16,7 +16,28 @@ function fixture(t) {
   t.after(() => fs.rmSync(dataDir, { recursive: true, force: true }));
   t.mock.method(CredentialStore.prototype, "forSession", () => ({ email: model.accountEmail, cookieHeader: "", updatedAt: "now" }));
   t.mock.method(CredentialStore.prototype, "needsRefresh", () => false);
-  t.mock.method(ArenaBrowser.prototype, "getPage", async () => ({ evaluate: async () => "" }));
+  const locator = {
+    filter() { return this; },
+    first() { return this; },
+    last() { return this; },
+    isVisible: async () => false,
+    fill: async () => {},
+    click: async () => {},
+  };
+  t.mock.method(ArenaBrowser.prototype, "getPage", async () => ({
+    goto: async () => {},
+    waitForFunction: async () => ({ jsonValue: async () => "ready", dispose: async () => {} }),
+    getByRole: () => locator,
+    locator: () => locator,
+    waitForResponse: async () => ({ status: () => 200, text: async () => JSON.stringify({ id: model.sessionId }) }),
+    evaluate: async () => ({ status: 200, html: JSON.stringify({ publicAccessToken: "private-agent-token" }) }),
+  }));
+  t.mock.method(ArenaBrowser.prototype, "launch", async () => ({
+    newContext: async () => ({
+      newPage: async () => ({ goto: async () => ({ status: () => 200 }), title: async () => "Arena" }),
+      close: async () => {},
+    }),
+  }));
   return adapterConfig({ DATA_DIR: dataDir });
 }
 
@@ -53,7 +74,6 @@ test("web login persists encrypted credentials and a new verified session", asyn
   const config = fixture(t);
   t.mock.method(ArenaBrowser.prototype, "login", async () => ({ email: model.accountEmail, cookieHeader: "private-cookie", password: "private-password" }));
   t.mock.method(ArenaBrowser.prototype, "close", async () => {});
-  t.mock.method(Bridge.prototype, "createAgentSession", async () => ({ id: model.sessionId }));
   const records = [
     { body: JSON.stringify({ data: { type: "text-delta", delta: "READY" } }) },
     { body: JSON.stringify({ data: { type: "finish", messageMetadata: { nodeId: "turn-1" } } }) },
@@ -73,13 +93,45 @@ test("failed session probe does not publish a model or credentials", async (t) =
   const config = fixture(t);
   const close = t.mock.method(ArenaBrowser.prototype, "close", async () => {});
   t.mock.method(ArenaBrowser.prototype, "login", async () => ({ email: model.accountEmail, cookieHeader: "cookie", password: "secret" }));
-  t.mock.method(Bridge.prototype, "createAgentSession", async () => ({ id: model.sessionId }));
   t.mock.method(Bridge.prototype, "readAgentOutput", async () => "");
   const runtime = createRuntime(config);
   await assert.rejects(runtime.loginAndPrepare(model.accountEmail, "secret", new AbortController().signal), { code: "session_not_ready" });
   assert.deepEqual(runtime.models(), []);
   assert.equal(fs.existsSync(config.core.credentialsFile), false);
   assert.equal(close.mock.callCount(), 1);
+});
+
+test("Cloudflare stops web login before sign-in and cannot publish credentials or models", async (t) => {
+  const config = fixture(t);
+  t.mock.method(ArenaBrowser.prototype, "launch", async () => ({
+    newContext: async () => ({
+      newPage: async () => ({ goto: async () => ({ status: () => 403 }), title: async () => "Attention Required! | Cloudflare" }),
+      close: async () => {},
+    }),
+  }));
+  const signIn = t.mock.method(ArenaBrowser.prototype, "login", async () => { throw new Error("Sign-in must not run"); });
+  t.mock.method(ArenaBrowser.prototype, "close", async () => {});
+  const runtime = createRuntime(config);
+  await assert.rejects(runtime.loginAndPrepare(model.accountEmail, "private-password", new AbortController().signal), { code: "arena_access_blocked", stage: "arena_home", upstreamStatus: 403 });
+  assert.equal(signIn.mock.callCount(), 0);
+  assert.equal(fs.existsSync(config.core.credentialsFile), false);
+  assert.deepEqual(runtime.models(), []);
+});
+
+test("session creation failure has a safe preparation classification and publishes nothing", async (t) => {
+  const config = fixture(t);
+  t.mock.method(ArenaBrowser.prototype, "login", async () => ({ email: model.accountEmail, cookieHeader: "private-cookie", password: "private-password" }));
+  t.mock.method(ArenaBrowser.prototype, "close", async () => {});
+  t.mock.method(ArenaBrowser.prototype, "getPage", async () => { throw new Error("private-cookie private-password owner@example.com"); });
+  const runtime = createRuntime(config);
+  await assert.rejects(runtime.loginAndPrepare(model.accountEmail, "private-password", new AbortController().signal), (error) => {
+    assert.equal(error.code, "arena_session_prepare_failed");
+    assert.equal(error.stage, "agent_session");
+    assert.ok(!error.message.includes("private") && !error.message.includes(model.accountEmail));
+    return true;
+  });
+  assert.equal(fs.existsSync(config.core.credentialsFile), false);
+  assert.deepEqual(runtime.models(), []);
 });
 
 test("cancelling web login before completion never saves credentials", async (t) => {

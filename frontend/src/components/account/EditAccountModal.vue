@@ -41,8 +41,11 @@
             v-model="editBaseUrl"
             type="text"
             class="input"
+            data-testid="account-base-url"
             :placeholder="
-              ['doubao', 'arena'].includes(account.platform)
+              account.platform === 'cursor'
+                ? t('admin.accounts.cursor.baseUrlPlaceholder')
+                : ['doubao', 'arena'].includes(account.platform)
                 ? 'http://sub2api-desktop:8080/v1'
                 : account.platform === 'traework'
                 ? 'http://sub2api-traework:7864/v1'
@@ -218,7 +221,7 @@
           <p class="input-hint mt-2">{{ t('admin.accounts.cnProviders.zhipuTeam.hint') }}</p>
         </div>
         <div v-if="!isBuiltinAdapterAccount">
-          <label class="input-label">{{ t('admin.accounts.apiKey') }}</label>
+          <label class="input-label">{{ t(account.platform === 'cursor' ? 'admin.accounts.cursor.apiKey' : 'admin.accounts.apiKey') }}</label>
           <input
             v-model="editApiKey"
             type="password"
@@ -227,8 +230,11 @@
             data-1p-ignore
             data-lpignore="true"
             data-bwignore="true"
+            data-testid="account-api-key"
             :placeholder="
-              account.platform === 'doubao'
+              account.platform === 'cursor'
+                ? t('admin.accounts.cursor.apiKeyPlaceholder')
+                : account.platform === 'doubao'
                 ? 'adapter-api-key'
                 : account.platform === 'zcode'
                 ? 'adapter-api-key'
@@ -245,6 +251,7 @@
                       : 'sk-ant-...'
             "
           />
+          <p v-if="account.platform === 'cursor'" class="input-hint">{{ t('admin.accounts.cursor.apiKeyHint') }}</p>
           <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
         </div>
 
@@ -318,7 +325,13 @@
 
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
+              <ModelWhitelistSelector
+                v-model="allowedModels"
+                :platform="account?.platform || 'anthropic'"
+                :account-id="account?.id"
+                :enable-alias-mapping="!props.accountAPI"
+                @global-aliases-mapped="addGlobalModelMappings"
+              />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
                 <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -798,7 +811,13 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
+            <ModelWhitelistSelector
+              v-model="allowedModels"
+              :platform="account?.platform || 'anthropic'"
+              :account-id="account?.id"
+              :enable-alias-mapping="!props.accountAPI"
+              @global-aliases-mapped="addGlobalModelMappings"
+            />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -1010,7 +1029,13 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
+            <ModelWhitelistSelector
+              v-model="allowedModels"
+              :platform="account?.platform || 'anthropic'"
+              :account-id="account?.id"
+              :enable-alias-mapping="!props.accountAPI"
+              @global-aliases-mapped="addGlobalModelMappings"
+            />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -1232,7 +1257,12 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector v-model="allowedModels" platform="anthropic" />
+            <ModelWhitelistSelector
+              v-model="allowedModels"
+              platform="anthropic"
+              :enable-alias-mapping="!props.accountAPI"
+              @global-aliases-mapped="addGlobalModelMappings"
+            />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{ t(emptyModelRestrictionHint) }}</span>
@@ -3206,6 +3236,7 @@ const handleOllamaCloudUsageUpdated = (state: OllamaCloudUsageState) => {
 
 // Platform-specific hint for Base URL
 const baseUrlHint = computed(() => {
+  if (props.account?.platform === 'cursor') return t('admin.accounts.cursor.baseUrlHint')
   if (props.account?.platform === 'doubao') return t('admin.accounts.doubao.baseUrlHint')
   if (props.account?.platform === 'traework') return t('admin.accounts.traework.baseUrlHint')
   if (props.account?.platform === 'zcode') return t('admin.accounts.zcode.baseUrlHint')
@@ -3884,6 +3915,7 @@ const tempUnschedPresets = computed(() => [
 
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
+  if (props.account?.platform === 'cursor') return ''
   if (props.account?.platform === 'arena') return ''
   if (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web'].includes(props.account?.platform ?? '')) return ''
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
@@ -4327,7 +4359,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       }
     }
     const platformDefaultUrl =
-      (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web'].includes(newAccount.platform))
+      (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'cursor'].includes(newAccount.platform))
         ? ''
         : newAccount.platform === 'openai'
         ? 'https://api.openai.com'
@@ -4407,7 +4439,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
   } else {
     const platformDefaultUrl =
-      (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web'].includes(newAccount.platform))
+      (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'cursor'].includes(newAccount.platform))
         ? ''
         : newAccount.platform === 'openai'
         ? 'https://api.openai.com'
@@ -4466,6 +4498,31 @@ watch(
 // Model mapping helpers
 const addModelMapping = () => {
   modelMappings.value.push({ from: '', to: '' })
+}
+
+const addGlobalModelMappings = (mappings: ModelMapping[]) => {
+  const existingFromModels = new Set(
+    modelMappings.value
+      .map(mapping => mapping.from.trim())
+      .filter(Boolean)
+  )
+  let addedCount = 0
+
+  for (const mapping of mappings) {
+    const from = mapping.from.trim()
+    const to = mapping.to.trim()
+    if (!from || !to || from === to || existingFromModels.has(from)) continue
+    modelMappings.value.push({ from, to })
+    existingFromModels.add(from)
+    addedCount += 1
+  }
+
+  if (addedCount > 0) {
+    modelRestrictionMode.value = 'mapping'
+    appStore.showSuccess(t('admin.accounts.syncModelAliasesSuccess', { count: addedCount }))
+  } else {
+    appStore.showInfo(t('admin.accounts.syncModelAliasesNoChanges'))
+  }
 }
 
 const removeModelMapping = (index: number) => {
@@ -5081,6 +5138,10 @@ const handleSubmit = async () => {
         newCredentials.base_url = newBaseUrl
       } else {
         delete newCredentials.base_url
+      }
+      if (props.account.platform === 'cursor') {
+        newCredentials.api_protocol = 'chat_completions'
+        newCredentials.openai_capabilities = ['chat_completions']
       }
 
       if (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'arena'].includes(props.account.platform)) {

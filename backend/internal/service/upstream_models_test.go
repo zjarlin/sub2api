@@ -686,6 +686,28 @@ func TestSyncUpstreamModelCatalogRequiresConfiguredModelsForUnsupportedListEndpo
 	require.Len(t, upstream.requests, 1)
 }
 
+func TestSyncUpstreamModelCatalogCursorRequiresLiveList(t *testing.T) {
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusNotFound,
+		Body:       io.NopCloser(strings.NewReader(`{"error":"not found"}`)),
+	}}
+	svc := &AccountTestService{httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}
+	account := &Account{
+		ID: 100, Platform: PlatformCursor, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{
+			"api_key":       "cursor-dashboard-key",
+			"base_url":      "https://cursor-adapter.example/v1",
+			"model_mapping": map[string]any{"public-model": "unverified-model"},
+		},
+	}
+
+	_, err := svc.SyncUpstreamModelCatalog(context.Background(), account)
+	require.Error(t, err)
+	require.Equal(t, http.StatusNotFound, upstreamModelSyncStatusCode(err))
+	require.Len(t, upstream.requests, 1)
+	require.Nil(t, account.GetUpstreamSupportedModelsSnapshot())
+}
+
 // Scenario: 完整上游模型清单优先保存能力。
 func TestSyncUpstreamModelCatalogPrefersDirectUpstreamMetadata(t *testing.T) {
 	upstream := &httpUpstreamRecorder{resp: &http.Response{

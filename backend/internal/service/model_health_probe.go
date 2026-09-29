@@ -161,7 +161,10 @@ func collectModelHealthProbeCandidates(
 			}
 			seen[key] = true
 			checkedAt := checkedByPair[key]
-			if checkedAt != nil && checkedAt.After(now.Add(-policy.Interval)) {
+			// Only recheck a model with existing health evidence. A synchronized
+			// catalog can contain hundreds of unverified IDs, and an initial sweep
+			// would consume upstream quota without improving active routing.
+			if checkedAt == nil || checkedAt.After(now.Add(-policy.Interval)) {
 				continue
 			}
 			selected = append(selected, modelHealthProbeCandidate{AccountID: account.ID, Model: model, CheckedAt: checkedAt})

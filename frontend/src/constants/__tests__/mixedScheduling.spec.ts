@@ -20,6 +20,7 @@ describe('mixed scheduling mapping', () => {
     'traework',
     'workbuddy',
     'zcode',
+    'cursor',
   ] as const
 
   it('marks compatible platforms as supported', () => {

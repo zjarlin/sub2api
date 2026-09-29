@@ -36,7 +36,7 @@ func TestAutoModelStandardCatalogAdvertisesImages(t *testing.T) {
 			auto := gjson.GetBytes(listing.Body.Bytes(), `data.#(id=="auto")`)
 			require.JSONEq(t, `["text","image"]`, auto.Get("input_modalities").Raw)
 			ask := gjson.GetBytes(listing.Body.Bytes(), `data.#(id=="ask")`)
-			require.JSONEq(t, `["text"]`, ask.Get("input_modalities").Raw)
+			require.JSONEq(t, `["text","image"]`, ask.Get("input_modalities").Raw)
 			require.True(t, auto.Get("supports_image_detail_original").Exists())
 			require.False(t, auto.Get("supports_image_detail_original").Bool())
 			require.NotEmpty(t, listing.Header().Get("ETag"))

@@ -60,6 +60,55 @@ describe('BuiltinAdapterLogin', () => {
     expect(wrapper.emitted('authorized')).toBeUndefined()
   })
 
+  it.each([
+    ['ARENA_ACCESS_BLOCKED', 'accessBlocked'],
+    ['ARENA_INVALID_CREDENTIALS', 'invalidCredentials'],
+    ['ARENA_SESSION_UNUSABLE', 'sessionUnusable'],
+    ['ARENA_SESSION_NOT_READY', 'sessionNotReady'],
+    ['ARENA_BROWSER_UNAVAILABLE', 'browserUnavailable'],
+    ['ARENA_NETWORK_ERROR', 'networkError'],
+    ['ARENA_LOGIN_TIMEOUT', 'loginTimeout'],
+    ['ARENA_SESSION_PREPARE_FAILED', 'sessionPrepareFailed'],
+    ['BUILTIN_ADAPTER_DISABLED', 'unavailable'],
+    ['ADAPTER_LOGIN_FAILED', 'loginFailed'],
+    ['UNKNOWN_CODE', 'loginFailed'],
+    ['toString', 'loginFailed']
+  ])('shows static Arena guidance for %s without exposing upstream details', async (code, translationKey) => {
+    const upstreamMessage = 'password=private-secret; session_token=private-token'
+    start.mockRejectedValue({ code, message: upstreamMessage })
+    const wrapper = mount(BuiltinAdapterLogin, { props: { platform: 'arena' } })
+    await wrapper.get('#arena-login-email').setValue('user@example.com')
+    await wrapper.get('#arena-login-password').setValue('private-secret')
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toBe(`admin.accounts.arena.${translationKey}`)
+    expect(wrapper.text()).not.toContain(upstreamMessage)
+    expect(wrapper.text()).not.toContain('private-secret')
+    expect(wrapper.text()).not.toContain('private-token')
+    expect((wrapper.get('#arena-login-password').element as HTMLInputElement).value).toBe('')
+    expect(wrapper.emitted('authorized')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('shows server access guidance and cancels polling when Arena session preparation is blocked', async () => {
+    start.mockResolvedValue({ ...pending('poll'), auth_url: undefined })
+    complete.mockRejectedValue({ code: 'ARENA_ACCESS_BLOCKED', message: 'session_token=private-token' })
+    const wrapper = mount(BuiltinAdapterLogin, { props: { platform: 'arena' } })
+    await wrapper.get('#arena-login-email').setValue('user@example.com')
+    await wrapper.get('#arena-login-password').setValue('private-secret')
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(2500)
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toBe('admin.accounts.arena.accessBlocked')
+    expect(wrapper.text()).not.toContain('private-token')
+    expect(cancel).toHaveBeenCalledWith('arena', 'abc')
+    expect(wrapper.emitted('authorized')).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(complete).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+
   it('fixes the selected ZCode plan and provider for the authorization session', async () => {
     start.mockResolvedValue(pending('poll'))
     complete.mockResolvedValue({ ...pending('poll'), status: 'completed', account: { uid: 'zcode-user' } })

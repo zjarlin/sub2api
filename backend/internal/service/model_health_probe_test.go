@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCollectModelHealthProbeCandidatesPrioritizesUnknownModelsPerAccount(t *testing.T) {
+func TestCollectModelHealthProbeCandidatesOnlyRechecksObservedModels(t *testing.T) {
 	now := time.Date(2026, 9, 10, 20, 0, 0, 0, time.UTC)
 	old := now.Add(-8 * 24 * time.Hour)
 	accounts := []Account{
@@ -24,9 +24,8 @@ func TestCollectModelHealthProbeCandidatesPrioritizesUnknownModelsPerAccount(t *
 
 	got := collectModelHealthProbeCandidates(accounts, states, now, 3)
 	require.Equal(t, []modelHealthProbeCandidate{
-		{AccountID: 180, Model: "zeta", CheckedAt: nil},
-		{AccountID: 287, Model: "agnes-2.5-flash", CheckedAt: nil},
 		{AccountID: 180, Model: "alpha", CheckedAt: &old},
+		{AccountID: 287, Model: "agnes-2.0-flash", CheckedAt: &old},
 	}, got)
 }
 
@@ -39,13 +38,11 @@ func TestCollectModelHealthProbeCandidatesWaitsAfterFailure(t *testing.T) {
 		AccountID: 287, Model: "agnes-2.0-flash", LastFailureAt: &recentFailure,
 	}}, now, 10)
 
-	require.Equal(t, []modelHealthProbeCandidate{{AccountID: 287, Model: "agnes-2.5-flash"}}, got,
-		"an untested model remains due even when another model recently failed")
+	require.Empty(t, got, "unobserved catalog models do not trigger paid automatic probes")
 	got = collectModelHealthProbeCandidates([]Account{account}, []AccountModelHealthState{{
 		AccountID: 287, Model: "agnes-2.0-flash", LastFailureAt: &recentFailure,
 	}}, now.Add(7*24*time.Hour), 10)
 	require.Equal(t, []modelHealthProbeCandidate{
-		{AccountID: 287, Model: "agnes-2.5-flash"},
 		{AccountID: 287, Model: "agnes-2.0-flash", CheckedAt: &recentFailure},
 	}, got)
 }
@@ -53,10 +50,12 @@ func TestCollectModelHealthProbeCandidatesWaitsAfterFailure(t *testing.T) {
 func TestModelProbePolicySkipsDisabledAndGPTModels(t *testing.T) {
 	account := modelHealthProbeAccount(283, []string{"gpt-6-astra", "openai/GPT-5.5", "chatgpt-4o-latest", "alias", "agnes-3.0-flash"})
 	account.Credentials = map[string]any{"model_mapping": map[string]any{"alias": "gpt-5.5"}}
-	require.Equal(t, []modelHealthProbeCandidate{{AccountID: 283, Model: "agnes-3.0-flash"}},
-		collectModelHealthProbeCandidates([]Account{account}, nil, time.Now(), 10))
+	old := time.Now().Add(-8 * 24 * time.Hour)
+	states := []AccountModelHealthState{{AccountID: 283, Model: "agnes-3.0-flash", LastSuccessAt: &old}}
+	require.Equal(t, []modelHealthProbeCandidate{{AccountID: 283, Model: "agnes-3.0-flash", CheckedAt: &old}},
+		collectModelHealthProbeCandidates([]Account{account}, states, time.Now(), 10))
 	account.Extra[ModelHealthProbeEnabledKey] = false
-	require.Empty(t, collectModelHealthProbeCandidates([]Account{account}, nil, time.Now(), 10))
+	require.Empty(t, collectModelHealthProbeCandidates([]Account{account}, states, time.Now(), 10))
 	require.False(t, account.allowsAutomaticModelProbe("agnes-3.0-flash"))
 }
 
@@ -65,18 +64,18 @@ func TestModelProbeIntervalUsesAccountConfigurationAndRealTraffic(t *testing.T) 
 	last := now.Add(-48 * time.Hour)
 	account := modelHealthProbeAccount(198, []string{"agnes-3.0-flash", "never-called"})
 	states := []AccountModelHealthState{{AccountID: 198, Model: "agnes-3.0-flash", LastSuccessAt: &last}}
-	require.Equal(t, []modelHealthProbeCandidate{{AccountID: 198, Model: "never-called"}},
+	require.Empty(t,
 		collectModelHealthProbeCandidates([]Account{account}, states, now, 10),
-		"probe cadence is tracked per model, so an untested catalog entry is due")
+		"probe cadence is tracked only for models with a prior health record")
 	account.Extra[ModelHealthProbeIntervalKey] = float64(24)
-	require.Equal(t, []modelHealthProbeCandidate{{AccountID: 198, Model: "never-called"}},
+	require.Empty(t,
 		collectModelHealthProbeCandidates([]Account{account}, states, now, 10),
 		"short account settings cannot bypass the minimum seven-day cooldown")
 	account.Extra[ModelHealthProbeIntervalKey] = float64(-1)
 	require.Equal(t, 168*time.Hour, account.ModelProbePolicy().Interval)
 }
 
-func TestModelHealthProbeCovers331ModelsWithoutRepeatingRecentOutcomes(t *testing.T) {
+func TestModelHealthProbeRechecks331ObservedModelsWithoutRepeatingRecentOutcomes(t *testing.T) {
 	start := time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC)
 	models := make([]string, 331)
 	for i := range models {
@@ -84,6 +83,10 @@ func TestModelHealthProbeCovers331ModelsWithoutRepeatingRecentOutcomes(t *testin
 	}
 	accounts := []Account{modelHealthProbeAccount(1, models)}
 	states := make([]AccountModelHealthState, 0, len(models))
+	for _, model := range models {
+		checked := start.Add(-8 * 24 * time.Hour)
+		states = append(states, AccountModelHealthState{AccountID: 1, Model: model, LastSuccessAt: &checked})
+	}
 	seen := make(map[string]bool)
 	now := start
 	for round := 0; round < 34; round++ {
@@ -104,7 +107,7 @@ func TestModelHealthProbeCovers331ModelsWithoutRepeatingRecentOutcomes(t *testin
 		}
 		now = now.Add(modelHealthProbeInterval)
 	}
-	// 成功和失败均推进队列，331 个账号/模型对可在一天内完成首次轮询。
+	// 成功和失败均推进已验证模型的队列，目录新模型不会进入自动首轮扫测。
 	require.Len(t, seen, len(models))
 	require.Less(t, now.Sub(start), 24*time.Hour)
 	require.Empty(t, collectModelHealthProbeCandidates(accounts, states, now, modelHealthProbeLimit))
@@ -116,12 +119,17 @@ func TestModelHealthProbeIncludesConfiguredTargetsAndDeduplicatesCatalog(t *test
 	account.Credentials = map[string]any{"model_mapping": map[string]any{
 		"alias": "shared", "other-alias": "configured-only", "wildcard": "vendor/*",
 	}}
-	got := collectModelHealthProbeCandidates([]Account{account}, nil, time.Now(), 10)
+	old := time.Now().Add(-8 * 24 * time.Hour)
+	states := []AccountModelHealthState{
+		{AccountID: 7, Model: "configured-only", LastSuccessAt: &old},
+		{AccountID: 7, Model: "shared", LastSuccessAt: &old},
+	}
+	got := collectModelHealthProbeCandidates([]Account{account}, states, time.Now(), 10)
 	require.Len(t, got, 2)
 	require.Equal(t, "configured-only", got[0].Model)
 	require.Equal(t, "shared", got[1].Model)
 	delete(account.Extra, UpstreamSupportedModelsExtraKey)
-	require.Equal(t, got, collectModelHealthProbeCandidates([]Account{account}, nil, time.Now(), 10))
+	require.Equal(t, got, collectModelHealthProbeCandidates([]Account{account}, states, time.Now(), 10))
 }
 
 func TestModelHealthProbeUsesNewestAliasAndCaseObservation(t *testing.T) {
@@ -146,8 +154,9 @@ func TestModelHealthProbePassthroughKeepsWireModelIdentity(t *testing.T) {
 	account.Platform, account.Type = PlatformOpenAI, AccountTypeAPIKey
 	account.Extra["openai_passthrough"] = true
 	account.Credentials = map[string]any{"model_mapping": map[string]any{"wire-model": "unused-target"}}
-	require.Equal(t, []modelHealthProbeCandidate{{AccountID: 9, Model: "wire-model"}},
-		collectModelHealthProbeCandidates([]Account{account}, nil, time.Now(), 10))
+	old := time.Now().Add(-8 * 24 * time.Hour)
+	require.Equal(t, []modelHealthProbeCandidate{{AccountID: 9, Model: "wire-model", CheckedAt: &old}},
+		collectModelHealthProbeCandidates([]Account{account}, []AccountModelHealthState{{AccountID: 9, Model: "wire-model", LastSuccessAt: &old}}, time.Now(), 10))
 }
 
 func modelHealthProbeAccount(id int64, models []string) Account {
@@ -207,23 +216,28 @@ func TestModelHealthProbeWaitsFullIntervalAfterSuccessFailureOrInterruptedAttemp
 func TestModelHealthProbeCatalogAliasesShareAttemptCooldown(t *testing.T) {
 	now := time.Now()
 	recent := now.Add(-time.Hour)
+	old := now.Add(-8 * 24 * time.Hour)
 	account := modelHealthProbeAccount(9, []string{"alias", "actual", "ACTUAL"})
 	account.Credentials = map[string]any{"model_mapping": map[string]any{"alias": "actual"}}
-	require.Len(t, collectModelHealthProbeCandidates([]Account{account}, nil, now, 10), 1)
+	require.Empty(t, collectModelHealthProbeCandidates([]Account{account}, nil, now, 10))
 	require.Empty(t, collectModelHealthProbeCandidates([]Account{account}, []AccountModelHealthState{{
 		AccountID: 9, Model: "actual", LastProbeAt: &recent,
 	}}, now, 10))
+	require.Len(t, collectModelHealthProbeCandidates([]Account{account}, []AccountModelHealthState{{
+		AccountID: 9, Model: "actual", LastProbeAt: &old,
+	}}, now, 10), 1)
 }
 
 type modelProbeClaimGateRepo struct {
 	AccountRepository
 	account Account
+	states  []AccountModelHealthState
 	claims  int
 	err     error
 }
 
 func (r *modelProbeClaimGateRepo) ListAccountModelHealthStates(context.Context) ([]AccountModelHealthState, error) {
-	return nil, nil
+	return r.states, nil
 }
 
 func (r *modelProbeClaimGateRepo) GetByID(context.Context, int64) (*Account, error) {
@@ -237,7 +251,8 @@ func (r *modelProbeClaimGateRepo) ClaimAccountModelProbe(context.Context, int64,
 
 func TestModelHealthProbeDoesNotSendWithoutDurableClaim(t *testing.T) {
 	for _, claimErr := range []error{nil, errors.New("database unavailable")} {
-		repo := &modelProbeClaimGateRepo{account: modelHealthProbeAccount(1, []string{"model"}), err: claimErr}
+		old := time.Now().Add(-8 * 24 * time.Hour)
+		repo := &modelProbeClaimGateRepo{account: modelHealthProbeAccount(1, []string{"model"}), states: []AccountModelHealthState{{AccountID: 1, Model: "model", LastSuccessAt: &old}}, err: claimErr}
 		svc := &UpstreamModelRefreshService{accountRepo: repo}
 		// 没有请求执行器；占用失败或已被其他实例占用必须在发送请求前返回。
 		svc.probeDueModels(context.Background(), []Account{repo.account})

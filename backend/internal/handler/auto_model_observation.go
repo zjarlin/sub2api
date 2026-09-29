@@ -75,14 +75,23 @@ func (h *GatewayHandler) observeAutoModelRoute(c *gin.Context, key *service.APIK
 		return func() {}
 	}
 	now := time.Now().UnixMilli()
+	requestedModel := c.GetString("virtual_model_id")
+	if requestedModel == "" {
+		requestedModel = autoModelID
+	}
 	requestID := contentModerationRequestID(c.Request.Context())
 	if requestID == "" {
 		requestID = uuid.NewString()
 	}
 	route := &service.AutoModelRouteObservation{
 		RequestID: requestID, SessionID: sessionID, TurnID: turnID, RunID: turnID,
-		RequestedModel: autoModelID, SelectedModel: selected, AttemptedModels: []string{selected},
+		RequestedModel: requestedModel, SelectedModel: selected,
 		State: "selected", StartedAt: now, UpdatedAt: now,
+	}
+	if selected == "" {
+		route.State = "failed"
+	} else {
+		route.AttemptedModels = []string{selected}
 	}
 	if value, ok := c.Get(autoModelPlanKey); ok {
 		route.Candidates, _ = value.([]service.AutoModelCandidate)
