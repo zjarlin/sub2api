@@ -186,9 +186,67 @@ func containsModelID(models []gatewayModelItemForTest, id string) bool {
 }
 
 func TestAutoModelCandidatesExcludeDecisionAndMediaModels(t *testing.T) {
-	models := []string{"auto", "typesafe/jev", "laya", "gpt-image-1", "text-embedding-3-large", "gpt-5.5", "deepseek-v4-flash", "gpt-4o-audio"}
+	models := []string{
+		"auto", "typesafe/jev", "laya", "gpt-image-1", "text-embedding-3-large", "gpt-4o-audio",
+		"nvidia/riva-translate-4b-instruct-v2", "nvidia/riva-translate-4b-instruct-v1.1",
+		"nvidia/llama-3.1-nemotron-safety-guard-8b-v3", "nvidia/nemotron-3.5-content-safety",
+		"gpt-5.5", "deepseek-v4-flash",
+	}
 	require.Equal(t, []string{"gpt-5.5", "deepseek-v4-flash"}, autoModelCandidates(models))
 	require.Equal(t, []string{"auto", "gpt-5.5"}, prependAutoModel([]string{"gpt-5.5", "auto"}))
+}
+
+func TestAutoModelMiddlewareFiltersToolIncompatibleCandidates(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	decisionCalls := 0
+	decision := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		decisionCalls++
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.False(t, gjson.GetBytes(body, "questions.model.criteria.gpt-tool-disabled").Exists())
+		require.True(t, gjson.GetBytes(body, "questions.model.criteria.gpt-tool-ready-a").Exists())
+		require.True(t, gjson.GetBytes(body, "questions.model.criteria.gpt-tool-ready-b").Exists())
+		_, _ = w.Write([]byte(`{"answers":{"model":{"choice":"gpt-tool-ready-b"}}}`))
+	}))
+	defer decision.Close()
+
+	accounts := autoModelTestAccounts()
+	accounts[0].Credentials["model_mapping"] = map[string]any{
+		"gpt-tool-disabled": "gpt-tool-disabled",
+		"gpt-tool-ready-a":  "gpt-tool-ready-a",
+		"gpt-tool-ready-b":  "gpt-tool-ready-b",
+	}
+	accounts[0].SetUpstreamModelMetadataSnapshot(service.UpstreamModelMetadataSnapshot{Models: map[string]service.UpstreamModelMetadata{
+		"gpt-tool-disabled": {
+			ID: "gpt-tool-disabled",
+			CodexToolCapabilities: map[string]json.RawMessage{
+				"supports_function_calling": json.RawMessage("false"),
+			},
+		},
+		"gpt-tool-ready-a": {ID: "gpt-tool-ready-a"},
+		"gpt-tool-ready-b": {ID: "gpt-tool-ready-b"},
+	}})
+	accounts[2].Type = service.AccountTypeAPIKey
+	accounts[2].Credentials["base_url"] = decision.URL
+
+	h := newAutoModelTestHandler(accounts)
+	group := &service.Group{ID: 71, Platform: service.PlatformOpenAI}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{GroupID: &group.ID, Group: group})
+	}, h.AutoModelMiddleware(nil))
+	router.POST("/v1/chat/completions", func(c *gin.Context) {
+		body, err := io.ReadAll(c.Request.Body)
+		require.NoError(t, err)
+		c.String(http.StatusOK, gjson.GetBytes(body, "model").String())
+	})
+
+	recorder := httptest.NewRecorder()
+	request := `{"model":"auto","messages":[{"role":"user","content":"use a tool"}],"tools":[{"type":"function","function":{"name":"shell"}}]}`
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(request)))
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	require.Equal(t, "gpt-tool-ready-b", recorder.Body.String())
+	require.Equal(t, 1, decisionCalls)
 }
 
 func TestAutoModelDecisionAcceptsOnlyCatalogCandidates(t *testing.T) {

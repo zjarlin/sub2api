@@ -636,6 +636,13 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	var busyRetry concurrencyRetry
 	poolRound := newOpenAIModelPoolRound(h.gatewayService, apiKey.GroupID, service.APIProtocolResponses, forwardModel, switchBudget.replayable)
 	defer poolRound.close()
+	// 生图意图的 /v1/responses 请求必须调度到确实支持 Responses API 的账号，否则
+	// 会在 forward 阶段被静默降级为无法生图的 Chat Completions 直转（#4417）。
+	// 仅对 OpenAI 平台生效：Grok 生图走独立的 forwardGrokResponses 路径，不应被过滤。
+	// 复用前置权限与并发阶段在未修改 body 上确认的显式生图意图，避免大 tools 请求重复扫描。
+	// 该判断已排除 Codex 被动 image_gen namespace，避免 CC-only 账号被误过滤（#4476）。
+	needsResponses := nativeV2 || legacyCompact
+	requiredCapability := openAIResponsesRequiredCapabilityForRequest(imageIntent, needsResponses, requestPlatform)
 	advanceModel := func() bool {
 		attempt, ok := h.nextModelFallback(c, apiKey, reqModel, forwardBody, legacyCompact)
 		if !ok {
@@ -643,6 +650,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		}
 		reqModel, forwardBody, channelMapping = attempt.Model, attempt.Body, attempt.Mapping
 		forwardModel = gjson.GetBytes(forwardBody, "model").String()
+		requestPlatform = openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
+		requiredCapability = openAIResponsesRequiredCapabilityForRequest(imageIntent, needsResponses, requestPlatform)
 		failedAccountIDs = make(map[int64]struct{})
 		sameAccountRetryCount = make(map[int64]int)
 		switchCount, firstOutputTimeoutSwitchCount = 0, 0
@@ -655,14 +664,6 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		poolRound.reset(forwardModel)
 		return true
 	}
-
-	// 生图意图的 /v1/responses 请求必须调度到确实支持 Responses API 的账号，否则
-	// 会在 forward 阶段被静默降级为无法生图的 Chat Completions 直转（#4417）。
-	// 仅对 OpenAI 平台生效：Grok 生图走独立的 forwardGrokResponses 路径，不应被过滤。
-	// 复用前置权限与并发阶段在未修改 body 上确认的显式生图意图，避免大 tools 请求重复扫描。
-	// 该判断已排除 Codex 被动 image_gen namespace，避免 CC-only 账号被误过滤（#4476）。
-	needsResponses := nativeV2 || legacyCompact
-	requiredCapability := openAIResponsesRequiredCapabilityForRequest(imageIntent, needsResponses, requestPlatform)
 
 	// 分组利润控制：请求级装配定价上下文——pricingAt 固定本请求的
 	// D 与计费高峰因子，选号、槽位终检与全部 failover 重入共用同一门与阈值。

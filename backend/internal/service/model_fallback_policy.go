@@ -2,12 +2,14 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/tidwall/gjson"
 )
@@ -17,6 +19,10 @@ const SettingKeyModelFallbackPolicy = "model_fallback_policy"
 const maxModelFallbackModels = 256
 
 const AutoModelExcludedReason GatewayFailureReason = "auto_model_excluded"
+const AutoModelCapabilityMismatchReason GatewayFailureReason = "auto_model_capability_mismatch"
+
+const autoModelToolCapabilityBlockExtraKeyPrefix = "auto_tool_capability_block:"
+const autoModelToolCapabilityBlockDuration = 30 * time.Minute
 
 // 档位按数组顺序从高到低排列；模型 ID 精确匹配，不猜测未评级模型的能力。
 type ModelCapabilityTier struct {
@@ -35,6 +41,17 @@ type ModelFallbackCandidate struct {
 }
 
 type autoModelRoutingPolicyContextKey struct{}
+type autoModelRequestCapabilitiesContextKey struct{}
+
+type autoModelRequestCapabilities struct {
+	tools bool
+}
+
+type autoModelToolCapabilityBlock struct {
+	Model        string    `json:"model"`
+	ObservedAt   time.Time `json:"observed_at"`
+	BlockedUntil time.Time `json:"blocked_until"`
+}
 
 type autoModelRoutingPolicy struct {
 	excluded map[string]struct{}
@@ -166,6 +183,85 @@ func (s *SettingService) BindAutoModelRoutingPolicy(ctx context.Context) (contex
 	return context.WithValue(ctx, autoModelRoutingPolicyContextKey{}, snapshot), nil
 }
 
+// IsAutoModelRouting 表示当前请求已绑定 Auto 路由策略。
+func IsAutoModelRouting(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	_, bound := ctx.Value(autoModelRoutingPolicyContextKey{}).(*autoModelRoutingPolicy)
+	return bound
+}
+
+// WithAutoModelRequestCapabilities 固定本次 Auto 请求依赖的能力，供候选预检和实际调度共用。
+func WithAutoModelRequestCapabilities(ctx context.Context, body []byte) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	capabilities := autoModelRequestCapabilities{tools: gjson.GetBytes(body, "tools.#").Int() > 0}
+	return context.WithValue(ctx, autoModelRequestCapabilitiesContextKey{}, capabilities)
+}
+
+func autoModelRequestNeedsTools(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	capabilities, _ := ctx.Value(autoModelRequestCapabilitiesContextKey{}).(autoModelRequestCapabilities)
+	return capabilities.tools
+}
+
+func autoModelToolCapabilityBlockKey(model string) string {
+	model = normalizeUnsupportedModelKey(model)
+	if model == "" {
+		return ""
+	}
+	digest := sha256.Sum256([]byte(model))
+	return fmt.Sprintf("%s%x", autoModelToolCapabilityBlockExtraKeyPrefix, digest)
+}
+
+func newAutoModelToolCapabilityBlock(model string, now time.Time) (string, autoModelToolCapabilityBlock, bool) {
+	model = normalizeUnsupportedModelKey(model)
+	key := autoModelToolCapabilityBlockKey(model)
+	if key == "" {
+		return "", autoModelToolCapabilityBlock{}, false
+	}
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
+	return key, autoModelToolCapabilityBlock{
+		Model:        model,
+		ObservedAt:   now,
+		BlockedUntil: now.Add(autoModelToolCapabilityBlockDuration),
+	}, true
+}
+
+// AutoModelToolCapabilityBlocked 只约束带工具的 Auto 请求，不影响显式模型或纯文本请求。
+func (a *Account) AutoModelToolCapabilityBlocked(requestedModel string, now time.Time) bool {
+	if a == nil || a.Extra == nil {
+		return false
+	}
+	canonicalModel := canonicalOpenAIAccountSchedulingModel(a, requestedModel)
+	key := autoModelToolCapabilityBlockKey(canonicalModel)
+	if key == "" {
+		return false
+	}
+	raw, exists := a.Extra[key]
+	if !exists || raw == nil {
+		return false
+	}
+	body, err := json.Marshal(raw)
+	if err != nil {
+		return false
+	}
+	var block autoModelToolCapabilityBlock
+	if json.Unmarshal(body, &block) != nil || block.Model != normalizeUnsupportedModelKey(canonicalModel) || block.BlockedUntil.IsZero() {
+		return false
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	return now.Before(block.BlockedUntil)
+}
+
 // 仅约束已绑定的 Auto 请求，同时检查原始模型、规范模型与黑名单规则。
 func AutoModelAllowed(ctx context.Context, models ...string) bool {
 	if ctx == nil {
@@ -247,6 +343,52 @@ func (s *OpenAIGatewayService) ModelFallbackCandidates(ctx context.Context, grou
 			return AutoModelAllowed(ctx, upstream) && account.IsModelSupported(forward) && ModelFallbackAccountCompatible(&account, forward, body)
 		})
 	}), nil
+}
+
+// AutoModelAccountCompatible 要求候选至少存在一个可调度且满足本次请求能力的账号。
+func (s *GatewayService) AutoModelAccountCompatible(ctx context.Context, groupID *int64, platform, model string, body []byte) (bool, error) {
+	if s == nil || s.accountRepo == nil || strings.TrimSpace(model) == "" {
+		return false, nil
+	}
+	var accounts []Account
+	var err error
+	if groupID != nil {
+		accounts, err = s.accountRepo.ListSchedulableByGroupID(ctx, *groupID)
+	} else {
+		accounts, err = s.accountRepo.ListSchedulable(ctx)
+	}
+	if err != nil {
+		return false, err
+	}
+	platform = NormalizeOpenAICompatiblePlatform(platform)
+	accounts = accountsWithModelAliases(ctx, accounts)
+	mapping, restricted := s.ResolveChannelMappingAndRestrict(ctx, groupID, model)
+	if restricted {
+		return false, nil
+	}
+	forwardModel := model
+	if mapping.Mapped {
+		forwardModel = mapping.MappedModel
+	}
+	if !AutoModelAllowed(ctx, model, forwardModel) {
+		return false, nil
+	}
+	requiresTools := gjson.GetBytes(body, "tools.#").Int() > 0
+	now := time.Now()
+	for i := range accounts {
+		account := &accounts[i]
+		if !openAIAccountMatchesPlatform(account, platform) || !account.IsModelSupported(forwardModel) {
+			continue
+		}
+		if requiresTools && account.AutoModelToolCapabilityBlocked(forwardModel, now) {
+			continue
+		}
+		upstreamModel := ResolveOpenAIAccountUpstreamModelForRequest(account, forwardModel, false)
+		if AutoModelAllowed(ctx, upstreamModel) && ModelFallbackAccountCompatible(account, forwardModel, body) {
+			return true, nil
+		}
+	}
+	return false, nil
 }
 
 // 换模型前及实际选号后均检查能力；已知上下文上限采用字节数保守估算，不裁剪历史。

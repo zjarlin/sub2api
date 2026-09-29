@@ -33,6 +33,12 @@ const (
 var errAutoModelUsageRecord = errors.New("auto model decision usage record failed")
 var errAutoModelDecisionRejected = errors.New("System One rejected the decision request")
 
+type autoModelRouteCandidate struct {
+	model          string
+	targetPlatform string
+	upstreamModel  string
+}
+
 func prependAutoModel(models []string) []string {
 	withAuto := make([]string, 0, len(models)+1)
 	withAuto = append(withAuto, autoModelID)
@@ -97,12 +103,56 @@ func autoModelTextCandidate(model string) bool {
 		return false
 	}
 	name := strings.ToLower(model)
-	for _, media := range []string{"embedding", "moderation", "image", "audio", "video", "tts-", "whisper", "transcri", "dall-e"} {
-		if strings.Contains(name, media) {
+	for _, specialized := range []string{
+		"embedding", "moderation", "image", "audio", "video", "tts-", "whisper", "transcri", "dall-e",
+		"translate", "translation", "safety", "guard", "calibration", "rerank", "re-rank", "classifier", "reward-model", "parser",
+	} {
+		if strings.Contains(name, specialized) {
 			return false
 		}
 	}
 	return true
+}
+
+// 候选必须同时具备文本路由和本次请求所需的账号能力。
+func (h *GatewayHandler) autoModelRoutableCandidates(
+	ctx context.Context,
+	group *service.Group,
+	resolver *service.CompositeRouteResolver,
+	path string,
+	body []byte,
+	candidates []string,
+) ([]autoModelRouteCandidate, error) {
+	routes := make([]autoModelRouteCandidate, 0, len(candidates))
+	for _, candidate := range candidates {
+		route := autoModelRouteCandidate{model: candidate, targetPlatform: service.PlatformOpenAI, upstreamModel: candidate}
+		if group.Platform == service.PlatformComposite {
+			decision, err := resolver.Resolve(ctx, group.ID, candidate, autoModelEndpoint(path))
+			if err != nil {
+				return nil, err
+			}
+			if !decision.Matched || !autoModelTextPlatform(decision.TargetPlatform) ||
+				!h.autoModelTargetAllowed(ctx, group.ID, decision.UpstreamModel) {
+				continue
+			}
+			route.targetPlatform = decision.TargetPlatform
+			route.upstreamModel = decision.UpstreamModel
+		}
+		compatible, err := h.gatewayService.AutoModelAccountCompatible(
+			ctx,
+			&group.ID,
+			route.targetPlatform,
+			route.upstreamModel,
+			body,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if compatible {
+			routes = append(routes, route)
+		}
+	}
+	return routes, nil
 }
 
 func autoModelTextPlatform(platform string) bool {
@@ -235,6 +285,7 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 			c.Abort()
 			return
 		}
+		ctx = service.WithAutoModelRequestCapabilities(ctx, body)
 		c.Request = c.Request.WithContext(ctx)
 		models := h.autoModelCatalog(c.Request.Context(), apiKey.Group)
 		if !h.autoModelAvailable(c.Request.Context(), apiKey.Group, models) {
@@ -242,22 +293,31 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 			c.Abort()
 			return
 		}
-		candidates := h.autoModelEligibleCandidates(ctx, apiKey.Group, models)
-		if resolver != nil && apiKey.Group.Platform == service.PlatformComposite {
-			filtered := make([]string, 0, len(candidates))
-			for _, candidate := range candidates {
-				decision, resolveErr := resolver.Resolve(ctx, apiKey.Group.ID, candidate, autoModelEndpoint(c.FullPath()))
-				if resolveErr == nil && decision.Matched && autoModelTextPlatform(decision.TargetPlatform) &&
-					h.autoModelTargetAllowed(ctx, apiKey.Group.ID, decision.UpstreamModel) {
-					filtered = append(filtered, candidate)
-				}
-			}
-			candidates = filtered
+		if resolver == nil {
+			resolver = service.NewCompositeRouteResolver(nil)
 		}
-		if len(candidates) == 0 {
+		routes, err := h.autoModelRoutableCandidates(
+			ctx,
+			apiKey.Group,
+			resolver,
+			c.FullPath(),
+			body,
+			h.autoModelEligibleCandidates(ctx, apiKey.Group, models),
+		)
+		if err != nil {
+			logger.FromContext(c.Request.Context()).Warn("gateway.auto_model_candidates_unavailable", zap.Error(err))
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "scheduling_error", "message": "Auto model candidates are unavailable"}})
+			c.Abort()
+			return
+		}
+		if len(routes) == 0 {
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "scheduling_error", "message": "Auto model routing has no eligible model"}})
 			c.Abort()
 			return
+		}
+		candidates := make([]string, 0, len(routes))
+		for _, route := range routes {
+			candidates = append(candidates, route.model)
 		}
 		if h.billingCacheService != nil {
 			subscription, _ := middleware2.GetSubscriptionFromContext(c)
@@ -282,15 +342,7 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 			c.Abort()
 			return
 		}
-		if resolver != nil && apiKey.Group.Platform == service.PlatformComposite {
-			decision, resolveErr := resolver.Resolve(c.Request.Context(), apiKey.Group.ID, model, autoModelEndpoint(c.FullPath()))
-			if resolveErr != nil || !decision.Matched || !autoModelTextPlatform(decision.TargetPlatform) ||
-				!h.autoModelTargetAllowed(c.Request.Context(), apiKey.Group.ID, decision.UpstreamModel) {
-				c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "scheduling_error", "message": "Selected model has no available text route"}})
-				c.Abort()
-				return
-			}
-		}
+		seedAutoModelFallback(c, model, routes)
 		rewritten, err := sjson.SetBytes(body, "model", model)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "api_error", "message": "Failed to route auto model"}})

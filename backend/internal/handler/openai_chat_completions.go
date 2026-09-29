@@ -176,6 +176,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		}
 		reqModel, body, channelMapping = attempt.Model, attempt.Body, attempt.Mapping
 		forwardModel = gjson.GetBytes(body, "model").String()
+		requestPlatform = openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
 		failedAccountIDs = make(map[int64]struct{})
 		sameAccountRetryCount = make(map[int64]int)
 		switchCount = 0

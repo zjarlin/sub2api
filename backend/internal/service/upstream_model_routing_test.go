@@ -21,8 +21,23 @@ func (r *upstreamModelRefreshRepoStub) ListActive(context.Context) ([]Account, e
 	return r.accounts, nil
 }
 
-func (r *upstreamModelRefreshRepoStub) UpdateExtra(_ context.Context, _ int64, updates map[string]any) error {
+func (r *upstreamModelRefreshRepoStub) ListSchedulableByGroupID(context.Context, int64) ([]Account, error) {
+	return r.accounts, nil
+}
+
+func (r *upstreamModelRefreshRepoStub) UpdateExtra(_ context.Context, id int64, updates map[string]any) error {
 	r.updates = updates
+	for i := range r.accounts {
+		if r.accounts[i].ID != id {
+			continue
+		}
+		if r.accounts[i].Extra == nil {
+			r.accounts[i].Extra = make(map[string]any)
+		}
+		for key, value := range updates {
+			r.accounts[i].Extra[key] = value
+		}
+	}
 	return nil
 }
 
@@ -117,4 +132,70 @@ func TestDeterministicUnsupportedModelAlwaysFailsOver(t *testing.T) {
 		"Parameter tools is not supported for this model",
 		[]byte(`{"error":{"message":"Parameter tools is not supported for this model"}}`),
 	))
+	exactBody := []byte(`{"error":{"code":400,"message":"\"auto\" tool choice requires --enable-auto-tool-choice and --tool-call-parser to be set","type":"BadRequestError"}}`)
+	require.True(t, isOpenAIToolCapabilityError(http.StatusBadRequest, "", exactBody))
+	require.False(t, svc.shouldFailoverOpenAIUpstreamResponse(
+		newOpenAIUpstreamErrorTestAccount(),
+		http.StatusBadRequest,
+		extractUpstreamErrorMessage(exactBody),
+		exactBody,
+	))
+}
+
+func TestAutoModelToolCapabilityFailureExcludesNextToolRequest(t *testing.T) {
+	account := Account{
+		ID:          42,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Credentials: map[string]any{"model_mapping": map[string]any{"public-tool": "upstream-tool"}},
+	}
+	repo := &upstreamModelRefreshRepoStub{accounts: []Account{account}}
+	openAI := &OpenAIGatewayService{accountRepo: repo}
+	ctx, err := (&SettingService{}).BindAutoModelRoutingPolicy(context.Background())
+	require.NoError(t, err)
+	toolBody := []byte(`{"model":"auto","tools":[{"type":"function","function":{"name":"shell"}}]}`)
+	ctx = WithAutoModelRequestCapabilities(ctx, toolBody)
+	errorBody := []byte(`{"error":{"code":400,"message":"\"auto\" tool choice requires --enable-auto-tool-choice and --tool-call-parser to be set","type":"BadRequestError"}}`)
+
+	failover := openAI.newAutoModelCapabilityMismatchFailoverError(
+		ctx,
+		&account,
+		"upstream-tool",
+		http.StatusBadRequest,
+		http.Header{},
+		errorBody,
+		extractUpstreamErrorMessage(errorBody),
+	)
+
+	require.NotNil(t, failover)
+	key := autoModelToolCapabilityBlockKey("upstream-tool")
+	require.Contains(t, repo.updates, key)
+	require.True(t, account.AutoModelToolCapabilityBlocked("public-tool", time.Now()))
+
+	scheduler := &defaultOpenAIAccountScheduler{service: openAI}
+	compatible, reason := scheduler.isAccountRequestCompatibleReason(ctx, &account, OpenAIAccountScheduleRequest{
+		Platform:       PlatformOpenAI,
+		RequestedModel: "public-tool",
+	})
+	require.False(t, compatible)
+	require.Equal(t, "auto_tool_capability_blocked", reason)
+
+	gateway := &GatewayService{accountRepo: repo}
+	groupID := int64(71)
+	compatible, err = gateway.AutoModelAccountCompatible(ctx, &groupID, PlatformOpenAI, "public-tool", toolBody)
+	require.NoError(t, err)
+	require.False(t, compatible)
+
+	plainBody := []byte(`{"model":"auto","input":"hello"}`)
+	plainCtx := WithAutoModelRequestCapabilities(ctx, plainBody)
+	compatible, reason = scheduler.isAccountRequestCompatibleReason(plainCtx, &account, OpenAIAccountScheduleRequest{
+		Platform:       PlatformOpenAI,
+		RequestedModel: "public-tool",
+	})
+	require.True(t, compatible, reason)
+	compatible, err = gateway.AutoModelAccountCompatible(plainCtx, &groupID, PlatformOpenAI, "public-tool", plainBody)
+	require.NoError(t, err)
+	require.True(t, compatible)
 }

@@ -22,8 +22,9 @@ import (
 
 type fallbackTestUpstream struct {
 	service.HTTPUpstream
-	models []string
-	status int
+	models        []string
+	status        int
+	errorResponse string
 }
 
 func (u *fallbackTestUpstream) Do(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
@@ -38,6 +39,9 @@ func (u *fallbackTestUpstream) Do(req *http.Request, _ string, _ int64, _ int) (
 	if model != "gpt-5.5" && u.status >= 400 {
 		status = u.status
 		response = `{"error":{"message":"provider unavailable","type":"upstream_error"}}`
+		if u.errorResponse != "" {
+			response = u.errorResponse
+		}
 	}
 	contentType := "application/json"
 	if status == http.StatusOK && gjson.GetBytes(body, "stream").Bool() {

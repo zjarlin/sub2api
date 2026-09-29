@@ -452,6 +452,26 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 				continue
 			}
 
+			attemptModel := strings.TrimSpace(gjson.GetBytes(body, "model").String())
+			if attemptModel == "" {
+				attemptModel = requestedModel
+			}
+			if autoCapabilityErr := s.newAutoModelCapabilityMismatchFailoverError(ctx, account, attemptModel, resp.StatusCode, resp.Header, probeBody, upstreamMsg); autoCapabilityErr != nil {
+				appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+					ProxyID:            opsUpstreamProxyID(account),
+					ProxyName:          opsUpstreamProxyName(account),
+					Platform:           account.Platform,
+					AccountID:          account.ID,
+					AccountName:        account.Name,
+					UpstreamStatusCode: resp.StatusCode,
+					UpstreamRequestID:  resp.Header.Get("x-request-id"),
+					Passthrough:        true,
+					Kind:               "failover",
+					Message:            upstreamMsg,
+				})
+				return nil, autoCapabilityErr
+			}
+
 			// 透传模式默认保持原样代理；容量错误以及 API-key 上游的瞬时
 			// 5xx 应先触发多账号 failover，且此时尚未写入下游响应。
 			// probeBody 已在上方任务探测时读取过一次，直接复用避免重复读取。

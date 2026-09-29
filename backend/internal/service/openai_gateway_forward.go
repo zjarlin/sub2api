@@ -1246,7 +1246,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				)
 				return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
 			}
-			if s.shouldFailoverOpenAIUpstreamResponse(account, resp.StatusCode, upstreamMsg, respBody) {
+			autoCapabilityErr := s.newAutoModelCapabilityMismatchFailoverError(ctx, account, upstreamModel, resp.StatusCode, resp.Header, respBody, upstreamMsg)
+			if autoCapabilityErr != nil || s.shouldFailoverOpenAIUpstreamResponse(account, resp.StatusCode, upstreamMsg, respBody) {
 				upstreamDetail := ""
 				if s.cfg != nil && s.cfg.Gateway.LogUpstreamErrorBody {
 					maxBytes := s.cfg.Gateway.LogUpstreamErrorBodyMaxBytes
@@ -1268,6 +1269,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 					Detail:             upstreamDetail,
 				})
 
+				if autoCapabilityErr != nil {
+					return nil, autoCapabilityErr
+				}
 				shouldDisable := s.handleFailoverSideEffects(ctx, resp, account, respBody, upstreamModel)
 				return nil, s.newOpenAIAccountFailoverError(
 					account,

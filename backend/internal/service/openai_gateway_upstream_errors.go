@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -335,6 +336,74 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(account *Acc
 		return true
 	}
 	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody)
+}
+
+// 工具能力错误只对 Auto 请求触发换模型；显式模型请求仍保留原始客户端错误。
+func isOpenAIToolCapabilityError(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	if statusCode != http.StatusBadRequest && statusCode != http.StatusUnprocessableEntity {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(upstreamMsg))
+	if extracted := strings.ToLower(strings.TrimSpace(extractUpstreamErrorMessage(upstreamBody))); extracted != "" {
+		message += " " + extracted
+	}
+	toolRelated := strings.Contains(message, "tool choice") ||
+		strings.Contains(message, "tool_choice") ||
+		strings.Contains(message, "tool-call-parser") ||
+		strings.Contains(message, "function call") ||
+		strings.Contains(message, "function_call") ||
+		strings.Contains(message, "parameter tools")
+	capabilityMiss := strings.Contains(message, "not supported") ||
+		strings.Contains(message, "does not support") ||
+		strings.Contains(message, "unsupported") ||
+		strings.Contains(message, "requires --enable-auto-tool-choice") ||
+		strings.Contains(message, "--tool-call-parser")
+	return toolRelated && capabilityMiss
+}
+
+func (s *OpenAIGatewayService) newAutoModelCapabilityMismatchFailoverError(
+	ctx context.Context,
+	account *Account,
+	upstreamModel string,
+	statusCode int,
+	headers http.Header,
+	body []byte,
+	message string,
+) *UpstreamFailoverError {
+	if !IsAutoModelRouting(ctx) || !isOpenAIToolCapabilityError(statusCode, message, body) {
+		return nil
+	}
+	s.recordAutoModelToolCapabilityMismatch(ctx, account, upstreamModel)
+	return &UpstreamFailoverError{
+		StatusCode: statusCode, ResponseBody: body, ResponseHeaders: headers.Clone(),
+		Stage: GatewayFailureStageInference, Scope: GatewayFailureScopeAccount,
+		Reason: AutoModelCapabilityMismatchReason, NextAccountAction: NextAccountRetry,
+		ClientStatusCode: statusCode, ClientMessage: message,
+	}
+}
+
+// 明确的工具能力缺失同时进入调度失败打分，并在后续 Auto 工具请求中立即排除该账号模型。
+func (s *OpenAIGatewayService) recordAutoModelToolCapabilityMismatch(ctx context.Context, account *Account, upstreamModel string) {
+	if s == nil || s.accountRepo == nil || account == nil {
+		return
+	}
+	key, block, ok := newAutoModelToolCapabilityBlock(upstreamModel, time.Now().UTC())
+	if !ok {
+		return
+	}
+	if account.Extra == nil {
+		account.Extra = make(map[string]any)
+	}
+	account.Extra[key] = block
+	stateCtx, cancel := openAIAccountStateContext(ctx)
+	defer cancel()
+	if err := s.accountRepo.UpdateExtra(stateCtx, account.ID, map[string]any{key: block}); err != nil {
+		logger.FromContext(ctx).Warn("gateway.auto_model_capability_block_persist_failed",
+			zap.Int64("account_id", account.ID),
+			zap.String("model", block.Model),
+			zap.Error(err),
+		)
+	}
 }
 
 func isOpenAICompatibleModelNotFound400(respBody []byte) bool {

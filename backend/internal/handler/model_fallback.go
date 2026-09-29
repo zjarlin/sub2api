@@ -18,7 +18,13 @@ type modelFallbackAttempt struct {
 
 type modelFallbackState struct {
 	candidates []service.ModelFallbackCandidate
+	targets    map[string]modelFallbackTarget
 	index      int
+}
+
+type modelFallbackTarget struct {
+	platform      string
+	upstreamModel string
 }
 
 const modelFallbackStateKey = "model_fallback_state"
@@ -45,20 +51,31 @@ func (h *OpenAIGatewayHandler) nextModelFallback(c *gin.Context, apiKey *service
 	for state.index < len(state.candidates) {
 		candidate := state.candidates[state.index]
 		state.index++
-		mapping, restricted := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, candidate.Model)
+		targetModel := candidate.Model
+		target, routed := state.targets[candidate.Model]
+		if routed && target.upstreamModel != "" {
+			targetModel = target.upstreamModel
+		}
+		mapping, restricted := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, targetModel)
 		if restricted {
 			continue
 		}
-		forwardModel := candidate.Model
+		forwardModel := targetModel
 		if mapping.Mapped {
 			forwardModel = mapping.MappedModel
 		}
-		if !service.AutoModelAllowed(c.Request.Context(), candidate.Model, forwardModel) {
+		if !service.AutoModelAllowed(c.Request.Context(), candidate.Model, targetModel, forwardModel) {
 			continue
 		}
 		original := clientRequestedModel(c, model)
+		if routed {
+			original = candidate.Model
+		}
 		ctx := context.WithValue(c.Request.Context(), ctxkey.RequestedPublicModel, original)
 		ctx = context.WithValue(ctx, ctxkey.ResolvedUpstreamModel, forwardModel)
+		if routed && target.platform != "" {
+			ctx = service.WithResolvedTargetPlatform(ctx, target.platform)
+		}
 		ctx = service.WithOpenAIForwardModel(ctx, forwardModel, compact)
 		c.Request = c.Request.WithContext(ctx)
 		mapping.BillingModelSource = service.BillingModelSourceUpstream
@@ -68,9 +85,25 @@ func (h *OpenAIGatewayHandler) nextModelFallback(c *gin.Context, apiKey *service
 		}
 		service.RecordOpsModelFallback(c, model, candidate.Model, candidate.Tier)
 		slog.Warn("openai model fallback", "requested_model", original, "from_model", model, "to_model", candidate.Model, "tier", candidate.Tier)
-		return modelFallbackAttempt{Model: candidate.Model, Body: h.gatewayService.ReplaceModelInBody(body, forwardModel), Mapping: mapping}, true
+		return modelFallbackAttempt{Model: targetModel, Body: h.gatewayService.ReplaceModelInBody(body, forwardModel), Mapping: mapping}, true
 	}
 	return modelFallbackAttempt{}, false
+}
+
+// Auto 候选固定在当前请求内，失败时只会切换到已经通过能力预检的模型。
+func seedAutoModelFallback(c *gin.Context, selected string, routes []autoModelRouteCandidate) {
+	if c == nil {
+		return
+	}
+	state := &modelFallbackState{targets: make(map[string]modelFallbackTarget, len(routes))}
+	for _, route := range routes {
+		if route.model == selected {
+			continue
+		}
+		state.candidates = append(state.candidates, service.ModelFallbackCandidate{Model: route.model, Tier: "auto"})
+		state.targets[route.model] = modelFallbackTarget{platform: route.targetPlatform, upstreamModel: route.upstreamModel}
+	}
+	c.Set(modelFallbackStateKey, state)
 }
 
 func modelFallbackReplayableRequest(c *gin.Context, apiKey *service.APIKey, model string, body []byte) bool {
