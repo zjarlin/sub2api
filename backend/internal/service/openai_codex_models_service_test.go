@@ -232,7 +232,8 @@ func requireCompleteConfiguredCodexModel(t *testing.T, model map[string]any, slu
 	require.Contains(t, model, "experimental_supported_tools")
 	modelMessages, ok := model["model_messages"].(map[string]any)
 	require.True(t, ok)
-	require.NotEmpty(t, modelMessages["instructions_template"])
+	require.Contains(t, modelMessages, "instructions_template")
+	require.IsType(t, "", modelMessages["instructions_template"])
 	for _, key := range []string{
 		"instructions_variables",
 		"approvals",
@@ -413,7 +414,7 @@ func TestNewConfiguredCodexModelDescriptorUsesProviderMetadataAndSafeFallback(t 
 		{Effort: "none", Description: configuredCodexReasoningLevelDescription("none")},
 	}, custom.SupportedReasoningLevels)
 	require.False(t, custom.SupportsParallelToolCalls)
-	require.NotEmpty(t, custom.ModelMessages.InstructionsTemplate)
+	require.Empty(t, custom.ModelMessages.InstructionsTemplate)
 	require.Equal(t, "auto", custom.DefaultReasoningSummary)
 	require.Equal(t, configuredCodexTruncationPolicy{Mode: "bytes", Limit: 10_000}, custom.TruncationPolicy)
 }
@@ -435,6 +436,45 @@ func TestBuildCodexModelsManifestUsesGPT6AstraInstructions(t *testing.T) {
 		strings.TrimSpace(manifest.Models[0].ModelMessages.InstructionsTemplate),
 		"You are Codex, an agent based on GPT-6.",
 	))
+}
+
+func TestBuildCodexModelsManifestScopesDefaultInstructionsToGPT(t *testing.T) {
+	t.Parallel()
+
+	for _, tt := range []struct {
+		model         string
+		upstreamModel string
+		wantGPTPrompt bool
+	}{
+		{model: "deepseek-v4-pro"},
+		{model: "anthropic/claude-opus-4-6"},
+		{model: "grok-4.6"},
+		{model: "MiniMax-M3.1-Flash-Preview"},
+		{model: "company-coding-model"},
+		{model: "auto"},
+		{model: "gpt-5.5", wantGPTPrompt: true},
+		{model: "openai/gpt-6-astra", wantGPTPrompt: true},
+		{model: "gpt-5.3-codex", wantGPTPrompt: true},
+		{model: "custom-gpt", upstreamModel: "gpt-6", wantGPTPrompt: true},
+		{model: "gpt-alias", upstreamModel: "deepseek-v4-pro"},
+	} {
+		t.Run(tt.model, func(t *testing.T) {
+			body, err := buildCodexModelsManifest(
+				[]string{tt.model}, nil, nil,
+				map[string]string{tt.model: tt.upstreamModel}, nil,
+			)
+			require.NoError(t, err)
+			models := decodeCodexManifestModels(t, body)
+			require.Len(t, models, 1)
+			requireCompleteConfiguredCodexModel(t, models[0], tt.model)
+			messages := models[0]["model_messages"].(map[string]any)
+			if tt.wantGPTPrompt {
+				require.Contains(t, messages["instructions_template"], "You are Codex")
+			} else {
+				require.Equal(t, "", messages["instructions_template"])
+			}
+		})
+	}
 }
 
 func effortsFromConfiguredCodexLevels(levels []configuredCodexReasoningLevel) []string {
@@ -2306,16 +2346,18 @@ func TestFetchCodexModelsManifestAPIKeyConvertsStandardOpenAIModelList(t *testin
 }
 
 func TestConvertOpenAIModelListToCodexManifestUsesCompleteDescriptors(t *testing.T) {
-	upstreamBody := `{"object":"list","data":[{"id":"gpt-5.5","object":"model"}]}`
+	upstreamBody := `{"object":"list","data":[{"id":"gpt-5.5","object":"model"},{"id":"deepseek-v4-pro","object":"model"}]}`
 
 	converted := convertOpenAIModelListToCodexManifest([]byte(upstreamBody))
 	models := decodeCodexManifestModels(t, converted)
 
-	require.Len(t, models, 1)
+	require.Len(t, models, 2)
 	requireCompleteConfiguredCodexModel(t, models[0], "gpt-5.5")
 	require.Equal(t, "GPT-5.5", models[0]["display_name"])
 	require.Equal(t, "medium", models[0]["default_reasoning_level"])
 	require.Len(t, models[0]["supported_reasoning_levels"], 4)
+	requireCompleteConfiguredCodexModel(t, models[1], "deepseek-v4-pro")
+	require.Equal(t, "", models[1]["model_messages"].(map[string]any)["instructions_template"])
 }
 
 func TestCompleteAPIKeyCodexModelsManifestForClientPreservesProviderMetadata(t *testing.T) {
@@ -2344,7 +2386,7 @@ func TestCompleteAPIKeyCodexModelsManifestForClientPreservesProviderMetadata(t *
 	require.Equal(t, []string{"low", "medium", "high", "xhigh"}, effortsFromManifestModel(t, models[0]))
 	modelMessages, ok := models[0]["model_messages"].(map[string]any)
 	require.True(t, ok)
-	require.NotEmpty(t, modelMessages["instructions_template"])
+	require.Equal(t, "", modelMessages["instructions_template"])
 	require.Equal(t, map[string]any{"enabled": true}, modelMessages["auto_review"])
 	require.Equal(t, map[string]any{"mode": "tokens", "limit": float64(10_000)}, models[0]["truncation_policy"])
 	require.Equal(t, codexModelsManifestBodyETag(manifest.Body), manifest.ETag)
