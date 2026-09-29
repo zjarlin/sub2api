@@ -184,6 +184,60 @@ func TestForwardResponses_ForceChatCompletionsRoutesStreamingToChatCompletions(t
 	require.NotNil(t, result.FirstTokenMs)
 }
 
+func TestForwardResponses_ChatFallbackRequiresTerminalSignal(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	for _, tt := range []struct {
+		name     string
+		terminal string
+		wantErr  bool
+	}{
+		{name: "truncated stream", wantErr: true},
+		{name: "finish reason without done", terminal: `data: {"choices":[{"index":0,"delta":{},"finish_reason":"stop"}]}`},
+		{name: "done without finish reason", terminal: "data: [DONE]"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			body := []byte(`{"model":"glm","input":"hello","stream":true}`)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+			upstreamBody := strings.Join([]string{
+				`data: {"id":"chatcmpl_partial","choices":[{"index":0,"delta":{"content":"partial answer"},"finish_reason":null}]}`,
+				"",
+				`data: {"choices":[],"usage":{"prompt_tokens":4,"completion_tokens":3,"total_tokens":7}}`,
+				"",
+				tt.terminal,
+				"",
+			}, "\n")
+			upstream := &httpUpstreamRecorder{resp: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+				Body:       io.NopCloser(strings.NewReader(upstreamBody)),
+			}}
+			svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+
+			result, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
+			require.NotNil(t, result)
+			require.Equal(t, 4, result.Usage.InputTokens)
+			require.Equal(t, 3, result.Usage.OutputTokens)
+			require.Contains(t, rec.Body.String(), `"delta":"partial answer"`)
+			if tt.wantErr {
+				require.ErrorContains(t, err, "without a finish reason or [DONE]")
+				require.Contains(t, rec.Body.String(), "event: response.failed")
+				require.Contains(t, rec.Body.String(), `"code":"upstream_stream_incomplete"`)
+				require.NotContains(t, rec.Body.String(), "event: response.completed")
+				require.NotContains(t, rec.Body.String(), "event: response.output_item.done")
+				require.NotContains(t, rec.Body.String(), "data: [DONE]")
+			} else {
+				require.NoError(t, err)
+				require.Contains(t, rec.Body.String(), "event: response.completed")
+				require.NotContains(t, rec.Body.String(), "event: response.failed")
+				require.Contains(t, rec.Body.String(), "data: [DONE]")
+			}
+		})
+	}
+}
+
 func TestForwardResponses_ChatFallbackRejectsInvalidToolArgumentsAtOutputLimit(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
@@ -256,6 +310,8 @@ func TestForwardResponses_DeepSeekReasoningOnlyStreamProducesVisibleText(t *test
 	require.True(t, result.Stream)
 	require.Contains(t, rec.Body.String(), "event: response.output_text.delta")
 	require.Contains(t, rec.Body.String(), `"delta":"visible fallback"`)
+	require.Contains(t, rec.Body.String(), "event: response.incomplete")
+	require.NotContains(t, rec.Body.String(), "event: response.completed")
 	require.Contains(t, rec.Body.String(), `"status":"incomplete"`)
 	require.Contains(t, rec.Body.String(), "data: [DONE]")
 }

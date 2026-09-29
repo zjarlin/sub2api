@@ -65,7 +65,7 @@ export default {
     downloads: {
       title: 'Client downloads',
       macos: 'Official desktop installer. Download and open the DMG.',
-      windows: 'The official docs currently recommend the ChatGPT desktop app with Codex. Run in PowerShell; the download is saved in the current directory.',
+      windows: 'The official docs currently recommend the ChatGPT desktop app with Codex. The download is saved in the current directory.',
       linux: 'Official Codex CLI installer.',
     },
     setup: {
@@ -113,11 +113,11 @@ export default {
         },
         script: {
           title: 'One-click setup command',
-          body: 'Use the npm-published command. It detects the Codex desktop client for the current OS, skips installation when already present, then creates the config directory and writes the files. Windows and macOS use the same command.'
+          body: 'Use the npm-published command. It detects the Codex desktop client for the current OS, skips installation when already present, then creates the config directory and writes the files. Windows uses npx.cmd; macOS/Linux uses npx.'
         },
         download: {
           title: 'Install and configure Codex automatically',
-          body: 'Copy the command into a terminal: macOS installs the official DMG when missing; Windows installs with winget when missing. If Codex is already installed, it only writes configuration.',
+          body: 'Copy the command into a terminal: macOS installs the official DMG when missing; Windows uses winget and falls back to the official Windows installer when winget is unavailable. If Codex is already installed, it only writes configuration.',
         },
         setupCommand: {
           loading: 'Loading your API key...',

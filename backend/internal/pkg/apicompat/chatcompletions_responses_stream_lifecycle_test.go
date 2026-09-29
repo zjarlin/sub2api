@@ -53,7 +53,7 @@ func TestStream_ReasoningOnlySynthesizesVisibleText(t *testing.T) {
 	})
 
 	open := map[int]string{}
-	var sawTextDelta, sawTextDone, sawMessageDone bool
+	var sawTextDelta, sawTextDone, sawMessageDone, sawIncomplete bool
 	for _, e := range events {
 		switch e.Type {
 		case "response.output_item.added":
@@ -71,7 +71,8 @@ func TestStream_ReasoningOnlySynthesizesVisibleText(t *testing.T) {
 				sawMessageDone = true
 				require.Equal(t, "thinking before final", e.Item.Content[0].Text)
 			}
-		case "response.completed":
+		case "response.incomplete":
+			sawIncomplete = true
 			require.NotNil(t, e.Response)
 			require.Equal(t, "incomplete", e.Response.Status)
 			require.NotNil(t, e.Response.IncompleteDetails)
@@ -80,11 +81,53 @@ func TestStream_ReasoningOnlySynthesizesVisibleText(t *testing.T) {
 			require.Equal(t, "reasoning", e.Response.Output[0].Type)
 			require.Equal(t, "message", e.Response.Output[1].Type)
 			require.Equal(t, "thinking before final", e.Response.Output[1].Content[0].Text)
+		case "response.completed":
+			t.Fatal("output limit must not emit response.completed")
 		}
 	}
 	require.True(t, sawTextDelta, "reasoning-only stream must produce visible text delta")
 	require.True(t, sawTextDone, "reasoning-only stream must close visible text part")
 	require.True(t, sawMessageDone, "reasoning-only stream must close synthesized message item")
+	require.True(t, sawIncomplete, "output limit must emit response.incomplete")
+}
+
+func TestStream_TerminalEventMatchesResponseStatus(t *testing.T) {
+	for _, tt := range []struct {
+		name         string
+		finishReason string
+		eventType    string
+		status       string
+	}{
+		{name: "normal completion", finishReason: "stop", eventType: "response.completed", status: "completed"},
+		{name: "tool completion", finishReason: "tool_calls", eventType: "response.completed", status: "completed"},
+		{name: "output limit", finishReason: "length", eventType: "response.incomplete", status: "incomplete"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			events := collectStreamEvents(t, []string{
+				`{"choices":[{"index":0,"delta":{"content":"partial answer"}}]}`,
+				`{"choices":[{"index":0,"delta":{},"finish_reason":"` + tt.finishReason + `"}],"usage":{"prompt_tokens":4,"completion_tokens":3,"total_tokens":7}}`,
+			})
+			terminal := events[len(events)-1]
+			require.Equal(t, tt.eventType, terminal.Type)
+			require.NotNil(t, terminal.Response)
+			require.Equal(t, tt.status, terminal.Response.Status)
+			require.Len(t, terminal.Response.Output, 1)
+			require.Equal(t, "partial answer", terminal.Response.Output[0].Content[0].Text)
+			require.NotNil(t, terminal.Response.Usage)
+			require.Equal(t, 4, terminal.Response.Usage.InputTokens)
+			require.Equal(t, 3, terminal.Response.Usage.OutputTokens)
+			if tt.status == "incomplete" {
+				require.NotNil(t, terminal.Response.IncompleteDetails)
+				require.Equal(t, "max_output_tokens", terminal.Response.IncompleteDetails.Reason)
+			} else {
+				require.Nil(t, terminal.Response.IncompleteDetails)
+			}
+			wire, err := ResponsesEventToSSE(terminal)
+			require.NoError(t, err)
+			require.Contains(t, wire, "event: "+tt.eventType+"\n")
+			require.Contains(t, wire, `"type":"`+tt.eventType+`"`)
+		})
+	}
 }
 
 func TestStream_ReasoningOnlyBlankDoesNotSynthesizeVisibleText(t *testing.T) {
@@ -277,9 +320,11 @@ func TestStream_ValidToolCallAtOutputLimitKeepsIncompleteResponse(t *testing.T) 
 		case "response.function_call_arguments.done":
 			sawArgsDone = true
 			require.Equal(t, `{}`, event.Arguments)
-		case "response.completed":
+		case "response.incomplete":
 			require.NotNil(t, event.Response)
 			sawIncomplete = event.Response.Status == "incomplete"
+		case "response.completed":
+			t.Fatal("output limit must not emit response.completed")
 		}
 	}
 	require.True(t, sawArgsDone)

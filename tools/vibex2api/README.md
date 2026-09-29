@@ -49,6 +49,9 @@ V2A_API_KEY=<private-adapter-key> V2A_STATE_FILE=<private-state-path> go run .
   转 JPEG 上传到专用项目，经平台原生 Read 检视。图片地址不携带账号凭证，
   连接时拒绝本地、私网和保留地址。附件仍保存在上游专用项目中。
 - `temperature`、`max_tokens` 等未适配的参数仍返回 400。
+- 支持 `response_format` 的 `text`、`json_object`、`json_schema`；JSON 格式通过提示词约束，
+  完整输出在返回前校验，流式请求也先缓冲校验再发送。不符合格式返回 502，
+  不提供上游原生受约束解码。Schema 支持本地引用，拒绝远程引用；客户端工具调用不受最终答案格式约束。
 - 每个请求使用新的上游会话，项目串行使用；发现已有运行中的任务返回 409。
 - 连接时用项目元信息执行 `init_root`，等待就绪和空闲状态后创建新会话。
   新会话确认的 `session_id` 可以是 `null`，实际 ID 在提示词启动后分配。

@@ -17,9 +17,12 @@ export function buildCodexSetupCommand(
 ): string {
   const quote = (value: string) => {
     if (/^[a-zA-Z0-9_./:@=-]+$/.test(value)) return value
+    if (windows && !/["%!$`]/.test(value) && [...value].every(character => character.charCodeAt(0) >= 32)) {
+      return `"${value.replace(/(\\+)$/, '$1$1')}"`
+    }
     return windows ? `'${value.replace(/'/g, "''")}'` : `'${value.replace(/'/g, "'\\''")}'`
   }
-  const args = ['npx', '-y', 'sub2api-codex-setup', '--base-url', quote(baseUrl), '--api-key', quote(apiKey)]
+  const args = [windows ? 'npx.cmd' : 'npx', '-y', 'sub2api-codex-setup', '--base-url', quote(baseUrl), '--api-key', quote(apiKey)]
   if (authMode === 'legacy') args.push('--auth-mode', 'legacy')
   if (options.client === 'cli') args.push('--client', 'cli')
   if (options.client === 'cli' && options.installDir.trim()) {

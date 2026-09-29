@@ -29,11 +29,16 @@
           <Icon name="book" size="sm" />
           {{ t('docs.official') }}
         </a>
+        <div class="mt-4 flex flex-wrap gap-1" role="radiogroup" :aria-label="t('docs.setup.platform')">
+          <button v-for="platform in platforms" :key="platform.id" type="button" role="radio" :aria-checked="selectedPlatform === platform.id" :data-testid="'platform-' + platform.id" class="rounded-md border px-3 py-2 text-sm" :class="selectedPlatform === platform.id ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-200' : 'border-gray-300 dark:border-dark-700'" @click="selectPlatform(platform.id)">
+            {{ platform.label }}
+          </button>
+        </div>
       </section>
 
       <section id="downloads" class="scroll-mt-6 border-t border-gray-200 pt-6 dark:border-dark-700">
         <h2 class="text-lg font-semibold">{{ t('docs.downloads.title') }}</h2>
-        <div v-for="download in downloads" :key="download.id" class="mt-5 min-w-0">
+        <div v-for="download in downloads" :key="download.id" class="mt-5 min-w-0" :data-testid="'download-' + download.id">
           <div class="flex items-center justify-between gap-3">
             <h3 class="text-sm font-semibold">{{ download.title }}</h3>
             <button type="button" :aria-label="t('common.copy')" :title="t('common.copy')" class="shrink-0 rounded p-2 hover:bg-gray-200 dark:hover:bg-dark-700" @click="copyCommand(download.code, download.id)">
@@ -48,12 +53,6 @@
       <section id="codex-cli" class="scroll-mt-6 space-y-4 border-t border-gray-200 pt-6 dark:border-dark-700">
         <h2 class="text-lg font-semibold">{{ t('docs.setup.title') }}</h2>
         <p class="text-sm text-gray-600 dark:text-dark-300">{{ t('docs.setup.requirements') }}</p>
-        <div class="flex flex-wrap gap-1" role="radiogroup" :aria-label="t('docs.setup.platform')">
-          <button v-for="platform in platforms" :key="platform.id" type="button" role="radio" :aria-checked="selectedPlatform === platform.id" :data-testid="'platform-' + platform.id" class="rounded-md border px-3 py-2 text-sm" :class="selectedPlatform === platform.id ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-200' : 'border-gray-300 dark:border-dark-700'" @click="selectPlatform(platform.id)">
-            {{ platform.label }}
-          </button>
-        </div>
-
         <p v-if="currentUserKeyLoading" class="text-sm text-gray-500">{{ t('docs.codex.items.setupCommand.loading') }}</p>
         <p v-else-if="currentUserKey" class="text-sm text-gray-500">{{ t('docs.codex.items.setupCommand.usingKey', { name: currentUserKey.name }) }}</p>
         <template v-else>
@@ -123,9 +122,9 @@ const downloads = computed(() => [
   },
   {
     id: 'windows',
-    title: 'Windows (PowerShell)',
+    title: 'Windows (CMD / PowerShell)',
     description: t('docs.downloads.windows'),
-    code: 'curl.exe -fL "https://get.microsoft.com/installer/download/9PLM9XGG6VKS" -o ChatGPT-Setup.exe\nif ($LASTEXITCODE -eq 0) { Start-Process .\\ChatGPT-Setup.exe -Wait }'
+    code: 'powershell.exe -NoProfile -Command "try { Invoke-WebRequest -UseBasicParsing -Uri \'https://get.microsoft.com/installer/download/9PLM9XGG6VKS\' -OutFile \'ChatGPT-Setup.exe\' -ErrorAction Stop; exit (Start-Process -FilePath \'./ChatGPT-Setup.exe\' -Wait -PassThru -ErrorAction Stop).ExitCode } catch { exit 1 }"'
   },
   {
     id: 'linux',
@@ -133,7 +132,7 @@ const downloads = computed(() => [
     description: t('docs.downloads.linux'),
     code: 'curl -fL "https://chatgpt.com/codex/install.sh" -o codex-install.sh && sh codex-install.sh'
   }
-])
+].filter(download => download.id === selectedPlatform.value))
 const setupCommand = computed(() => buildCodexSetupCommand(
   window.location.origin.replace(/\/+$/, ''),
   currentUserKey.value?.key || manualApiKey.value || 'sk-xxxx',
