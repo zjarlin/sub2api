@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { isAbsolute, join, posix, resolve, win32 } from 'node:path';
+import { join, posix, win32 } from 'node:path';
 
 export type Platform = 'macos' | 'windows' | 'linux';
 export type CodexInstallSource = 'official' | 'modified';
@@ -61,10 +61,10 @@ export function resolveDirectory(value: string, platform = process.platform): st
     }
     return win32.normalize(value);
   }
-  if (!isAbsolute(value)) {
+  if (!posix.isAbsolute(value)) {
     throw new Error('Directory must be an absolute path');
   }
-  return resolve(value);
+  return posix.resolve(value);
 }
 
 export function codexConfigDir(platform = process.platform, explicitDir?: string): string {
@@ -194,8 +194,8 @@ export function planClientInstall(options: InstallOptions = {}): InstallPlan {
       source: 'official',
       install: [
         {
-          command: 'winget',
-          args: ['install', '--id', '9PLM9XGG6VKS', '--exact', '-s', 'msstore', '--accept-package-agreements', '--accept-source-agreements']
+          command: 'powershell.exe',
+          args: ['-NoProfile', '-Command', windowsInstallScript()]
         }
       ]
     };
@@ -261,6 +261,27 @@ export function runCommand(plan: CommandPlan): Promise<void> {
       reject(new Error(`${plan.command} exited with ${signal || code}`));
     });
   });
+}
+
+export function windowsInstallScript(): string {
+  return `$ErrorActionPreference = 'Stop'
+$winget = Get-Command winget.exe -ErrorAction SilentlyContinue
+if ($winget) {
+  & $winget.Source install --id 9PLM9XGG6VKS --exact -s msstore --accept-package-agreements --accept-source-agreements
+  if ($LASTEXITCODE -eq 0) { exit 0 }
+  Write-Warning "winget failed (exit $LASTEXITCODE); using the official Windows installer."
+}
+$tempDir = Join-Path ([IO.Path]::GetTempPath()) ('sub2api-codex-' + [Guid]::NewGuid().ToString('N'))
+New-Item -ItemType Directory -Path $tempDir | Out-Null
+try {
+  [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+  $installer = Join-Path $tempDir 'ChatGPT-Setup.exe'
+  Invoke-WebRequest -UseBasicParsing -Uri 'https://get.microsoft.com/installer/download/9PLM9XGG6VKS' -OutFile $installer
+  $process = Start-Process -FilePath $installer -Wait -PassThru
+  if ($process.ExitCode -ne 0) { throw "Windows installer exited with $($process.ExitCode)" }
+} finally {
+  Remove-Item -LiteralPath $tempDir -Recurse -Force
+}`;
 }
 
 function macosInstallScript(installDir?: string): string {

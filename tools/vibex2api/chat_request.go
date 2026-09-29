@@ -23,7 +23,7 @@ func decodeChat(w http.ResponseWriter, r *http.Request) (chatRequest, string, er
 	if decoder.Decode(&raw) != nil || decoder.Decode(new(any)) != io.EOF {
 		return request, "", problem(400, "invalid_request", "Invalid chat request")
 	}
-	allowed := map[string]bool{"model": true, "messages": true, "stream": true, "stream_options": true, "tools": true, "tool_choice": true, "parallel_tool_calls": true}
+	allowed := map[string]bool{"model": true, "messages": true, "stream": true, "stream_options": true, "tools": true, "tool_choice": true, "parallel_tool_calls": true, "response_format": true}
 	for key, value := range raw {
 		if !allowed[key] && string(bytes.TrimSpace(value)) != "null" {
 			return request, "", problem(400, "unsupported_parameter", "VibeX does not support parameter: "+key)
@@ -40,6 +40,10 @@ func decodeChat(w http.ResponseWriter, r *http.Request) (chatRequest, string, er
 		return request, "", err
 	}
 	request.policy = policy
+	request.format, err = parseResponseFormat(request.ResponseFormat)
+	if err != nil {
+		return request, "", err
+	}
 	var messages []map[string]json.RawMessage
 	_ = json.Unmarshal(raw["messages"], &messages)
 	pending, seen := map[string]bool{}, map[string]bool{}
@@ -92,7 +96,7 @@ func decodeChat(w http.ResponseWriter, r *http.Request) (chatRequest, string, er
 	if len(pending) > 0 {
 		return request, "", invalidHistory()
 	}
-	return request, policy.prompt(prompt.String(), request.Tools), nil
+	return request, request.format.prompt(policy.prompt(prompt.String(), request.Tools), policy.enabled()), nil
 }
 
 func invalidHistory() error {

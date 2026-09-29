@@ -1896,14 +1896,16 @@ func FinalizeChatCompletionsResponsesStream(state *ChatCompletionsToResponsesStr
 	events = append(events, closeChatToolItems(state)...)
 
 	status := "completed"
+	eventType := "response.completed"
 	var incompleteDetails *ResponsesIncompleteDetails
 	if state.FinishReason == "length" {
 		status = "incomplete"
+		eventType = "response.incomplete"
 		incompleteDetails = &ResponsesIncompleteDetails{Reason: "max_output_tokens"}
 	}
 
 	state.CompletedSent = true
-	events = append(events, chatToResponsesEvent(state, "response.completed", &ResponsesStreamEvent{
+	events = append(events, chatToResponsesEvent(state, eventType, &ResponsesStreamEvent{
 		Response: &ResponsesResponse{
 			ID:                state.ResponseID,
 			Object:            "response",

@@ -828,7 +828,7 @@ describe('UseKeyModal', () => {
     expect(windowsSetupScript).toContain('WriteAllText((Join-Path $configDir "config.toml")')
     expect(windowsSetupScript).not.toContain('auth.json')
     expect(wrapper.text()).toContain('One-command setup')
-    expect(wrapper.text()).toContain('npx -y sub2api-codex-setup')
+    expect(wrapper.text()).toContain('npx.cmd -y sub2api-codex-setup')
   })
 
   it.each(['anthropic', 'gemini', 'antigravity', 'kimi', 'zhipu', 'minimax'] as const)(

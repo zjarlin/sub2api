@@ -108,6 +108,7 @@ vi.mock('@/api/keys', () => ({
 describe('DocsView', () => {
   beforeEach(() => {
     authState.isAuthenticated = false
+    Object.defineProperty(navigator, 'platform', { configurable: true, value: 'MacIntel' })
     listKeysMock.mockReset()
     listKeysMock.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 1, pages: 0 })
   })
@@ -135,11 +136,38 @@ describe('DocsView', () => {
     expect(wrapper.find('#quick-start').exists()).toBe(true)
     expect(wrapper.text()).toContain('curl -fL')
     expect(wrapper.text()).toContain('Codex.dmg')
-    expect(wrapper.text()).toContain('curl.exe -fL')
-    expect(wrapper.text()).toContain('https://chatgpt.com/codex/install.sh')
+    expect(wrapper.find('[data-testid="download-windows"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="download-linux"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('npx -y sub2api-codex-setup')
     expect(wrapper.text()).toContain('Login required.')
     expect(wrapper.find('#clients').exists()).toBe(false)
+  })
+
+  it('shows and copies the Windows installer on a Windows browser', async () => {
+    Object.defineProperty(navigator, 'platform', { configurable: true, value: 'Win32' })
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    const wrapper = mount(DocsView, {
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, Icon: { template: '<span />' } } }
+    })
+    const download = wrapper.get('[data-testid="download-windows"]')
+    const command = download.get('code').text()
+    expect(command).toContain('powershell.exe -NoProfile -Command')
+    expect(command).toContain('https://get.microsoft.com/installer/download/9PLM9XGG6VKS')
+    expect(command).toContain('Start-Process')
+    expect(command).not.toContain('$LASTEXITCODE')
+    expect(command).not.toContain('\n')
+    expect(wrapper.text()).not.toContain('Codex.dmg')
+    expect(wrapper.get('[data-testid="setup-command"]').text()).toContain('npx.cmd -y sub2api-codex-setup')
+    await download.get('button').trigger('click')
+    expect(writeText).toHaveBeenCalledWith(command)
+    await wrapper.get('[data-testid="platform-macos"]').trigger('click')
+    expect(wrapper.find('[data-testid="download-windows"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="download-macos"]').text()).toContain('Codex.dmg')
+    await wrapper.get('[data-testid="platform-linux"]').trigger('click')
+    expect(wrapper.find('[data-testid="download-macos"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="download-linux"]').text()).toContain('https://chatgpt.com/codex/install.sh')
+    wrapper.unmount()
   })
 
   it('renders the current user key setup command for an authenticated user', async () => {
@@ -258,9 +286,10 @@ describe('DocsView', () => {
     await wrapper.get('[data-testid="setup-install-dir"]').setValue('D:\\AI tools\\app')
     await wrapper.get('[data-testid="setup-codex-home"]').setValue('D:\\AI tools\\data')
     const command = wrapper.get('[data-testid="setup-command"]').text()
+    expect(command).toContain('npx.cmd -y sub2api-codex-setup')
     expect(command).toContain('--client cli')
-    expect(command).toContain("--install-dir 'D:\\AI tools\\app'")
-    expect(command).toContain("--codex-home 'D:\\AI tools\\data' --persist-home")
+    expect(command).toContain('--install-dir "D:\\AI tools\\app"')
+    expect(command).toContain('--codex-home "D:\\AI tools\\data" --persist-home')
     await wrapper.get('#codex-cli > button').trigger('click')
     expect(writeText).toHaveBeenCalledWith(command)
     await wrapper.get('[data-testid="setup-client-desktop"]').trigger('click')

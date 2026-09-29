@@ -21,7 +21,9 @@ type chatRequest struct {
 	Tools             []functionTool  `json:"tools"`
 	ToolChoice        json.RawMessage `json:"tool_choice"`
 	ParallelToolCalls *bool           `json:"parallel_tool_calls"`
+	ResponseFormat    json.RawMessage `json:"response_format"`
 	policy            toolPolicy
+	format            responseFormat
 	images            []chatImage
 	Stream            bool `json:"stream"`
 	StreamOptions     struct {
@@ -505,7 +507,7 @@ func (a *adapter) chat(w http.ResponseWriter, r *http.Request) {
 			return problem(502, "response_too_large", "VibeX response exceeded the size limit")
 		}
 		text.WriteString(value)
-		if !request.Stream || request.policy.enabled() || value == "" {
+		if !request.Stream || request.policy.enabled() || request.format.schema != nil || value == "" {
 			return nil
 		}
 		if !started {
@@ -519,10 +521,13 @@ func (a *adapter) chat(w http.ResponseWriter, r *http.Request) {
 		}
 		return sse(chunk(map[string]any{"content": value}, nil))
 	}
-	usage, err := generate(ctx, conn, previousSession, prompt, request.policy.enabled() || len(request.images) > 0, emit)
+	usage, err := generate(ctx, conn, previousSession, prompt, request.policy.enabled() || request.format.schema != nil || len(request.images) > 0, emit)
 	message, finish := map[string]any{"role": "assistant", "content": text.String()}, "stop"
 	if err == nil && request.policy.enabled() {
 		message, finish, err = request.policy.reply(text.String())
+	}
+	if err == nil {
+		err = request.format.validate(message)
 	}
 	if err != nil {
 		// 断开前取消上游，后续连接还会检查项目是否仍有运行中的任务。
@@ -547,7 +552,12 @@ func (a *adapter) chat(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		}
-		if request.policy.enabled() {
+		if request.policy.enabled() || request.format.schema != nil {
+			if content, ok := message["content"].(string); ok && content != "" {
+				if sse(chunk(map[string]any{"content": content}, nil)) != nil {
+					return
+				}
+			}
 			if content, ok := message["content"].(*string); ok && content != nil && *content != "" {
 				if sse(chunk(map[string]any{"content": *content}, nil)) != nil {
 					return

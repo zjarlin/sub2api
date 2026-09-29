@@ -64,7 +64,7 @@ export default {
     downloads: {
       title: '客户端下载',
       macos: '官方桌面安装包，下载后打开 DMG。',
-      windows: '官方文档当前推荐的 ChatGPT 桌面应用（含 Codex），在 PowerShell 中运行。下载文件保存在当前目录。',
+      windows: '官方文档当前推荐的 ChatGPT 桌面应用（含 Codex）。下载文件保存在当前目录。',
       linux: '官方 Codex CLI 安装脚本。',
     },
     setup: {
@@ -112,11 +112,11 @@ export default {
         },
         script: {
           title: '一键配置命令',
-          body: '推荐使用 npm 发布的一键命令。它会按当前系统检测 Codex 客户端，已安装则跳过安装，然后自动创建目录并写入配置；Windows 和 macOS 都使用同一条命令。'
+          body: '推荐使用 npm 发布的一键命令。它会按当前系统检测 Codex 客户端，已安装则跳过安装，然后自动创建目录并写入配置；Windows 使用 npx.cmd，macOS/Linux 使用 npx。'
         },
         download: {
           title: '自动安装并配置 Codex',
-          body: '复制命令到终端运行：macOS 未安装时下载并安装官方 DMG，Windows 未安装时通过 winget 安装；已安装客户端时只写配置，不重复安装。',
+          body: '复制命令到终端运行：macOS 未安装时下载并安装官方 DMG，Windows 未安装时通过 winget 安装，winget 不可用时回退到官方 Windows 安装器；已安装客户端时只写配置，不重复安装。',
         },
         setupCommand: {
           loading: '正在读取你的 API Key…',
