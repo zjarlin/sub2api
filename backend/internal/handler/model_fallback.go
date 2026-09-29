@@ -140,7 +140,14 @@ func fallbackToolsReplayable(tools gjson.Result) bool {
 // 选号时可能取得与预筛选不同的账号，因此释放不兼容候选已获得的槽位后继续调度。
 func rejectIncompatibleModelFallbackAccount(c *gin.Context, selection *service.AccountSelectionResult, model string, body []byte, requireCompatible bool) bool {
 	_, active := c.Get(modelFallbackStateKey)
-	if (!active && !requireCompatible) || service.ModelFallbackAccountCompatible(selection.Account, model, body) {
+	if !active && !requireCompatible {
+		return false
+	}
+	compatible := service.ModelFallbackAccountCompatible
+	if c.Request != nil && service.IsAutoModelRouting(c.Request.Context()) {
+		compatible = service.ModelAccountCompatible
+	}
+	if compatible(selection.Account, model, body) {
 		return false
 	}
 	if selection.ReleaseFunc != nil {

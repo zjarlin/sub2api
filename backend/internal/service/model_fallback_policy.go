@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/tidwall/gjson"
 )
 
@@ -387,15 +388,20 @@ func (s *GatewayService) AutoModelAccountCompatible(ctx context.Context, groupID
 			continue
 		}
 		upstreamModel := ResolveOpenAIAccountUpstreamModelForRequest(account, forwardModel, false)
-		if AutoModelAllowed(ctx, upstreamModel) && ModelFallbackAccountCompatible(account, forwardModel, body) {
+		if AutoModelAllowed(ctx, upstreamModel) && ModelAccountCompatible(account, forwardModel, body) {
 			return true, nil
 		}
 	}
 	return false, nil
 }
 
-// 换模型前及实际选号后均检查能力；已知上下文上限采用字节数保守估算，不裁剪历史。
+// 故障转移同时要求历史可跨模型重放，不能把原生续轮能力等同于可移植性。
 func ModelFallbackAccountCompatible(account *Account, model string, body []byte) bool {
+	return ModelFallbackRequestPortable(body) && ModelAccountCompatible(account, model, body)
+}
+
+// 候选预检与实际选号共用账号能力检查；已知上下文上限采用字节数保守估算，不裁剪历史。
+func ModelAccountCompatible(account *Account, model string, body []byte) bool {
 	if account == nil {
 		return false
 	}
@@ -452,7 +458,10 @@ func fallbackInputCompatible(value gjson.Result, account *Account, model string)
 			return false
 		}
 	case "reasoning":
-		if value.Get("encrypted_content").Exists() {
+		// 原生 Responses 可以接收完整推理项；跨模型重放和 Chat 转换不能推定密文可移植。
+		if value.Get("encrypted_content").String() != "" &&
+			(account == nil || !account.IsOpenAI() ||
+				(!account.UsesOpenAICodexProtocol() && openai_compat.ResolveResponsesSupport(account.Extra) != openai_compat.ResponsesSupportYes)) {
 			return false
 		}
 	}

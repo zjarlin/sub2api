@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/stretchr/testify/require"
 )
 
@@ -82,6 +83,32 @@ func TestModelFallbackChecksAccountCapabilities(t *testing.T) {
 		`{"tools":[{"type":"function","name":"read"}]}`,
 	} {
 		require.False(t, ModelFallbackAccountCompatible(account, "target", []byte(body)), body)
+	}
+}
+
+func TestModelAccountEncryptedReasoningRequiresNativeResponses(t *testing.T) {
+	body := []byte(`{"model":"auto","input":[{"type":"reasoning","summary":[],"encrypted_content":"opaque"},{"type":"function_call","call_id":"call_1","name":"shell","arguments":"{}"},{"type":"function_call_output","call_id":"call_1","output":"ok"}]}`)
+	for _, tc := range []struct {
+		name     string
+		account  Account
+		accepted bool
+	}{
+		{"native", Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Extra: map[string]any{openai_compat.ExtraKeyResponsesSupported: true}}, true},
+		{"oauth", Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}, true},
+		{"unknown", Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}, false},
+		{"chat_only", Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Extra: map[string]any{openai_compat.ExtraKeyResponsesSupported: false}}, false},
+		{"forced_chat", Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Extra: map[string]any{openai_compat.ExtraKeyResponsesSupported: true, openai_compat.ExtraKeyResponsesMode: "force_chat_completions"}}, false},
+		{"other_provider", Account{Platform: PlatformDeepseek, Type: AccountTypeAPIKey, Extra: map[string]any{openai_compat.ExtraKeyResponsesSupported: true}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.accepted, ModelAccountCompatible(&tc.account, "gpt-5.5", body))
+			require.False(t, ModelFallbackAccountCompatible(&tc.account, "gpt-5.5", body))
+		})
+	}
+	require.False(t, ModelFallbackRequestPortable(body))
+	for _, encrypted := range []string{`null`, `""`} {
+		plain := []byte(`{"input":[{"type":"reasoning","summary":[],"encrypted_content":` + encrypted + `}]}`)
+		require.True(t, ModelFallbackAccountCompatible(&Account{Platform: PlatformOpenAI}, "gpt-5.5", plain))
 	}
 }
 

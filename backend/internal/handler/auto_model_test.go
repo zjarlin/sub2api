@@ -316,6 +316,51 @@ func TestAutoModelRequestPathIncludesResponsesSubpaths(t *testing.T) {
 	}
 }
 
+func TestAutoModelContinuesAfterEncryptedReasoningToolCall(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	accounts := []service.Account{autoModelTestAccounts()[0], autoModelTestAccounts()[2]}
+	accounts[0].Type = service.AccountTypeAPIKey
+	accounts[0].Extra = map[string]any{"openai_responses_supported": true}
+	h := newAutoModelTestHandler(accounts)
+	group := &service.Group{ID: 71, Platform: service.PlatformOpenAI}
+	key := &service.APIKey{GroupID: &group.ID, Group: group}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware2.ContextKeyAPIKey), key)
+	}, h.AutoModelMiddleware(nil))
+	var forwarded [][]byte
+	router.POST("/responses", func(c *gin.Context) {
+		body, err := io.ReadAll(c.Request.Body)
+		require.NoError(t, err)
+		model := gjson.GetBytes(body, "model").String()
+		selection := &service.AccountSelectionResult{Account: &accounts[0]}
+		require.False(t, rejectIncompatibleModelFallbackAccount(c, selection, model, body, true))
+		forwarded = append(forwarded, body)
+		if len(forwarded) == 2 {
+			require.False(t, modelFallbackReplayableRequest(c, key, model, body))
+			// 调度取得仅支持聊天补全的账号时仍须拒绝，并释放已经获取的并发槽位。
+			chatAccount := accounts[0]
+			chatAccount.Extra = map[string]any{"openai_responses_supported": false}
+			released := false
+			require.True(t, rejectIncompatibleModelFallbackAccount(c, &service.AccountSelectionResult{
+				Account: &chatAccount, ReleaseFunc: func() { released = true },
+			}, model, body, true))
+			require.True(t, released)
+		}
+		c.JSON(http.StatusOK, gin.H{"model": model})
+	})
+	history := `[{"role":"user","content":"use shell"},{"type":"reasoning","summary":[{"type":"summary_text","text":"Inspecting files."}],"encrypted_content":"opaque"},{"type":"function_call","call_id":"call_1","name":"shell","arguments":"{}"},{"type":"function_call_output","call_id":"call_1","output":"ok"}]`
+	for _, input := range []string{`"use shell"`, history} {
+		body := `{"model":"auto","input":` + input + `,"tools":[{"type":"function","name":"shell","parameters":{"type":"object"}}]}`
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/responses", strings.NewReader(body)))
+		require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+		require.Equal(t, "gpt-5.5", recorder.Header().Get("X-Sub2API-Selected-Model"))
+	}
+	require.Len(t, forwarded, 2)
+	require.JSONEq(t, history, gjson.GetBytes(forwarded[1], "input").Raw)
+}
+
 func TestAutoModelMiddlewareUsesSystemOneForMultipleCandidates(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	decisionCalls := 0
