@@ -107,6 +107,10 @@ func openAIModelPoolCircuitKey(ctx context.Context, groupID *int64, protocol, mo
 	if ctx == nil || groupID == nil || *groupID <= 0 {
 		return openAIModelPoolKey{}, false
 	}
+	// 现有池键没有平台维度，其他供应商不得复用 OpenAI 池的失败证据。
+	if platform, resolved := ResolvedTargetPlatformFromContext(ctx); resolved && NormalizeOpenAICompatiblePlatform(platform) != PlatformOpenAI {
+		return openAIModelPoolKey{}, false
+	}
 	switch protocol {
 	case APIProtocolResponses, APIProtocolChatCompletions, APIProtocolAnthropic:
 	default:

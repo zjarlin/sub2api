@@ -2016,6 +2016,9 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if autoModelRequestNeedsTools(ctx) && account.AutoModelToolCapabilityBlocked(req.RequestedModel, time.Now()) {
 		return false, "auto_tool_capability_blocked"
 	}
+	if !autoModelAccountSupportsImages(ctx, account, req.RequestedModel) {
+		return false, "auto_vision_capability_mismatch"
+	}
 	if s != nil && s.service != nil && s.service.isOpenAIProxyStreamQuarantined(ctx, account) {
 		return false, "proxy_stream_quarantined"
 	}

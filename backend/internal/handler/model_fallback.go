@@ -18,7 +18,7 @@ type modelFallbackAttempt struct {
 
 type modelFallbackState struct {
 	candidates []service.ModelFallbackCandidate
-	targets    map[string]modelFallbackTarget
+	targets    []modelFallbackTarget
 	index      int
 }
 
@@ -52,7 +52,11 @@ func (h *OpenAIGatewayHandler) nextModelFallback(c *gin.Context, apiKey *service
 		candidate := state.candidates[state.index]
 		state.index++
 		targetModel := candidate.Model
-		target, routed := state.targets[candidate.Model]
+		routed := state.index <= len(state.targets)
+		var target modelFallbackTarget
+		if routed {
+			target = state.targets[state.index-1]
+		}
 		if routed && target.upstreamModel != "" {
 			targetModel = target.upstreamModel
 		}
@@ -84,6 +88,14 @@ func (h *OpenAIGatewayHandler) nextModelFallback(c *gin.Context, apiKey *service
 			c.Header("X-Sub2api-Fallback-Model", candidate.Model)
 		}
 		service.RecordOpsModelFallback(c, model, candidate.Model, candidate.Tier)
+		if value, ok := c.Get(autoRouteObservationKey); ok {
+			if route, ok := value.(*service.AutoModelRouteObservation); ok {
+				route.AttemptedModels = append(route.AttemptedModels, candidate.Model)
+				if observer, ok := c.Writer.(*autoRouteObserverWriter); ok && observer.persist != nil {
+					observer.persist()
+				}
+			}
+		}
 		slog.Warn("openai model fallback", "requested_model", original, "from_model", model, "to_model", candidate.Model, "tier", candidate.Tier)
 		return modelFallbackAttempt{Model: targetModel, Body: h.gatewayService.ReplaceModelInBody(body, forwardModel), Mapping: mapping}, true
 	}
@@ -95,20 +107,25 @@ func seedAutoModelFallback(c *gin.Context, selected string, routes []autoModelRo
 	if c == nil {
 		return
 	}
-	state := &modelFallbackState{targets: make(map[string]modelFallbackTarget, len(routes))}
+	state := &modelFallbackState{}
+	skippedSelected := false
 	for _, route := range routes {
-		if route.model == selected {
+		if route.model == selected && !skippedSelected {
+			skippedSelected = true
 			continue
 		}
 		state.candidates = append(state.candidates, service.ModelFallbackCandidate{Model: route.model, Tier: "auto"})
-		state.targets[route.model] = modelFallbackTarget{platform: route.targetPlatform, upstreamModel: route.upstreamModel}
+		state.targets = append(state.targets, modelFallbackTarget{platform: route.targetPlatform, upstreamModel: route.upstreamModel})
 	}
 	c.Set(modelFallbackStateKey, state)
 }
 
 func modelFallbackReplayableRequest(c *gin.Context, apiKey *service.APIKey, model string, body []byte) bool {
+	platform := openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
+	platformReplayable := platform == service.PlatformOpenAI ||
+		(service.IsAutoModelRouting(c.Request.Context()) && autoModelTextPlatform(platform))
 	if !openAIRequestAllowsFailoverReplay(c) ||
-		openAICompatibleRequestPlatform(c.Request.Context(), apiKey) != service.PlatformOpenAI ||
+		!platformReplayable ||
 		gjson.GetBytes(body, "previous_response_id").String() != "" ||
 		gjson.GetBytes(body, "conversation").Exists() ||
 		service.IsExplicitImageGenerationIntent(c.Request.URL.Path, model, body) ||
@@ -143,11 +160,13 @@ func rejectIncompatibleModelFallbackAccount(c *gin.Context, selection *service.A
 	if !active && !requireCompatible {
 		return false
 	}
-	compatible := service.ModelFallbackAccountCompatible
+	var compatible bool
 	if c.Request != nil && service.IsAutoModelRouting(c.Request.Context()) {
-		compatible = service.ModelAccountCompatible
+		compatible = service.AutoModelRequestAccountCompatible(c.Request.Context(), selection.Account, model, body)
+	} else {
+		compatible = service.ModelFallbackAccountCompatible(selection.Account, model, body)
 	}
-	if compatible(selection.Account, model, body) {
+	if compatible {
 		return false
 	}
 	if selection.ReleaseFunc != nil {

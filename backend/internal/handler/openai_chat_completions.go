@@ -160,7 +160,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
-	switchBudget := openAIAccountSwitchBudget{limit: h.maxAccountSwitches, replayable: modelFallbackReplayableRequest(c, apiKey, reqModel, body)}
+	switchBudget := openAIAccountSwitchBudget{limit: h.maxAccountSwitches, replayable: modelFallbackReplayableRequest(c, apiKey, reqModel, body), auto: service.IsAutoModelRouting(c.Request.Context())}
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)

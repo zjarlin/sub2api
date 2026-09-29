@@ -45,7 +45,9 @@ type autoModelRoutingPolicyContextKey struct{}
 type autoModelRequestCapabilitiesContextKey struct{}
 
 type autoModelRequestCapabilities struct {
-	tools bool
+	tools          bool
+	images         bool
+	visionFallback bool
 }
 
 type autoModelToolCapabilityBlock struct {
@@ -56,6 +58,7 @@ type autoModelToolCapabilityBlock struct {
 
 type autoModelRoutingPolicy struct {
 	excluded map[string]struct{}
+	ranks    map[string]int
 	aliases  *ModelAliasPolicy
 	policy   *AutoModelPolicy
 }
@@ -94,7 +97,7 @@ func (p *ModelFallbackPolicy) Validate() error {
 	return nil
 }
 
-// 从原请求所在档位开始；同档其他模型先于低档模型，不回升、不循环。
+// 先试同档和低档，耗尽后从最近的高档逐档向上补偿；候选固定且不循环。
 func (p *ModelFallbackPolicy) Candidates(model string) []ModelFallbackCandidate {
 	if p == nil || !p.Enabled {
 		return nil
@@ -104,7 +107,11 @@ func (p *ModelFallbackPolicy) Candidates(model string) []ModelFallbackCandidate 
 		return nil
 	}
 	var candidates []ModelFallbackCandidate
-	for _, tier := range p.Tiers[start:] {
+	tiers := slices.Clone(p.Tiers[start:])
+	for i := start - 1; i >= 0; i-- {
+		tiers = append(tiers, p.Tiers[i])
+	}
+	for _, tier := range tiers {
 		for _, next := range tier.Models {
 			if next != model {
 				candidates = append(candidates, ModelFallbackCandidate{Model: next, Tier: tier.Name})
@@ -179,7 +186,13 @@ func (s *SettingService) BindAutoModelRoutingPolicy(ctx context.Context) (contex
 			excluded[group.Canonical] = struct{}{}
 		}
 	}
-	snapshot := &autoModelRoutingPolicy{excluded: excluded, aliases: aliasSnapshot, policy: autoPolicy}
+	ranks := make(map[string]int)
+	for rank, tier := range policy.Tiers {
+		for index, model := range tier.Models {
+			ranks[aliasSnapshot.Canonicalize(model)] = rank*1000 + index
+		}
+	}
+	snapshot := &autoModelRoutingPolicy{excluded: excluded, aliases: aliasSnapshot, policy: autoPolicy, ranks: ranks}
 	ctx = WithModelAliases(ctx, aliasSnapshot)
 	return context.WithValue(ctx, autoModelRoutingPolicyContextKey{}, snapshot), nil
 }
@@ -198,7 +211,10 @@ func WithAutoModelRequestCapabilities(ctx context.Context, body []byte) context.
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	capabilities := autoModelRequestCapabilities{tools: gjson.GetBytes(body, "tools.#").Int() > 0}
+	capabilities := autoModelRequestCapabilities{
+		tools:  gjson.GetBytes(body, "tools.#").Int() > 0,
+		images: autoModelInputHasImages(gjson.GetBytes(body, "input")) || autoModelInputHasImages(gjson.GetBytes(body, "messages")),
+	}
 	return context.WithValue(ctx, autoModelRequestCapabilitiesContextKey{}, capabilities)
 }
 
@@ -354,18 +370,23 @@ func (s *GatewayService) AutoModelAccountCompatible(ctx context.Context, groupID
 	if s == nil || s.accountRepo == nil || strings.TrimSpace(model) == "" {
 		return false, nil
 	}
+	snapshot, bound := ctx.Value(autoModelAccountsKey{}).(*autoModelInventory)
 	var accounts []Account
 	var err error
-	if groupID != nil {
-		accounts, err = s.accountRepo.ListSchedulableByGroupID(ctx, *groupID)
+	if bound && groupID != nil && snapshot.groupID == *groupID {
+		accounts = snapshot.accounts
 	} else {
-		accounts, err = s.accountRepo.ListSchedulable(ctx)
+		if groupID != nil {
+			accounts, err = s.accountRepo.ListSchedulableByGroupID(ctx, *groupID)
+		} else {
+			accounts, err = s.accountRepo.ListSchedulable(ctx)
+		}
+		accounts = accountsWithModelAliases(ctx, accounts)
 	}
 	if err != nil {
 		return false, err
 	}
 	platform = NormalizeOpenAICompatiblePlatform(platform)
-	accounts = accountsWithModelAliases(ctx, accounts)
 	mapping, restricted := s.ResolveChannelMappingAndRestrict(ctx, groupID, model)
 	if restricted {
 		return false, nil
@@ -381,14 +402,14 @@ func (s *GatewayService) AutoModelAccountCompatible(ctx context.Context, groupID
 	now := time.Now()
 	for i := range accounts {
 		account := &accounts[i]
-		if !openAIAccountMatchesPlatform(account, platform) || !account.IsModelSupported(forwardModel) {
+		if !account.IsSchedulable() || !openAIAccountMatchesPlatform(account, platform) || !account.IsModelSupported(forwardModel) {
 			continue
 		}
 		if requiresTools && account.AutoModelToolCapabilityBlocked(forwardModel, now) {
 			continue
 		}
 		upstreamModel := ResolveOpenAIAccountUpstreamModelForRequest(account, forwardModel, false)
-		if AutoModelAllowed(ctx, upstreamModel) && ModelAccountCompatible(account, forwardModel, body) {
+		if AutoModelAllowed(ctx, upstreamModel) && AutoModelRequestAccountCompatible(ctx, account, forwardModel, body) {
 			return true, nil
 		}
 	}
@@ -402,6 +423,10 @@ func ModelFallbackAccountCompatible(account *Account, model string, body []byte)
 
 // 候选预检与实际选号共用账号能力检查；已知上下文上限采用字节数保守估算，不裁剪历史。
 func ModelAccountCompatible(account *Account, model string, body []byte) bool {
+	return modelAccountCompatible(account, model, body, false)
+}
+
+func modelAccountCompatible(account *Account, model string, body []byte, assistedVision bool) bool {
 	if account == nil {
 		return false
 	}
@@ -412,7 +437,9 @@ func ModelAccountCompatible(account *Account, model string, body []byte) bool {
 		limit = metadata.ContextWindow
 	}
 	output := slices.Max([]int64{0, gjson.GetBytes(body, "max_output_tokens").Int(), gjson.GetBytes(body, "max_completion_tokens").Int(), gjson.GetBytes(body, "max_tokens").Int()})
-	if (limit > 0 && int64(len(body))+output > limit) || (metadata.MaxOutputTokens > 0 && output > metadata.MaxOutputTokens) {
+	// Base64 图片不是文本 token；这里只估算文本上下文，图像 token 由实际视觉上游校验。
+	textBytes := int64(len(body)) - modelInputImageDataBytes(gjson.GetBytes(body, "input")) - modelInputImageDataBytes(gjson.GetBytes(body, "messages"))
+	if (limit > 0 && textBytes+output > limit) || (metadata.MaxOutputTokens > 0 && output > metadata.MaxOutputTokens) {
 		return false
 	}
 	effort := gjson.GetBytes(body, "reasoning.effort").String()
@@ -425,16 +452,42 @@ func ModelAccountCompatible(account *Account, model string, body []byte) bool {
 	if known && string(metadata.CodexToolCapabilities["supports_function_calling"]) == "false" && gjson.GetBytes(body, "tools.#").Int() > 0 {
 		return false
 	}
-	return fallbackInputCompatible(gjson.GetBytes(body, "input"), account, model) && fallbackInputCompatible(gjson.GetBytes(body, "messages"), account, model)
+	return modelInputCompatible(gjson.GetBytes(body, "input"), account, model, assistedVision) && modelInputCompatible(gjson.GetBytes(body, "messages"), account, model, assistedVision)
 }
 
 // 请求级先排除不可移植输入；图片能力仍在每个候选账号上检查。
 func ModelFallbackRequestPortable(body []byte) bool {
-	return fallbackInputCompatible(gjson.GetBytes(body, "input"), nil, "") &&
-		fallbackInputCompatible(gjson.GetBytes(body, "messages"), nil, "")
+	return modelInputCompatible(gjson.GetBytes(body, "input"), nil, "", false) &&
+		modelInputCompatible(gjson.GetBytes(body, "messages"), nil, "", false)
 }
 
-func fallbackInputCompatible(value gjson.Result, account *Account, model string) bool {
+func modelInputImageDataBytes(value gjson.Result) int64 {
+	if !value.IsObject() && !value.IsArray() {
+		return 0
+	}
+	switch value.Get("type").String() {
+	case "input_image", "image_url":
+		imageURL := value.Get("image_url")
+		if imageURL.IsObject() {
+			imageURL = imageURL.Get("url")
+		}
+		if strings.HasPrefix(imageURL.String(), "data:image/") {
+			return int64(len(imageURL.Raw))
+		}
+	case "image":
+		if value.Get("source.type").String() == "base64" {
+			return int64(len(value.Get("source.data").Raw))
+		}
+	}
+	var size int64
+	value.ForEach(func(_, child gjson.Result) bool {
+		size += modelInputImageDataBytes(child)
+		return true
+	})
+	return size
+}
+
+func modelInputCompatible(value gjson.Result, account *Account, model string, assistedVision bool) bool {
 	if !value.IsObject() && !value.IsArray() {
 		return true
 	}
@@ -447,7 +500,9 @@ func fallbackInputCompatible(value gjson.Result, account *Account, model string)
 			return false
 		}
 		if account != nil && !accountHasNativeVision(account, model) {
-			return false
+			if !assistedVision || value.Get("type").String() == "image" {
+				return false
+			}
 		}
 	case "input_file", "file", "input_audio", "audio", "video", "video_url", "input_video", "item_reference":
 		return false
@@ -467,7 +522,7 @@ func fallbackInputCompatible(value gjson.Result, account *Account, model string)
 	}
 	compatible := true
 	value.ForEach(func(_, child gjson.Result) bool {
-		compatible = fallbackInputCompatible(child, account, model)
+		compatible = modelInputCompatible(child, account, model, assistedVision)
 		return compatible
 	})
 	return compatible

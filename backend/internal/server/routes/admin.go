@@ -362,6 +362,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 	login := admin.Group("/builtin-adapters/:platform/login-sessions")
 	login.POST("", h.Admin.Account.BuiltinAdapterLogin)
 	login.POST("/:session/:action", h.Admin.Account.BuiltinAdapterLogin)
+	login.GET("/:session/view", h.Admin.Account.BuiltinAdapterLogin)
 	login.DELETE("/:session", h.Admin.Account.BuiltinAdapterLogin)
 	accounts := admin.Group("/accounts")
 	{

@@ -116,52 +116,6 @@ type OpenAIModelsResponse struct {
 	NotModified                  bool
 }
 
-// BuildHealthCheckedCodexModelsManifest builds the client catalog exclusively
-// from durable successful requests or scheduled tests. The boolean is false
-// when the repository does not provide model-level health evidence.
-func (s *OpenAIGatewayService) BuildHealthCheckedCodexModelsManifest(
-	ctx context.Context,
-	group *Group,
-	ifNoneMatch string,
-) (*OpenAIModelsResponse, bool, error) {
-	if s == nil || s.accountRepo == nil || group == nil || group.Platform != PlatformOpenAI {
-		return nil, false, nil
-	}
-	if _, ok := s.usageLogRepo.(ModelHealthObservationReader); !ok {
-		return nil, false, nil
-	}
-
-	visible, catalog, err := loadCodexGroupCatalogAccounts(ctx, s.accountRepo, group.ID, group.Platform)
-	if err != nil {
-		return nil, true, fmt.Errorf("load health-checked Codex models: %w", err)
-	}
-	groupID := group.ID
-	models, _ := healthCheckedModelIDs(ctx, s.usageLogRepo, &groupID, PlatformOpenAI, visible)
-	body, err := buildCodexModelsManifestForAccounts(PlatformOpenAI, models, catalog, group, nil, true)
-	if err != nil {
-		return nil, true, fmt.Errorf("build health-checked Codex models: %w", err)
-	}
-	body, _, err = mergeConfiguredCodexModelsManifest(
-		body,
-		nil,
-		group.ModelAllowlist.Models,
-		group.ModelAllowlistEnabled(),
-	)
-	if err != nil {
-		return nil, true, fmt.Errorf("filter health-checked Codex models: %w", err)
-	}
-	body, err = applyConfiguredVisionFallbackManifest(ctx, s.settingService, body, s.cfg, group, group.Platform, catalog, nil, true)
-	if err != nil {
-		return nil, true, err
-	}
-	manifest := &OpenAIModelsResponse{Body: body, ETag: codexModelsManifestBodyETag(body)}
-	if codexModelsManifestETagMatches(ifNoneMatch, manifest.ETag) {
-		manifest.Body = nil
-		manifest.NotModified = true
-	}
-	return manifest, true, nil
-}
-
 // BuildGroupConfiguredCodexModelsManifest builds a Codex catalog from configured
 // public model names, supplemented by defaults for unmapped OpenAI accounts. The
 // boolean result distinguishes "no explicit configuration" from a configured
@@ -175,12 +129,12 @@ func (s *OpenAIGatewayService) BuildGroupConfiguredCodexModelsManifest(
 		return nil, false, nil
 	}
 
-	visible, catalog, err := loadCodexGroupCatalogAccounts(ctx, s.accountRepo, group.ID, group.Platform)
+	catalog, err := loadModelCatalogAccounts(ctx, s.accountRepo, &group.ID, group.Platform)
 	if err != nil {
 		return nil, false, fmt.Errorf("load group configured Codex models: %w", err)
 	}
-	configuredModels := openAIConfiguredCodexModelIDsForGroup(visible, group)
-	if len(configuredModels) == 0 {
+	configuredModels := openAIConfiguredCodexModelIDsForGroup(catalog, group)
+	if configuredModels == nil && len(catalog) > 0 {
 		return nil, false, nil
 	}
 
@@ -253,7 +207,7 @@ func (s *OpenAIGatewayService) MergeGroupConfiguredCodexModels(
 	if err != nil {
 		return fmt.Errorf("merge group configured Codex models: %w", err)
 	}
-	_, accounts, listErr := loadCodexGroupCatalogAccounts(ctx, s.accountRepo, group.ID, group.Platform)
+	accounts, listErr := loadModelCatalogAccounts(ctx, s.accountRepo, &group.ID, group.Platform)
 	if listErr != nil {
 		return listErr
 	}
@@ -285,103 +239,24 @@ func (s *OpenAIGatewayService) groupConfiguredCodexModelIDs(ctx context.Context,
 	if group == nil {
 		return nil, nil
 	}
-	accounts, err := s.accountRepo.ListSchedulableByGroupID(ctx, group.ID)
+	accounts, err := loadModelCatalogAccounts(ctx, s.accountRepo, &group.ID, group.Platform)
 	if err != nil {
 		return nil, err
 	}
 	return openAIConfiguredCodexModelIDsForGroup(accounts, group), nil
 }
 
-// loadCodexGroupCatalogAccounts separates picker membership from capability
-// intersection. visible accounts are currently schedulable and decide which
-// public aliases appear. catalog accounts are persistently enabled group
-// members; the availability query ignores transient rate-limit, overload, and
-// temporary-unschedulable state so those conditions cannot widen advertised
-// capabilities. Persistently disabled accounts are excluded because routing
-// cannot select them. If the availability query fails, the catalog falls back
-// to the schedulable set so a listing error does not fail the client request.
-func loadCodexGroupCatalogAccounts(
-	ctx context.Context,
-	repo AccountRepository,
-	groupID int64,
-	targetPlatform string,
-) (visible []Account, catalog []Account, err error) {
-	if repo == nil {
-		return nil, nil, nil
-	}
-	visible, err = repo.ListSchedulableByGroupID(ctx, groupID)
-	if err != nil {
-		return nil, nil, err
-	}
-	visible = filterCodexCatalogAccountsForPlatform(visible, targetPlatform)
-	catalog = visible
-	groupAccounts, listErr := repo.ListModelAvailabilityCandidates(
-		ctx,
-		&groupID,
-		codexCatalogCandidatePlatforms(targetPlatform),
-		false,
-	)
-	if listErr != nil {
-		return visible, catalog, nil
-	}
-	return visible, filterCodexCatalogAccountsForPlatform(groupAccounts, targetPlatform), nil
-}
-
-func codexCatalogCandidatePlatforms(targetPlatform string) []string {
-	if targetPlatform == PlatformComposite {
-		return []string{
-			PlatformAnthropic,
-			PlatformOpenAI,
-			PlatformGemini,
-			PlatformAntigravity,
-			PlatformGrok,
-			PlatformKimi,
-			PlatformZhipu,
-			PlatformDeepseek,
-			PlatformMiniMax,
-			PlatformOpenCodeGo,
-			PlatformDoubao,
-			PlatformTraework,
-			PlatformWorkbuddy,
-			PlatformVibex,
-			PlatformZcode,
-			PlatformQoder,
-			PlatformLaya,
-			PlatformJev,
-		}
-	}
-	targetPlatform = strings.TrimSpace(targetPlatform)
-	if targetPlatform == "" {
-		return nil
-	}
-	return append([]string{targetPlatform}, MixedSchedulingSourcePlatforms(targetPlatform)...)
-}
-
-func filterCodexCatalogAccountsForPlatform(accounts []Account, targetPlatform string) []Account {
-	filtered := make([]Account, 0, len(accounts))
-	for i := range accounts {
-		if targetPlatform == PlatformComposite {
-			if isConcreteRequestPlatform(accounts[i].Platform) {
-				filtered = append(filtered, accounts[i])
-			}
-			continue
-		}
-		if openAIAccountMatchesPlatform(&accounts[i], targetPlatform) {
-			filtered = append(filtered, accounts[i])
-		}
-	}
-	return filtered
-}
-
 func openAIConfiguredCodexModelIDs(accounts []Account) []string {
 	seen := make(map[string]struct{})
 	models := make([]string, 0)
+	hasCatalog := false
 	for i := range accounts {
 		account := &accounts[i]
 		if !openAIAccountMatchesPlatform(account, PlatformOpenAI) {
 			continue
 		}
 		mapping := account.GetModelMapping()
+		hasCatalog = hasCatalog || len(mapping) > 0
 		for modelID := range mapping {
 			modelID = strings.TrimSpace(modelID)
 			if modelID == "" || strings.Contains(modelID, "*") {
@@ -400,6 +275,7 @@ func openAIConfiguredCodexModelIDs(accounts []Account) []string {
 		if snapshot == nil {
 			continue
 		}
+		hasCatalog = true
 		for _, modelID := range snapshot.Models {
 			modelID = strings.TrimSpace(modelID)
 			if modelID == "" || strings.Contains(modelID, "*") {
@@ -411,6 +287,9 @@ func openAIConfiguredCodexModelIDs(accounts []Account) []string {
 			seen[modelID] = struct{}{}
 			models = append(models, modelID)
 		}
+	}
+	if !hasCatalog {
+		return nil
 	}
 	sort.Strings(models)
 	return models
@@ -573,6 +452,12 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 		EffectiveContextWindowPercent:     95,
 		ExperimentalSupportedTools:        []string{},
 		InputModalities:                   []string{"text"},
+	}
+
+	// Auto 是网关能力，图片会按原生视觉或已配置的视觉助手路由。
+	if modelID == "auto" {
+		descriptor.DisplayName = "Auto"
+		descriptor.InputModalities = []string{"text", "image"}
 	}
 
 	if isDeepSeekCodexModel(modelID) {
@@ -935,9 +820,14 @@ func (s *GatewayService) BuildCodexModelsManifestForGroup(
 		return BuildCodexModelsManifest(modelIDs)
 	}
 
-	_, catalog, err := loadCodexGroupCatalogAccounts(ctx, s.accountRepo, group.ID, effectivePlatform)
+	catalog, err := loadModelCatalogAccounts(ctx, s.accountRepo, &group.ID, effectivePlatform)
 	if err != nil {
-		return BuildCodexModelsManifest(modelIDs)
+		// 能力读取失败时保留既有降级路径，仅影响字段补全，不改变传入的目录成员。
+		catalog, err = s.accountRepo.ListSchedulableByGroupID(ctx, group.ID)
+		if err != nil {
+			return BuildCodexModelsManifest(modelIDs)
+		}
+		catalog = filterModelCatalogAccountsForPlatform(catalog, effectivePlatform)
 	}
 	var compositeRoutes []CompositeModelRoute
 	compositeRoutesAvailable := true
@@ -1044,9 +934,8 @@ func buildCodexModelsManifest(
 		if metadata, ok := modelMetadata[modelID]; ok {
 			applyUpstreamModelMetadataToCodexDescriptor(&descriptor, metadata)
 		}
-		if imageInputModels[modelID] {
-			// Apply the capability-derived modality after upstream metadata so
-			// a stale official Astra snapshot cannot downgrade the catalog.
+		if imageInputModels[modelID] || modelID == "auto" {
+			// 原生能力与 Auto 的网关能力优先于可能过期的上游元数据。
 			descriptor.InputModalities = []string{"text", "image"}
 		}
 		if metadataModelID != modelID {

@@ -11,15 +11,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
-// CodexModels serves the Codex models manifest for Codex clients.
-//
-// Codex CLI and the Codex desktop app refresh their model picker from
-// GET {base_url}/models?client_version=... (custom provider mode) or
-// GET /backend-api/codex/models (chatgpt_base_url mode). Both routes land
-// here. 健康证据过滤优先；未启用时，固定账号发现优先于本地账号模型映射。
-// when disabled, groups with explicit mappings are generated locally;
-// otherwise ChatGPT manifests are proxied verbatim and custom API key manifests
-// receive provider-compatibility normalization plus short-lived caching.
+// Codex 模型目录依据分组账号配置和上游清单生成，不依赖成功调用或测试记录。
+// 显式固定账号配置优先，其余分组保留本地映射与上游 manifest 的兼容处理。
 func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 	if c.Request.Context().Err() != nil {
 		return
@@ -35,22 +28,6 @@ func (h *OpenAIGatewayHandler) CodexModels(c *gin.Context) {
 	}
 
 	ifNoneMatch := c.GetHeader("If-None-Match")
-	healthManifest, healthChecked, err := h.gatewayService.BuildHealthCheckedCodexModelsManifest(
-		c.Request.Context(),
-		apiKey.Group,
-		ifNoneMatch,
-	)
-	if err != nil {
-		if c.Request.Context().Err() != nil {
-			return
-		}
-		h.errorResponse(c, http.StatusInternalServerError, "api_error", "Failed to build health-checked Codex models manifest")
-		return
-	}
-	if healthChecked {
-		writeOpenAIModelsResponse(c, healthManifest)
-		return
-	}
 
 	// 固定账号分支：开启后只用选定账号拉取 manifest，不经过调度器；
 	// 全部不可用/全部失败时按 FallbackToScheduler 决定回退调度器或返回错误。

@@ -96,7 +96,7 @@ func TestAutoModelCostLimitExcludesHighestTier(t *testing.T) {
 	}
 }
 
-func TestAutoModelSystemOneCannotSelectHighestTier(t *testing.T) {
+func TestAutoModelPriorityCannotSelectHighestTier(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, chosen := range []string{"gpt-5.6-sol", "gpt-6-astra"} {
 		t.Run(chosen, func(t *testing.T) {
@@ -131,14 +131,9 @@ func TestAutoModelSystemOneCannotSelectHighestTier(t *testing.T) {
 			})
 			recorder := httptest.NewRecorder()
 			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"auto","input":"hi"}`)))
-			require.NotNil(t, criteria.Load())
-			require.Equal(t, map[string]string{"gpt-5.6-sol": "openai text model gpt-5.6-sol", "gpt-5.5": "openai text model gpt-5.5"}, criteria.Load())
-			if chosen == "gpt-6-astra" {
-				require.Equal(t, http.StatusBadGateway, recorder.Code)
-			} else {
-				require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
-				require.Equal(t, chosen, recorder.Body.String())
-			}
+			require.Nil(t, criteria.Load())
+			require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+			require.Equal(t, "gpt-5.6-sol", recorder.Body.String())
 		})
 	}
 }

@@ -59,7 +59,6 @@ type countingCodexModelsAccountRepo struct {
 }
 
 func (r *countingCodexModelsAccountRepo) ListSchedulableByGroupID(_ context.Context, _ int64) ([]Account, error) {
-	r.calls.Add(1)
 	if r.err != nil {
 		return nil, r.err
 	}
@@ -67,6 +66,10 @@ func (r *countingCodexModelsAccountRepo) ListSchedulableByGroupID(_ context.Cont
 }
 
 func (r *countingCodexModelsAccountRepo) ListModelAvailabilityCandidates(_ context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error) {
+	r.calls.Add(1)
+	if r.err != nil {
+		return nil, r.err
+	}
 	if groupID != nil {
 		value := *groupID
 		r.groupID = &value
@@ -1374,24 +1377,22 @@ func TestBuildGroupConfiguredCodexModelsManifestIncludesBoundCompatibleDirectMod
 	require.Equal(t, []string{"glm-5.3", "muse-spark-1.3"}, codexManifestModelSlugs(t, manifest.Body))
 }
 
-func TestLoadCodexGroupCatalogAccountsQueriesAndFiltersOpenAICompatiblePlatforms(t *testing.T) {
+func TestLoadModelCatalogAccountsQueriesAndFiltersOpenAICompatiblePlatforms(t *testing.T) {
 	t.Parallel()
 
-	const groupID int64 = 179
+	groupID := int64(179)
 	repo := &countingCodexModelsAccountRepo{accounts: []Account{
 		{ID: 840, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey},
 		{ID: 841, Platform: PlatformAnthropic, Type: AccountTypeAPIKey},
 	}}
 
-	visible, catalog, err := loadCodexGroupCatalogAccounts(
+	catalog, err := loadModelCatalogAccounts(
 		context.Background(),
 		repo,
-		groupID,
+		&groupID,
 		PlatformOpenAI,
 	)
 	require.NoError(t, err)
-	require.Len(t, visible, 1)
-	require.Equal(t, int64(840), visible[0].ID)
 	require.Len(t, catalog, 1)
 	require.Equal(t, int64(840), catalog[0].ID)
 	require.Contains(t, repo.platforms, PlatformOpenAI)
@@ -1399,7 +1400,7 @@ func TestLoadCodexGroupCatalogAccountsQueriesAndFiltersOpenAICompatiblePlatforms
 	require.NotContains(t, repo.platforms, PlatformAnthropic)
 }
 
-func TestBuildHealthCheckedCodexModelsManifestExcludesUnverifiedModels(t *testing.T) {
+func TestBuildGroupConfiguredCodexModelsManifestIncludesUnverifiedModels(t *testing.T) {
 	t.Parallel()
 
 	const groupID int64 = 177
@@ -1429,17 +1430,17 @@ func TestBuildHealthCheckedCodexModelsManifestExcludesUnverifiedModels(t *testin
 		}},
 	}
 
-	manifest, healthChecked, err := svc.BuildHealthCheckedCodexModelsManifest(
+	manifest, configured, err := svc.BuildGroupConfiguredCodexModelsManifest(
 		context.Background(),
 		&Group{ID: groupID, Platform: PlatformOpenAI},
 		"",
 	)
 	require.NoError(t, err)
-	require.True(t, healthChecked)
-	require.ElementsMatch(t, []string{"gpt-healthy", "gpt-unused"}, codexManifestModelSlugs(t, manifest.Body))
+	require.True(t, configured)
+	require.ElementsMatch(t, []string{"gpt-healthy", "gpt-unused", "gpt-unverified"}, codexManifestModelSlugs(t, manifest.Body))
 }
 
-func TestBuildHealthCheckedCodexModelsManifestIncludesCompatibleSourceHealth(t *testing.T) {
+func TestBuildGroupConfiguredCodexModelsManifestIgnoresCompatibleSourceHealth(t *testing.T) {
 	t.Parallel()
 
 	const groupID int64 = 180
@@ -1469,15 +1470,15 @@ func TestBuildHealthCheckedCodexModelsManifestIncludesCompatibleSourceHealth(t *
 		usageLogRepo: usageRepo,
 	}
 
-	manifest, healthChecked, err := svc.BuildHealthCheckedCodexModelsManifest(
+	manifest, configured, err := svc.BuildGroupConfiguredCodexModelsManifest(
 		context.Background(),
 		&Group{ID: groupID, Platform: PlatformOpenAI},
 		"",
 	)
 	require.NoError(t, err)
-	require.True(t, healthChecked)
+	require.True(t, configured)
 	require.Equal(t, []string{"glm-5.3"}, codexManifestModelSlugs(t, manifest.Body))
-	require.Equal(t, []string{PlatformZcode}, usageRepo.platforms)
+	require.Empty(t, usageRepo.platforms)
 }
 
 // Scenario: OpenAI 通配映射展开组内精确选择，但不发布通配符 slug。
@@ -1551,7 +1552,9 @@ func TestBuildGroupConfiguredCodexModelsManifestIntersectsTransientlyUnschedulab
 	require.NoError(t, err)
 	require.True(t, configured)
 	models := decodeCodexManifestModels(t, manifest.Body)
-	require.Len(t, models, 1)
+	require.Len(t, models, 2)
+	require.Equal(t, "exclusive-model", models[0]["slug"])
+	models = models[1:]
 	require.Equal(t, "my-coder", models[0]["slug"])
 	require.Equal(t, "my-coder", models[0]["display_name"])
 	require.Equal(t, []string{"low", "medium", "high"}, effortsFromManifestModel(t, models[0]))

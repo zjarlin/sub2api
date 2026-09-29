@@ -1123,7 +1123,6 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 func (h *GatewayHandler) Models(c *gin.Context) {
 	apiKey, _ := middleware2.GetAPIKeyFromContext(c)
 	h.PrepareAutoModelListing(c)
-	requireHealthCheck := h.gatewayService.ModelsRequireHealthCheck()
 
 	var groupID *int64
 	var platform string
@@ -1136,7 +1135,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		platform = forcedPlatform
 	}
 
-	if !requireHealthCheck && platform == service.PlatformOpenAI && apiKey != nil && apiKey.Group != nil &&
+	if platform == service.PlatformOpenAI && apiKey != nil && apiKey.Group != nil &&
 		apiKey.Group.Platform == service.PlatformOpenAI && apiKey.Group.CodexModelsManifestConfig.Enabled {
 		h.pinnedOpenAIModels(c, apiKey.Group)
 		return
@@ -1149,21 +1148,13 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		}
 		if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
 			source := availableModels
-			if len(source) == 0 && !requireHealthCheck {
+			if source == nil {
 				source = defaultModelIDsForPlatform(service.PlatformComposite)
 			}
 			writeAllowlistedModelsList(c, service.PlatformComposite, apiKey.Group.ModelAllowlist.FilterForListing(source))
 			return
 		}
-		if len(availableModels) > 0 {
-			writeModelsList(c, service.PlatformComposite, availableModels)
-			return
-		}
-		if requireHealthCheck {
-			writeModelsList(c, service.PlatformComposite, nil)
-			return
-		}
-		writeModelsList(c, service.PlatformComposite, defaultModelIDsForPlatform(service.PlatformComposite))
+		writeModelsList(c, service.PlatformComposite, availableModels)
 		return
 	}
 
@@ -1171,20 +1162,13 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
 		fallbackModels := defaultModelIDsForPlatform(platform)
-		if requireHealthCheck {
-			fallbackModels = nil
-		}
 		source := modelListingSource(platform, availableModels, fallbackModels)
 		writeAllowlistedModelsList(c, platform, apiKey.Group.ModelAllowlist.FilterForListing(source))
 		return
 	}
 
-	if len(availableModels) > 0 {
+	if availableModels != nil {
 		writeModelsList(c, platform, availableModels)
-		return
-	}
-	if requireHealthCheck {
-		writeModelsList(c, platform, nil)
 		return
 	}
 
@@ -1256,17 +1240,14 @@ func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *servi
 			availableModels = prependAutoModel(availableModels)
 		}
 		fallbackModels := defaultCodexModelIDsForPlatform(service.PlatformComposite)
-		if h.gatewayService.ModelsRequireHealthCheck() {
-			fallbackModels = nil
-		}
 		if group.ModelAllowlistEnabled() {
 			source := availableModels
-			if len(source) == 0 {
+			if source == nil {
 				source = fallbackModels
 			}
 			return group.ModelAllowlist.FilterForListing(source)
 		}
-		if len(availableModels) > 0 {
+		if availableModels != nil {
 			return availableModels
 		}
 		return fallbackModels
@@ -1274,13 +1255,10 @@ func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *servi
 
 	availableModels := h.gatewayService.GetAvailableModels(ctx, groupID, platform)
 	fallbackModels := defaultCodexModelIDsForPlatform(platform)
-	if h.gatewayService.ModelsRequireHealthCheck() {
-		fallbackModels = nil
-	}
 	if group.ModelAllowlistEnabled() {
 		return group.ModelAllowlist.FilterForListing(modelListingSource(platform, availableModels, fallbackModels))
 	}
-	if len(availableModels) > 0 {
+	if availableModels != nil {
 		return availableModels
 	}
 	return fallbackModels
@@ -1292,14 +1270,12 @@ func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *
 	}
 	seen := make(map[string]struct{})
 	models := make([]string, 0)
-	schedulablePlatforms := h.gatewayService.GetSchedulablePlatforms(ctx, groupID)
-	requireHealthCheck := h.gatewayService.ModelsRequireHealthCheck()
 	for _, platform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformOpenAI, service.PlatformAntigravity, service.PlatformGrok, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformDeepseekWeb, service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformDoubao, service.PlatformTraework, service.PlatformWorkbuddy, service.PlatformVibex, service.PlatformZcode, service.PlatformLaya, service.PlatformJev} {
 		platformModels := h.gatewayService.GetAvailableModels(ctx, groupID, platform)
-		if len(platformModels) == 0 && !requireHealthCheck {
+		if platformModels == nil {
 			// CN 供应商没有静态默认模型列表（defaultModelIDsForPlatform 的
 			// default 分支是 Claude 列表），composite 下只暴露账号映射键。
-			if _, ok := schedulablePlatforms[platform]; ok && !service.IsMultiProtocolAPIKeyProvider(platform) {
+			if !service.IsMultiProtocolAPIKeyProvider(platform) {
 				platformModels = defaultModelIDsForPlatform(platform)
 			}
 		}
@@ -1435,10 +1411,10 @@ func writeOpenAIModelsList(c *gin.Context, modelIDs []string) {
 // 与平台默认列表（fallbackModels）。账号映射为空时回落默认列表；Anthropic
 // 平台两者取并集，其余平台以账号映射键为准。
 func modelListingSource(platform string, availableModels, fallbackModels []string) []string {
-	if len(availableModels) == 0 {
+	if availableModels == nil {
 		return fallbackModels
 	}
-	if platform == service.PlatformAnthropic {
+	if platform == service.PlatformAnthropic && len(availableModels) > 0 {
 		return mergeModelIDs(availableModels, fallbackModels)
 	}
 	return availableModels

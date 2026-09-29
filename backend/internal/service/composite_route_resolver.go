@@ -22,6 +22,18 @@ func (r *CompositeRouteResolver) SetModelOwnershipResolver(resolver CompositeMod
 	}
 }
 
+// Auto 一次读取显式规则，其余候选由同一份账号快照确定协议平台。
+func (r *CompositeRouteResolver) AutoModelRoutes(ctx context.Context, groupID int64) ([]CompositeModelRoute, error) {
+	if r == nil || r.repo == nil {
+		return nil, nil
+	}
+	return r.repo.ListByGroup(ctx, groupID, false)
+}
+
+func MatchAutoModelRoute(routes []CompositeModelRoute, model, endpoint string) (CompositeModelRoute, bool) {
+	return matchCompositeRoute(routes, model, endpoint)
+}
+
 func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, model, endpoint string) (CompositeRouteDecision, error) {
 	model = strings.TrimSpace(model)
 	endpoint = normalizeCompositeRouteEndpoint(endpoint)

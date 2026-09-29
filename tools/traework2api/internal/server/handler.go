@@ -375,12 +375,16 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		if peek.Stream {
-			h.cfg.Pool.NoteSuccess(acct.UID)
-			// 流内业务错误（1005 plan/5xx 等）→ 冷却账号，错误信息注入 SSE。
-			_ = upstream.StreamWithError(w, rc, func(se *upstream.SOLOStreamError) {
+			// 只有流正常结束才清零错误计数，HTTP 200 本身不能证明对话成功。
+			streamFailed := false
+			streamErr := upstream.StreamWithError(w, rc, func(se *upstream.SOLOStreamError) {
+				streamFailed = true
 				h.handleStreamError(acct.UID, se)
 			})
 			rc.Close()
+			if streamErr == nil && !streamFailed {
+				h.cfg.Pool.NoteSuccess(acct.UID)
+			}
 			return
 		}
 		resp, err := upstream.Aggregate(rc)
@@ -390,12 +394,7 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 			var se *upstream.SOLOStreamError
 			if errors.As(err, &se) {
 				lastErr = err
-				switch se.Kind() {
-				case upstream.ErrPlanLimit:
-					h.cfg.Pool.Cooldown(acct.UID, pool.CoolPlan, h.cfg.PlanCooldown, "plan 权益不足")
-				default:
-					h.cfg.Pool.NoteError(acct.UID, h.cfg.ErrThreshold, h.cfg.ErrCooldown)
-				}
+				h.handleStreamError(acct.UID, se)
 				continue
 			}
 			writeOpenAIError(w, http.StatusBadGateway, "upstream_parse", err.Error())
@@ -403,6 +402,11 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		}
 		h.cfg.Pool.NoteSuccess(acct.UID)
 		writeJSON(w, http.StatusOK, resp)
+		return
+	}
+	var quotaErr *upstream.SOLOStreamError
+	if errors.As(lastErr, &quotaErr) && quotaErr.Kind() == upstream.ErrPlanLimit {
+		writeJSON(w, http.StatusTooManyRequests, quotaErr.OpenAIError())
 		return
 	}
 	msg := "all accounts unavailable (cooling/disabled)"
@@ -413,13 +417,30 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleStreamError 流式响应中的上游业务错误 → pool 冷却状态机。
-// 1005 plan 权益不足 → 长冷却；其余（5xx/参数错误等）→ 累计错误冷却。
+// 权益不足和 4008 配额耗尽立即冷却；其余错误累计到阈值后冷却。
 func (h *Handler) handleStreamError(uid string, se *upstream.SOLOStreamError) {
 	switch se.Kind() {
 	case upstream.ErrPlanLimit:
-		h.cfg.Pool.Cooldown(uid, pool.CoolPlan, h.cfg.PlanCooldown, "plan 权益不足")
+		h.cfg.Pool.Cooldown(uid, pool.CoolPlan, h.cfg.PlanCooldown, se.Error())
 	default:
 		h.cfg.Pool.NoteError(uid, h.cfg.ErrThreshold, h.cfg.ErrCooldown)
+		return
+	}
+	// 路由账号代表整个登录池；仍有健康账号时不能把整条通道长期停调。
+	var earliest time.Time
+	for _, status := range h.cfg.Pool.List() {
+		if status.Disabled {
+			continue
+		}
+		if !status.Cooling {
+			return
+		}
+		if earliest.IsZero() || status.Until.Before(earliest) {
+			earliest = status.Until
+		}
+	}
+	if !earliest.IsZero() {
+		se.ResetsAt = earliest.Unix()
 	}
 }
 

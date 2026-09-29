@@ -449,6 +449,9 @@ func openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx context.Con
 	if !AutoModelAllowed(ctx, requestedModel, ResolveOpenAIAccountUpstreamModelForRequest(account, requestedModel, requireCompact)) {
 		return "auto_model_excluded"
 	}
+	if !autoModelAccountSupportsImages(ctx, account, requestedModel) {
+		return "auto_vision_capability_mismatch"
+	}
 	if !account.SupportsOpenAIEndpointCapability(requiredCapability) {
 		if account.IsGrok() && requiredCapability == OpenAIEndpointCapabilityGrokMediaGeneration {
 			_, reason := account.GrokMediaGenerationEligibility()

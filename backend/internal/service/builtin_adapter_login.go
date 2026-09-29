@@ -28,6 +28,11 @@ type BuiltinLoginResult struct {
 	} `json:"account,omitempty"`
 }
 
+type BuiltinLoginView struct {
+	ContentType string
+	Body        []byte
+}
+
 type BuiltinLoginOptions struct {
 	Email    string `json:"email,omitempty"`
 	Password string `json:"password,omitempty"`
@@ -74,9 +79,15 @@ func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action
 		}
 		payload["plan"], payload["provider"] = option.Plan, option.Provider
 	}
-	if action == "start" && platform == PlatformArena {
+	if action == "start" && (platform == PlatformArena || platform == PlatformDeepseekWeb) {
+		code := "INVALID_ARENA_LOGIN"
+		message := "Arena email and password are required"
+		if platform == PlatformDeepseekWeb {
+			code = "INVALID_DEEPSEEK_WEB_LOGIN"
+			message = "DeepSeek email and password are required"
+		}
 		if len(options) == 0 || strings.TrimSpace(options[0].Email) == "" || options[0].Password == "" || len(options[0].Email) > 320 || len(options[0].Password) > 4096 {
-			return nil, infraerrors.BadRequest("INVALID_ARENA_LOGIN", "Arena email and password are required")
+			return nil, infraerrors.BadRequest(code, message)
 		}
 		payload["email"], payload["password"] = strings.TrimSpace(options[0].Email), options[0].Password
 	}
@@ -122,6 +133,15 @@ func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action
 				message = "Arena login expired; start a new login"
 			}
 		}
+		if platform == PlatformDeepseekWeb {
+			message = "DeepSeek login failed; check the account and password, then try again"
+			if status == http.StatusTooManyRequests {
+				message = "DeepSeek login is busy; wait for the current login to finish"
+			}
+			if status == http.StatusGone {
+				message = "DeepSeek login expired; start a new login"
+			}
+		}
 		if platform == PlatformZcode && status == http.StatusForbidden {
 			message = "ZCode authorization failed or the selected plan has no active entitlement"
 		}
@@ -138,4 +158,43 @@ func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action
 		return nil, fmt.Errorf("invalid adapter login status")
 	}
 	return &result, nil
+}
+
+func BuiltinAdapterLoginView(ctx context.Context, platform, owner, sessionID string) (*BuiltinLoginView, error) {
+	base, key := builtinAdapterBaseURL(platform), builtinAdapterAPIKey(platform)
+	if base == "" || key == "" {
+		return nil, infraerrors.BadRequest("BUILTIN_ADAPTER_DISABLED", "Enable the built-in adapter and configure its shared key first")
+	}
+	if owner == "" || !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(sessionID) {
+		return nil, infraerrors.BadRequest("INVALID_LOGIN_SESSION", "Invalid login session")
+	}
+	url := strings.TrimSuffix(base, "/v1") + "/internal/login/sessions/" + sessionID + "/view"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, infraerrors.BadRequest("INVALID_ADAPTER_URL", "Invalid adapter configuration")
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("X-Login-Owner", owner)
+	client := &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	res, err := client.Do(req)
+	if err != nil {
+		return nil, infraerrors.New(502, "ADAPTER_UNREACHABLE", "Unable to reach the built-in login service")
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		status := res.StatusCode
+		if status < 400 || status > 599 {
+			status = 502
+		}
+		return nil, infraerrors.New(status, "ADAPTER_LOGIN_VIEW_FAILED", "Unable to load the login view")
+	}
+	contentType := strings.TrimSpace(strings.Split(res.Header.Get("Content-Type"), ";")[0])
+	if contentType != "image/png" && contentType != "image/jpeg" {
+		return nil, infraerrors.New(502, "INVALID_ADAPTER_RESPONSE", "Invalid login view response")
+	}
+	body, err := io.ReadAll(io.LimitReader(res.Body, 5<<20))
+	if err != nil || len(body) == 0 {
+		return nil, infraerrors.New(502, "INVALID_ADAPTER_RESPONSE", "Invalid login view response")
+	}
+	return &BuiltinLoginView{ContentType: contentType, Body: body}, nil
 }

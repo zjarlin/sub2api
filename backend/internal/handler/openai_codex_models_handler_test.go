@@ -221,7 +221,7 @@ func TestCodexModelsAppliesLocalFiltersBeforeClientETag(t *testing.T) {
 	}
 }
 
-func TestCodexModelsUsesHealthCheckedCatalogWithoutFetchingUpstream(t *testing.T) {
+func TestCodexModelsIncludesUnverifiedCatalogWithoutFetchingUpstream(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	const groupID int64 = 143
 	account := service.Account{
@@ -269,8 +269,8 @@ func TestCodexModelsUsesHealthCheckedCatalogWithoutFetchingUpstream(t *testing.T
 	require.Equal(t, http.StatusOK, recorder.Code)
 	var manifest codexModelsResponseForTest
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &manifest))
-	require.Len(t, manifest.Models, 2)
-	require.ElementsMatch(t, []string{"gpt-healthy", "gpt-unused"}, []string{manifest.Models[0].Slug, manifest.Models[1].Slug})
+	require.Len(t, manifest.Models, 3)
+	require.ElementsMatch(t, []string{"gpt-healthy", "gpt-unused", "gpt-unverified"}, []string{manifest.Models[0].Slug, manifest.Models[1].Slug, manifest.Models[2].Slug})
 	require.Empty(t, upstream.calls())
 }
 

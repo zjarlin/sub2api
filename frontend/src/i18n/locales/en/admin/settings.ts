@@ -25,7 +25,7 @@ export default {
       },
       modelFallback: {
   "title": "Model tiers and automatic fallback",
-  "description": "After same-model accounts are exhausted, try other models in the same tier, then each lower tier. Intermediate failures stay in the monitoring chain.",
+  "description": "After same-model accounts are exhausted, try peers, then lower tiers. If those fail, try higher tiers starting with the nearest. Billing uses the actual model. Intermediate failures stay in the monitoring chain.",
   "enabled": "Enable tiered model fallback",
   "scope": "For Responses, Chat Completions and Messages, including streaming, on OpenAI-compatible account pools. Candidates must satisfy group access and request capabilities. Stateful references, hosted tools and committed output cannot be replayed across models.",
   "tierName": "Tier {index} name",

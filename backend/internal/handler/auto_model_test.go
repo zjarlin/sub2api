@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"sync/atomic"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/jev_api"
@@ -62,7 +61,7 @@ func TestAutoModelAppearsOnlyForRoutableCompositeGroups(t *testing.T) {
 		wantAuto  bool
 	}{
 		{name: "decision account and text models", accounts: autoModelTestAccounts(), wantAuto: true},
-		{name: "decision account missing", accounts: autoModelTestAccounts()[:2]},
+		{name: "decision account missing", accounts: autoModelTestAccounts()[:2], wantAuto: true},
 		{name: "auto excluded by allowlist", accounts: autoModelTestAccounts(), allowlist: service.GroupModelAllowlist{Enabled: true, Models: []string{"gpt-5.5"}}},
 		{name: "auto explicitly allowed", accounts: autoModelTestAccounts(), allowlist: service.GroupModelAllowlist{Enabled: true, Models: []string{"auto"}}, wantAuto: true},
 	} {
@@ -100,6 +99,9 @@ func TestAutoModelAppearsInCodexManifest(t *testing.T) {
 	slugs := make([]string, 0, len(response.Models))
 	for _, model := range response.Models {
 		slugs = append(slugs, model.Slug)
+		if model.Slug == autoModelID {
+			require.Equal(t, []string{"text", "image"}, model.InputModalities)
+		}
 	}
 	require.Contains(t, slugs, autoModelID)
 }
@@ -131,6 +133,7 @@ func TestAutoModelOpenAIGroupCatalogAndETag(t *testing.T) {
 	first := request("/v1/models?client_version=1.0", "", manifest)
 	require.Equal(t, http.StatusOK, first.Code, first.Body.String())
 	require.Contains(t, first.Body.String(), `"slug":"auto"`)
+	require.Equal(t, `["text","image"]`, gjson.Get(first.Body.String(), `models.#(slug=="auto").input_modalities`).Raw)
 	require.NotEmpty(t, first.Header().Get("ETag"))
 	notModified := request("/v1/models?client_version=1.0", first.Header().Get("ETag"), manifest)
 	require.Equal(t, http.StatusNotModified, notModified.Code)
@@ -140,6 +143,7 @@ func TestAutoModelOpenAIGroupCatalogAndETag(t *testing.T) {
 func TestAutoModelPinnedOpenAICatalogUsesDiscoveredModels(t *testing.T) {
 	accounts := autoModelTestAccounts()
 	accounts[0] = newPinnedCodexAccount(1, service.StatusActive, true, false)
+	accounts[0].Credentials["model_mapping"] = map[string]any{"gpt-5.5": "gpt-5.5", "gpt-image-1": "gpt-image-1"}
 	upstream := &codexModelsPinnedHTTPUpstream{bodies: map[int64]string{
 		1: `{"data":[{"id":"gpt-5.5"},{"id":"gpt-image-1"}]}`,
 	}}
@@ -148,7 +152,7 @@ func TestAutoModelPinnedOpenAICatalogUsesDiscoveredModels(t *testing.T) {
 	h.maxAccountSwitches = 3
 	group := &service.Group{ID: 71, Platform: service.PlatformOpenAI,
 		CodexModelsManifestConfig: service.GroupCodexModelsManifestConfig{Enabled: true, AccountIDs: []int64{1}}}
-	require.Equal(t, []string{"gpt-5.5"}, autoModelCandidatesForGroup(group, h.autoModelCatalog(context.Background(), group)))
+	require.ElementsMatch(t, []string{"gpt-5.5", "deepseek-v4-flash"}, autoModelCandidatesForGroup(group, h.autoModelCatalog(context.Background(), group)))
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
@@ -174,6 +178,17 @@ func TestAppendAutoModelRejectsInvalidCatalog(t *testing.T) {
 		_, err := appendAutoModelToCatalog([]byte(body))
 		require.Error(t, err, body)
 	}
+}
+
+func TestAppendAutoModelUpdatesExistingVisionCapability(t *testing.T) {
+	body := []byte(`{"models":[{"slug":"auto","input_modalities":["text"],"supports_image_detail_original":true,"context_window":100000},{"slug":"text-model","input_modalities":["text"]}]}`)
+	updated, err := appendAutoModelToCatalog(body)
+	require.NoError(t, err)
+	require.Equal(t, int64(2), gjson.GetBytes(updated, "models.#").Int())
+	require.Equal(t, `["text","image"]`, gjson.GetBytes(updated, "models.0.input_modalities").Raw)
+	require.False(t, gjson.GetBytes(updated, "models.0.supports_image_detail_original").Bool())
+	require.Equal(t, int64(100000), gjson.GetBytes(updated, "models.0.context_window").Int())
+	require.Equal(t, gjson.GetBytes(body, "models.1").Raw, gjson.GetBytes(updated, "models.1").Raw)
 }
 
 func containsModelID(models []gatewayModelItemForTest, id string) bool {
@@ -211,6 +226,7 @@ func TestAutoModelMiddlewareFiltersToolIncompatibleCandidates(t *testing.T) {
 	defer decision.Close()
 
 	accounts := autoModelTestAccounts()
+	accounts[1].Schedulable = false
 	accounts[0].Credentials["model_mapping"] = map[string]any{
 		"gpt-tool-disabled": "gpt-tool-disabled",
 		"gpt-tool-ready-a":  "gpt-tool-ready-a",
@@ -245,41 +261,8 @@ func TestAutoModelMiddlewareFiltersToolIncompatibleCandidates(t *testing.T) {
 	request := `{"model":"auto","messages":[{"role":"user","content":"use a tool"}],"tools":[{"type":"function","function":{"name":"shell"}}]}`
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(request)))
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
-	require.Equal(t, "gpt-tool-ready-b", recorder.Body.String())
-	require.Equal(t, 1, decisionCalls)
-}
-
-func TestAutoModelDecisionAcceptsOnlyCatalogCandidates(t *testing.T) {
-	var selected atomic.Value
-	selected.Store("deepseek-v4-flash")
-	var status atomic.Int32
-	status.Store(http.StatusOK)
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/v1/systemone", r.URL.Path)
-		require.Equal(t, "Bearer decision-key", r.Header.Get("Authorization"))
-		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
-		require.Equal(t, jev_api.ModelID, gjson.GetBytes(body, "model").String())
-		require.Equal(t, "choice", gjson.GetBytes(body, "questions.model.type").String())
-		w.WriteHeader(int(status.Load()))
-		_, _ = w.Write([]byte(`{"answers":{"model":{"choice":"` + selected.Load().(string) + `"}}}`))
-	}))
-	defer upstream.Close()
-	selection := &service.AccountSelectionResult{Account: &service.Account{
-		Platform:    service.PlatformJev,
-		Credentials: map[string]any{"api_key": "decision-key", "base_url": upstream.URL},
-	}, Acquired: true}
-	criteria := map[string]string{"gpt-5.5": "openai", "deepseek-v4-flash": "deepseek"}
-	request := []byte(`{"model":"typesafe/jev","state":"task","questions":{"model":{"type":"choice","criteria":{"gpt-5.5":"openai","deepseek-v4-flash":"deepseek"}}}}`)
-	model, err := relayAutoModelDecision(context.Background(), selection, request, jev_api.ModelID, criteria)
-	require.NoError(t, err)
-	require.Equal(t, selected.Load(), model)
-	selected.Store("unavailable-model")
-	_, err = relayAutoModelDecision(context.Background(), selection, request, jev_api.ModelID, criteria)
-	require.Error(t, err)
-	status.Store(http.StatusBadRequest)
-	_, err = relayAutoModelDecision(context.Background(), selection, request, jev_api.ModelID, criteria)
-	require.ErrorIs(t, err, errAutoModelDecisionRejected)
+	require.Equal(t, "gpt-tool-ready-a", recorder.Body.String())
+	require.Equal(t, 0, decisionCalls)
 }
 
 func TestAutoModelMiddlewareRewritesSingleCandidateAndRejectsAmbiguousModel(t *testing.T) {
@@ -361,7 +344,7 @@ func TestAutoModelContinuesAfterEncryptedReasoningToolCall(t *testing.T) {
 	require.JSONEq(t, history, gjson.GetBytes(forwarded[1], "input").Raw)
 }
 
-func TestAutoModelMiddlewareUsesSystemOneForMultipleCandidates(t *testing.T) {
+func TestAutoModelMiddlewarePrefersEconomicalModelWithoutSystemOne(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	decisionCalls := 0
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -394,10 +377,10 @@ func TestAutoModelMiddlewareUsesSystemOneForMultipleCandidates(t *testing.T) {
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"auto","input":"write a parser"}`)))
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	require.Equal(t, "deepseek-v4-flash", recorder.Body.String())
-	require.Equal(t, 1, decisionCalls)
+	require.Equal(t, 0, decisionCalls)
 }
 
-func TestAutoModelOpenAIGroupUsesSystemOne(t *testing.T) {
+func TestAutoModelOpenAIGroupUsesCapabilityOrder(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"answers":{"model":{"choice":"gpt-5.6-sol"}}}`))
@@ -424,39 +407,4 @@ func TestAutoModelOpenAIGroupUsesSystemOne(t *testing.T) {
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"auto","messages":[{"role":"user","content":"write a parser"}]}`)))
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	require.Equal(t, "gpt-5.6-sol", recorder.Body.String())
-}
-
-func TestAutoModelFallsBackToLayaDecisionAccount(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
-		require.NoError(t, err)
-		require.Equal(t, jev_api.LayaModelID, gjson.GetBytes(body, "model").String())
-		_, _ = w.Write([]byte(`{"answers":{"model":{"choice":"gpt-5.5"}}}`))
-	}))
-	defer upstream.Close()
-	accounts := autoModelTestAccounts()[:2]
-	accounts = append(accounts, service.Account{
-		ID: 4, Platform: service.PlatformLaya, Type: service.AccountTypeAPIKey,
-		Status: service.StatusActive, Schedulable: true,
-		Credentials: map[string]any{"api_protocol": service.APIProtocolSystemOne, "base_url": upstream.URL,
-			"model_mapping": map[string]any{jev_api.LayaModelID: jev_api.LayaModelID}},
-	})
-	h := newAutoModelTestHandler(accounts)
-	group := &service.Group{ID: 71, Platform: service.PlatformComposite}
-	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"auto","input":"write a parser"}`))
-	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{GroupID: &group.ID, Group: group})
-	chosen, err := h.chooseAutoModel(c, &service.APIKey{GroupID: &group.ID, Group: group}, []byte(`{"model":"auto","input":"write a parser"}`), []string{"gpt-5.5", "deepseek-v4-flash"})
-	require.NoError(t, err)
-	require.Equal(t, "gpt-5.5", chosen)
-}
-
-func TestAutoModelStateKeepsTextAndOmitsImageData(t *testing.T) {
-	body := []byte(`{"model":"auto","input":[{"role":"user","content":[{"type":"input_text","text":"explain this image"},{"type":"input_image","image_url":"data:image/png;base64,AAAA"}]}],"tools":[{"type":"function","name":"shell"}]}`)
-	state := autoModelState(body)
-	require.Equal(t, "explain this image", state["request"])
-	require.Equal(t, "shell", state["tools"])
-	require.NotContains(t, state["request"], "AAAA")
 }

@@ -2,11 +2,13 @@
 package builtinlogin
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/url"
 	"sync"
@@ -28,13 +30,22 @@ type Account struct {
 	Nickname string `json:"nickname,omitempty"`
 }
 
+type View struct {
+	ContentType string
+	Body        []byte
+}
+
 type Flow struct {
 	URL      string
 	Mode     string
 	Complete func(context.Context, string) (*Account, error)
+	View     func(context.Context) (*View, error)
+	Close    func()
 }
 
 type Begin func(context.Context) (*Flow, error)
+
+type BeginWithOptions func(context.Context, json.RawMessage) (*Flow, error)
 
 type result struct {
 	ID        string   `json:"session_id"`
@@ -57,12 +68,18 @@ type session struct {
 
 type Handler struct {
 	mu       sync.Mutex
-	begin    Begin
+	begin    BeginWithOptions
 	sessions map[string]*session
 	now      func() time.Time
 }
 
 func New(begin Begin) *Handler {
+	return NewWithOptions(func(ctx context.Context, _ json.RawMessage) (*Flow, error) {
+		return begin(ctx)
+	})
+}
+
+func NewWithOptions(begin BeginWithOptions) *Handler {
 	return &Handler{begin: begin, sessions: make(map[string]*session), now: time.Now}
 }
 
@@ -70,6 +87,7 @@ func (h *Handler) Register(mux *http.ServeMux, authorize func(http.HandlerFunc) 
 	mux.HandleFunc("POST /internal/login/sessions", authorize(h.start))
 	mux.HandleFunc("POST /internal/login/sessions/{id}/poll", authorize(h.complete))
 	mux.HandleFunc("POST /internal/login/sessions/{id}/callback", authorize(h.complete))
+	mux.HandleFunc("GET /internal/login/sessions/{id}/view", authorize(h.view))
 	mux.HandleFunc("DELETE /internal/login/sessions/{id}", authorize(h.cancel))
 }
 
@@ -90,14 +108,36 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 		fail(w, 403, "Login owner is required")
 		return
 	}
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		fail(w, 400, "Invalid login options")
+		return
+	}
+	body = bytes.TrimSpace(body)
+	if len(body) == 0 {
+		body = []byte("{}")
+	}
+	var object map[string]json.RawMessage
+	if err := json.Unmarshal(body, &object); err != nil {
+		fail(w, 400, "Invalid login options")
+		return
+	}
+	options := json.RawMessage(append([]byte(nil), body...))
+	defer clear(options)
 	h.mu.Lock()
+	var expired []*session
 	for id, s := range h.sessions {
 		if !h.now().Before(s.expires) {
 			delete(h.sessions, id)
+			expired = append(expired, s)
 		}
 	}
 	if len(h.sessions) >= 256 {
 		h.mu.Unlock()
+		for _, s := range expired {
+			s.close()
+		}
 		fail(w, 429, "Too many login sessions")
 		return
 	}
@@ -113,8 +153,11 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	h.sessions[id] = s
 	h.mu.Unlock()
+	for _, s := range expired {
+		s.close()
+	}
 	defer s.mu.Unlock()
-	flow, err := h.begin(r.Context())
+	flow, err := h.begin(r.Context(), options)
 	if err != nil || flow == nil {
 		h.mu.Lock()
 		delete(h.sessions, id)
@@ -124,6 +167,9 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 	}
 	u, err := url.Parse(flow.URL)
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || flow.Complete == nil || (flow.Mode != "poll" && flow.Mode != "callback") {
+		if flow.Close != nil {
+			flow.Close()
+		}
 		h.mu.Lock()
 		delete(h.sessions, id)
 		h.mu.Unlock()
@@ -135,13 +181,29 @@ func (h *Handler) start(w http.ResponseWriter, r *http.Request) {
 	write(w, 201, s.result)
 }
 
+func (s *session) close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.flow != nil && s.flow.Close != nil {
+		s.flow.Close()
+	}
+	s.flow = nil
+}
+
 func (h *Handler) find(r *http.Request) *session {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	s := h.sessions[r.PathValue("id")]
-	if s == nil || s.owner != r.Header.Get("X-Login-Owner") || !h.now().Before(s.expires) {
+	if s == nil || s.owner != r.Header.Get("X-Login-Owner") {
+		h.mu.Unlock()
 		return nil
 	}
+	if !h.now().Before(s.expires) {
+		delete(h.sessions, r.PathValue("id"))
+		h.mu.Unlock()
+		s.close()
+		return nil
+	}
+	h.mu.Unlock()
 	return s
 }
 
@@ -202,8 +264,35 @@ func (h *Handler) complete(w http.ResponseWriter, r *http.Request) {
 	s.result.Status = "completed"
 	s.result.Account = account
 	s.result.URL = ""
+	if s.flow.Close != nil {
+		s.flow.Close()
+	}
 	s.flow = nil
 	write(w, 200, s.result)
+}
+
+func (h *Handler) view(w http.ResponseWriter, r *http.Request) {
+	s := h.find(r)
+	if s == nil {
+		fail(w, 404, "Login session expired or not found")
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cancelled || !h.now().Before(s.expires) || s.flow == nil || s.flow.View == nil {
+		fail(w, 404, "Login view expired or unavailable")
+		return
+	}
+	view, err := s.flow.View(r.Context())
+	if err != nil || view == nil || len(view.Body) == 0 || view.ContentType == "" {
+		fail(w, 502, "Unable to load login view")
+		return
+	}
+	w.Header().Set("Content-Type", view.ContentType)
+	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(view.Body)
 }
 
 func (h *Handler) cancel(w http.ResponseWriter, r *http.Request) {
@@ -214,6 +303,9 @@ func (h *Handler) cancel(w http.ResponseWriter, r *http.Request) {
 	}
 	s.mu.Lock()
 	s.cancelled = true
+	if s.flow != nil && s.flow.Close != nil {
+		s.flow.Close()
+	}
 	s.flow = nil
 	s.mu.Unlock()
 	h.mu.Lock()

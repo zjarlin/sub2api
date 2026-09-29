@@ -25,7 +25,7 @@ export default {
       },
       modelFallback: {
   "title": "模型档位与自动降级",
-  "description": "同名模型的可用账号尝试完毕后，先尝试同档位其他模型，再按顺序逐档降低。中间错误保留在监控链路。",
+  "description": "同名模型的可用账号尝试完毕后，先尝试同档位其他模型，再逐档降低；仍未成功时，从最近的高档逐档向上补偿，费用按实际模型记录。中间错误保留在监控链路。",
   "enabled": "启用按档位自动降级",
   "scope": "适用于 OpenAI 兼容账号池的 Responses、Chat Completions 和 Messages（含流式）。仅使用当前分组允许且满足请求能力的模型；会话引用、托管工具或已输出内容的请求不跨模型重放。",
   "tierName": "第 {index} 档名称",

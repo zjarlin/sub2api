@@ -25,6 +25,7 @@ type openAIAccountSwitchBudget struct {
 	limit             int
 	failures          int
 	replayable        bool
+	auto              bool
 	requireCompatible bool
 }
 
@@ -40,6 +41,12 @@ func (b *openAIAccountSwitchBudget) exhausted(account *service.Account, err *ser
 		return false
 	}
 	if tryRemainingOpenAIAccounts(account, err) {
+		return false
+	}
+	// Auto 的账号级鉴权和能力失败不能耗尽换号预算后跳过同模型的其他账号。
+	if b.auto && b.replayable && account.IsOpenAICompatible() && err != nil &&
+		err.ShouldRetryNextAccount() && !err.RequestScopedTransient && err.Scope != service.GatewayFailureScopeRequest {
+		b.requireCompatible = true
 		return false
 	}
 	if b.replayable && ordinaryOpenAIAccountFailure(account, err) {

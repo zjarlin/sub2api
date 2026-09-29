@@ -165,6 +165,13 @@ func (s *stickyGatewayCacheHotpathStub) GetReasoningContent(_ context.Context, _
 	return "", ErrReasoningContentNotFound
 }
 
+func (s *modelsListAccountRepoStub) ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, _ []string, _ bool) ([]Account, error) {
+	if groupID != nil {
+		return s.ListSchedulableByGroupID(ctx, *groupID)
+	}
+	return s.ListSchedulable(ctx)
+}
+
 func (s *modelsListAccountRepoStub) ListSchedulableByGroupID(ctx context.Context, groupID int64) ([]Account, error) {
 	s.listByGroupCalls.Add(1)
 	if s.err != nil {
@@ -615,7 +622,7 @@ func TestGetAvailableModels_ErrorAndGlobalListBranches(t *testing.T) {
 		modelsListCache:    gocache.New(time.Minute, time.Minute),
 		modelsListCacheTTL: time.Minute,
 	}
-	require.Nil(t, svcErr.GetAvailableModels(context.Background(), nil, ""))
+	require.Empty(t, svcErr.GetAvailableModels(context.Background(), nil, ""))
 
 	okRepo := &modelsListAccountRepoStub{
 		all: []Account{
@@ -649,7 +656,7 @@ func TestGetAvailableModels_ErrorAndGlobalListBranches(t *testing.T) {
 	require.Equal(t, int64(1), okRepo.listAllCalls.Load())
 }
 
-func TestGetAvailableModels_OpenAIPassthroughUsesDefaultFallback(t *testing.T) {
+func TestGetAvailableModels_OpenAIPassthroughPreservesConfiguredCatalog(t *testing.T) {
 	groupID := int64(10)
 
 	tests := []struct {
@@ -658,7 +665,7 @@ func TestGetAvailableModels_OpenAIPassthroughUsesDefaultFallback(t *testing.T) {
 		want     []string
 	}{
 		{
-			name: "passthrough only ignores stale mapping",
+			name: "passthrough publishes configured mapping",
 			accounts: []Account{
 				{
 					ID:          1,
@@ -667,10 +674,10 @@ func TestGetAvailableModels_OpenAIPassthroughUsesDefaultFallback(t *testing.T) {
 					Extra:       map[string]any{"openai_passthrough": true},
 				},
 			},
-			want: nil,
+			want: []string{"stale-model"},
 		},
 		{
-			name: "passthrough wins over ordinary account mapping",
+			name: "passthrough does not hide ordinary account mapping",
 			accounts: []Account{
 				{
 					ID:          2,
@@ -684,7 +691,7 @@ func TestGetAvailableModels_OpenAIPassthroughUsesDefaultFallback(t *testing.T) {
 					Extra:       map[string]any{"openai_passthrough": true},
 				},
 			},
-			want: nil,
+			want: []string{"configured-model", "stale-model"},
 		},
 		{
 			name: "ordinary accounts preserve mapped whitelist",

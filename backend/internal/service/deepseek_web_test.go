@@ -41,10 +41,14 @@ func TestDeepseekWebBrowserLoginProxyDoesNotExposeToken(t *testing.T) {
 		require.Equal(t, "Bearer shared-key", r.Header.Get("Authorization"))
 		require.Equal(t, "admin:42", r.Header.Get("X-Login-Owner"))
 		require.Equal(t, "/internal/login/sessions", r.URL.Path)
+		var body map[string]string
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		require.Equal(t, "user@example.com", body["email"])
+		require.Equal(t, "browser-password", body["password"])
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"session_id": strings.Repeat("a", 64),
-			"auth_url": "https://chat.deepseek.com/sign_in",
-			"mode": "callback", "status": "pending", "expires_at": 1,
+			"auth_url":   "https://chat.deepseek.com/sign_in",
+			"mode":       "poll", "status": "pending", "expires_at": 1,
 		})
 	}))
 	defer server.Close()
@@ -52,9 +56,28 @@ func TestDeepseekWebBrowserLoginProxyDoesNotExposeToken(t *testing.T) {
 		Enabled: true, DeepseekWebURL: server.URL, DeepseekWebKey: "shared-key",
 	})
 	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
-	result, err := BuiltinAdapterLogin(context.Background(), PlatformDeepseekWeb, "admin:42", "", "start", "")
+	result, err := BuiltinAdapterLogin(context.Background(), PlatformDeepseekWeb, "admin:42", "", "start", "", BuiltinLoginOptions{Email: "user@example.com", Password: "browser-password"})
 	require.NoError(t, err)
 	require.Equal(t, "https://chat.deepseek.com/sign_in", result.AuthURL)
-	require.Equal(t, "callback", result.Mode)
+	require.Equal(t, "poll", result.Mode)
 	require.NotContains(t, result.AuthURL, "shared-key")
+}
+
+func TestDeepseekWebLoginViewProxy(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "Bearer shared-key", r.Header.Get("Authorization"))
+		require.Equal(t, "admin:42", r.Header.Get("X-Login-Owner"))
+		require.Equal(t, "/internal/login/sessions/"+strings.Repeat("a", 64)+"/view", r.URL.Path)
+		w.Header().Set("Content-Type", "image/png")
+		_, _ = w.Write([]byte("png"))
+	}))
+	defer server.Close()
+	SetBuiltinAdapterConfig(&config.BuiltinAdapterConfig{
+		Enabled: true, DeepseekWebURL: server.URL, DeepseekWebKey: "shared-key",
+	})
+	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
+	view, err := BuiltinAdapterLoginView(context.Background(), PlatformDeepseekWeb, "admin:42", strings.Repeat("a", 64))
+	require.NoError(t, err)
+	require.Equal(t, "image/png", view.ContentType)
+	require.Equal(t, []byte("png"), view.Body)
 }

@@ -2,8 +2,6 @@ package service
 
 import (
 	"context"
-	"sort"
-	"strings"
 	"time"
 )
 
@@ -47,95 +45,4 @@ type AccountModelHealthState struct {
 // the bounded background health checker.
 type AccountModelHealthStateReader interface {
 	ListAccountModelHealthStates(ctx context.Context) ([]AccountModelHealthState, error)
-}
-
-func (s *GatewayService) ModelsRequireHealthCheck() bool {
-	if s == nil || s.usageLogRepo == nil {
-		return false
-	}
-	_, ok := s.usageLogRepo.(ModelHealthObservationReader)
-	return ok
-}
-
-func healthCheckedModelIDs(
-	ctx context.Context,
-	usageLogRepo UsageLogRepository,
-	groupID *int64,
-	platform string,
-	accounts []Account,
-) ([]string, bool) {
-	reader, ok := usageLogRepo.(ModelHealthObservationReader)
-	if !ok {
-		return nil, false
-	}
-	// 透传只影响请求转发；模型发现仍汇总分组内各账号的成功记录。
-	// 目标分组可能包含多个 OpenAI 兼容来源，健康记录必须按账号真实平台读取。
-	observationPlatforms := modelHealthObservationPlatforms(platform, accounts)
-	observations := make([]ModelHealthObservation, 0)
-	for _, observationPlatform := range observationPlatforms {
-		platformObservations, err := reader.ListModelHealthObservations(
-			ctx,
-			groupID,
-			observationPlatform,
-		)
-		if err != nil {
-			return []string{}, true
-		}
-		observations = append(observations, platformObservations...)
-	}
-
-	accountsByID := make(map[int64]*Account, len(accounts))
-	for i := range accounts {
-		accountsByID[accounts[i].ID] = &accounts[i]
-	}
-	models := make(map[string]struct{}, len(observations))
-	for _, observation := range observations {
-		addHealthCheckedModel(models, accountsByID[observation.AccountID], observation.Model)
-	}
-	out := make([]string, 0, len(models))
-	for model := range models {
-		out = append(out, model)
-	}
-	return out, true
-}
-
-// 目标分组可能包含多个 OpenAI 兼容来源，健康记录必须按账号真实平台读取。
-// 未指定目标平台的全局列表保留一次无平台过滤查询。
-func modelHealthObservationPlatforms(platform string, accounts []Account) []string {
-	if strings.TrimSpace(platform) == "" {
-		return []string{""}
-	}
-
-	seen := make(map[string]struct{}, len(accounts))
-	platforms := make([]string, 0, len(accounts))
-	for i := range accounts {
-		accountPlatform := strings.TrimSpace(accounts[i].Platform)
-		if accountPlatform == "" {
-			continue
-		}
-		if _, exists := seen[accountPlatform]; exists {
-			continue
-		}
-		seen[accountPlatform] = struct{}{}
-		platforms = append(platforms, accountPlatform)
-	}
-	sort.Strings(platforms)
-	return platforms
-}
-
-func addHealthCheckedModel(models map[string]struct{}, account *Account, model string) {
-	model = strings.TrimSpace(model)
-	if account == nil || model == "" || len(model) > unsupportedModelKeyMaxBytes || !account.IsModelSupported(model) {
-		return
-	}
-	models[model] = struct{}{}
-}
-
-func (s *GatewayService) healthCheckedModels(
-	ctx context.Context,
-	groupID *int64,
-	platform string,
-	accounts []Account,
-) ([]string, bool) {
-	return healthCheckedModelIDs(ctx, s.usageLogRepo, groupID, platform, accounts)
 }

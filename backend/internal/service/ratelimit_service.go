@@ -1260,6 +1260,18 @@ func (s *RateLimitService) handle429(ctx context.Context, account *Account, head
 				slog.Info("account_rate_limited", "account_id", account.ID, "platform", account.Platform, "reset_at", resetTime, "reset_in", time.Until(resetTime).Truncate(time.Second))
 				return
 			}
+		case PlatformTraework:
+			// 适配器仅在整个登录池冷却时返回此时间，避免配额耗尽降级为 5 秒回避。
+			resetTime := time.Unix(gjson.GetBytes(responseBody, "error.resets_at").Int(), 0)
+			if resetTime.After(time.Now()) {
+				s.notifyAccountSchedulingBlocked(account, resetTime, "429")
+				if err := s.accountRepo.SetRateLimited(ctx, account.ID, resetTime); err != nil {
+					slog.Warn("rate_limit_set_failed", "account_id", account.ID, "error", err)
+					return
+				}
+				slog.Info("account_rate_limited", "account_id", account.ID, "platform", account.Platform, "reset_at", resetTime)
+				return
+			}
 		}
 
 		// Anthropic 平台：没有限流重置时间的 429 可能是非真实限流（如 Extra usage required），

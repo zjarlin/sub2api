@@ -13,6 +13,18 @@ import (
 // BuiltinAdapterLogin 使用管理员身份隔离登录会话，不将回调凭据写入账号表或日志。
 func (h *AccountHandler) BuiltinAdapterLogin(c *gin.Context) {
 	owner := adminActorScope(c)
+	if c.Request.Method == http.MethodGet {
+		view, err := service.BuiltinAdapterLoginView(c.Request.Context(), c.Param("platform"), owner, c.Param("session"))
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		c.Header("Cache-Control", "no-store")
+		c.Header("Content-Type", view.ContentType)
+		c.Header("X-Content-Type-Options", "nosniff")
+		c.Data(http.StatusOK, view.ContentType, view.Body)
+		return
+	}
 	var body struct {
 		CallbackURL string `json:"callback_url"`
 		Email       string `json:"email"`

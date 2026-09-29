@@ -17,13 +17,16 @@ export interface ZcodeLoginOptions {
   provider: 'bigmodel' | 'zai'
 }
 
-export interface ArenaLoginOptions {
+export interface PasswordLoginOptions {
   email: string
   password: string
 }
 
-export async function startBuiltinLogin(platform: BuiltinLoginPlatform, signal?: AbortSignal, options?: ZcodeLoginOptions | ArenaLoginOptions) {
-  const { data } = await apiClient.post<BuiltinLoginSession>(path(platform), platform === 'zcode' || platform === 'arena' ? options ?? {} : {}, { signal, timeout: 50000 })
+export type ArenaLoginOptions = PasswordLoginOptions
+
+export async function startBuiltinLogin(platform: BuiltinLoginPlatform, signal?: AbortSignal, options?: ZcodeLoginOptions | PasswordLoginOptions) {
+  const hasOptions = platform === 'zcode' || platform === 'arena' || platform === 'deepseek_web'
+  const { data } = await apiClient.post<BuiltinLoginSession>(path(platform), hasOptions ? options ?? {} : {}, { signal, timeout: 50000 })
   return data
 }
 
@@ -35,6 +38,15 @@ export async function completeBuiltinLogin(platform: BuiltinLoginPlatform, sessi
 
 export async function cancelBuiltinLogin(platform: BuiltinLoginPlatform, id: string) {
   await apiClient.delete(`${path(platform)}/${id}`)
+}
+
+export async function getBuiltinLoginView(platform: BuiltinLoginPlatform, id: string, signal?: AbortSignal) {
+  const { data } = await apiClient.get<Blob>(`${path(platform)}/${id}/view`, {
+    signal,
+    timeout: 20000,
+    responseType: 'blob'
+  })
+  return data
 }
 
 export interface VibexUsage {

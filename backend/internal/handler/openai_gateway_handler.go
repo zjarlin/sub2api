@@ -625,7 +625,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
-	switchBudget := openAIAccountSwitchBudget{limit: h.maxAccountSwitches, replayable: modelFallbackReplayableRequest(c, apiKey, reqModel, forwardBody)}
+	switchBudget := openAIAccountSwitchBudget{limit: h.maxAccountSwitches, replayable: modelFallbackReplayableRequest(c, apiKey, reqModel, forwardBody), auto: service.IsAutoModelRouting(c.Request.Context())}
 	firstOutputTimeoutSwitchCount := 0
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})

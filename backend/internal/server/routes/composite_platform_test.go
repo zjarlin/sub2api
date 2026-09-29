@@ -83,6 +83,31 @@ func TestCompositeTargetPlatformMiddlewareResolvesModelAndRestoresBody(t *testin
 	require.Equal(t, http.StatusNoContent, w.Code)
 }
 
+func TestAutoModelCompositeMiddlewarePreservesAccountProtocolOverNameDetector(t *testing.T) {
+	ctx, err := (*service.SettingService)(nil).BindAutoModelRoutingPolicy(context.Background())
+	require.NoError(t, err)
+	ctx = service.WithCompositeRouteDecision(ctx, service.CompositeRouteDecision{
+		Matched: true, PublicModel: "deepseek-v4.1-flash", UpstreamModel: "deepseek-v4.1-flash", TargetPlatform: service.PlatformOpenAI,
+	})
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(servermiddleware.ContextKeyAPIKey), &service.APIKey{Group: &service.Group{ID: 71, Platform: service.PlatformComposite}})
+	}, compositeTargetPlatformMiddleware(nil))
+	router.POST("/v1/responses", func(c *gin.Context) {
+		platform, found := service.ResolvedTargetPlatformFromContext(c.Request.Context())
+		require.True(t, found)
+		require.Equal(t, service.PlatformOpenAI, platform)
+		body, err := io.ReadAll(c.Request.Body)
+		require.NoError(t, err)
+		require.JSONEq(t, `{"model":"deepseek-v4.1-flash","input":"hello"}`, string(body))
+		c.Status(http.StatusNoContent)
+	})
+	recorder := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"deepseek-v4.1-flash","input":"hello"}`)).WithContext(ctx)
+	router.ServeHTTP(recorder, req)
+	require.Equal(t, http.StatusNoContent, recorder.Code)
+}
+
 func TestCompositeTargetPlatformMiddlewareUsesExplicitRouteAndRewritesBody(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()

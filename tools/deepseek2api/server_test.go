@@ -26,6 +26,33 @@ func testEnvelope(data any) any {
 	return map[string]any{"code": 0, "data": map[string]any{"biz_code": 0, "biz_data": data}}
 }
 
+type fakeLoginBrowser struct {
+	session *fakeBrowserSession
+	options browserLoginOptions
+}
+
+func (f *fakeLoginBrowser) Start(_ context.Context, options browserLoginOptions) (browserLoginSession, error) {
+	f.options = options
+	return f.session, nil
+}
+
+type fakeBrowserSession struct {
+	credential webCredential
+	closed     bool
+}
+
+func (f *fakeBrowserSession) Screenshot(context.Context) ([]byte, error) {
+	return []byte("png"), nil
+}
+
+func (f *fakeBrowserSession) Credential(context.Context) (webCredential, bool, error) {
+	return f.credential, true, nil
+}
+
+func (f *fakeBrowserSession) Close() {
+	f.closed = true
+}
+
 func TestBrowserSessionImportAndChat(t *testing.T) {
 	var sawSession, sawProof, deleted bool
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -68,6 +95,9 @@ func TestBrowserSessionImportAndChat(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	browserSession := &fakeBrowserSession{credential: webCredential{Token: "browser-token", DeviceID: "browser-device"}}
+	browser := &fakeLoginBrowser{session: browserSession}
+	a.loginBrowser = browser
 	server := httptest.NewServer(a.handler())
 	defer server.Close()
 	client := server.Client()
@@ -87,7 +117,7 @@ func TestBrowserSessionImportAndChat(t *testing.T) {
 		return resp
 	}
 
-	start := request("POST", "/internal/login/sessions", "{}", "admin:1")
+	start := request("POST", "/internal/login/sessions", `{"email":"user@example.com","password":"browser-password"}`, "admin:1")
 	if start.StatusCode != 201 {
 		t.Fatalf("login start: %d", start.StatusCode)
 	}
@@ -98,14 +128,20 @@ func TestBrowserSessionImportAndChat(t *testing.T) {
 		t.Fatal(err)
 	}
 	start.Body.Close()
-	otherOwner := request("POST", "/internal/login/sessions/"+session.ID+"/callback", `{"callback_url":"unused"}`, "admin:2")
+	if browser.options.Email != "user@example.com" || browser.options.Password != "browser-password" {
+		t.Fatalf("login options not forwarded: %#v", browser.options)
+	}
+	otherOwner := request("POST", "/internal/login/sessions/"+session.ID+"/poll", `{}`, "admin:2")
 	if otherOwner.StatusCode != 404 {
 		t.Fatalf("session owner isolation: %d", otherOwner.StatusCode)
 	}
 	otherOwner.Body.Close()
-	credential := `{"token":"browser-token","device_id":"browser-device"}`
-	callback, _ := json.Marshal(map[string]string{"callback_url": credential})
-	complete := request("POST", "/internal/login/sessions/"+session.ID+"/callback", string(callback), "admin:1")
+	view := request("GET", "/internal/login/sessions/"+session.ID+"/view", "", "admin:1")
+	if view.StatusCode != http.StatusOK || view.Header.Get("Content-Type") != "image/png" {
+		t.Fatalf("login view: %d %s", view.StatusCode, view.Header.Get("Content-Type"))
+	}
+	view.Body.Close()
+	complete := request("POST", "/internal/login/sessions/"+session.ID+"/poll", `{}`, "admin:1")
 	var result map[string]any
 	if err := json.NewDecoder(complete.Body).Decode(&result); err != nil {
 		t.Fatal(err)
@@ -117,6 +153,9 @@ func TestBrowserSessionImportAndChat(t *testing.T) {
 	responseJSON, _ := json.Marshal(result)
 	if strings.Contains(string(responseJSON), "browser-token") || strings.Contains(string(responseJSON), "browser-device") {
 		t.Fatal("login response leaked browser credentials")
+	}
+	if !browserSession.closed {
+		t.Fatal("login browser was not closed after completion")
 	}
 	data, err := os.ReadFile(stateFile)
 	if err != nil || !strings.Contains(string(data), "browser-token") {
@@ -159,4 +198,4 @@ func TestTextOnlyRequestRejectsTools(t *testing.T) {
 	}
 }
 
-var _ builtinlogin.Begin = (*adapter)(nil).beginLogin
+var _ builtinlogin.BeginWithOptions = (*adapter)(nil).beginLogin

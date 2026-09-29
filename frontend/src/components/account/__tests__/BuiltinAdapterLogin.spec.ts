@@ -2,14 +2,21 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import BuiltinAdapterLogin from '../BuiltinAdapterLogin.vue'
 
-const { start, complete, cancel } = vi.hoisted(() => ({ start: vi.fn(), complete: vi.fn(), cancel: vi.fn() }))
-vi.mock('@/api/admin/builtinAdapters', () => ({ startBuiltinLogin: start, completeBuiltinLogin: complete, cancelBuiltinLogin: cancel }))
+const { start, complete, cancel, getView } = vi.hoisted(() => ({ start: vi.fn(), complete: vi.fn(), cancel: vi.fn(), getView: vi.fn() }))
+vi.mock('@/api/admin/builtinAdapters', () => ({ startBuiltinLogin: start, completeBuiltinLogin: complete, cancelBuiltinLogin: cancel, getBuiltinLoginView: getView }))
 vi.mock('vue-i18n', async () => ({ ...await vi.importActual('vue-i18n'), useI18n: () => ({ t: (key: string) => key }) }))
 
 const pending = (mode: 'poll' | 'callback') => ({ session_id: 'abc', mode, status: 'pending', auth_url: 'https://example.com/login', expires_at: Date.now() + 600000 })
 
 describe('BuiltinAdapterLogin', () => {
-  beforeEach(() => { vi.useFakeTimers(); vi.clearAllMocks(); cancel.mockResolvedValue(undefined) })
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.clearAllMocks()
+    cancel.mockResolvedValue(undefined)
+    getView.mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:deepseek-login') })
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
+  })
   afterEach(() => { vi.useRealTimers() })
 
   it('logs in to Arena with email and password, then returns the prepared model', async () => {
@@ -91,25 +98,29 @@ describe('BuiltinAdapterLogin', () => {
     wrapper.unmount()
   })
 
-  it('imports a DeepSeek browser session with its device ID', async () => {
-    start.mockResolvedValue(pending('callback'))
-    complete.mockResolvedValue({ ...pending('callback'), status: 'completed', account: { uid: 'deepseek-user' } })
+  it('signs in to DeepSeek with email and password, then completes automatically', async () => {
+    start.mockResolvedValue(pending('poll'))
+    const result = { ...pending('poll'), status: 'completed', account: { uid: 'deepseek-user' } }
+    complete.mockResolvedValue(result)
     const wrapper = mount(BuiltinAdapterLogin, { props: { platform: 'deepseek_web' } })
     expect(wrapper.text()).toContain('admin.accounts.builtinLogin.deepseekWebStart')
+    expect(wrapper.get('button').attributes('disabled')).toBeDefined()
+    await wrapper.get('#deepseek-login-email').setValue('user@example.com')
+    await wrapper.get('#deepseek-login-password').setValue('password')
     await wrapper.get('button').trigger('click')
     await flushPromises()
+    expect(start).toHaveBeenCalledWith('deepseek_web', expect.any(AbortSignal), { email: 'user@example.com', password: 'password' })
     expect(wrapper.text()).toContain('admin.accounts.builtinLogin.deepseekWebHint')
     expect(wrapper.text()).not.toContain('admin.accounts.builtinLogin.deepseek_webHint')
-    expect(wrapper.get('a').attributes('href')).toBe('https://example.com/login')
-    expect(wrapper.text()).toContain('admin.accounts.builtinLogin.deepseekWebOpen')
-    await wrapper.get('#deepseek-web-token').setValue('browser-token')
-    expect(wrapper.get('button.btn-primary').attributes('disabled')).toBeDefined()
-    await wrapper.get('#deepseek-web-device').setValue('device-1')
-    expect(wrapper.text()).toContain('admin.accounts.builtinLogin.deepseekWebComplete')
-    await wrapper.get('button.btn-primary').trigger('click')
-    await flushPromises()
-    expect(complete).toHaveBeenCalledWith('deepseek_web', expect.anything(), JSON.stringify({ token: 'browser-token', device_id: 'device-1' }), expect.any(AbortSignal))
+    expect(wrapper.find('a').exists()).toBe(false)
+    expect(getView).toHaveBeenCalledWith('deepseek_web', 'abc', expect.any(AbortSignal))
+    expect(wrapper.get('[data-testid="deepseek-login-view"]').attributes('src')).toBe('blob:deepseek-login')
+    expect(wrapper.text()).toContain('admin.accounts.builtinLogin.deepseekWebWaiting')
     expect(wrapper.find('#deepseek-web-token').exists()).toBe(false)
+    expect(wrapper.find('#deepseek-web-device').exists()).toBe(false)
+    await vi.advanceTimersByTimeAsync(2500)
+    await flushPromises()
+    expect(complete).toHaveBeenCalledWith('deepseek_web', expect.anything(), '', expect.any(AbortSignal))
     expect(wrapper.emitted('authorized')).toHaveLength(1)
     wrapper.unmount()
   })
@@ -117,6 +128,8 @@ describe('BuiltinAdapterLogin', () => {
   it('explains when the DeepSeek web adapter is not enabled', async () => {
     start.mockRejectedValue({ code: 'BUILTIN_ADAPTER_DISABLED', message: 'Enable the built-in adapter and configure its shared key first' })
     const wrapper = mount(BuiltinAdapterLogin, { props: { platform: 'deepseek_web' } })
+    await wrapper.get('#deepseek-login-email').setValue('user@example.com')
+    await wrapper.get('#deepseek-login-password').setValue('password')
     await wrapper.get('button').trigger('click')
     await flushPromises()
     expect(wrapper.get('[role="alert"]').text()).toBe('admin.accounts.builtinLogin.deepseekWebUnavailable')

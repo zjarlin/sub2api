@@ -21,14 +21,15 @@ type proofOfWork interface {
 }
 
 type adapter struct {
-	key       string
-	stateFile string
-	upstream  *upstreamClient
-	pow       proofOfWork
-	mu        sync.RWMutex
-	accounts  []webCredential
-	next      atomic.Uint64
-	slots     chan struct{}
+	key          string
+	stateFile    string
+	upstream     *upstreamClient
+	pow          proofOfWork
+	mu           sync.RWMutex
+	accounts     []webCredential
+	next         atomic.Uint64
+	slots        chan struct{}
+	loginBrowser loginBrowser
 }
 
 func newAdapter(key, stateFile string, upstream *upstreamClient, pow proofOfWork) (*adapter, error) {
@@ -91,48 +92,78 @@ func (a *adapter) account() (webCredential, error) {
 	return a.accounts[index], nil
 }
 
-func (a *adapter) beginLogin(context.Context) (*builtinlogin.Flow, error) {
+func (a *adapter) beginLogin(ctx context.Context, rawOptions json.RawMessage) (*builtinlogin.Flow, error) {
+	if a.loginBrowser == nil {
+		return nil, errors.New("DeepSeek login browser is not configured")
+	}
+	var options browserLoginOptions
+	if err := json.Unmarshal(rawOptions, &options); err != nil {
+		return nil, errors.New("Invalid DeepSeek login options")
+	}
+	options.Email = strings.TrimSpace(options.Email)
+	if (options.Email == "") != (options.Password == "") || len(options.Email) > 320 || len(options.Password) > 4096 {
+		return nil, errors.New("DeepSeek email and password must be provided together")
+	}
+	session, err := a.loginBrowser.Start(ctx, options)
+	if err != nil {
+		return nil, err
+	}
 	return &builtinlogin.Flow{
-		URL:  "https://chat.deepseek.com/sign_in",
-		Mode: "callback",
-		Complete: func(ctx context.Context, input string) (*builtinlogin.Account, error) {
-			var imported webCredential
-			if len(input) > 32<<10 || json.Unmarshal([]byte(input), &imported) != nil {
-				return nil, &builtinlogin.PublicError{Status: 400, Message: "Provide the browser token and device ID"}
-			}
-			imported.Token = strings.TrimSpace(strings.TrimPrefix(imported.Token, "Bearer "))
-			imported.DeviceID = strings.TrimSpace(imported.DeviceID)
-			if imported.Token == "" || imported.DeviceID == "" || len(imported.Token) > 16<<10 || len(imported.DeviceID) > 4096 {
-				return nil, &builtinlogin.PublicError{Status: 400, Message: "A browser token and device ID are required"}
-			}
-			verified, err := a.upstream.verify(ctx, imported)
+		URL:  deepseekLoginURL,
+		Mode: "poll",
+		View: func(ctx context.Context) (*builtinlogin.View, error) {
+			screenshot, err := session.Screenshot(ctx)
 			if err != nil {
-				return nil, &builtinlogin.PublicError{Status: 400, Message: "DeepSeek could not verify this browser session"}
-			}
-			a.mu.Lock()
-			defer a.mu.Unlock()
-			accounts := append([]webCredential(nil), a.accounts...)
-			replaced := false
-			for i := range accounts {
-				if accounts[i].UID == verified.UID {
-					accounts[i] = verified
-					replaced = true
-					break
-				}
-			}
-			if !replaced {
-				if len(accounts) >= 32 {
-					return nil, &builtinlogin.PublicError{Status: 409, Message: "DeepSeek account pool is full"}
-				}
-				accounts = append(accounts, verified)
-			}
-			if err := a.save(accounts); err != nil {
 				return nil, err
 			}
-			a.accounts = accounts
-			return &builtinlogin.Account{UID: verified.UID, Nickname: verified.Email}, nil
+			return &builtinlogin.View{ContentType: "image/png", Body: screenshot}, nil
 		},
+		Complete: func(ctx context.Context, _ string) (*builtinlogin.Account, error) {
+			credential, ready, err := session.Credential(ctx)
+			if err != nil {
+				return nil, err
+			}
+			if !ready {
+				return nil, builtinlogin.ErrPending
+			}
+			return a.importCredential(ctx, credential)
+		},
+		Close: session.Close,
 	}, nil
+}
+
+func (a *adapter) importCredential(ctx context.Context, imported webCredential) (*builtinlogin.Account, error) {
+	imported.Token = strings.TrimSpace(strings.TrimPrefix(imported.Token, "Bearer "))
+	imported.DeviceID = strings.TrimSpace(imported.DeviceID)
+	if imported.Token == "" || imported.DeviceID == "" || len(imported.Token) > 16<<10 || len(imported.DeviceID) > 4096 {
+		return nil, &builtinlogin.PublicError{Status: 400, Message: "A browser token and device ID are required"}
+	}
+	verified, err := a.upstream.verify(ctx, imported)
+	if err != nil {
+		return nil, &builtinlogin.PublicError{Status: 400, Message: "DeepSeek could not verify this browser session"}
+	}
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	accounts := append([]webCredential(nil), a.accounts...)
+	replaced := false
+	for i := range accounts {
+		if accounts[i].UID == verified.UID {
+			accounts[i] = verified
+			replaced = true
+			break
+		}
+	}
+	if !replaced {
+		if len(accounts) >= 32 {
+			return nil, &builtinlogin.PublicError{Status: 409, Message: "DeepSeek account pool is full"}
+		}
+		accounts = append(accounts, verified)
+	}
+	if err := a.save(accounts); err != nil {
+		return nil, err
+	}
+	a.accounts = accounts
+	return &builtinlogin.Account{UID: verified.UID, Nickname: verified.Email}, nil
 }
 
 type apiError struct {
@@ -184,7 +215,7 @@ func (a *adapter) handler() http.Handler {
 	}))
 	mux.HandleFunc("GET /v1/models", a.auth(a.models))
 	mux.HandleFunc("POST /v1/chat/completions", a.auth(a.chat))
-	builtinlogin.New(a.beginLogin).Register(mux, a.auth)
+	builtinlogin.NewWithOptions(a.beginLogin).Register(mux, a.auth)
 	return mux
 }
 

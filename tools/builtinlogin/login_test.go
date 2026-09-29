@@ -76,6 +76,47 @@ func TestLoginIsolationCompletionCancellationAndExpiry(t *testing.T) {
 	}
 }
 
+func TestLoginViewAndFlowClose(t *testing.T) {
+	var closed atomic.Int32
+	h := New(func(context.Context) (*Flow, error) {
+		return &Flow{
+			URL:  "https://example.com/authorize",
+			Mode: "poll",
+			Complete: func(context.Context, string) (*Account, error) {
+				return &Account{UID: "u1"}, nil
+			},
+			View: func(context.Context) (*View, error) {
+				return &View{ContentType: "image/png", Body: []byte("png")}, nil
+			},
+			Close: func() { closed.Add(1) },
+		}, nil
+	})
+	mux := http.NewServeMux()
+	h.Register(mux, func(next http.HandlerFunc) http.HandlerFunc { return next })
+	w := loginRequest(mux, "POST", "/internal/login/sessions", "admin:1", "{}")
+	var started result
+	if err := json.Unmarshal(w.Body.Bytes(), &started); err != nil {
+		t.Fatal(err)
+	}
+	path := "/internal/login/sessions/" + started.ID
+	w = loginRequest(mux, "GET", path+"/view", "admin:1", "")
+	if w.Code != http.StatusOK || w.Header().Get("Content-Type") != "image/png" || w.Body.String() != "png" {
+		t.Fatalf("unexpected view: %d %s %q", w.Code, w.Header().Get("Content-Type"), w.Body.String())
+	}
+	if w := loginRequest(mux, "GET", path+"/view", "admin:2", ""); w.Code != http.StatusNotFound {
+		t.Fatalf("view owner isolation: %d", w.Code)
+	}
+	if w := loginRequest(mux, "POST", path+"/poll", "admin:1", "{}"); w.Code != http.StatusOK {
+		t.Fatalf("complete: %d", w.Code)
+	}
+	if closed.Load() != 1 {
+		t.Fatalf("flow close count: %d", closed.Load())
+	}
+	if w := loginRequest(mux, "GET", path+"/view", "admin:1", ""); w.Code != http.StatusNotFound {
+		t.Fatalf("completed view: %d", w.Code)
+	}
+}
+
 func TestLoginPendingAndRedaction(t *testing.T) {
 	for _, tc := range []struct {
 		err      error

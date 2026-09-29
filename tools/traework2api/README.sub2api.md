@@ -54,6 +54,8 @@ Sub2API 已提供独立的 **TRAE Work（traework）** 平台类型。账号为 
 
 默认使用 Docker 命名卷持久化，无需手工准备目录；仍可用 `TRAEWORK_AUTH_DIR` / `TRAEWORK_STATE_DIR` 覆盖为 UID 10001 可写的路径。多个 Sub2API TRAE 路由账号共享此登录池，凭证不保存到路由账号表。
 
+SOLO `4008`（quota exceeded）与 `1005` 权益不足会立即冷却对应登录账号，沿用 `TW2A_PLAN_CREDIT` / `cooldown.plan_credit`，默认 12 小时。这是本地重试冷却策略，不代表上游的真实配额重置周期。整个登录池均不可用时，流式错误和非流式 429 携带 `error.resets_at`（Unix 秒），主服务据此维持账号限流标记，直到最早的登录账号冷却结束。池中仍有健康账号时不返回整个通道的重置时间。主服务的显式池模式、自定义错误策略仍按原配置生效。
+
 共享登录会话模块位于 `tools/builtinlogin`，构建上下文改为 `tools`。直接构建使用 `docker build -f tools/traework2api/Dockerfile.sub2api tools`。登录回调处理只信任上游返回的账号身份，不信任链接中的 userInfo；回调凭证不进入审计日志。
 
 ## 边界

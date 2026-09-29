@@ -85,7 +85,7 @@ func TestVibexResponsesWebSocketBridgeReplaysAssistantAndUsage(t *testing.T) {
 
 	responseID := ""
 	for turn := 0; turn < 2; turn++ {
-		payload := `{"type":"response.create","model":"vibex-alias","instructions":"Reply briefly","input":"remember violet","store":false}`
+		payload := `{"type":"response.create","model":"vibex-alias","instructions":"Reply briefly","reasoning":{"effort":"high"},"input":"remember violet","store":false}`
 		if turn == 1 {
 			payload = `{"type":"response.create","previous_response_id":"` + responseID + `","input":"what color?","store":false}`
 		}
@@ -128,6 +128,7 @@ func TestVibexResponsesWebSocketBridgeReplaysAssistantAndUsage(t *testing.T) {
 	for _, body := range upstream.bodies {
 		require.Equal(t, "free-qwen-3.8-max", gjson.GetBytes(body, "model").String())
 		require.True(t, gjson.GetBytes(body, "stream_options.include_usage").Bool())
+		require.False(t, gjson.GetBytes(body, "reasoning_effort").Exists())
 		require.False(t, gjson.GetBytes(body, "previous_response_id").Exists())
 	}
 	require.Equal(t, "Reply briefly", gjson.GetBytes(upstream.bodies[0], "messages.0.content").String())

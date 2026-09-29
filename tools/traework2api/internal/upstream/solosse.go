@@ -48,20 +48,37 @@ type SOLOEvent struct {
 // SOLOStreamError 上游 SSE 流内的业务错误（event:error）。非流式聚合时返回，
 // 调用方可据此分类冷却账号并轮转。
 type SOLOStreamError struct {
-	Code int64
-	Msg  string
+	Code     int64
+	Msg      string
+	ResetsAt int64
 }
 
 func (e *SOLOStreamError) Error() string {
 	return fmt.Sprintf("solo error code=%d msg=%s", e.Code, e.Msg)
 }
 
-// Kind 将 SSE 流内错误分类。1005 → ErrPlanLimit；其余归 ErrClient。
+// Kind 将权益不足和配额耗尽归入配额冷却，其余错误保留原分类。
 func (e *SOLOStreamError) Kind() ErrKind {
-	if e.Code == 1005 {
+	if e.Code == 1005 || e.Code == 4008 {
 		return ErrPlanLimit
 	}
 	return ErrClient
+}
+
+// OpenAIError 保留业务错误码，并把整个登录池的冷却截止时间传给网关。
+func (e *SOLOStreamError) OpenAIError() map[string]any {
+	errBody := map[string]any{
+		"message": e.Error(),
+		"type":    "upstream_error",
+		"code":    e.Code,
+	}
+	if e.Kind() == ErrPlanLimit {
+		errBody["type"] = "rate_limit_error"
+	}
+	if e.ResetsAt > 0 {
+		errBody["resets_at"] = e.ResetsAt
+	}
+	return map[string]any{"error": errBody}
 }
 
 // ParseSOLOLine 解析一条事件（eventName 为 event 行值，dataLine 为 data 行值）。
@@ -422,14 +439,7 @@ func streamOpts(w http.ResponseWriter, r io.Reader, onErr func(*SOLOStreamError)
 				if onErr != nil {
 					onErr(se)
 				}
-				msg := fmt.Sprintf("solo error code=%d msg=%s", ev.ErrorCode, ev.ErrorMessage)
-				errorData, err := json.Marshal(map[string]any{
-					"error": map[string]any{
-						"message": msg,
-						"type":    "upstream_error",
-						"code":    ev.ErrorCode,
-					},
-				})
+				errorData, err := json.Marshal(se.OpenAIError())
 				if err != nil {
 					return err
 				}

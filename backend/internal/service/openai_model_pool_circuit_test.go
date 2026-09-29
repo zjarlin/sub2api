@@ -51,6 +51,22 @@ func TestOpenAIModelPoolCircuitRequiresCompleteIndependentFailures(t *testing.T)
 	require.False(t, allowed)
 }
 
+func TestAutoModelProviderFallbackDoesNotReuseOpenAIPoolCooldown(t *testing.T) {
+	groupID := int64(9)
+	ctx := WithResolvedTargetPlatform(context.Background(), PlatformOpenAI)
+	svc := &OpenAIGatewayService{}
+	failures := modelPoolFailures(http.StatusBadGateway)
+	for i := 0; i < 2; i++ {
+		acquireModelPoolPermit(t, svc, ctx, &groupID, APIProtocolResponses, "deepseek-v4.1-flash").Exhausted(ctx, 2, failures)
+	}
+	_, allowed := svc.AcquireOpenAIModelPool(ctx, &groupID, APIProtocolResponses, "deepseek-v4.1-flash")
+	require.False(t, allowed)
+	ctx = WithResolvedTargetPlatform(ctx, PlatformDeepseek)
+	permit, allowed := svc.AcquireOpenAIModelPool(ctx, &groupID, APIProtocolResponses, "deepseek-v4.1-flash")
+	require.True(t, allowed)
+	require.Nil(t, permit)
+}
+
 func TestOpenAIModelPoolCircuitRejectsMixedAndUnrelatedFailures(t *testing.T) {
 	server := &UpstreamFailoverError{StatusCode: http.StatusBadGateway}
 	for _, test := range []struct {

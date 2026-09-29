@@ -102,14 +102,29 @@ func appendAutoModelToCatalog(body []byte) ([]byte, error) {
 	if err := json.Unmarshal(envelope[field], &entries); err != nil {
 		return nil, err
 	}
-	for _, raw := range entries {
+	for i, raw := range entries {
 		var item map[string]json.RawMessage
 		if json.Unmarshal(raw, &item) != nil {
 			continue
 		}
 		var id string
 		if json.Unmarshal(item[idField], &id) == nil && id == autoModelID {
-			return body, nil
+			if field != "models" {
+				return body, nil
+			}
+			// 固定目录可能已含旧版 Auto；同步网关能力并保留其余上游字段。
+			item["input_modalities"] = json.RawMessage(`["text","image"]`)
+			item["supports_image_detail_original"] = json.RawMessage(`false`)
+			encoded, err := json.Marshal(item)
+			if err != nil {
+				return nil, err
+			}
+			entries[i] = encoded
+			envelope[field], err = json.Marshal(entries)
+			if err != nil {
+				return nil, err
+			}
+			return json.Marshal(envelope)
 		}
 	}
 	var item []byte

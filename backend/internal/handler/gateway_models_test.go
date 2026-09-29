@@ -130,12 +130,12 @@ func TestCompositeModelCatalogCanonicalizesOrdinaryAndCodexLists(t *testing.T) {
 		if codex {
 			var response codexModelsResponseForTest
 			require.NoError(t, json.Unmarshal(first.Body.Bytes(), &response))
-			require.Len(t, response.Models, 1)
-			require.Equal(t, canonical, response.Models[0].Slug)
+			require.Len(t, response.Models, 2)
+			require.ElementsMatch(t, []string{autoModelID, canonical}, []string{response.Models[0].Slug, response.Models[1].Slug})
 		} else {
 			var response gatewayModelsResponseForTest
 			require.NoError(t, json.Unmarshal(first.Body.Bytes(), &response))
-			require.Equal(t, []string{canonical}, modelIDsForTest(response.Data))
+			require.Equal(t, []string{autoModelID, canonical}, modelIDsForTest(response.Data))
 		}
 		require.NotEmpty(t, first.Header().Get("ETag"))
 		second := request(first.Header().Get("ETag"))
@@ -152,7 +152,7 @@ func (r *gatewayModelsHealthRepoStub) ListModelHealthObservations(context.Contex
 	return append([]service.ModelHealthObservation(nil), r.observations...), nil
 }
 
-func TestGatewayModelsHealthCheckDoesNotFallbackToStaticDefaults(t *testing.T) {
+func TestGatewayModelsIncludesUnverifiedConfiguredModels(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	groupID := int64(6)
 	h := newGatewayModelsHandlerForTest(
@@ -178,10 +178,10 @@ func TestGatewayModelsHealthCheckDoesNotFallbackToStaticDefaults(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Empty(t, modelIDsForTest(got.Data))
+	require.Equal(t, []string{"gpt-unverified", autoModelID}, modelIDsForTest(got.Data))
 }
 
-func TestGatewayModelsHealthCheckAllowlistDoesNotRestoreDefaults(t *testing.T) {
+func TestGatewayModelsEmptyGroupDoesNotRestoreDefaults(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, platform := range []string{service.PlatformOpenAI, service.PlatformAnthropic, service.PlatformComposite} {
 		t.Run(platform, func(t *testing.T) {
@@ -198,7 +198,6 @@ func TestGatewayModelsHealthCheckAllowlistDoesNotRestoreDefaults(t *testing.T) {
 					Models:  []string{"*"},
 				},
 			}
-			group.CodexModelsManifestConfig.Enabled = platform == service.PlatformOpenAI
 			rec := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(rec)
 			c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
@@ -352,7 +351,7 @@ func TestGatewayCodexModels_CompositeUsesCompleteEffectiveModelList(t *testing.T
 	var got codexModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	want := service.FilterCodexModelIDsForGroup(openai.DefaultModelIDs(), nil)
-	require.ElementsMatch(t, append(want, "grok-4.6"), codexModelSlugsForTest(got.Models))
+	require.ElementsMatch(t, append(want, "grok-4.6", autoModelID), codexModelSlugsForTest(got.Models))
 }
 
 func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T) {
@@ -382,12 +381,12 @@ func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T
 		{
 			name:     "unmapped parent and Spark shadow retain defaults and aliases",
 			accounts: accounts,
-			want:     append(openai.DefaultModelIDs(), alias),
+			want:     append(openai.DefaultModelIDs(), alias, autoModelID),
 		},
 		{
 			name:     "unmapped API key account also contributes defaults",
 			accounts: append([]service.Account{{ID: 4, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey}}, accounts[1:]...),
-			want:     append(openai.DefaultModelIDs(), alias),
+			want:     append(openai.DefaultModelIDs(), alias, autoModelID),
 		},
 		{
 			name:     "unmapped accounts alone retain default response shape",
@@ -409,12 +408,12 @@ func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T
 		{
 			name:     "mapped accounts alone do not gain defaults",
 			accounts: accounts[1:],
-			want:     []string{sparkModel, alias},
+			want:     []string{sparkModel, alias, autoModelID},
 		},
 		{
 			name:     "unmapped accounts from another platform do not add defaults",
 			accounts: append([]service.Account{{ID: 4, Platform: service.PlatformAnthropic}}, accounts[1:]...),
-			want:     []string{sparkModel, alias},
+			want:     []string{sparkModel, alias, autoModelID},
 		},
 	}
 	for _, tt := range tests {
@@ -809,7 +808,7 @@ func TestGatewayModels_CustomModelsListDisabledKeepsOriginalModels(t *testing.T)
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"gpt-5.4", "gpt-5.5"}, modelIDsForTest(got.Data))
+	require.Equal(t, []string{"gpt-5.4", "gpt-5.5", autoModelID}, modelIDsForTest(got.Data))
 }
 
 func TestGatewayModels_CustomModelsListFiltersAndOrdersMappedModels(t *testing.T) {

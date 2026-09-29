@@ -205,6 +205,96 @@ func TestChatStreamCooldownOnStreamError(t *testing.T) {
 	}
 }
 
+func TestChatQuotaErrorImmediatelyCoolsAccount(t *testing.T) {
+	for _, stream := range []bool{false, true} {
+		name := "buffered"
+		if stream {
+			name = "stream"
+		}
+		t.Run(name, func(t *testing.T) {
+			up := newFakeUpstream(t, func(string) (int, string, bool) {
+				return 200, "event:error\ndata:{\"code\":4008,\"message\":\"Your requests have exceeded the quota.\"}\n\n", true
+			})
+			p := testPoolWith(&auth.Auth{UID: "u1", AccessToken: "at1", ExpiresAt: 9999999999})
+			h := NewHandler(Config{Pool: p, Upstream: up, PlanCooldown: 2 * time.Hour})
+			body, err := json.Marshal(map[string]any{"model": "glm-5.2", "stream": stream, "messages": []any{}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(string(body))))
+			status, _ := p.Status("u1")
+			if !status.Cooling || status.Disabled || status.ErrCount != 0 || time.Until(status.Until) < 119*time.Minute {
+				t.Fatalf("quota error must immediately cool the account: %+v", status)
+			}
+			if !strings.Contains(status.Reason, "4008") || p.Pick() != nil {
+				t.Fatalf("quota-exhausted account still selectable: %+v", status)
+			}
+			payload := rec.Body.String()
+			if stream {
+				if rec.Code != http.StatusOK {
+					t.Fatalf("stream status=%d", rec.Code)
+				}
+				for _, line := range strings.Split(payload, "\n") {
+					if strings.HasPrefix(line, "data: {") {
+						payload = strings.TrimPrefix(line, "data: ")
+					}
+				}
+			} else if rec.Code != http.StatusTooManyRequests {
+				t.Fatalf("buffered status=%d body=%s", rec.Code, payload)
+			}
+			var envelope struct {
+				Error struct {
+					Code     int64  `json:"code"`
+					Type     string `json:"type"`
+					ResetsAt int64  `json:"resets_at"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal([]byte(payload), &envelope); err != nil {
+				t.Fatal(err)
+			}
+			if envelope.Error.Code != 4008 || envelope.Error.Type != "rate_limit_error" || envelope.Error.ResetsAt != status.Until.Unix() {
+				t.Fatalf("missing quota cooldown metadata: %+v", envelope.Error)
+			}
+		})
+	}
+}
+
+func TestQuotaCooldownMetadataRespectsOtherAccounts(t *testing.T) {
+	p := testPoolWith(
+		&auth.Auth{UID: "exhausted", AccessToken: "at1", ExpiresAt: 9999999999},
+		&auth.Auth{UID: "other", AccessToken: "at2", ExpiresAt: 9999999999},
+	)
+	h := NewHandler(Config{Pool: p})
+	quotaErr := &upstream.SOLOStreamError{Code: 4008, Msg: "Your requests have exceeded the quota."}
+	h.handleStreamError("exhausted", quotaErr)
+	if quotaErr.ResetsAt != 0 || p.Pick() == nil {
+		t.Fatalf("healthy pool must not carry an account cooldown: %+v", quotaErr)
+	}
+	p.Cooldown("other", pool.CoolSoft, time.Minute, "rate limit")
+	other, _ := p.Status("other")
+	h.handleStreamError("exhausted", quotaErr)
+	if quotaErr.ResetsAt != other.Until.Unix() {
+		t.Fatalf("pool must resume at earliest cooldown: got %d want %d", quotaErr.ResetsAt, other.Until.Unix())
+	}
+}
+
+func TestChatStreamErrorsAccumulateUntilCooldown(t *testing.T) {
+	up := newFakeUpstream(t, func(string) (int, string, bool) {
+		return 200, "event:error\ndata:{\"code\":5001,\"message\":\"upstream broke\"}\n\n", true
+	})
+	p := testPoolWith(&auth.Auth{UID: "u1", AccessToken: "at1", ExpiresAt: 9999999999})
+	h := NewHandler(Config{Pool: p, Upstream: up, ErrThreshold: 3})
+	for range 3 {
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"glm-5.2","stream":true,"messages":[]}`)))
+	}
+	status, _ := p.Status("u1")
+	if !status.Cooling || p.Pick() != nil {
+		t.Fatalf("HTTP 200 must not reset consecutive stream errors: %+v", status)
+	}
+}
+
 func TestChatAllUnavailableReturns503(t *testing.T) {
 	up := newFakeUpstream(t, func(authz string) (int, string, bool) {
 		return 429, `rate limited`, false

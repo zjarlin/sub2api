@@ -1246,6 +1246,12 @@ func openAIStreamDataStartsClientOutput(data, eventType string) bool {
 	switch strings.TrimSpace(eventType) {
 	case "response.failed":
 		return false
+	case "response.output_text.delta", "response.reasoning_text.delta", "response.reasoning_summary_text.delta",
+		"response.refusal.delta", "response.function_call_arguments.delta", "response.custom_tool_call_input.delta":
+		// 空增量不产生语义输出；未知或畸形载荷仍按已输出处理，避免不安全重放。
+		payload := []byte(trimmed)
+		delta := gjson.GetBytes(payload, "delta")
+		return !gjson.ValidBytes(payload) || delta.Type != gjson.String || delta.String() != ""
 	case "error":
 		// 上游降载/瞬时故障会先推 {"type":"error"} 帧、再以 response.failed 收尾。
 		// 可重试类错误帧不能算客户端输出：一旦把它当首输出 flush，

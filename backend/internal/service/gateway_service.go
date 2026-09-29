@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -1381,48 +1382,26 @@ func (s *GatewayService) DoGrokNativeResponsesJSON(ctx context.Context, account 
 	return respBytes, nil
 }
 
+// 目录只依赖账号配置；nil 表示账号尚无目录，可使用平台默认值，空切片表示确定为空。
 func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string {
 	cacheKey := modelsListCacheKey(groupID, platform)
 	if s.modelsListCache != nil {
 		if cached, found := s.modelsListCache.Get(cacheKey); found {
 			if models, ok := cached.([]string); ok {
 				modelsListCacheHitTotal.Add(1)
-				return cloneStringSlice(models)
+				return slices.Clone(models)
 			}
 		}
 	}
 	modelsListCacheMissTotal.Add(1)
 
-	var accounts []Account
-	var err error
-
-	if groupID != nil {
-		accounts, err = s.accountRepo.ListSchedulableByGroupID(ctx, *groupID)
-	} else {
-		accounts, err = s.accountRepo.ListSchedulable(ctx)
+	accounts, err := loadModelCatalogAccounts(ctx, s.accountRepo, groupID, platform)
+	if err != nil {
+		slog.Warn("model_catalog_accounts_failed", "group_id", groupID, "platform", platform, "error", err)
+		return []string{}
 	}
-
-	if err != nil || len(accounts) == 0 {
-		return nil
-	}
-
-	// Filter by platform if specified
-	if platform != "" {
-		filtered := make([]Account, 0)
-		for i := range accounts {
-			if openAIAccountMatchesPlatform(&accounts[i], platform) {
-				filtered = append(filtered, accounts[i])
-			}
-		}
-		accounts = filtered
-	}
-	if models, required := s.healthCheckedModels(ctx, groupID, platform, accounts); required {
-		sort.Strings(models)
-		if s.modelsListCache != nil {
-			s.modelsListCache.Set(cacheKey, cloneStringSlice(models), s.modelsListCacheTTL)
-			modelsListCacheStoreTotal.Add(1)
-		}
-		return cloneStringSlice(models)
+	if len(accounts) == 0 {
+		return []string{}
 	}
 
 	// Collect unique models from all accounts
@@ -1430,22 +1409,14 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	hasAnyCatalog := false
 
 	for _, acc := range accounts {
-		// Passthrough routing accepts models independently of model_mapping. A stale
-		// mapping on any eligible passthrough account therefore cannot define the
-		// public whitelist; return nil so the handler uses its default model set.
-		if platform == PlatformOpenAI && acc.IsOpenAIPassthroughEnabled() {
-			if s.modelsListCache != nil {
-				s.modelsListCache.Set(cacheKey, []string(nil), s.modelsListCacheTTL)
-				modelsListCacheStoreTotal.Add(1)
-			}
-			return nil
-		}
-
 		mapping := acc.GetModelMapping()
 		if len(mapping) > 0 {
 			hasAnyCatalog = true
 			for model := range mapping {
-				modelSet[model] = struct{}{}
+				model = strings.TrimSpace(model)
+				if model != "" {
+					modelSet[model] = struct{}{}
+				}
 			}
 			continue
 		}
@@ -1481,10 +1452,10 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	}
 
 	if s.modelsListCache != nil {
-		s.modelsListCache.Set(cacheKey, cloneStringSlice(models), s.modelsListCacheTTL)
+		s.modelsListCache.Set(cacheKey, slices.Clone(models), s.modelsListCacheTTL)
 		modelsListCacheStoreTotal.Add(1)
 	}
-	return cloneStringSlice(models)
+	return slices.Clone(models)
 }
 
 func (s *GatewayService) resolveCompositeModelOwnership(ctx context.Context, groupID int64, model string) (CompositeModelOwnership, error) {

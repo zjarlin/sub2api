@@ -21,14 +21,14 @@ import (
 func TestModelTierFallbackEndToEnd(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, endpoint := range []string{"responses", "chat/completions", "messages"} {
-		for _, healthy := range []int64{3, 4, 5, 0} {
+		for _, healthy := range []int64{3, 4, 5, 6, 7, 0} {
 			for _, stream := range []bool{false, true} {
 				// 通用 SSE 桩只生成 Responses 帧；另外两种协议通过非流式验证真实转发。
 				if stream && endpoint != "responses" {
 					continue
 				}
 				t.Run(fmt.Sprintf("%s/healthy_%d/stream_%t", endpoint, healthy, stream), func(t *testing.T) {
-					models := []string{"gpt-6-astra", "gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.5"}
+					models := []string{"gpt-6-astra", "gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.5", "gpt-6-sol", "gpt-6"}
 					repo := &grokCredentialHandlerRepo{}
 					for i, model := range models {
 						repo.accounts = append(repo.accounts, service.Account{
@@ -39,6 +39,8 @@ func TestModelTierFallbackEndToEnd(t *testing.T) {
 						})
 					}
 					policy := service.ModelFallbackPolicy{Enabled: true, Tiers: []service.ModelCapabilityTier{
+						{Name: "highest", Models: []string{"gpt-6"}},
+						{Name: "higher", Models: []string{"gpt-6-sol"}},
 						{Name: "same", Models: []string{"gpt-5.6-sol", "gpt-6-astra"}},
 						{Name: "lower", Models: []string{"gpt-5.6-luna"}},
 						{Name: "lowest", Models: []string{"gpt-5.5"}},
@@ -51,6 +53,9 @@ func TestModelTierFallbackEndToEnd(t *testing.T) {
 					billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 					t.Cleanup(billing.Stop)
 					upstream := &rateLimitChainUpstream{healthyID: healthy, sse: stream}
+					if healthy >= 6 {
+						upstream.failureStatus = http.StatusBadGateway
+					}
 					gateway := service.NewOpenAIGatewayService(repo, nil, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, billing, upstream, &service.DeferredService{}, nil, nil, nil, nil, nil, settings, nil)
 					cache := &concurrencyCacheMock{acquireUserSlotFn: func(context.Context, int64, int, string) (bool, error) { return true, nil }, acquireAccountSlotFn: func(context.Context, int64, int, string) (bool, error) { return true, nil }}
 					h := NewOpenAIGatewayHandler(gateway, service.NewConcurrencyService(cache), billing, &service.APIKeyService{}, nil, nil, nil, nil, cfg)
@@ -72,7 +77,7 @@ func TestModelTierFallbackEndToEnd(t *testing.T) {
 					router.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/"+endpoint, strings.NewReader(body)))
 					count := int(healthy)
 					if count == 0 {
-						count = 5
+						count = len(models)
 						require.Equal(t, http.StatusTooManyRequests, response.Code, response.Body.String())
 					} else {
 						require.Equal(t, http.StatusOK, response.Code, response.Body.String())

@@ -30,7 +30,9 @@ func TestModelFallbackPolicyOrderAndPersistence(t *testing.T) {
 	loaded, err := s.GetModelFallbackPolicy(ctx)
 	require.NoError(t, err)
 	require.Equal(t, policy, loaded)
-	require.Equal(t, []ModelFallbackCandidate{{"peer", "middle"}, {"low-a", "low"}, {"low-b", "low"}}, loaded.Candidates("requested"))
+	require.Equal(t, []ModelFallbackCandidate{{"peer", "middle"}, {"low-a", "low"}, {"low-b", "low"}, {"top", "high"}}, loaded.Candidates("requested"))
+	require.Equal(t, []ModelFallbackCandidate{{"low-b", "low"}, {"peer", "middle"}, {"requested", "middle"}, {"top", "high"}}, loaded.Candidates("low-a"))
+	require.Equal(t, []ModelFallbackCandidate{{"peer", "middle"}, {"requested", "middle"}, {"low-a", "low"}, {"low-b", "low"}}, loaded.Candidates("top"))
 	require.Empty(t, loaded.Candidates("unknown"))
 	loaded.Enabled = false
 	require.NoError(t, s.SetModelFallbackPolicy(ctx, loaded))

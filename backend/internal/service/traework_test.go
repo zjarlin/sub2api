@@ -4,11 +4,59 @@ package service
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"testing"
+	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+func TestTraeworkQuotaErrorMarksAccountUntilPoolReset(t *testing.T) {
+	resetAt := time.Now().Add(12 * time.Hour).Truncate(time.Second)
+	body := []byte(fmt.Sprintf(`{"error":{"code":4008,"message":"solo error code=4008 msg=Your requests have exceeded the quota.","type":"rate_limit_error","resets_at":%d}}`, resetAt.Unix()))
+	for _, transport := range []string{"http", "stream"} {
+		t.Run(transport, func(t *testing.T) {
+			repo := &rateLimit429AccountRepoStub{}
+			rateLimits := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+			blocker := &runtimeBlockRecorder{}
+			rateLimits.SetAccountRuntimeBlocker(blocker)
+			settings := NewSettingService(newMockSettingRepo(), &config.Config{})
+			require.NoError(t, settings.SetRateLimit429CooldownSettings(context.Background(), &RateLimit429CooldownSettings{Enabled: false}))
+			rateLimits.SetSettingService(settings)
+			account := traeworkTestAccount()
+			svc := &OpenAIGatewayService{rateLimitService: rateLimits}
+			if transport == "stream" {
+				failover := svc.newOpenAIStreamFailoverErrorWithModel(nil, account, false, "", body, "Your requests have exceeded the quota.", "deepseek-v4.1-flash")
+				require.Equal(t, http.StatusTooManyRequests, failover.StatusCode)
+			} else {
+				svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusTooManyRequests, nil, body, "deepseek-v4.1-flash")
+			}
+			require.Equal(t, 1, repo.rateLimitCalls)
+			require.Equal(t, account.ID, repo.lastRateLimitID)
+			require.Equal(t, resetAt.Unix(), repo.lastRateLimitReset.Unix())
+			require.Equal(t, []*Account{account}, blocker.accounts)
+			require.Equal(t, []time.Time{resetAt}, blocker.until)
+			require.Equal(t, StatusActive, account.Status)
+		})
+	}
+}
+
+func TestTraeworkQuotaErrorWithoutFuturePoolResetUsesFallback(t *testing.T) {
+	for _, resetAt := range []string{"null", `"invalid"`, "0", "1"} {
+		t.Run(resetAt, func(t *testing.T) {
+			repo := &rateLimit429AccountRepoStub{}
+			rateLimits := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+			body := []byte(fmt.Sprintf(`{"error":{"code":4008,"message":"Your requests have exceeded the quota.","resets_at":%s}}`, resetAt))
+			before := time.Now()
+			rateLimits.HandleUpstreamError(context.Background(), traeworkTestAccount(), http.StatusTooManyRequests, nil, body)
+			require.Equal(t, 1, repo.rateLimitCalls)
+			require.WithinRange(t, repo.lastRateLimitReset, before.Add(5*time.Second), time.Now().Add(5*time.Second))
+		})
+	}
+}
 
 func traeworkTestAccount() *Account {
 	return &Account{ID: 601, Platform: PlatformTraework, Type: AccountTypeAPIKey, Status: StatusActive,

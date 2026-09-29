@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestGatewayModelsPassthroughPreservesVerifiedModelsAndAliases(t *testing.T) {
+func TestGatewayModelsPassthroughPreservesConfiguredModelsAndAliases(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	const canonical = "deepseek-v4.1-flash"
 	const upstream = "deepseek/deepseek-v4.1-flash"
@@ -26,7 +26,7 @@ func TestGatewayModelsPassthroughPreservesVerifiedModelsAndAliases(t *testing.T)
 		allowlist service.GroupModelAllowlist
 		want      []string
 	}{
-		{name: "all verified models", want: []string{canonical, "gpt-6-astra"}},
+		{name: "all configured models", want: []string{canonical, "gpt-6-astra", "unverified-model", autoModelID}},
 		{
 			name:      "group allowlist remains effective",
 			allowlist: service.GroupModelAllowlist{Enabled: true, Models: []string{"deepseek/*"}},

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 )
@@ -67,6 +68,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	browserExecutable := os.Getenv("DEEPSEEK_WEB_BROWSER_EXECUTABLE")
+	if browserExecutable == "" {
+		browserExecutable = "/usr/bin/chromium-browser"
+	}
+	adapter.loginBrowser = newChromiumLoginBrowser(browserExecutable, filepath.Join(filepath.Dir(stateFile), "browser-login"))
 	server := &http.Server{Addr: addr, Handler: adapter.handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 	go func() {
 		<-ctx.Done()

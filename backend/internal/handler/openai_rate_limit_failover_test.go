@@ -21,10 +21,11 @@ import (
 
 type rateLimitChainUpstream struct {
 	service.HTTPUpstream
-	ids       []int64
-	models    []string
-	healthyID int64
-	sse       bool
+	ids           []int64
+	models        []string
+	healthyID     int64
+	sse           bool
+	failureStatus int
 }
 
 func (u *rateLimitChainUpstream) Do(req *http.Request, _ string, id int64, _ int) (*http.Response, error) {
@@ -38,10 +39,20 @@ func (u *rateLimitChainUpstream) Do(req *http.Request, _ string, id int64, _ int
 	status := http.StatusTooManyRequests
 	contentType := "application/json"
 	response := `{"error":{"type":"new_api_error","message":"此 Key 已达到 RPM 限制：每分钟最多15次"}}`
+	code, message := "rate_limit_exceeded", "Upstream rate limit exceeded, please retry later"
+	if u.failureStatus != 0 {
+		status = u.failureStatus
+		code, message = "upstream_error", "Upstream service temporarily unavailable"
+		response = fmt.Sprintf(`{"error":{"code":%q,"message":%q}}`, code, message)
+	}
 	if u.sse {
 		status = http.StatusOK
 		contentType = "text/event-stream"
-		response = "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"failed_attempt\"}}\n\nevent: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{\"code\":\"rate_limit_exceeded\",\"message\":\"Upstream rate limit exceeded, please retry later\"}}}\n\n"
+		response = "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"failed_attempt\"}}\n\n"
+		if u.failureStatus != 0 {
+			response += "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"\"}\n\n"
+		}
+		response += fmt.Sprintf("event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"status\":\"failed\",\"error\":{\"code\":%q,\"message\":%q}}}\n\n", code, message)
 	}
 	return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": {contentType}}, Body: io.NopCloser(strings.NewReader(response))}, nil
 }

@@ -84,6 +84,9 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	reasoningEffort := extractOpenAIReasoningEffortFromBody(body, upstreamModel, billingModel, originalModel)
 	// 国产模型默认 effort 补充：需要 mappedModel 判定，推迟到 billingModel 算出之后。
 	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, billingModel)
+	if account.Platform == PlatformVibex {
+		reasoningEffort = nil
+	}
 
 	// 3. Rewrite model in body (no protocol conversion)
 	upstreamBody := body

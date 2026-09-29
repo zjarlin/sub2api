@@ -14,7 +14,7 @@ type modelHealthAccountRepoStub struct {
 	accounts []Account
 }
 
-func (r *modelHealthAccountRepoStub) ListSchedulableByGroupID(context.Context, int64) ([]Account, error) {
+func (r *modelHealthAccountRepoStub) ListModelAvailabilityCandidates(context.Context, *int64, []string, bool) ([]Account, error) {
 	return append([]Account(nil), r.accounts...), nil
 }
 
@@ -38,172 +38,78 @@ func (r *modelHealthUsageRepoStub) ListModelHealthObservations(_ context.Context
 	return append([]ModelHealthObservation(nil), r.observations...), r.err
 }
 
-func TestGetAvailableModelsRequiresRecentHealthEvidence(t *testing.T) {
+func TestGetAvailableModelsDoesNotDependOnHealthEvidence(t *testing.T) {
 	groupID := int64(6)
 	account := Account{
-		ID:       820,
-		Platform: PlatformOpenAI,
+		ID: 856, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey,
 		Credentials: map[string]any{"model_mapping": map[string]any{
-			"gpt-healthy":    "gpt-healthy",
-			"gpt-unverified": "gpt-unverified",
+			"space-bunny-free": "space-bunny-free", "glm-5.3": "glm-5.3",
 		}},
 	}
-	svc := &GatewayService{
-		accountRepo: &modelHealthAccountRepoStub{accounts: []Account{account}},
-		usageLogRepo: &modelHealthUsageRepoStub{observations: []ModelHealthObservation{
-			{AccountID: 820, Model: "gpt-healthy", CheckedAt: time.Now()},
-			{AccountID: 999, Model: "gpt-other-account", CheckedAt: time.Now()},
-		}},
-	}
-
-	require.True(t, svc.ModelsRequireHealthCheck())
-	require.Equal(t, []string{"gpt-healthy"}, svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI))
-}
-
-func TestGetAvailableModelsFailsClosedWhenHealthEvidenceCannotBeRead(t *testing.T) {
-	groupID := int64(6)
-	svc := &GatewayService{
-		accountRepo: &modelHealthAccountRepoStub{accounts: []Account{{
-			ID:          820,
-			Platform:    PlatformOpenAI,
-			Credentials: map[string]any{"model_mapping": map[string]any{"gpt-configured": "gpt-configured"}},
-		}}},
-		usageLogRepo: &modelHealthUsageRepoStub{err: errors.New("health query failed")},
-	}
-
-	require.Empty(t, svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI))
-}
-
-func TestGetAvailableModelsOpenAIPassthroughUsesHealthEvidence(t *testing.T) {
-	groupID := int64(6)
-	account := Account{
-		ID:       851,
-		Platform: PlatformOpenAI,
-		Type:     AccountTypeAPIKey,
-		Extra:    map[string]any{"openai_passthrough": true},
-		Credentials: map[string]any{"model_mapping": map[string]any{
-			"deepseek/deepseek-v4.1-flash": "deepseek/deepseek-v4.1-flash",
-			"gpt-6-astra":                  "gpt-6-astra",
-		}},
-	}
-	account.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
-		Source: "upstream", SyncedAt: time.Now().UTC().Format(time.RFC3339),
-		Models: []string{"deepseek/deepseek-v4.1-flash", "gpt-6-astra"},
-	})
 	for _, tc := range []struct {
 		name         string
 		observations []ModelHealthObservation
 		err          error
-		want         []string
 	}{
-		{
-			name: "verified custom model remains discoverable",
-			observations: []ModelHealthObservation{
-				{AccountID: account.ID, Model: "deepseek/deepseek-v4.1-flash"},
-				{AccountID: account.ID, Model: "deepseek/deepseek-v4.1-flash"},
-				{AccountID: account.ID, Model: "retired-model"},
-				{AccountID: 999, Model: "gpt-6-astra"},
-			},
-			want: []string{"deepseek/deepseek-v4.1-flash"},
-		},
-		{name: "no health evidence"},
-		{name: "health query fails closed", err: errors.New("health query failed")},
+		{name: "从未调用或测试"},
+		{name: "部分模型测试成功", observations: []ModelHealthObservation{{AccountID: 856, Model: "glm-5.3", CheckedAt: time.Now()}}},
+		{name: "历史记录不扩大配置范围", observations: []ModelHealthObservation{{AccountID: 856, Model: "retired-model"}, {AccountID: 999, Model: "other-group-model"}}},
+		{name: "健康记录读取失败", err: errors.New("health query failed")},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+			usage := &modelHealthUsageRepoStub{observations: tc.observations, err: tc.err}
 			svc := &GatewayService{
-				accountRepo: &modelHealthAccountRepoStub{accounts: []Account{account}},
-				usageLogRepo: &modelHealthUsageRepoStub{
-					observations: tc.observations, err: tc.err,
-				},
+				accountRepo:  &modelHealthAccountRepoStub{accounts: []Account{account}},
+				usageLogRepo: usage,
 			}
-
-			require.Equal(t, tc.want, svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI))
+			require.Equal(t, []string{"glm-5.3", "space-bunny-free"}, svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI))
+			require.Empty(t, usage.platforms)
 		})
 	}
 }
 
-func TestGetAvailableModelsIncludesHistoricallyVerifiedUnusedModels(t *testing.T) {
+func TestGetAvailableModelsUsesUpstreamCatalogWithoutStaticDefaults(t *testing.T) {
 	groupID := int64(6)
-	account := Account{
-		ID:       820,
-		Platform: PlatformOpenAI,
-	}
+	account := Account{ID: 253, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	account.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
+		Source: "upstream", SyncedAt: time.Now().UTC().Format(time.RFC3339),
+		Models: []string{"openrouter/free", "stealth/space-bunny-alpha"},
+	})
 	svc := &GatewayService{
-		accountRepo: &modelHealthAccountRepoStub{accounts: []Account{account}},
-		usageLogRepo: &modelHealthUsageRepoStub{observations: []ModelHealthObservation{{
-			AccountID: account.ID,
-			Model:     "gpt-unused",
-			CheckedAt: time.Now().AddDate(-1, 0, 0),
-		}}},
+		accountRepo:  &modelHealthAccountRepoStub{accounts: []Account{account}},
+		usageLogRepo: &modelHealthUsageRepoStub{observations: []ModelHealthObservation{{AccountID: 253, Model: "retired-model"}}},
 	}
-
-	require.Equal(t, []string{"gpt-unused"}, svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI))
+	require.Equal(t, []string{"openrouter/free", "stealth/space-bunny-alpha"}, svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI))
 }
 
-func TestGetAvailableModelsExcludesHistoricallyVerifiedModelsMissingFromFreshCatalog(t *testing.T) {
+func TestGetAvailableModelsKeepsConfiguredModelsDuringAccountErrorsAndCooldowns(t *testing.T) {
 	groupID := int64(6)
-	account := Account{
-		ID:       820,
-		Platform: PlatformOpenAI,
-		Extra:    map[string]any{},
+	resetAt := time.Now().Add(time.Hour)
+	accounts := []Account{
+		{ID: 856, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true,
+			RateLimitResetAt: &resetAt, TempUnschedulableUntil: &resetAt,
+			Credentials: map[string]any{"model_mapping": map[string]any{"space-bunny-free": "space-bunny-free"}}},
+		{ID: 253, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusError, Schedulable: true,
+			ErrorMessage: "Payment required (402): Insufficient credits",
+			Credentials:  map[string]any{"model_mapping": map[string]any{"openrouter/free": "openrouter/free"}}},
+	}
+	for i := range accounts {
+		require.False(t, accounts[i].IsSchedulable())
+	}
+	svc := &GatewayService{accountRepo: &modelHealthAccountRepoStub{accounts: accounts}}
+	require.Equal(t, []string{"openrouter/free", "space-bunny-free"}, svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI))
+}
+
+func TestGetAvailableModelsKeepsAccountMappingRestrictions(t *testing.T) {
+	groupID := int64(6)
+	account := Account{ID: 253, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Extra:       map[string]any{"openai_passthrough": true},
+		Credentials: map[string]any{"model_mapping": map[string]any{"openrouter/free": "openrouter/free"}},
 	}
 	account.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
-		Source:   "upstream",
-		SyncedAt: time.Now().UTC().Format(time.RFC3339),
-		Models:   []string{"gpt-current"},
+		Source: "upstream", SyncedAt: time.Now().UTC().Format(time.RFC3339),
+		Models: []string{"openrouter/free", "unselected-paid-model"},
 	})
-	svc := &GatewayService{
-		accountRepo: &modelHealthAccountRepoStub{accounts: []Account{account}},
-		usageLogRepo: &modelHealthUsageRepoStub{observations: []ModelHealthObservation{{
-			AccountID: account.ID,
-			Model:     "gpt-retired",
-			CheckedAt: time.Now().AddDate(-1, 0, 0),
-		}}},
-	}
-
-	require.Empty(t, svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI))
-}
-
-func TestGetAvailableModelsReadsHealthFromBoundCompatibleSourcePlatforms(t *testing.T) {
-	groupID := int64(7)
-	openAI := Account{
-		ID:       821,
-		Platform: PlatformOpenAI,
-		Type:     AccountTypeAPIKey,
-		Extra:    map[string]any{"openai_passthrough": true},
-		Credentials: map[string]any{"model_mapping": map[string]any{
-			"gpt-healthy": "gpt-healthy",
-		}},
-	}
-	zcode := Account{ID: 822, Platform: PlatformZcode, Type: AccountTypeAPIKey}
-	zcode.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
-		Source:   "upstream",
-		SyncedAt: time.Now().UTC().Format(time.RFC3339),
-		Models:   []string{"glm-5.3"},
-	})
-	unrelated := Account{
-		ID:          823,
-		Platform:    PlatformAnthropic,
-		Credentials: map[string]any{"model_mapping": map[string]any{"claude-unrelated": "claude-opus-4-8"}},
-	}
-	usageRepo := &modelHealthUsageRepoStub{observationsByPlatform: map[string][]ModelHealthObservation{
-		PlatformOpenAI: {{AccountID: openAI.ID, Model: "gpt-healthy", CheckedAt: time.Now()}},
-		PlatformZcode:  {{AccountID: zcode.ID, Model: "glm-5.3", CheckedAt: time.Now()}},
-		PlatformAnthropic: {{
-			AccountID: unrelated.ID,
-			Model:     "claude-unrelated",
-			CheckedAt: time.Now(),
-		}},
-	}}
-	svc := &GatewayService{
-		accountRepo:  &modelHealthAccountRepoStub{accounts: []Account{openAI, zcode, unrelated}},
-		usageLogRepo: usageRepo,
-	}
-
-	require.Equal(
-		t,
-		[]string{"glm-5.3", "gpt-healthy"},
-		svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI),
-	)
-	require.Equal(t, []string{PlatformOpenAI, PlatformZcode}, usageRepo.platforms)
+	svc := &GatewayService{accountRepo: &modelHealthAccountRepoStub{accounts: []Account{account}}}
+	require.Equal(t, []string{"openrouter/free"}, svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI))
 }

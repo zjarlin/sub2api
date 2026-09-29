@@ -7,6 +7,12 @@ OpenAI API Key 账号的模型调度资格由上游模型目录或显式模型�
 普通调度、粘性会话、故障切换、自动恢复和模型可用性诊断共用该判断。
 原生 OAuth 非透传账号继续使用其现有的平台模型规则。
 
+模型发现（普通 `/v1/models` 与 Codex 目录）依据分组内已配置账号的模型映射和已同步上游清单，
+不要求提前 test 或存在成功调用记录。账号的临时限流、过载、余额错误和模型健康记录不删除目录项；
+已删除、管理员禁用与非公开账号仍由仓储排除，平台范围、分组白名单和模型别名规则继续生效。
+有显式模型映射时，以映射限定公开范围；没有映射时使用上游清单，已有上游清单不补入 OpenAI 静态默认项。
+目录展示不保证当前可调用，请求仍经过原有账号状态、配额、模型支持与故障转移检查。
+
 `account_recovery.go` selects temporary recovery candidates only after the normal
 pool is exhausted. A closed scheduling switch always excludes an account, and
 automatic recovery never enables that switch.
