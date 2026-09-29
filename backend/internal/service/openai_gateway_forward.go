@@ -697,7 +697,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		markPatchSet("max_output_tokens", clampedCap)
 	}
 	if wsDecision.Transport != OpenAIUpstreamTransportResponsesWebsocketV2 &&
-		!account.IsOpenAIApiKey() && gjson.GetBytes(body, "previous_response_id").Exists() {
+		!account.SupportsHTTPResponsesContinuation() && gjson.GetBytes(body, "previous_response_id").Exists() {
 		markPatchDelete("previous_response_id")
 	}
 	if openAIRequestBodyMayContainEmptyBase64InputImage(body) {
@@ -1548,6 +1548,16 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	// 客户端回带的 x-codex-turn-state 若已知由其他账号铸造（failover 换号），
 	// 剥离后再出站——异账号 blob 与本账号的（指纹收敛后）出站身份自相矛盾。
 	s.guardOpenAICodexTurnStateEcho(c, account, req.Header)
+	if account.IsDoubao() {
+		// Keep previous_response_id and history caches isolated between gateway
+		// API keys even when clients omit a session header. Do not trust a
+		// caller-supplied adapter scope to select another user's stored history.
+		scope := c.GetHeader("session_id")
+		if scope == "" {
+			scope = c.GetHeader("conversation_id")
+		}
+		req.Header.Set("X-Desktop-Session", isolateOpenAISessionID(getAPIKeyIDFromContext(c), "doubao:"+scope))
+	}
 	if account.UsesOpenAICodexProtocol() {
 		compatMessagesBridge := isOpenAICompatMessagesBridgeContext(c) || isOpenAICompatMessagesBridgeBody(body)
 		// 清除客户端透传的 session 头，后续用隔离后的值重新设置，防止跨用户会话碰撞。

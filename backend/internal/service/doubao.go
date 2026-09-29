@@ -32,8 +32,8 @@ func validateDoubaoCredentials(platform, accountType string, credentials map[str
 	if strings.TrimSpace(key) == "" {
 		return infraerrors.BadRequest("INVALID_DOUBAO_CREDENTIALS", "doubao requires the built-in desktop adapter API key")
 	}
-	if c, ok := credentials["api_protocol"].(string); ok && c != "" && c != APIProtocolChatCompletions {
-		return infraerrors.BadRequest("INVALID_DOUBAO_CREDENTIALS", "doubao only supports the chat_completions upstream protocol")
+	if c, ok := credentials["api_protocol"].(string); ok && c != "" && c != APIProtocolChatCompletions && c != APIProtocolResponses && c != APIProtocolAdaptive {
+		return infraerrors.BadRequest("INVALID_DOUBAO_CREDENTIALS", "doubao supports responses and chat_completions through the desktop adapter")
 	}
 	return nil
 }

@@ -23,11 +23,14 @@ type BuiltinLoginResult struct {
 	ExpiresAt int64  `json:"expires_at"`
 	Account   *struct {
 		UID      string `json:"uid"`
+		ModelID  string `json:"model_id,omitempty"`
 		Nickname string `json:"nickname,omitempty"`
 	} `json:"account,omitempty"`
 }
 
 type BuiltinLoginOptions struct {
+	Email    string `json:"email,omitempty"`
+	Password string `json:"password,omitempty"`
 	Plan     string `json:"plan,omitempty"`
 	Provider string `json:"provider,omitempty"`
 }
@@ -35,7 +38,7 @@ type BuiltinLoginOptions struct {
 // BuiltinAdapterLogin 只连接部署配置指定的内部服务，不接受浏览器提供的目标地址或密钥。
 func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action, callback string, options ...BuiltinLoginOptions) (*BuiltinLoginResult, error) {
 	switch platform {
-	case PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformDeepseekWeb, PlatformQoder, PlatformLaya, PlatformJev:
+	case PlatformArena, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformDeepseekWeb, PlatformQoder, PlatformLaya, PlatformJev:
 	default:
 		return nil, infraerrors.BadRequest("INVALID_LOGIN_PLATFORM", "Unsupported login platform")
 	}
@@ -71,6 +74,12 @@ func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action
 		}
 		payload["plan"], payload["provider"] = option.Plan, option.Provider
 	}
+	if action == "start" && platform == PlatformArena {
+		if len(options) == 0 || strings.TrimSpace(options[0].Email) == "" || options[0].Password == "" || len(options[0].Email) > 320 || len(options[0].Password) > 4096 {
+			return nil, infraerrors.BadRequest("INVALID_ARENA_LOGIN", "Arena email and password are required")
+		}
+		payload["email"], payload["password"] = strings.TrimSpace(options[0].Email), options[0].Password
+	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
@@ -103,6 +112,15 @@ func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action
 		}
 		if status == 400 {
 			message = "Invalid authorization credential or callback URL"
+		}
+		if platform == PlatformArena {
+			message = "Arena login or session preparation failed; check the account and try again"
+			if status == http.StatusTooManyRequests {
+				message = "Arena is busy; wait for the current login or request to finish"
+			}
+			if status == http.StatusGone {
+				message = "Arena login expired; start a new login"
+			}
 		}
 		if platform == PlatformZcode && status == http.StatusForbidden {
 			message = "ZCode authorization failed or the selected plan has no active entitlement"

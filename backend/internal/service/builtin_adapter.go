@@ -49,6 +49,8 @@ func builtinAdapterBaseURL(platform string) string {
 		return strings.TrimRight(cfg.WorkbuddyBaseURL(), "/")
 	case PlatformVibex:
 		return strings.TrimRight(cfg.VibexBaseURL(), "/")
+	case PlatformArena:
+		return strings.TrimRight(cfg.ArenaBaseURL(), "/")
 	case PlatformZcode:
 		return strings.TrimRight(cfg.ZcodeBaseURL(), "/")
 	case PlatformDeepseekWeb:
@@ -77,6 +79,8 @@ func builtinAdapterAPIKey(platform string) string {
 		return strings.TrimSpace(cfg.WorkbuddyKey)
 	case PlatformVibex:
 		return strings.TrimSpace(cfg.VibexKey)
+	case PlatformArena:
+		return strings.TrimSpace(cfg.ArenaKey)
 	case PlatformZcode:
 		return strings.TrimSpace(cfg.ZcodeKey)
 	case PlatformDeepseekWeb:

@@ -55,8 +55,10 @@ def normalize_message(message):
 
 
 def parse_messages(messages):
-    if not isinstance(messages, list) or not 1 <= len(messages) <= 100:
-        raise ValueError('Expected 1 to 100 messages')
+    # The HTTP body byte limit bounds history size. Tool rounds can exceed 100
+    # messages well within that budget; preserve every call and result.
+    if not isinstance(messages, list) or not messages:
+        raise ValueError('Expected a non-empty messages array')
     normalized, pending, seen = [], set(), set()
     for original in messages:
         message = normalize_message(original)

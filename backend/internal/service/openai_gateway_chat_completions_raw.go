@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -305,6 +306,8 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	pendingLines := make([]string, 0, 8)
 	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen)
 	var terminal openAIRawStreamTerminalState
+	var streamErr *ccStreamError
+	var eventName string
 
 	writeLine := func(line string) {
 		if clientDisconnected {
@@ -340,9 +343,22 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 
 	for scanner.Scan() {
 		line := scanner.Text()
+		if line == "" {
+			eventName = ""
+		}
+		if strings.HasPrefix(line, "event:") {
+			eventName = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+			if eventName == "error" {
+				continue
+			}
+		}
 		refusalDetector.ObserveSSELine(line)
 		if payload, ok := extractOpenAISSEDataLine(line); ok {
 			trimmedPayload := strings.TrimSpace(payload)
+			streamErr = parseCCStreamError(trimmedPayload, eventName)
+			if streamErr != nil {
+				break
+			}
 			terminal.ObserveDataLine(trimmedPayload)
 			if trimmedPayload != "[DONE]" {
 				observer.ObserveOpenAI([]byte(payload), strings.TrimSpace(gjson.Get(payload, "type").String()))
@@ -389,6 +405,29 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			Duration:                      time.Since(startTime),
 			FirstTokenMs:                  firstTokenMs,
 		}
+	}
+
+	if streamErr != nil {
+		err := s.handleCCStreamError(c, account, resp, upstreamModel, streamErr, clientOutputStarted, func(status int, code, errType, message string) {
+			if clientDisconnected {
+				return
+			}
+			payload := gin.H{"error": gin.H{"code": code, "type": errType, "message": message}}
+			if !clientOutputStarted && !c.Writer.Written() {
+				c.JSON(status, payload)
+				return
+			}
+			writeStreamHeaders()
+			data, _ := json.Marshal(payload)
+			if _, err := fmt.Fprintf(c.Writer, "event: error\ndata: %s\n\n", data); err == nil {
+				c.Writer.Flush()
+			}
+		})
+		var failoverErr *UpstreamFailoverError
+		if errors.As(err, &failoverErr) || !openAIUsageHasTokens(&usage) {
+			return nil, err
+		}
+		return resultWithUsage(), err
 	}
 
 	scanErr := scanner.Err()

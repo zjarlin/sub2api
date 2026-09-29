@@ -10,9 +10,16 @@
 !tool_calls.py
 !messages.py
 !conversations.py
+!responses.py
+!responses_tools.py
+!responses_sessions.py
+!session_store.py
+!custom_grammar.py
 !smoke.py
 !smoke_tools.py
 !smoke_conversations.py
+!smoke_responses.py
+!research_native.py
 !requirements.txt
 !server.py
 !container_probe.py

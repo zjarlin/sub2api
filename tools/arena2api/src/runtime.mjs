@@ -8,7 +8,8 @@ import { Bridge } from "arena-local-bridge/src/bridge.mjs";
 import { requireSecret } from "arena-local-bridge/src/secret.mjs";
 import { readEntries, sessionIdFromUrl } from "arena-local-bridge/src/archive.mjs";
 import { ArenaError } from "./request.mjs";
-import { readJSON } from "./state.mjs";
+import { parseAgentOutput } from "arena-local-bridge/src/parser.mjs";
+import { readJSON, saveJSON } from "./state.mjs";
 
 export function adapterConfig(env = process.env) {
   const dataDir = path.resolve(env.DATA_DIR || path.join(os.homedir(), ".sub2api-arena"));
@@ -162,6 +163,47 @@ export function createRuntime(config) {
           await bridge.browser.close();
         }
         activeSignal = null;
+      }
+    },
+    async loginAndPrepare(email, password, signal) {
+      let cancellation = Promise.resolve();
+      const cancel = () => {
+        cancellation = bridge.browser.close();
+        cancellation.catch(() => undefined);
+      };
+      signal.addEventListener("abort", cancel, { once: true });
+      try {
+        signal.throwIfAborted();
+        const result = await bridge.browser.login(email, password);
+        signal.throwIfAborted();
+        const page = await bridge.browser.getPage(result.cookieHeader, crypto.randomUUID());
+        signal.throwIfAborted();
+        // 自动创建全新会话并完成一次文本探测，不复用其他客户端的历史。
+        const state = await bridge.createAgentSession(page, "Reply with READY only. Do not use tools or ask questions.");
+        signal.throwIfAborted();
+        state.readBudgetMs = config.timeoutMs;
+        const raw = await bridge.readAgentOutput(page, state);
+        signal.throwIfAborted();
+        const reply = parseAgentOutput(raw);
+        if (!reply.text.trim() || !reply.lastNodeId || reply.requiresReview || reply.nativeCalls.length > 0) {
+          throw new ArenaError(502, "session_not_ready", "Arena could not prepare a text session.");
+        }
+        if (!/^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(state.id)) {
+          throw new ArenaError(502, "invalid_session", "Arena returned an invalid session.");
+        }
+        const models = readJSON(config.modelsFile, []);
+        if (!Array.isArray(models)) {
+          throw new ArenaError(503, "invalid_models", "models.json must be an array.");
+        }
+        const model = { id: `arena-session-${state.id}`, sessionId: state.id.toLowerCase(), accountEmail: result.email, name: "Arena Agent session" };
+        credentials.load();
+        credentials.upsert({ email: result.email, cookieHeader: result.cookieHeader, password: result.password });
+        saveJSON(config.modelsFile, [...models, model]);
+        return { uid: result.email, nickname: result.email, model_id: model.id };
+      } finally {
+        signal.removeEventListener("abort", cancel);
+        await cancellation;
+        await bridge.browser.close();
       }
     },
     async login(email, password) {

@@ -1,9 +1,20 @@
 export default {
     accounts: {
       arena: {
+        modelsHint: '模型列表来自已登录账号的专属会话。可重新登录创建新会话，或同步已有会话列表；会话别名不代表已确认的底层模型身份。',
+        modelsEmpty: '暂无可用会话。请在账号编辑页登录 Arena，系统会自动创建会话；完成后刷新模型列表。',
         title: 'Arena',
         baseUrlHint: '填写 Sub2API 服务器可访问的 Arena 适配器地址。',
         apiKeyHint: '填写适配器的连接密钥，不是 Arena 登录密码。',
+        email: 'Arena 邮箱',
+        password: 'Arena 密码',
+        login: '登录 Arena',
+        loginHint: '使用 Arena 网站的邮箱和密码登录。登录信息由服务端加密保存，用于维持会话。',
+        loginSessionHint: '登录后自动创建独立的 Arena Agent 会话并发送一条简短测试消息。成功后可直接选择该会话模型，不需要填写地址、密钥或会话 ID。',
+        loggingIn: '正在登录 Arena 并准备可用会话，请稍候…',
+        loginFailed: 'Arena 登录或会话创建失败，请检查邮箱密码及账号是否可用；如遇验证码或账号限制，请先在 Arena 网站处理后重试。',
+        unavailable: 'Arena 网页登录服务尚未启用，请联系部署管理员启用 Arena 服务。',
+        loginRequired: '请先完成 Arena 登录，再创建账号。',
       },
       vibex: {
         title: 'VibeX',

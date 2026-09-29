@@ -1,8 +1,31 @@
 # 豆包桌面套餐 Docker 适配器
 
-复用本人已登录的豆包桌面会话，以纯 HTTP 调用桌面对话或工作任务，提供 OpenAI Chat Completions 接口，接入本仓库现有 Sub2API。生成服务可在 Linux Docker 中独立运行，不包含豆包桌面、浏览器、AppleScript 或本地工具执行器。不是火山引擎 API。
+复用本人已登录的豆包桌面会话，以纯 HTTP 调用桌面对话或工作任务，直接提供 OpenAI Responses 接口，同时保留 Chat Completions 兼容入口，接入本仓库现有 Sub2API。生成服务可在 Linux Docker 中独立运行，不包含豆包桌面、浏览器、AppleScript 或本地工具执行器。不是火山引擎 API。
 
-## 普通聊天与工具执行（2026-09-20）
+## Responses 直连（2026-09-29）
+
+`POST /v1/responses` 由适配器直接解析 `input`、`instructions`、工具声明和结果，直接输出 Responses JSON 或 SSE；不会先调用 Chat parser、转成 `messages`，也不会先生成 Chat Completion 再转换。Sub2API 的豆包平台将 Responses 入站直转到此入口；历史账号中残留的 `chat_completions` 配置不再强制降级。Chat 入站仍使用独立兼容入口，Messages 入站由网关转成 Responses。
+
+- 保留 `function_call` / `function_call_output` 的 `call_id`、namespace、assistant phase 和可见 reasoning summary；历史按字节预算约束，没有 100 条限制。不透明的外部 `encrypted_content` 仅参与历史身份匹配，不发给豆包模型。
+- 支持 function、namespace、custom 及调用方执行的 `tool_search`。搜索回传的工具声明可用于后续调用；custom 支持 text，以及返回后校验的 Lark / Python regex grammar。Lark 只允许导入自带 common 终结符，不读取任意本地 grammar 文件。
+- `previous_response_id` 使用本适配器生成的 ID。`store=true`（默认）在私有状态文件中保存续接所需的完整输入及输出；`store=false` 不将请求、响应或工具定义持久化，并要求后续发送完整历史。状态最多 64 条、8 MiB、6 小时；被驱逐或过期的 ID 返回 400，调用方可改为发送完整历史。网关按 API Key 和会话标识隔离状态。
+- 历史唯一匹配已确认的上游末尾时，只上传新增 input；分支、instructions 变化或不确定的上游位置使用完整历史重新初始化。已确认的后续请求重试复用响应及调用 ID。不同首轮请求不会仅因问题相同而合并。
+- SSE 输出完整的 `response.created`、output item/content/arguments 事件及 `response.completed`，带连续 `sequence_number`。目前仍为**校验后缓冲输出**；不是实时首 token。
+- 桌面协议未提供 token 统计，返回 `usage: null`，网关保留按次计费。`text.format` 可约束最终答案；`max_output_tokens`、reasoning、缓存提示等兼容字段不代表豆包具备对应的上游控制。暂不支持后台任务、Responses 查询/删除端点或模型侧托管工具；媒体输入仍需网关的视觉转换。
+
+**工具决策仍是经校验的文本桥接。** Responses 直连移除了 Chat 协议作为中间表示，不等于已经接通豆包原生自定义工具。当前原生工具链的调查结果见 [native_protocol_research.json](native_protocol_research.json)。
+
+2026-09-29 已部署服务器适配器及两个网关副本。108 项适配器测试、117 项账号表单测试、网关相关回归及前端构建通过；正式网关的 Pro 工具调用、随机结果回传、Responses SSE、`previous_response_id` 与重试复用全部通过，三次请求约耗时 11.9 秒 / 8.7 秒 / 1 毫秒。验证详情及镜像 ID 见 `validation.json.responses_protocol_validation`。验收期间也观测到一次 Pro 用时约 587 秒后未返回要求的工具调用，被校验器拒绝；直连 Responses 不消除这种上游决策不稳定性。服务器备份及回滚脚本保存在 `/opt/sub2api/releases/doubao-responses-20260929`。
+
+服务器复现工具往返：
+
+```sh
+docker exec -i sub2api-desktop python - < tools/desktop_session/smoke_responses.py
+```
+
+脚本在收到调用后才生成随机结果，校验 JSON 工具调用、Responses SSE、previous_response_id 续接和重试复用，不打印密钥或正文。
+
+## Chat 兼容入口与工具执行（2026-09-20）
 
 需要让调用方执行工具时，使用新增的 `doubao-chat-turbo`。它走客户端的“对话”协议；已有 `doubao-auto` 和 `doubao-pro` 仍走“工作任务”协议。实时目录和客户端资源均将 Pro 列在工作任务下，没有已验证的 Pro 普通聊天入口。
 
@@ -47,6 +70,8 @@ Linux 部署只需服务代码/镜像及上述两份私密文件；无需复制�
 
 请求体默认上限为 **32 MiB（33554432 字节）**，与 Sub2API 的默认纯文本入口上限一致。原先固定的 64 KiB 限制会使长上下文在适配器入口返回 `413 / request_too_large`。现在可在 `.env` 中设置正整数 `DESKTOP_MAX_REQUEST_BODY_BYTES` 覆盖上限，重新构建并创建容器后生效。直接运行 Python 时使用同名环境变量。上限按完整 JSON 的字节数计算，不截断消息；超过上限仍返回 413，并在错误中提供当前字节上限。上游模型的上下文限制仍独立生效。
 
+消息历史不再限制为 100 条，以请求体字节上限控制大小。长任务的函数调用和结果会持续增加消息条数；所有历史仍完整保留并校验工具调用配对，空数组或缺失的 `messages` 仍返回 400。错误 `Expected 1 to 100 messages` 来自适配器本地校验，并非豆包上游的上下文限制。此修复不改变当前 Chat Completions 桥接或接通原生工具。
+
 请求必须带单个有效的 `Content-Length`，暂不接受 `Transfer-Encoding`；缺失、重复、无效长度或不完整请求体返回 `400 / invalid_request`，不再误报为请求过大。
 
 上游 SSE 的 `FULL_MSG_NOTIFY` 会在 `content_block`、`content` 和 `ext.raw_messages` 三处回传上下文，后两处还包含嵌套 JSON 编码。读取预算按一份请求 JSON、两份再次编码的请求 JSON 及 64 KiB 元数据计算单行上限，总流预留两个最大行及 1 MiB 回复空间。大小超限或非法上游流返回 `502 / invalid_upstream_stream`；早期探测入口保持原有固定预算。
@@ -67,6 +92,7 @@ Linux 部署只需服务代码/镜像及上述两份私密文件；无需复制�
 | --- | --- |
 | `GET /health` | 进程状态和是否需要更新验证状态；不代表一次生成成功 |
 | `GET /v1/models` | 需 Bearer 密钥，返回两个已验证的桌面工作模型 |
+| `POST /v1/responses` | 需 Bearer 密钥，直接处理 Responses input、工具输出、状态续接及 SSE |
 | `POST /v1/chat/completions` | 需 Bearer 密钥，首次创建工作会话，后续按已确认历史增量续接 |
 
 使用 `runtime/api_key` 的内容作为 Bearer token。最小请求：
@@ -102,6 +128,16 @@ Linux 部署只需服务代码/镜像及上述两份私密文件；无需复制�
 
 使用独立测试 client ID 注册 `lookup_marker` 得到 HTTP 200、业务码 0 和工具标识，但将该标识及客户端使用的任务字段带入当前 Pro 工作会话后，模型没有获得该函数；实际回复表示工具列表与工具搜索均找不到它。注册成功不能证明当前工作模型支持任意外部工具。因此本版本只启用已实测的会话续接，外部函数继续走明确标注的文本 JSON 桥接，没有声称接通原生工具，没有改用火山方舟 API，也没有让适配器执行桌面内置工具。
 
+2026-09-29 排查错误 `180526`：线上记录确认入站 `/v1/responses`、上游 `/v1/chat/completions`；适配器日志中请求 `07425dd2fa4146cf9aa55af7e86e3106` 在 `parse_messages` 阶段返回 400，尚未发起豆包生成。错误记录未保存请求正文，不能据此恢复当次消息数量。升级前的源码由 `Account.GetAPIProtocol` 强制豆包使用 Chat Completions，`api.py` 把历史转成角色 JSON，`tool_calls.py` 用提示词要求 `content/tool_calls`，`reply.py` 仅提取可见的 `10000` 文本块；这条路径没有原生本地工具事件和结果回传。
+
+服务器侧重新读取当前官方网页及其发布的 JavaScript，已核对 `runtime_type` 枚举：Cloud VM=1，Local PC=2；本地任务携带 `local_app_id`、`local_device_id` 和 workspace。Office 工具通道接受 `device_id`、`client_attrs`；结果回传使用 `sandbox_id`、`tool_result`、`device_id`；另有 sandbox 预建结果回执和授权交互接口。源码 URL、SHA-256 与字段表保存在 `native_protocol_research.json`，无需读取本机 Mac 安装包。
+
+设备目录还包含 `authorized`、`is_online`、`enable_control`、`supported_req_cmds` 和客户端版本；授权接口关联目标设备、目标 app 与授权票据。公开网页的 runtime service 对非云电脑选择会转向桌面下载引导或 Coco 会话。这说明本地电脑模式依赖在线执行端及其声明的能力，不能仅把工作任务中的 `runtime_type` 改成 2。服务器若要模拟该执行端，还需核实设备上线、事件认证和 sandbox 生命周期；本次未调用设备授权接口。
+
+服务器现有登录态实测：`/alice/dispatch/list_devices` 返回 HTTP 200、业务码 0、两台设备；独立 client ID 的旧 `/samantha/tool/init` 返回业务码 0。使用独立随机 device ID 连接 Office 工具通道时，在 8 秒内未收到 HTTP 响应头。这不证明通道不可用，也不证明注册的任意函数已被当前工作模型加载。没有占用现有桌面设备通道或执行其命令。
+
+继续逆向应依次验证：独立设备上线与 `client_attrs` 契约、sandbox 预建命令及回执、任务与设备/sandbox 的关联、结构化工具调用事件和 v2 回传，最后确认自定义函数目录是否对模型可见。仅修改 runtime_type，或把旧 client_tool_key 放入新任务，不能视为链路打通。`research_native.py` 提供服务器复现探针，默认只查询设备字段形状；`--register` 注册独立测试函数，`--channel` 有界观察独立通道。探针不输出 Cookie、设备身份或命令正文，不执行工具。
+
 2026-09-17 增量续聊修正版已部署为 `sub2api-desktop:20260917-incremental-v2`：本机及 AMD64 镜像各 77 项测试通过，部署的 16 个 Python 文件与本地 SHA-256 一致。通过现有客户端有效凭据完成 Sub2API `/v1/responses` 的 Pro 工具调用、真实随机结果回传、重试复用及第三轮 SSE 回答；三轮同一上游会话，实际上传字节数为 31700 / 1482 / 1245。正式适配器的自动模式 SSE 与 JSON 最终答案也完成三轮验证，字节数为 71973 / 1783 / 1585。详细证据见 `validation.json` 的 `incremental_session_validation`；旧镜像、源码和回滚容器保留。
 
 2026-09-16 已在 252 的 Docker 服务及 Sub2API 同步上述名称：模型列表精确返回这两个 ID，Pro JSON 与自动模式 SSE 均返回完整随机测试标记，响应 `model` 与请求一致；17 项单元测试通过。
@@ -113,7 +149,7 @@ Linux 部署只需服务代码/镜像及上述两份私密文件；无需复制�
 - Schema 使用 JSON Schema draft 2020-12，根类型为 `object`，支持本地 `$defs` / `$ref`，拒绝外部引用及无法解析的引用；`format` 按该标准默认为注解。`strict` 为 true、false 或省略时均校验实际输出，参数本身不会透传给豆包。不合法的格式或 schema 在生成前返回 400。
 - `stream=true` 是**缓冲 SSE**：完整校验助手正文和结束状态后返回内容、结束块、`[DONE]`，没有实时首 token。
 - 支持 `tools` 中的 function 工具、`tool_choice` 的 `none` / `auto` / `required` / 指定函数，以及 `parallel_tool_calls`。通过文本 JSON 决策协议适配，校验所选名称、函数参数 schema、强制选择和并行数量后，返回标准 `assistant.tool_calls`、JSON 字符串 arguments、独立 call ID 和 `finish_reason=tool_calls`。SSE 调用块含 `index`。不合格模型决策返回 `502 / invalid_tool_calls`，不静默丢弃调用。
-- 工具由调用方执行，适配器不运行 shell、Python、浏览器或桌面动作，也不执行模型所列函数。调用方回传 `assistant.tool_calls` 和相同 `tool_call_id` 的 `role=tool` 消息后可继续生成，无需追加虚构的 user 消息。所有并行调用均须有且仅有一个结果；未知、重复或缺失的 ID 在生成前返回 400。支持字符串及纯 text 内容块，不支持附件、图片、custom 工具或 Responses API；为保持 OpenAI 兼容性接受并忽略 `max_completion_tokens`，其它生成参数（如 `temperature`、`max_tokens`）仍会被拒绝。
+- 工具由调用方执行，适配器不运行 shell、Python、浏览器或桌面动作，也不执行模型所列函数。调用方回传 `assistant.tool_calls` 和相同 `tool_call_id` 的 `role=tool` 消息后可继续生成，无需追加虚构的 user 消息。所有并行调用均须有且仅有一个结果；未知、重复或缺失的 ID 在生成前返回 400。支持字符串及纯 text 内容块，不支持附件、图片或 custom 工具（这些限制仅适用于 Chat 兼容入口）；为保持 OpenAI 兼容性接受并忽略 `max_completion_tokens`，其它生成参数（如 `temperature`、`max_tokens`）仍会被拒绝。
 - `response_format` 仅约束最终答案，不约束 `tool_calls` 的参数对象；函数参数独立按声明的 parameters 校验，strict 为 false 或省略时也会校验。工具桥接不等同于豆包原生工具协议，也不承诺模型每次都能产生有效决策。
 - 对话末条可以是 assistant、system、developer、user 或已完成的 tool 结果；空文本末条也可继续。assistant 末条按继续未完成的回答或任务处理，完整保留角色和历史，不伪造 user 消息。单条 system / developer / assistant 消息同样保留角色；未完成的工具调用仍须先返回结果。
 - 单账号仅允许一个在途生成；并发请求返回 429，不排队积压。响应读取有大小和超时限制。
@@ -123,7 +159,7 @@ Linux 部署只需服务代码/镜像及上述两份私密文件；无需复制�
 
 ## 接入已有 Sub2API
 
-平台已提供独立的 **豆包（doubao）** 类型。账号为 `apikey` 类型，协议固定 `chat_completions`，并发固定为 1；创建后自动同步 `/v1/models`。
+平台已提供独立的 **豆包（doubao）** 类型。账号为 `apikey` 类型，Responses 直接转发，Chat 保留兼容入口，并发固定为 1；创建后自动同步 `/v1/models`。
 
 推荐使用 **内置适配器**：适配器随 Sub2API 部署一起启动，账号表单无需填写地址和密钥。
 
@@ -164,7 +200,7 @@ SUB2API_NETWORK=sub2api_sub2api-network \
 
 此时可在账号表单显式填写适配器地址和密钥，覆盖内置注入值。账号模板见 `sub2api-account.example.json`。桌面登录会话仍由适配器持有，管理表单不导入桌面 Cookie。
 
-新账号类型 `doubao / apikey`；上游 `http://sub2api-doubao-desktop:8080/v1`；API Key 为适配器密钥；协议固定 `chat_completions`；网关负责 Responses / Messages 转换；并发为 `1`；模型映射为 `doubao-auto→doubao-auto`、`doubao-pro→doubao-pro`、`doubao-chat-turbo→doubao-chat-turbo`，适配器内部解析为上表所列模型和模式。绑定豆包或 Composite 分组，配置模型价格，并关闭后台上游计费探测（表单默认关闭）。旧 `openai / apikey` 账号及其 `extra.openai_responses_mode=force_chat_completions` 配置继续兼容，不自动迁移。普通聊天推荐 `doubao-chat-turbo`；平台不会把桌面工作模式当作本机工具执行。此配置为部署说明，2026-09-20 新平台与新模型尚未部署。
+新账号类型 `doubao / apikey`；上游 `http://sub2api-doubao-desktop:8080/v1`；API Key 为适配器密钥；Responses 直接转发；Chat 独立兼容，网关负责 Messages 转换；并发为 `1`；模型映射为 `doubao-auto→doubao-auto`、`doubao-pro→doubao-pro`、`doubao-chat-turbo→doubao-chat-turbo`，适配器内部解析为上表所列模型和模式。绑定豆包或 Composite 分组，配置模型价格，并关闭后台上游计费探测（表单默认关闭）。旧 `openai / apikey` 账号及其 `extra.openai_responses_mode=force_chat_completions` 配置继续兼容，不自动迁移。普通聊天推荐 `doubao-chat-turbo`；平台不会把桌面工作模式当作本机工具执行。此配置为部署说明，2026-09-20 新平台与新模型尚未部署。
 
 252 上的独立容器名为 `sub2api-doubao-desktop`，部署目录 `/opt/sub2api/desktop-api`，镜像 `sub2api-desktop:20260916-continuation`。适配器宿主机入口仅为 `127.0.0.1:18089`，Sub2API 从容器网络访问它。账号 `834` 同时绑定 `6`（codex）与专属分组 `21`（豆包桌面套餐实验-20260915）。实验分组模型列表为 `doubao-auto`、`doubao-pro`，请求和响应的 `model` 使用同一名称。2026-09-16 已将这两个模型配置为按次计费，详见 `pricing.json`；实验分组仍仅授权当前管理员使用。协议验证结果见本目录 `validation.json`。旧网关实验密钥保存在被忽略的 `runtime/sub2api-access.json`，但已失效；不要提交或复制到普通日志。
 

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/gin-gonic/gin"
@@ -44,7 +45,7 @@ func TestDoubaoCredentialValidation(t *testing.T) {
 		name, key string
 		value     any
 	}{
-		{"missing key", "api_key", " "}, {"native responses", "api_protocol", APIProtocolResponses},
+		{"missing key", "api_key", " "}, {"unsupported protocol", "api_protocol", APIProtocolAnthropic},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			account := doubaoTestAccount()
@@ -59,14 +60,25 @@ func TestDoubaoCredentialValidation(t *testing.T) {
 	delete(account.Credentials, "base_url")
 	require.Equal(t, "http://sub2api-desktop:8080", account.GetOpenAIBaseURL())
 	account.Credentials["api_protocol"] = APIProtocolResponses
-	require.Equal(t, APIProtocolChatCompletions, account.GetAPIProtocol())
-	require.False(t, account.SupportsNativeCNResponses())
+	require.Equal(t, APIProtocolResponses, account.GetAPIProtocol())
+	require.True(t, account.SupportsNativeCNResponses())
 }
 
 func TestDoubaoRequiresBuiltinAdapter(t *testing.T) {
 	SetBuiltinAdapterConfig(nil)
 	account := doubaoTestAccount()
 	require.Error(t, validateDoubaoCredentials(account.Platform, account.Type, account.Credentials))
+}
+
+func TestDoubaoResponsesStateIsNotStripped(t *testing.T) {
+	account := doubaoTestAccount()
+	body := []byte(`{"model":"doubao-pro","store":true,"previous_response_id":"resp_previous","input":[{"type":"function_call_output","call_id":"call_status","output":"ready"}]}`)
+	require.Equal(t, body, normalizeDeepSeekResponsesRequestBody(account, body))
+	require.False(t, shouldForwardOpenAIResponsesViaRawChatCompletions(account))
+	for _, legacy := range []string{"", APIProtocolChatCompletions, APIProtocolAdaptive, APIProtocolResponses} {
+		account.Credentials["api_protocol"] = legacy
+		require.Equal(t, APIProtocolResponses, account.GetAPIProtocol())
+	}
 }
 
 func TestBuiltinAdapterInjectsMissingCredentials(t *testing.T) {
@@ -138,30 +150,82 @@ func TestDoubaoConnectionAndPlatform(t *testing.T) {
 func TestDoubaoResponsesToolRoundtrip(t *testing.T) {
 	enableBuiltinAdapterForTest(t)
 	gin.SetMode(gin.TestMode)
-	body := []byte(`{"model":"doubao-chat-turbo","input":"read status","tools":[{"type":"function","name":"read_status","parameters":{"type":"object","properties":{}}}],"stream":false}`)
+	body := []byte(`{"model":"doubao-pro","input":"read status","tools":[{"type":"namespace","name":"local","tools":[{"type":"function","name":"read_status","parameters":{"type":"object","properties":{}}}]}],"stream":false}`)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
-	upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"id":"chatcmpl-doubao","object":"chat.completion","model":"doubao-chat-turbo","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call-status","type":"function","function":{"name":"read_status","arguments":"{}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`))}}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"id":"resp_doubao","object":"response","created_at":1,"status":"completed","model":"doubao-pro","output":[{"id":"fc_status","type":"function_call","call_id":"call-status","namespace":"local","name":"read_status","arguments":"{}","status":"completed"}]}`))}}
 	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
 	_, err := svc.Forward(context.Background(), c, doubaoTestAccount(), body)
 	require.NoError(t, err)
-	require.Equal(t, "http://upstream.example/v1/chat/completions", upstream.lastReq.URL.String())
-	require.Equal(t, "read_status", gjson.GetBytes(upstream.lastBody, "tools.0.function.name").String())
+	require.Equal(t, "http://upstream.example/v1/responses", upstream.lastReq.URL.String())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "messages").Exists())
+	require.NotEmpty(t, upstream.lastReq.Header.Get("X-Desktop-Session"))
+	require.Equal(t, "namespace", gjson.GetBytes(upstream.lastBody, "tools.0.type").String())
+	require.Equal(t, "read_status", gjson.GetBytes(upstream.lastBody, "tools.0.tools.0.name").String())
 	require.Equal(t, "function_call", gjson.Get(rec.Body.String(), "output.0.type").String())
 	require.Equal(t, "call-status", gjson.Get(rec.Body.String(), "output.0.call_id").String())
+	require.Equal(t, "local", gjson.Get(rec.Body.String(), "output.0.namespace").String())
 
-	// 调用方执行工具后，网关继续转成 role=tool，保留相同调用 ID。
-	body = []byte(`{"model":"doubao-chat-turbo","input":[{"role":"user","content":"read status"},{"type":"function_call","call_id":"call-status","name":"read_status","arguments":"{}"},{"type":"function_call_output","call_id":"call-status","output":"ready"}],"stream":false}`)
+	body = []byte(`{"model":"doubao-pro","input":[{"role":"user","content":"read status"},{"type":"function_call","call_id":"call-status","namespace":"local","name":"read_status","arguments":"{}"},{"type":"function_call_output","call_id":"call-status","output":"ready"}],"stream":false}`)
 	rec = httptest.NewRecorder()
 	c, _ = gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
-	upstream.resp.Body = io.NopCloser(strings.NewReader(`{"id":"chatcmpl-doubao-2","object":"chat.completion","model":"doubao-chat-turbo","choices":[{"index":0,"message":{"role":"assistant","content":"ready"},"finish_reason":"stop"}]}`))
+	upstream.resp.Body = io.NopCloser(strings.NewReader(`{"id":"resp_doubao_2","object":"response","created_at":1,"status":"completed","model":"doubao-pro","output":[{"id":"msg_ready","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ready","annotations":[]}]}]}`))
 	_, err = svc.Forward(context.Background(), c, doubaoTestAccount(), body)
 	require.NoError(t, err)
-	require.Equal(t, "tool", gjson.GetBytes(upstream.lastBody, "messages.2.role").String())
-	require.Equal(t, "call-status", gjson.GetBytes(upstream.lastBody, "messages.2.tool_call_id").String())
+	require.Equal(t, "http://upstream.example/v1/responses", upstream.lastReq.URL.String())
+	require.Equal(t, "function_call_output", gjson.GetBytes(upstream.lastBody, "input.2.type").String())
+	require.Equal(t, "call-status", gjson.GetBytes(upstream.lastBody, "input.2.call_id").String())
+	require.Equal(t, "local", gjson.GetBytes(upstream.lastBody, "input.1.namespace").String())
 	require.Equal(t, "ready", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
+
+	body = []byte(`{"model":"doubao-pro","store":true,"previous_response_id":"resp_doubao","input":[{"type":"function_call_output","call_id":"call-status","output":"ready"}],"stream":false}`)
+	rec = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	SetOpenAIHTTPResponseOwner(c, 1, 101)
+	upstream.resp.Body = io.NopCloser(strings.NewReader(`{"id":"resp_doubao_3","object":"response","status":"completed","model":"doubao-pro","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ready"}]}],"usage":null}`))
+	_, err = svc.Forward(context.Background(), c, doubaoTestAccount(), body)
+	require.NoError(t, err)
+	require.Equal(t, "resp_doubao", gjson.GetBytes(upstream.lastBody, "previous_response_id").String())
+	require.True(t, gjson.GetBytes(upstream.lastBody, "store").Bool())
+	require.Equal(t, "call-status", gjson.GetBytes(upstream.lastBody, "input.0.call_id").String())
+	owned, err := svc.ValidateOpenAIHTTPResponseOwner(context.Background(), 0, "resp_doubao_3", 1, 101)
+	require.NoError(t, err)
+	require.True(t, owned)
+	owned, err = svc.ValidateOpenAIHTTPResponseOwner(context.Background(), 0, "resp_doubao_3", 2, 202)
+	require.NoError(t, err)
+	require.False(t, owned)
+}
+
+func TestDoubaoHTTPContinuationSticksToOriginalAccount(t *testing.T) {
+	ctx := context.Background()
+	groupID := int64(9)
+	account := *doubaoTestAccount()
+	account.Schedulable = true
+	account.Concurrency = 1
+	account.Credentials["model_mapping"] = testModelMapping("doubao-pro")
+	svc := &OpenAIGatewayService{
+		accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{account}},
+		cache:       &schedulerTestGatewayCache{}, cfg: &config.Config{},
+		rateLimitService:   newOpenAIAdvancedSchedulerRateLimitService("true"),
+		concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
+	}
+	require.True(t, account.SupportsHTTPResponsesContinuation())
+	require.False(t, (&Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}).SupportsHTTPResponsesContinuation())
+	require.False(t, (&Account{Platform: PlatformDeepseek, Type: AccountTypeAPIKey}).SupportsHTTPResponsesContinuation())
+	require.NoError(t, svc.getOpenAIWSStateStore().BindResponseAccount(ctx, groupID, "resp_doubao_sticky", account.ID, time.Hour))
+	selection, decision, err := svc.SelectAccountWithSchedulerForCapability(ctx, &groupID,
+		"resp_doubao_sticky", "", "doubao-pro", nil, OpenAIUpstreamTransportAny,
+		OpenAIEndpointCapabilityResponses, false, false, true, PlatformDoubao)
+	require.NoError(t, err)
+	require.NotNil(t, selection)
+	require.Equal(t, account.ID, selection.Account.ID)
+	require.True(t, decision.StickyPreviousHit)
+	if selection.ReleaseFunc != nil {
+		selection.ReleaseFunc()
+	}
 }
 
 func TestDoubaoFetchModels(t *testing.T) {
@@ -180,7 +244,7 @@ func TestDoubaoBulkUpdateRejectsInvalidChangesBeforeWriting(t *testing.T) {
 	concurrency := 2
 	for _, input := range []*BulkUpdateAccountsInput{
 		{AccountIDs: []int64{501}, Concurrency: &concurrency},
-		{AccountIDs: []int64{501}, Credentials: map[string]any{"api_protocol": APIProtocolResponses}},
+		{AccountIDs: []int64{501}, Credentials: map[string]any{"api_protocol": APIProtocolAnthropic}},
 	} {
 		repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{501: doubaoTestAccount()}}
 		_, err := (&adminServiceImpl{accountRepo: repo}).BulkUpdateAccounts(context.Background(), input)

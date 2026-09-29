@@ -91,6 +91,30 @@ describe('ModelWhitelistSelector', () => {
     syncUpstreamModelsPreview.mockReset()
   })
 
+  it('syncs Arena session aliases and exposes them in the picker', async () => {
+    syncUpstreamModels.mockResolvedValue({ models: ['arena-session'] })
+    const wrapper = mountSelector({ platform: 'arena', accountId: 46 })
+    expect(wrapper.text()).toContain('admin.accounts.arena.modelsHint')
+    expect(wrapper.text()).not.toContain('admin.accounts.fillRelatedModels')
+    const button = wrapper.findAll('button').find(item => item.text() === 'admin.accounts.syncUpstreamModels')!
+    await button.trigger('click')
+    await flushPromises()
+    expect(syncUpstreamModels).toHaveBeenCalledWith(46)
+    expect(wrapper.emitted('update:modelValue')).toEqual([[['arena-session']]])
+    await wrapper.get('div.cursor-pointer').trigger('click')
+    expect(findModelRow(wrapper, 'arena-session').exists()).toBe(true)
+  })
+
+  it('explains an empty Arena catalog without inventing models', async () => {
+    syncUpstreamModels.mockResolvedValue({ models: [] })
+    const wrapper = mountSelector({ platform: 'arena', accountId: 46 })
+    const button = wrapper.findAll('button').find(item => item.text() === 'admin.accounts.syncUpstreamModels')!
+    await button.trigger('click')
+    await flushPromises()
+    expect(showInfo).toHaveBeenCalledWith('admin.accounts.arena.modelsEmpty')
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
   it('copies a model ID without selecting the model', async () => {
     const wrapper = mountSelector()
     await wrapper.get('div.cursor-pointer').trigger('click')

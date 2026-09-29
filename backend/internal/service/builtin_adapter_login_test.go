@@ -115,3 +115,36 @@ func TestZcodeLoginErrorsDistinguishDeniedAndExpired(t *testing.T) {
 	}
 	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
 }
+
+func TestArenaWebLoginUsesInternalCredentials(t *testing.T) {
+	id := strings.Repeat("d", 64)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/internal/login/sessions", r.URL.Path)
+		require.Equal(t, "Bearer internal-arena", r.Header.Get("Authorization"))
+		require.Equal(t, "admin:7", r.Header.Get("X-Login-Owner"))
+		var body map[string]string
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+		require.Equal(t, "user@example.com", body["email"])
+		require.Equal(t, " private-password ", body["password"])
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"session_id": id, "mode": "poll", "status": "completed",
+			"password": "private-password", "account": map[string]string{"uid": "user", "model_id": "arena-session-new", "cookie": "private-cookie"},
+		})
+	}))
+	defer server.Close()
+	SetBuiltinAdapterConfig(&config.BuiltinAdapterConfig{Enabled: true, ArenaURL: server.URL, ArenaKey: "internal-arena"})
+	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
+	result, err := BuiltinAdapterLogin(context.Background(), PlatformArena, "admin:7", "", "start", "", BuiltinLoginOptions{Email: " user@example.com ", Password: " private-password "})
+	require.NoError(t, err)
+	require.Equal(t, "arena-session-new", result.Account.ModelID)
+	raw, err := json.Marshal(result)
+	require.NoError(t, err)
+	require.NotContains(t, string(raw), "private")
+	_, err = BuiltinAdapterLogin(context.Background(), PlatformArena, "admin:7", "", "start", "")
+	require.Error(t, err)
+	credentials := map[string]any{}
+	applyBuiltinAdapterCredentials(PlatformArena, credentials)
+	require.Equal(t, server.URL+"/v1", credentials["base_url"])
+	require.Equal(t, "internal-arena", credentials["api_key"])
+	require.NoError(t, validateBuiltinChatCredentials(PlatformArena, AccountTypeAPIKey, credentials))
+}

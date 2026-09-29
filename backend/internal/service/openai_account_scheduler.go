@@ -472,7 +472,8 @@ func (s *defaultOpenAIAccountScheduler) Select(
 	}()
 
 	previousResponseID := strings.TrimSpace(req.PreviousResponseID)
-	if previousResponseID != "" && NormalizeOpenAICompatiblePlatform(req.Platform) == PlatformOpenAI &&
+	continuationPlatform := NormalizeOpenAICompatiblePlatform(req.Platform)
+	if previousResponseID != "" && (continuationPlatform == PlatformOpenAI || continuationPlatform == PlatformDoubao) &&
 		(!req.StickyWeighted || !req.PreviousResponseCanMove) {
 		selection, err := s.service.selectAccountByPreviousResponseIDForCapability(
 			ctx,

@@ -1,5 +1,11 @@
 # 独立的可选 Arena 文本试接服务，使用专属会话和持久化凭证。
 services:
+  sub2api:
+    environment:
+      - BUILTIN_ADAPTER_ENABLED=true
+      - BUILTIN_ADAPTER_ARENA_URL=http://sub2api-arena:7867
+      - BUILTIN_ADAPTER_ARENA_KEY=${ARENA_AGENT_BRIDGE_KEY:?Set ARENA_AGENT_BRIDGE_KEY to a shared adapter key}
+
   sub2api-arena:
     profiles: [arena]
     build:

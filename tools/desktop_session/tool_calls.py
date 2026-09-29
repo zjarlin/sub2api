@@ -1,11 +1,7 @@
 import json
 import uuid
-from models import OutputFormat
+from models import OutputFormat, ToolCallValidationError
 from structured_output import format_prompt, json_object, validate_output
-
-
-class ToolCallValidationError(ValueError):
-    pass
 
 
 def tool_prompt(text, policy, output_format, include_functions=True):

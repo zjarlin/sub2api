@@ -642,5 +642,67 @@
       "backend_doubao_and_bulk_update_regressions": true,
       "full_backend_suite": "not green; legacy failures remain; isolated overlay reproduced scheduler canonical score, DeepSeek replay, and pinned Codex catalog failures without Doubao routing changes"
     }
+  },
+  "responses_protocol_validation": {
+    "date": "2026-09-29",
+    "issue_id": 180526,
+    "deployed": true,
+    "images": {
+      "sub2api-desktop": {
+        "image": "sub2api-desktop:responses-20260929",
+        "id": "sha256:d55bd99b926bdea2fb5447205de6d350c16574f4a67befaf4b6c063523e1e94b",
+        "health": "healthy"
+      },
+      "sub2api-sub2api-8": {
+        "image": "sub2api:doubao-responses-20260929",
+        "id": "sha256:48953f8fd26d00f592590eb40bea1059aef75dad627ff64187b6d19b722a3b98",
+        "health": "healthy"
+      },
+      "sub2api-sub2api-9": {
+        "image": "sub2api:doubao-responses-20260929",
+        "id": "sha256:48953f8fd26d00f592590eb40bea1059aef75dad627ff64187b6d19b722a3b98",
+        "health": "healthy"
+      }
+    },
+    "tests": {
+      "adapter_unit_tests": 108,
+      "account_form_tests": 117,
+      "focused_gateway_service_and_handler_tests": "passed",
+      "isolated_frontend_typecheck_and_build": "passed"
+    },
+    "candidate_roundtrip": {
+      "model": "doubao-pro",
+      "function_call_verified": true,
+      "client_result_exact_match": true,
+      "responses_sse_verified": true,
+      "previous_response_id_verified": true,
+      "retry_replayed": true
+    },
+    "production_roundtrip": {
+      "model": "doubao-pro",
+      "function_call_verified": true,
+      "client_result_exact_match": true,
+      "responses_sse_verified": true,
+      "previous_response_id_verified": true,
+      "retry_replayed": true
+    },
+    "production_adapter_request_ids": [
+      "e93e4ae66fb04a9f8ea897bc2995165a",
+      "61dc7ce842d548d1b98180555e83b26e",
+      "412a430610984ad7abbbbe80183c5ad9"
+    ],
+    "production_elapsed_ms": [
+      11863,
+      8657,
+      1
+    ],
+    "responses_to_chat_conversion": false,
+    "native_custom_tool_roundtrip_verified": false,
+    "realtime_token_streaming": false,
+    "observed_limitations": [
+      "A candidate Pro generation took 586830 ms and failed required-tool validation. Later candidate and production roundtrips passed.",
+      "Tool decisions remain validated text; native device/sandbox execution has not been implemented."
+    ],
+    "rollback_command": "python3 /opt/sub2api/releases/doubao-responses-20260929/release.py rollback"
   }
 }

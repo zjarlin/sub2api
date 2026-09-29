@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import http from "node:http";
 import { ArenaError, completion, identity, normalizeRequest, requestDigest, validateReply } from "./request.mjs";
+import { LoginSessions } from "./login.mjs";
 import { SessionState } from "./state.mjs";
 
 function json(res, status, body, headers = {}) {
@@ -33,6 +34,7 @@ async function readBody(req) {
 
 export function createServer({ config, runtime }) {
   const state = new SessionState(config.stateFile);
+  const logins = new LoginSessions(runtime);
   let busy = false;
   let activeController = null;
   const server = http.createServer(async (req, res) => {
@@ -53,9 +55,33 @@ export function createServer({ config, runtime }) {
       if (!authenticated(req, config.apiKey)) {
         throw new ArenaError(401, "invalid_api_key", "Invalid adapter key.");
       }
+      if (pathname.startsWith("/internal/login/sessions")) {
+        res.setHeader("Cache-Control", "no-store");
+        const owner = req.headers["x-login-owner"];
+        if (typeof owner !== "string" || !owner.trim() || owner.length > 256) {
+          throw new ArenaError(400, "login_owner_required", "Login owner is required.");
+        }
+        if (req.method === "POST" && pathname === "/internal/login/sessions") {
+          const input = await readBody(req);
+          if (busy) {
+            throw new ArenaError(429, "arena_busy", "Arena is generating. Retry after it finishes.");
+          }
+          return json(res, 200, logins.start(owner, input));
+        }
+        const match = /^\/internal\/login\/sessions\/([a-f0-9]{64})(\/poll)?$/.exec(pathname);
+        if (match && req.method === "POST" && match[2]) {
+          return json(res, 200, logins.poll(owner, match[1]));
+        }
+        if (match && req.method === "DELETE" && !match[2]) {
+          logins.cancel(owner, match[1]);
+          res.writeHead(204);
+          return res.end();
+        }
+        throw new ArenaError(404, "not_found", "Unknown login endpoint.");
+      }
       if (req.method === "GET" && pathname === "/healthz") {
         const health = runtime.health();
-        return json(res, health.ready ? 200 : 503, { ...health, busy });
+        return json(res, health.ready ? 200 : 503, { ...health, busy: busy || Boolean(logins.active) });
       }
       if (req.method === "GET" && pathname === "/v1/models") {
         const data = runtime.models().map((model) => ({ id: model.id, object: "model", created: 0, owned_by: "arena-session", name: model.name || model.id }));
@@ -72,7 +98,7 @@ export function createServer({ config, runtime }) {
       if (!model) {
         throw new ArenaError(404, "model_not_found", "Configure a dedicated Arena session for this model first.");
       }
-      if (busy) {
+      if (busy || logins.active) {
         throw new ArenaError(503, "arena_busy", "The adapter is processing one turn. Retry after it completes.");
       }
       const health = runtime.health();
@@ -159,6 +185,7 @@ export function createServer({ config, runtime }) {
   server.stop = async () => {
     activeController?.abort(new ArenaError(503, "adapter_shutdown", "Arena adapter is shutting down."));
     server.closeIdleConnections();
+    await logins.close();
     await runtime.close();
     await new Promise((resolve) => server.close(resolve));
   };

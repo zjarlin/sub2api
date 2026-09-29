@@ -15,6 +15,8 @@ func (h *AccountHandler) BuiltinAdapterLogin(c *gin.Context) {
 	owner := adminActorScope(c)
 	var body struct {
 		CallbackURL string `json:"callback_url"`
+		Email       string `json:"email"`
+		Password    string `json:"password"`
 		Plan        string `json:"plan"`
 		Provider    string `json:"provider"`
 	}
@@ -32,14 +34,14 @@ func (h *AccountHandler) BuiltinAdapterLogin(c *gin.Context) {
 			return
 		}
 	}
-	if action == "start" && c.Param("platform") == service.PlatformZcode {
-		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4096)
+	if action == "start" && (c.Param("platform") == service.PlatformZcode || c.Param("platform") == service.PlatformArena) {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 8192)
 		if err := c.ShouldBindJSON(&body); err != nil && !errors.Is(err, io.EOF) {
-			response.BadRequest(c, "Invalid ZCode login options")
+			response.BadRequest(c, "Invalid login options")
 			return
 		}
 	}
-	options := service.BuiltinLoginOptions{Plan: body.Plan, Provider: body.Provider}
+	options := service.BuiltinLoginOptions{Plan: body.Plan, Provider: body.Provider, Email: body.Email, Password: body.Password}
 	result, err := service.BuiltinAdapterLogin(c.Request.Context(), c.Param("platform"), owner, c.Param("session"), action, body.CallbackURL, options)
 	if err != nil {
 		response.ErrorFrom(c, err)

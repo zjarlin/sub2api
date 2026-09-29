@@ -351,7 +351,7 @@
       <p v-if="form.platform === 'jev'" class="input-hint" data-testid="jev-connection-hint">
         {{ t('admin.accounts.jev.baseUrlHint') }}
       </p>
-      <BuiltinAdapterLogin v-if="show && (form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'vibex' || form.platform === 'zcode' || form.platform === 'deepseek_web')" :key="form.platform" :platform="form.platform" />
+      <BuiltinAdapterLogin v-if="show && (form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'vibex' || form.platform === 'zcode' || form.platform === 'deepseek_web' || form.platform === 'arena')" @authorized="handleArenaAuthorized" :key="form.platform" :platform="form.platform" />
 
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
@@ -4104,6 +4104,7 @@
 
 <script setup lang="ts">
 import BuiltinAdapterLogin from './BuiltinAdapterLogin.vue'
+import type { BuiltinLoginSession } from '@/api/admin/builtinAdapters'
 import { ref, reactive, computed, watch, onBeforeUnmount } from 'vue'
 import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
 import { useI18n } from 'vue-i18n'
@@ -4626,7 +4627,7 @@ function selectJevPlatform() {
 
 // 内置适配器平台（地址与共享密钥由后端注入）的单一权威列表。
 // 新增此类平台时只改这里，避免平台按钮 / base_url 复位 / 密钥必填等分支各漏一处。
-const BUILTIN_ADAPTER_PLATFORMS = ['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'qoder', 'laya', 'jev'] as const
+const BUILTIN_ADAPTER_PLATFORMS = ['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'qoder', 'laya', 'jev', 'arena'] as const
 const isBuiltinAdapterPlatform = computed(() =>
   (BUILTIN_ADAPTER_PLATFORMS as readonly string[]).includes(form.platform)
 )
@@ -4716,6 +4717,14 @@ const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
+const arenaLoginReady = ref(false)
+function handleArenaAuthorized(session: BuiltinLoginSession) {
+  if (form.platform !== 'arena' || !session.account?.model_id) return
+  arenaLoginReady.value = true
+  modelRestrictionMode.value = 'whitelist'
+  allowedModels.value = [session.account.model_id]
+}
+
 const upstreamModelsPreviewed = ref(false)
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
@@ -5283,6 +5292,7 @@ watch(
 watch(
   () => form.platform,
   (newPlatform) => {
+    arenaLoginReady.value = false
     // Reset base URL based on platform.
     // 内置适配器平台（豆包 / TRAE / WorkBuddy / ZCode / Laya / JEV）地址由后端注入，
     // 必须清空 base_url，否则会保留上一个平台的默认值（例如 Anthropic）而打到错误上游。
@@ -5290,10 +5300,7 @@ watch(
       apiKeyBaseUrl.value = ''
       accountCategory.value = newPlatform === 'qoder' ? 'oauth-based' : 'apikey'
       form.concurrency = 1
-    } else if (newPlatform === 'arena') {
-      apiKeyBaseUrl.value = ''
-      accountCategory.value = 'apikey'
-      form.concurrency = 1
+
     } else if (isCNProviderPlatform(newPlatform) || newPlatform === 'opencode_go') {
       const mode = newPlatform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
       apiKeyBaseUrl.value = defaultCNBaseUrl(newPlatform, mode, apiProtocol.value)
@@ -5808,6 +5815,7 @@ const handleQuickOpenAIAdd = async () => {
 
 // Methods
 const resetForm = () => {
+  arenaLoginReady.value = false
   step.value = 1
   form.name = ''
   form.notes = ''
@@ -6136,6 +6144,10 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
 }
 
 const handleSubmit = async () => {
+  if (form.platform === 'arena' && !arenaLoginReady.value) {
+    appStore.showError(t('admin.accounts.arena.loginRequired'))
+    return
+  }
   // For OAuth-based type, handle OAuth flow (goes to step 2)
   if (isOAuthFlow.value) {
     if (!isGrokSSOInputMethod.value && !form.name.trim()) {
@@ -6285,7 +6297,7 @@ const handleSubmit = async () => {
   // Determine default base URL based on platform.
   // 内置适配器平台（含 Laya / JEV）地址由后端按平台注入，不能落到 Anthropic 默认值，
   // 否则会把决策请求发到错误的上游。
-  const defaultBaseUrl = isBuiltinAdapterPlatform.value || form.platform === 'arena'
+  const defaultBaseUrl = isBuiltinAdapterPlatform.value
     ? ''
     : form.platform === 'openai'
       ? 'https://api.openai.com'
@@ -6309,8 +6321,8 @@ const handleSubmit = async () => {
     credentials.tier_id = geminiTierAIStudio.value
   }
   if (form.platform === 'doubao' || form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'vibex' || form.platform === 'zcode' || form.platform === 'deepseek_web' || form.platform === 'arena' || form.platform === 'qoder') {
-    credentials.api_protocol = 'chat_completions'
-    credentials.openai_capabilities = ['chat_completions']
+    credentials.api_protocol = form.platform === 'doubao' ? 'responses' : 'chat_completions'
+    credentials.openai_capabilities = form.platform === 'doubao' ? ['responses', 'chat_completions'] : ['chat_completions']
   }
   // System One 决策模型：协议固定 systemone，不生成文本，不声明 chat/responses 能力。
   if (form.platform === 'laya' || form.platform === 'jev') {

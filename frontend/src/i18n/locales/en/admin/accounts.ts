@@ -1,9 +1,20 @@
 export default {
     accounts: {
       arena: {
+        modelsHint: 'Models are dedicated sessions for logged-in accounts. Log in again to create a new session or sync existing sessions; aliases do not verify the underlying model identity.',
+        modelsEmpty: 'No sessions are available. Log in to Arena on the account edit page to create one automatically, then reload this list.',
         title: 'Arena',
         baseUrlHint: 'Enter an Arena adapter URL reachable from the Sub2API server.',
         apiKeyHint: 'Enter the adapter connection key, not your Arena login password.',
+        email: 'Arena email',
+        password: 'Arena password',
+        login: 'Log in to Arena',
+        loginHint: 'Log in with your Arena website email and password. Credentials are encrypted on the server to maintain the session.',
+        loginSessionHint: 'Login automatically creates a dedicated Arena Agent session and sends a short test message. The session model is then available without entering a URL, key, or session ID.',
+        loggingIn: 'Logging in to Arena and preparing a session…',
+        loginFailed: 'Arena login or session creation failed. Check your email, password, and account access. Resolve any verification or account restrictions on the Arena website, then retry.',
+        unavailable: 'Arena web login is not enabled. Ask your deployment administrator to enable the Arena service.',
+        loginRequired: 'Log in to Arena before creating the account.',
       },
       vibex: {
         title: 'VibeX',

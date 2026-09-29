@@ -1,5 +1,8 @@
 <template>
   <div>
+    <p v-if="isArena" role="status" class="mb-3 text-sm text-gray-500 dark:text-gray-400">
+      {{ t('admin.accounts.arena.modelsHint') }}
+    </p>
     <!-- Multi-select Dropdown -->
     <div class="relative mb-3">
       <div
@@ -96,6 +99,7 @@
     <div class="mb-4 flex flex-wrap gap-2">
       <button
         type="button"
+        v-if="!isArena"
         @click="fillRelated"
         class="rounded-lg border border-blue-200 px-3 py-1.5 text-sm text-blue-600 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400 dark:hover:bg-blue-900/30"
       >
@@ -145,7 +149,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { accountsAPI } from '@/api/admin/accounts'
@@ -183,6 +187,8 @@ const searchQuery = ref('')
 const customModel = ref('')
 const isComposing = ref(false)
 const isSyncingUpstream = ref(false)
+const syncedModels = ref<string[]>([])
+const isArena = computed(() => normalizedPlatforms.value.includes('arena'))
 const normalizedPlatforms = computed(() => {
   const rawPlatforms =
     props.platforms && props.platforms.length > 0
@@ -200,6 +206,12 @@ const normalizedPlatforms = computed(() => {
   )
 })
 
+let catalogVersion = 0
+watch(() => [props.accountId, props.platform, props.platforms, props.syncCredentials], () => {
+  catalogVersion += 1
+  syncedModels.value = []
+}, { deep: true, flush: 'sync' })
+
 const upstreamSyncPlatforms = new Set([
   'anthropic',
   'openai',
@@ -214,7 +226,8 @@ const upstreamSyncPlatforms = new Set([
   'doubao',
   'traework',
   'workbuddy', 'vibex',
-  'zcode'
+  'zcode',
+  'arena'
 ])
 const canSyncUpstream = computed(() => {
   if (props.accountId) {
@@ -239,7 +252,15 @@ const availableOptions = computed(() => {
     }
   }
 
-  return allModels.filter(model => allowedModels.has(model.value))
+  const options = allModels.filter(model => allowedModels.has(model.value))
+  const existing = new Set(options.map(model => model.value))
+  for (const model of [...syncedModels.value, ...props.modelValue]) {
+    if (!existing.has(model)) {
+      options.push({ value: model, label: model })
+      existing.add(model)
+    }
+  }
+  return options
 })
 
 const filteredModels = computed(() => {
@@ -303,6 +324,7 @@ const syncUpstreamModels = async () => {
   if (!props.accountId && !props.syncCredentials) return
 
   isSyncingUpstream.value = true
+  const requestVersion = catalogVersion
   try {
     let result
     if (props.accountId) {
@@ -313,9 +335,11 @@ const syncUpstreamModels = async () => {
       return
     }
 
+    if (requestVersion !== catalogVersion) return
     const upstreamModels = result.models.map(model => model.trim()).filter(Boolean)
+    syncedModels.value = upstreamModels
     if (upstreamModels.length === 0) {
-      appStore.showInfo(t('admin.accounts.syncUpstreamModelsEmpty'))
+      appStore.showInfo(t(isArena.value ? 'admin.accounts.arena.modelsEmpty' : 'admin.accounts.syncUpstreamModelsEmpty'))
       return
     }
 

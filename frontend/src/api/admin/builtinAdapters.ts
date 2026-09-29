@@ -1,13 +1,13 @@
 import { apiClient } from '../client'
 
-export type BuiltinLoginPlatform = 'traework' | 'workbuddy' | 'vibex' | 'zcode' | 'deepseek_web'
+export type BuiltinLoginPlatform = 'traework' | 'workbuddy' | 'vibex' | 'zcode' | 'deepseek_web' | 'arena'
 export interface BuiltinLoginSession {
   session_id: string
   auth_url?: string
   mode: 'callback' | 'poll'
   status: 'pending' | 'completed' | 'cancelled'
   expires_at: number
-  account?: { uid: string; nickname?: string }
+  account?: { uid: string; nickname?: string; model_id?: string }
 }
 
 const path = (platform: BuiltinLoginPlatform) => `/admin/builtin-adapters/${platform}/login-sessions`
@@ -17,8 +17,13 @@ export interface ZcodeLoginOptions {
   provider: 'bigmodel' | 'zai'
 }
 
-export async function startBuiltinLogin(platform: BuiltinLoginPlatform, signal?: AbortSignal, options?: ZcodeLoginOptions) {
-  const { data } = await apiClient.post<BuiltinLoginSession>(path(platform), platform === 'zcode' ? options ?? {} : {}, { signal, timeout: 50000 })
+export interface ArenaLoginOptions {
+  email: string
+  password: string
+}
+
+export async function startBuiltinLogin(platform: BuiltinLoginPlatform, signal?: AbortSignal, options?: ZcodeLoginOptions | ArenaLoginOptions) {
+  const { data } = await apiClient.post<BuiltinLoginSession>(path(platform), platform === 'zcode' || platform === 'arena' ? options ?? {} : {}, { signal, timeout: 50000 })
   return data
 }
 

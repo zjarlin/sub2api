@@ -1,0 +1,142 @@
+{
+  "date": "2026-09-29",
+  "source": "https://www.doubao.com/chat/",
+  "artifacts": [
+    {
+      "url": "https://lf-flow-web-cdn.doubao.com/obj/flow-doubao/doubao/chat/static/js/async/an.d68aa88f8e.js",
+      "sha256": "b8e8da471ccb328f546d3bd8dc8c811d271e20710d79f487ebd8089e171f302f",
+      "bytes": 239807
+    },
+    {
+      "url": "https://lf-flow-web-cdn.doubao.com/obj/flow-doubao/doubao/chat/static/js/async/tu2.0b01a1caef.js",
+      "sha256": "4d748f8ee2437c1a59b4a11206f4376608990b273f268a7925bd1c684624af80",
+      "bytes": 20314
+    },
+    {
+      "url": "https://lf-flow-web-cdn.doubao.com/obj/flow-doubao/doubao/chat/static/js/async/s2-runtime-environment-service.073249b6ab.js",
+      "sha256": "f15fadaf911f8771c3f96dd4e395a1f4eeb535a864eb7c93de500ff86a92bee9",
+      "bytes": 18452
+    },
+    {
+      "url": "https://lf-flow-web-cdn.doubao.com/obj/flow-doubao/doubao/chat/static/js/async/async-skill-message-lifecycle.b8cc185961.js",
+      "sha256": "045cc60b7936761d4dc8c00205cc931d6f814cda48cebeec368a193534758253",
+      "bytes": 294393
+    }
+  ],
+  "verified_source_contracts": {
+    "runtime_types": {
+      "cloud_vm": 1,
+      "local_pc": 2
+    },
+    "agent_task_param": [
+      "runtime_type",
+      "local_app_id",
+      "local_device_id",
+      "device_name",
+      "folder_name",
+      "workspace"
+    ],
+    "chunk_stream": {
+      "path": "/alice/office/tool_local/chunk_stream",
+      "fields": [
+        "device_id",
+        "client_attrs"
+      ]
+    },
+    "tool_result": {
+      "path": "/alice/office/tool_local/upload_tool_call_result_v2",
+      "fields": [
+        "sandbox_id",
+        "tool_result",
+        "device_id"
+      ]
+    },
+    "prebuild_result": {
+      "path": "/alice/office/tool_local/upload_prebuild_sandbox_result",
+      "fields": [
+        "pre_build_sandbox_key",
+        "client_option",
+        "error_msg"
+      ]
+    },
+    "list_devices": {
+      "path": "/alice/dispatch/list_devices",
+      "fields": [
+        "app_ids"
+      ]
+    },
+    "legacy_tool_init": {
+      "path": "/samantha/tool/init",
+      "fields": [
+        "client_id",
+        "tools",
+        "Base"
+      ]
+    },
+    "device_inventory": {
+      "path": "/alice/dispatch/all_devices",
+      "method": "GET",
+      "fields": [
+        "all_pc",
+        "all_pc_2"
+      ],
+      "device_capabilities": [
+        "authorized",
+        "is_online",
+        "app_id",
+        "os_name",
+        "os_version",
+        "pc_version",
+        "enable_control",
+        "supported_req_cmds"
+      ]
+    },
+    "device_authorize": {
+      "path": "/alice/dispatch/authorize/device",
+      "fields": [
+        "target_device_id",
+        "auth_ticket",
+        "target_app_id"
+      ],
+      "probed": false
+    },
+    "web_runtime_selection": {
+      "local_pc_selected_directly": false,
+      "source_behavior": "non-cloud selection redirects to a desktop download guide or a Coco conversation"
+    },
+    "device_report": {
+      "path": "/alice/dispatch/report_device",
+      "method": "POST",
+      "fields": [
+        "device_name",
+        "device_type",
+        "os_name",
+        "os_version",
+        "pc_version",
+        "supported_req_cmds"
+      ],
+      "device_id_in_body": false,
+      "probed": false,
+      "note": "Device identity is not supplied in the inspected body; do not assume a random body device_id isolates registration."
+    }
+  },
+  "server_probes": {
+    "list_devices": {
+      "http_status": 200,
+      "business_code": 0,
+      "device_count": 2
+    },
+    "legacy_tool_init": {
+      "http_status": 200,
+      "business_code": 0,
+      "custom_tool_visible_to_model_verified": false,
+      "client_tool_key_returned": true
+    },
+    "isolated_chunk_stream": {
+      "outcome": "timeout_waiting_for_http_headers",
+      "timeout_seconds": 8,
+      "existing_device_used": false
+    }
+  },
+  "native_custom_tool_roundtrip_verified": false
+}

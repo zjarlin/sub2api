@@ -60,7 +60,24 @@ curl --fail http://127.0.0.1:7867/livez
 停止执行 `launchctl remove site.addzero.sub2api-arena.local`。
 更新代码后先停止，再执行上述 submit 命令重新启动。
 
-## 登录和会话配置
+## 管理页面登录（推荐）
+
+启用 Arena Compose 服务后，主服务自动获得内部地址和共享密钥。
+在“添加账号”或“编辑账号”中选择 Arena，填写 Arena 网站的邮箱和密码，点击“登录 Arena”。
+后台浏览器执行真实登录，然后创建一段全新专属 Agent 会话并发送简短文本探测。
+只有探测成功后才返回会话模型，添加账号时会自动选择该模型；点击创建或更新即可保存。
+无需在页面填写 Base URL、API Key 或会话 UUID。
+
+登录异步执行，页面轮询状态；最长十分钟，取消或关闭表单会中止浏览器操作。
+密码不会返回浏览器或写入账号表，成功后由适配器加密保存以刷新登录状态。
+当前支持邮箱密码登录；需要人工验证码、第三方身份登录或账号解除限制时，应先在 Arena 网站处理。
+登录成功只证明该 Agent 会话可以返回文本，不确认底层模型身份；展示的是专属会话别名。
+
+独立部署主服务时配置 `BUILTIN_ADAPTER_ENABLED=true`、`BUILTIN_ADAPTER_ARENA_URL` 和
+`BUILTIN_ADAPTER_ARENA_KEY`，后者应与适配器的 `ARENA_AGENT_BRIDGE_KEY` 相同。
+登录管理接口仅供主服务调用，要求适配器 Bearer 密钥和 `X-Login-Owner`，不应发布到公网。
+
+## 终端登录和手动会话配置
 
 先在终端登录，密码输入不会回显，也不需要放进命令参数：
 
@@ -106,7 +123,7 @@ npm run manage -- status
 ## 接入 Sub2API
 
 使用 `sub2api-account.example.json` 的字段创建 `arena` / `apikey` 账号，并分配独立试接分组。
-Arena 已有独立平台入口；地址与适配器密钥需显式填写，固定为文本 Chat Completions 和单并发。
+Arena 使用独立平台入口，管理页面通过网页登录添加账号，地址与密钥由部署注入；协议固定为文本 Chat Completions 和单并发。
 原有 `openai` / `apikey` 加 `openai_session_adapter=arena` 的试接账号仍可使用。
 创建请求可发到后台 `POST /api/v1/admin/accounts`，共享密钥取本机 `.env`，不要把真实密钥放进版本库。
 

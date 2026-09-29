@@ -1408,6 +1408,12 @@ func (a *Account) IsOpenAIApiKey() bool {
 	return a.IsOpenAI() && a.Type == AccountTypeAPIKey
 }
 
+// SupportsHTTPResponsesContinuation includes the stateful desktop Responses
+// adapter. Other compatible providers must explicitly establish this contract.
+func (a *Account) SupportsHTTPResponsesContinuation() bool {
+	return a != nil && (a.IsOpenAIApiKey() || (a.Platform == PlatformDoubao && a.Type == AccountTypeAPIKey))
+}
+
 // GetOpenAIBaseURL 解析 OpenAI 协议族账号的上游 base_url。
 // 适用 openai、国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）与 OpenCode Go；
 // grok 走 GetGrokBaseURL，此处对 grok 返回 "" 以保持原有行为。
@@ -1488,7 +1494,12 @@ func (a *Account) GetAPIProtocol() string {
 		// System One 决策模型共用 /v1/systemone，不生成文本，不存在 chat/responses 变体。
 		return APIProtocolSystemOne
 	}
-	if a.IsDoubao() || a.IsTraework() || a.IsWorkbuddy() || a.IsVibex() || a.IsZcode() || a.IsDeepseekWeb() || a.IsArena() || a.IsQoder() || !a.IsMultiProtocolAPIKey() {
+	if a.IsDoubao() {
+		// The desktop adapter owns both wire protocols. Older accounts were
+		// pinned to Chat before it exposed Responses; preserve the inbound shape.
+		return APIProtocolResponses
+	}
+	if a.IsTraework() || a.IsWorkbuddy() || a.IsVibex() || a.IsZcode() || a.IsDeepseekWeb() || a.IsArena() || a.IsQoder() || !a.IsMultiProtocolAPIKey() {
 		return APIProtocolChatCompletions
 	}
 	switch strings.TrimSpace(a.GetCredential("api_protocol")) {
@@ -1512,12 +1523,13 @@ func (a *Account) GetAPIProtocol() string {
 // SupportsNativeCNResponses 报告该国产供应商是否提供原生 Responses 端点。
 // DeepSeek 官方为 /responses（无 /v1）；Kimi 按量付费与 Coding Plan 均为
 // /v1/responses（moonshot.cn / kimi.com/coding）；MiniMax 为 /v1/responses。
+// Doubao 的 /v1/responses 由桌面适配器实现，不代表豆包上游提供 OpenAI API。
 func (a *Account) SupportsNativeCNResponses() bool {
 	if a == nil {
 		return false
 	}
 	switch a.Platform {
-	case PlatformDeepseek, PlatformKimi, PlatformMiniMax, PlatformOpenCodeGo:
+	case PlatformDeepseek, PlatformKimi, PlatformMiniMax, PlatformOpenCodeGo, PlatformDoubao:
 		return true
 	default:
 		return false

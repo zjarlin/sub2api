@@ -40,10 +40,10 @@ class ServerTests(unittest.TestCase):
         self.addCleanup(worker.join)
         self.addCleanup(self.server.shutdown)
 
-    def request(self, body=b'', headers=None, truncate=False):
+    def request(self, body=b'', headers=None, truncate=False, path='/v1/chat/completions'):
         connection = http.client.HTTPConnection(*self.server.server_address, timeout=5)
         self.addCleanup(connection.close)
-        connection.putrequest('POST', '/v1/chat/completions')
+        connection.putrequest('POST', path)
         connection.putheader('Authorization', 'Bearer ' + self.adapter.key)
         connection.putheader('Content-Type', 'application/json')
         for name, value in headers if headers is not None else [('Content-Length', str(len(body)))]:
@@ -100,6 +100,27 @@ class ServerTests(unittest.TestCase):
                         self.assertTrue(raw.endswith(b'data: [DONE]\n\n'))
                     text = self.client.complete.call_args.args[0]
                     self.assertEqual(json.loads(text.split('\n', 1)[1]), messages)
+
+    def test_history_over_100_messages_succeeds_over_json_and_sse(self):
+        messages = [{'role': 'system', 'content': 'Keep the entire history'}]
+        for index in range(60):
+            messages.extend([
+                {'role': 'assistant', 'content': None, 'tool_calls': [
+                    {'id': f'call_{index}', 'type': 'function',
+                     'function': {'name': 'lookup', 'arguments': '{}'}}]},
+                {'role': 'tool', 'tool_call_id': f'call_{index}', 'content': f'result_{index}'},
+            ])
+        for stream in (False, True):
+            with self.subTest(stream=stream):
+                body = json.dumps({'model': 'doubao-pro', 'stream': stream, 'messages': messages}).encode()
+                status, raw = self.request(body)
+                self.assertEqual(status, 200)
+                text = self.client.complete.call_args.args[0]
+                self.assertEqual(json.loads(text.split('\n', 1)[1]), messages)
+                if stream:
+                    self.assertTrue(raw.endswith(b'data: [DONE]\n\n'))
+                else:
+                    self.assertEqual(json.loads(raw)['choices'][0]['message']['content'], 'verified reply')
 
     def test_configured_limit_is_inclusive_and_counts_bytes(self):
         body = self.payload()

@@ -32,6 +32,19 @@
 
 最终转发命中排除规则时，作为本地策略限制交回换号流程，不消耗换号预算，也不会把拦截本身记为账号或上游故障。候选耗尽返回 `503`；此前已发生的真实上游尝试仍保留在诊断记录中。
 
+迁移 `248_provider_free_model_aliases.sql` 补齐以下同义词；缺少的组会新增，显式清空的策略和已分配的 ID 保持原样：
+
+| 规范 ID | 上游别名 |
+| --- | --- |
+| `claude-opus-4-7` | `anthropic/claude-opus-4.7` |
+| `claude-sonnet-4-6` | `anthropic/claude-sonnet-4.6` |
+| `glm-5.2` | `free-glm-5.2` |
+| `glm-5.1` | `cn:glm-5.1` |
+| `qwen3.8-max` | `free-qwen-3.8-max` |
+| `qwen3.8-flash-next` | `free-qwen-3.8-flash-next` |
+
+`flash-next` 不归入 `flash`，数字 ID `0`、`2` 没有明确模型对应关系，不参与归一化。
+
 ## 推荐分档的公开依据
 
 来源：[Artificial Analysis 模型榜单](https://artificialanalysis.ai/leaderboards/models)，读取日期 **2026-09-20**。采用该日期可见的 **Intelligence Index、每个模型最高已测推理强度**，每 10 分划一档。这是可修改的运维策略，不是评测方给出的等价能力认证，不代表具体编码任务、速度、价格或所有推理强度均相同。参考分数不会被用于放宽账号实际上下文上限，也不自动修改请求的推理强度。
@@ -66,6 +79,7 @@
 cd backend
 psql -X -v ON_ERROR_STOP=1 -f migrations/testdata/deepseek_provider_model_aliases.sql
 psql -X -v ON_ERROR_STOP=1 -f migrations/testdata/complete_model_aliases.sql
+psql -X -v ON_ERROR_STOP=1 -f migrations/testdata/provider_free_model_aliases.sql
 ```
 
 该脚本使用会话临时表并回滚，验证新环境初始化、重复执行、保留自定义配置与别名冲突，不修改实际设置或迁移历史。

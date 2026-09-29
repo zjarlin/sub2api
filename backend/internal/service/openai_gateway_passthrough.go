@@ -1433,7 +1433,8 @@ func openAIStreamFailedEventSemanticStatus(payload []byte, message string) int {
 		}
 	}
 	switch {
-	case strings.Contains(combined, "rate_limit"):
+	case strings.Contains(combined, "rate_limit"), strings.Contains(combined, "insufficient_quota"),
+		strings.Contains(combined, "quota") && (strings.Contains(combined, "exceeded") || strings.Contains(combined, "exhausted")):
 		return http.StatusTooManyRequests
 	case strings.Contains(errType, "invalid_request"):
 		return http.StatusBadRequest

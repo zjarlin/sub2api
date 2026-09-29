@@ -346,11 +346,15 @@ func (h *GatewayHandler) chooseAutoModel(c *gin.Context, apiKey *service.APIKey,
 		return "", err
 	}
 	for _, target := range []struct{ model, platform string }{
-		{jev_api.ModelID, service.PlatformJev},
 		{jev_api.LayaModelID, service.PlatformLaya},
+		{jev_api.ModelID, service.PlatformJev},
 	} {
 		selection, selectErr := h.selectSystemOneAccount(ctx, apiKey.GroupID, target.model, target.platform, apiKey.UserID)
 		if selectErr != nil || selection == nil || selection.Account == nil {
+			logger.FromContext(ctx).Debug("gateway.auto_model_decision_account_unavailable",
+				zap.String("decision_model", target.model),
+				zap.String("platform", target.platform),
+				zap.Error(selectErr))
 			continue
 		}
 		model, relayErr := relayAutoModelDecision(ctx, selection, request, target.model, criteria)
@@ -370,6 +374,10 @@ func (h *GatewayHandler) chooseAutoModel(c *gin.Context, apiKey *service.APIKey,
 			}
 			return model, nil
 		}
+		logger.FromContext(ctx).Warn("gateway.auto_model_decision_failed",
+			zap.String("decision_model", target.model),
+			zap.String("platform", target.platform),
+			zap.Error(relayErr))
 		if errors.Is(relayErr, errAutoModelDecisionRejected) {
 			return "", relayErr
 		}
@@ -451,7 +459,7 @@ func relayAutoModelDecision(ctx context.Context, selection *service.AccountSelec
 func autoModelState(body []byte) map[string]string {
 	state := make(map[string]string)
 	if instructions := autoModelText(gjson.GetBytes(body, "instructions")); instructions != "" {
-		state["instructions"] = instructions
+		state["instructions"] = trimAutoModelText(instructions, autoModelStateByteLimit)
 	}
 	input := gjson.GetBytes(body, "input")
 	if !input.Exists() {
@@ -480,6 +488,13 @@ func autoModelState(body []byte) map[string]string {
 		state["reasoning_effort"] = effort
 	}
 	return state
+}
+
+func trimAutoModelText(value string, limit int) string {
+	if limit <= 0 || len(value) <= limit {
+		return value
+	}
+	return value[len(value)-limit:]
 }
 
 func autoModelText(value gjson.Result) string {

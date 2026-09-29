@@ -14,6 +14,8 @@ from conversations import ConversationStore
 from reply import UpstreamError
 from structured_output import OutputValidationError
 from tool_calls import ToolCallValidationError
+import responses
+from responses_sessions import ResponsesStore
 
 DEFAULT_MAX_REQUEST_BODY_BYTES = 32 * 1024 * 1024
 CAPACITY_COOLDOWN_SECONDS = 30
@@ -37,6 +39,7 @@ class Adapter:
         self.lock = threading.Lock()
         self.capacity_until = {}
         self.conversations = ConversationStore(state_file)
+        self.responses = ResponsesStore(str(state_file) + '.responses' if state_file else None)
         self.client, self.version, self.blocked = None, None, False
         self.reload()
 
@@ -49,6 +52,7 @@ class Adapter:
             context = json.loads(raw)
             self.client = DesktopClient(context)
             self.conversations.bind_session(context)
+            self.responses.bind_session(context)
             self.version, self.blocked = version, False
             self.capacity_until.clear()
 
@@ -70,6 +74,24 @@ class Adapter:
             raise
         result = completion(model, reply, request.output_format, request.tools)
         self.conversations.commit(request, model, scope, reply, result, plan)
+        return result
+
+    def complete_response(self, request, scope='', plan=None):
+        model = self.client.resolve_model(request.model)['id']
+        if time.monotonic() < self.capacity_until.get(model, 0):
+            raise UpstreamError('upstream_capacity', 503)
+        if plan is None:
+            plan = self.responses.plan(request, model, scope)
+        if plan.cached is not None:
+            return plan.cached
+        try:
+            reply = self.client.complete(plan.text, model, cursor=plan.cursor)
+        except UpstreamError as error:
+            if error.code == 'upstream_capacity':
+                self.capacity_until[model] = time.monotonic() + CAPACITY_COOLDOWN_SECONDS
+            raise
+        result = responses.completion(request, model, reply)
+        self.responses.commit(request, model, scope, reply, result, plan)
         return result
 
 
@@ -144,8 +166,8 @@ def handler_for(adapter):
             self.request_id = uuid.uuid4().hex
             if not self.authorize():
                 return
-            if self.path != '/v1/chat/completions':
-                self.error(404, 'not_found', 'Use /v1/chat/completions')
+            if self.path not in ('/v1/chat/completions', '/v1/responses'):
+                self.error(404, 'not_found', 'Use /v1/responses or /v1/chat/completions')
                 return
             if not adapter.lock.acquire(blocking=False):
                 self.error(429, 'desktop_busy', 'One request is already running')
@@ -167,7 +189,8 @@ def handler_for(adapter):
                 raw = self.rfile.read(length)
                 if len(raw) != length:
                     raise ValueError('Request body does not match Content-Length')
-                request = parse_request(json.loads(raw))
+                is_responses = self.path == '/v1/responses'
+                request = (responses.parse_request if is_responses else parse_request)(json.loads(raw))
                 model = adapter.client.resolve_model(request.model)['id']
                 phase = 'session'
                 adapter.reload()
@@ -178,11 +201,20 @@ def handler_for(adapter):
                 if len(scope) > 256:
                     phase = 'request'
                     raise ValueError('Session identifier must contain at most 256 characters')
-                phase = 'generation'
-                result = adapter.complete(request, scope)
+                if is_responses:
+                    # History validation and previous-response lookup fail as
+                    # client errors before any generation is started.
+                    phase = 'request'
+                    plan = adapter.responses.plan(request, model, scope)
+                    phase = 'generation'
+                    result = adapter.complete_response(request, scope, plan=plan)
+                else:
+                    phase = 'generation'
+                    result = adapter.complete(request, scope)
                 phase = 'response'
                 if request.stream:
-                    self.respond(200, encode_stream(result), 'text/event-stream; charset=utf-8')
+                    encode = responses.encode_stream if is_responses else encode_stream
+                    self.respond(200, encode(result), 'text/event-stream; charset=utf-8')
                 else:
                     self.respond(200, result)
             except ToolCallValidationError as error:

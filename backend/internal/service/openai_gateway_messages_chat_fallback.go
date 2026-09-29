@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -132,7 +133,7 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 
 	// 5. Convert response
 	if clientStream {
-		return s.streamChatCompletionsAsAnthropic(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+		return s.streamChatCompletionsAsAnthropic(c, resp, account, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 	}
 	return s.bufferChatCompletionsAsAnthropic(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 }
@@ -177,6 +178,7 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsAnthropic(
 func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 	c *gin.Context,
 	resp *http.Response,
+	account *Account,
 	originalModel string,
 	billingModel string,
 	upstreamModel string,
@@ -189,6 +191,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 
 	anthropicState := apicompat.NewChatCompletionsToAnthropicStreamState(originalModel)
 	clientDisconnected := false
+	clientOutputStarted := false
 
 	// 与 responses 兄弟不同：客户端断开后仍继续做事件转换（喂 anthropicState），
 	// 仅跳过写出，保证 finalize 阶段的 usage 汇总不受断开影响。
@@ -204,6 +207,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 				continue
 			}
 			writeStreamHeaders()
+			clientOutputStarted = true
 			if _, err := fmt.Fprint(c.Writer, sse); err != nil {
 				clientDisconnected = true
 				break
@@ -217,7 +221,30 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 	scan := s.scanCCStream(c, resp, "openai messages chat fallback", requestID, startTime, emitChunk)
 	usage := scan.Usage
 
+	var streamErr *ccStreamError
+	if errors.As(scan.Err, &streamErr) {
+		scan.Err = s.handleCCStreamError(c, account, resp, upstreamModel, streamErr, clientOutputStarted, func(status int, code, errType, message string) {
+			if clientDisconnected {
+				return
+			}
+			if !clientOutputStarted && !c.Writer.Written() {
+				writeAnthropicError(c, status, errType, message)
+				return
+			}
+			writeStreamHeaders()
+			if _, err := fmt.Fprint(c.Writer, buildAnthropicStreamErrorSSE(errType, message)); err == nil {
+				c.Writer.Flush()
+			}
+		})
+		var failoverErr *UpstreamFailoverError
+		if errors.As(scan.Err, &failoverErr) || !openAIUsageHasTokens(&usage) {
+			return nil, scan.Err
+		}
+	}
 	if scan.Err != nil {
+		if streamErr == nil {
+			scan.Err = fmt.Errorf("stream usage incomplete: %w", scan.Err)
+		}
 		// Broken upstream read: skip finalization so no synthetic message_stop
 		// masks the truncation, and surface the error to flag usage incomplete
 		// (mirrors forwardResponsesViaRawChatCompletions).
@@ -235,7 +262,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 			Duration:                    time.Since(startTime),
 			FirstTokenMs:                scan.FirstTokenMs,
 			ClientDisconnect:            clientDisconnected,
-		}, fmt.Errorf("stream usage incomplete: %w", scan.Err)
+		}, scan.Err
 	}
 
 	// Finalize: close open blocks + emit message_delta/message_stop.

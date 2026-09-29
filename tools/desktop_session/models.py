@@ -2,6 +2,10 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 
+class ToolCallValidationError(ValueError):
+    pass
+
+
 @dataclass(frozen=True)
 class OutputFormat:
     kind: str = 'text'

@@ -28,9 +28,10 @@
 
       <!-- API Key fields (only for apikey type) -->
       <BuiltinAdapterLogin
-        v-if="show && (account.platform === 'traework' || account.platform === 'workbuddy' || account.platform === 'vibex' || account.platform === 'zcode' || account.platform === 'deepseek_web') && !hasBuiltinAdapterCredentials"
-        :key="account.platform"
+        v-if="show && (account.platform === 'arena' || account.platform === 'traework' || account.platform === 'workbuddy' || account.platform === 'vibex' || account.platform === 'zcode' || account.platform === 'deepseek_web') && (account.platform === 'arena' || !hasBuiltinAdapterCredentials)"
+        :key="account.id"
         :platform="account.platform"
+        @authorized="handleArenaAuthorized"
       />
       <div v-if="account.type === 'apikey'" class="space-y-4">
         <VibexUsage v-if="account.platform === 'vibex'" :key="account.id" :account-id="account.id" />
@@ -3054,6 +3055,7 @@ import {
   usesAutomaticMixedScheduling
 } from '@/constants/platforms'
 import BuiltinAdapterLogin from './BuiltinAdapterLogin.vue'
+import type { BuiltinLoginSession } from '@/api/admin/builtinAdapters'
 import VibexUsage from './VibexUsage.vue'
 import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -3159,7 +3161,12 @@ interface Props {
 }
 
 const props = defineProps<Props>()
-const isBuiltinAdapterAccount = computed(() => ['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web'].includes(props.account?.platform ?? ''))
+const isBuiltinAdapterAccount = computed(() => ['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'arena'].includes(props.account?.platform ?? ''))
+function handleArenaAuthorized(session: BuiltinLoginSession) {
+  if (props.account?.platform !== 'arena' || !session.account?.model_id) return
+  modelRestrictionMode.value = 'whitelist'
+  allowedModels.value = [session.account.model_id]
+}
 const hasBuiltinAdapterCredentials = computed(() => {
   const credentials = props.account?.credentials as Record<string, unknown> | undefined
   return props.account?.credentials_status?.has_api_key ?? Boolean(credentials?.api_key)
@@ -5077,8 +5084,8 @@ const handleSubmit = async () => {
       }
 
       if (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'arena'].includes(props.account.platform)) {
-        newCredentials.api_protocol = 'chat_completions'
-        newCredentials.openai_capabilities = ['chat_completions']
+        newCredentials.api_protocol = props.account.platform === 'doubao' ? 'responses' : 'chat_completions'
+        newCredentials.openai_capabilities = props.account.platform === 'doubao' ? ['responses', 'chat_completions'] : ['chat_completions']
         if (props.account.platform !== 'traework') {
           updatePayload.concurrency = 1
         }

@@ -41,6 +41,26 @@ class MessageTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             parse_messages(self.messages + [call_message(), self.result])
 
+    def test_long_tool_history_preserves_every_call_and_result(self):
+        messages = [self.user]
+        for index in range(150):
+            call = call_message()
+            identifier = 'call_' + str(index)
+            call['tool_calls'][0]['id'] = identifier
+            messages.extend([call, {**self.result, 'tool_call_id': identifier}])
+        self.assertEqual(parse_messages(messages), messages)
+        request = parse_request({'model': 'doubao-pro', 'messages': messages})
+        self.assertEqual(json.loads(request.text.split('\n', 1)[1]), messages)
+        with self.assertRaisesRegex(ValueError, 'Missing tool results'):
+            parse_messages(messages[:-1])
+        with self.assertRaisesRegex(ValueError, 'unknown or already answered'):
+            parse_messages(messages + [messages[-1]])
+
+    def test_missing_empty_and_non_array_history_fail(self):
+        for messages in (None, [], {}, 'history', 100):
+            with self.subTest(messages=messages), self.assertRaisesRegex(ValueError, 'non-empty messages array'):
+                parse_messages(messages)
+
     def test_invalid_historical_arguments_fail(self):
         for arguments in ('bad json', '[]', '{"query":NaN}', '```json\n{}\n```'):
             messages = copy.deepcopy(self.messages)

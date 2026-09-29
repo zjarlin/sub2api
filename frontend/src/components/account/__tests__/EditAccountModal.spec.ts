@@ -363,7 +363,7 @@ describe('EditAccountModal', () => {
     expect(wrapper.find('[data-testid="builtin-adapter-login"]').exists()).toBe(false)
   })
 
-  it('preserves the Doubao adapter credentials and pins its protocol when editing', async () => {
+  it('preserves the Doubao adapter credentials and enables both protocols when editing', async () => {
     const account = buildAccount()
     account.platform = 'doubao'
     account.type = 'apikey'
@@ -374,7 +374,7 @@ describe('EditAccountModal', () => {
     expect(wrapper.find('input[placeholder="http://sub2api-desktop:8080/v1"]').exists()).toBe(false)
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     expect(updateAccountMock.mock.lastCall?.[1]).toMatchObject({ concurrency: 1, credentials: {
-      base_url: 'http://adapter.example/v1', api_key: 'adapter-key', api_protocol: 'chat_completions', openai_capabilities: ['chat_completions'],
+      base_url: 'http://adapter.example/v1', api_key: 'adapter-key', api_protocol: 'responses', openai_capabilities: ['responses', 'chat_completions'],
     } })
   })
 

@@ -16,7 +16,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
-	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
 
@@ -257,9 +256,9 @@ type ccStreamScanState struct {
 	FirstTokenMs *int
 	// SawDone 表示上游发出了 [DONE] 哨兵。
 	SawDone bool
-	// Err 为 scanner 读错误（客户端 context 取消不属于此类，会原样带出）。
-	// 非 nil 时调用方必须跳过 finalize 并返回 usage-incomplete 错误，避免
-	// 把上游截断伪装成正常收尾。
+	// Err 为流内业务错误或 scanner 读错误；客户端 context 取消会原样带出。
+	// 非 nil 时调用方必须跳过 finalize，按错误类型执行故障转移或回报失败，
+	// 避免把业务错误和上游截断伪装成正常收尾。
 	Err error
 }
 
@@ -276,10 +275,17 @@ func (s *OpenAIGatewayService) scanCCStream(
 	emit func(*apicompat.ChatCompletionsChunk),
 ) ccStreamScanState {
 	var st ccStreamScanState
+	var eventName string
 
 	scanner := s.newUpstreamSSEScanner(resp.Body)
 	for scanner.Scan() {
 		line := scanner.Text()
+		if line == "" {
+			eventName = ""
+		}
+		if strings.HasPrefix(line, "event:") {
+			eventName = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
+		}
 		payload, ok := extractOpenAISSEDataLine(line)
 		if !ok {
 			continue
@@ -292,9 +298,9 @@ func (s *OpenAIGatewayService) scanCCStream(
 			st.SawDone = true
 			break
 		}
-		// Arena 的流内错误必须终止转换，不能继续生成 response.completed。
-		if c.GetBool(arenaSessionAdapterContextKey) && gjson.Get(payload, "error").IsObject() {
-			st.Err = fmt.Errorf("Arena adapter stream error: %s", sanitizeUpstreamErrorMessage(gjson.Get(payload, "error.message").String()))
+		// 所有渠道的流内业务错误都必须终止转换，不能合成成功事件。
+		if streamErr := parseCCStreamError(payload, eventName); streamErr != nil {
+			st.Err = streamErr
 			break
 		}
 		// 观察上游 CC chunk 回显的 model / service_tier（计费以回显为准）。

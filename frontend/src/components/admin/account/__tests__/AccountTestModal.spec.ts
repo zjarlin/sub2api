@@ -119,6 +119,22 @@ describe('AccountTestModal', () => {
     vi.restoreAllMocks()
   })
 
+  it('explains an empty Arena catalog and reloads after session setup', async () => {
+    getAvailableModels.mockResolvedValueOnce([]).mockResolvedValueOnce([
+      { id: 'arena-session', display_name: 'Arena session' }
+    ])
+    const wrapper = mountModal({ id: 46, name: 'Arena', platform: 'arena', type: 'apikey', status: 'active' })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    expect(wrapper.text()).toContain('admin.accounts.arena.modelsEmpty')
+    const refresh = wrapper.findAll('button').find(button => button.text() === 'common.refresh')!
+    await refresh.trigger('click')
+    await flushPromises()
+    expect(getAvailableModels).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).not.toContain('admin.accounts.arena.modelsEmpty')
+    wrapper.unmount()
+  })
+
   it('gemini 图片模型测试会携带提示词并渲染图片预览', async () => {
     const wrapper = mountModal()
     await wrapper.setProps({ show: true })

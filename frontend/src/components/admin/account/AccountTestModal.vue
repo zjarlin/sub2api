@@ -191,6 +191,10 @@
         <span>{{ t('admin.accounts.testModelsLoadFailed') }}</span>
         <button type="button" class="btn btn-secondary" @click="loadAvailableModels">{{ t('admin.accounts.retry') }}</button>
       </div>
+      <div v-else-if="account?.platform === 'arena' && availableModels.length === 0" role="status" class="space-y-2 text-sm text-gray-500 dark:text-gray-400">
+        <p>{{ t('admin.accounts.arena.modelsEmpty') }}</p>
+        <button type="button" class="btn btn-secondary" @click="loadAvailableModels">{{ t('common.refresh') }}</button>
+      </div>
       <BatchModelTestButton
         v-if="account && !isGrokAccount && testMode === 'default'"
         :account="account" :models="availableModels" :show="show"

@@ -778,10 +778,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			continue
 		}
 		busyRetry.record(account.ID, nil)
-		if previousResponseID != "" && requestPlatform == service.PlatformOpenAI && !account.IsOpenAIApiKey() {
+		if previousResponseID != "" && requestPlatform == service.PlatformOpenAI && !account.SupportsHTTPResponsesContinuation() {
 			poolRound.excludeWithoutUpstreamFailure()
-			// The public Responses HTTP API supports previous_response_id on API-key
-			// accounts. OAuth/SetupToken upstreams do not, so keep searching instead
+			// OpenAI API keys and the Doubao adapter support HTTP continuation.
+			// OAuth/SetupToken upstreams do not, so keep searching instead
 			// of silently deleting continuation state from a mixed account pool.
 			failedAccountIDs[account.ID] = struct{}{}
 			if selection.ReleaseFunc != nil {

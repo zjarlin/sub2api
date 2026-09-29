@@ -138,7 +138,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	}
 
 	if clientStream {
-		return s.streamChatCompletionsAsResponses(c, resp, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+		return s.streamChatCompletionsAsResponses(c, resp, account, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 	}
 	return s.bufferChatCompletionsAsResponses(c, resp, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 }
@@ -210,6 +210,7 @@ func (s *OpenAIGatewayService) bufferChatCompletionsAsResponses(
 func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	c *gin.Context,
 	resp *http.Response,
+	account *Account,
 	originalModel string,
 	customTools map[string]bool,
 	functionTools map[string]bool,
@@ -271,7 +272,35 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		writeEvents(events)
 	})
 
+	var streamErr *ccStreamError
+	if errors.As(scan.Err, &streamErr) {
+		scan.Err = s.handleCCStreamError(c, account, resp, upstreamModel, streamErr, state.CreatedSent, func(status int, code, errType, message string) {
+			if clientDisconnected {
+				return
+			}
+			if !state.CreatedSent && !c.Writer.Written() && eventWriter == nil {
+				c.JSON(status, gin.H{"error": gin.H{"code": code, "type": errType, "message": message}})
+				return
+			}
+			writeEvents([]apicompat.ResponsesStreamEvent{{
+				Type: "response.failed", SequenceNumber: state.SequenceNumber,
+				Response: &apicompat.ResponsesResponse{
+					ID: state.ResponseID, Object: "response", CreatedAt: state.Created,
+					Model: originalModel, Status: "failed", Output: []apicompat.ResponsesOutput{},
+					Error: &apicompat.ResponsesError{Code: code, Message: message},
+				},
+			}})
+		})
+		// 额度拒绝等零用量失败不产生成功用量行；有真实用量时沿用部分计费路径。
+		var failoverErr *UpstreamFailoverError
+		if errors.As(scan.Err, &failoverErr) || !openAIUsageHasTokens(&scan.Usage) {
+			return nil, scan.Err
+		}
+	}
 	if scan.Err != nil {
+		if streamErr == nil {
+			scan.Err = fmt.Errorf("stream usage incomplete: %w", scan.Err)
+		}
 		return &OpenAIForwardResult{
 			RequestID:                   requestID,
 			UpstreamHeaders:             resp.Header,
@@ -285,7 +314,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 			Stream:                      true,
 			Duration:                    time.Since(startTime),
 			FirstTokenMs:                scan.FirstTokenMs,
-		}, fmt.Errorf("stream usage incomplete: %w", scan.Err)
+		}, scan.Err
 	}
 	if err := state.ValidateToolCallArguments(); err != nil {
 		return &OpenAIForwardResult{

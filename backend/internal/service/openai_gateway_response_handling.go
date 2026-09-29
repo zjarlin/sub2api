@@ -1629,6 +1629,14 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	}
 
 	usageValue, usageOK := extractOpenAIUsageFromJSONBytes(body)
+	if !usageOK && account != nil && account.IsDoubao() && gjson.ValidBytes(body) &&
+		gjson.GetBytes(body, "object").String() == "response" &&
+		gjson.GetBytes(body, "status").String() == "completed" &&
+		len(gjson.GetBytes(body, "output").Array()) > 0 {
+		// Desktop subscriptions report no token usage. Accept a completed
+		// response for per-request billing without inventing upstream tokens.
+		usageOK = true
+	}
 	if !usageOK {
 		if bodyLooksLikeSSE {
 			return s.handleSSEToJSON(resp, c, account, body, originalModel, mappedModel)

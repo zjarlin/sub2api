@@ -18,8 +18,8 @@ OpenAI 文本模型；Composite 分组可在多个 OpenAI 兼容平台之间选�
 
 客户端以 `model: "auto"` 调用 `/v1/responses`、`/v1/chat/completions`、对应的
 根路径别名或 Codex 的 `/backend-api/codex/responses`。Responses POST 子路径
-也使用相同逻辑。网关提取文本、工具名和推理强度作为决策上下文，优先调用 JEV；
-JEV 不可用或返回无效决策时尝试 Laya，明确的 4xx 拒绝不会回退。选择必须属于
+也使用相同逻辑。网关提取截断后的文本、工具名和推理强度作为决策上下文，优先调用 Laya；
+Laya 不可用或返回无效决策时尝试 JEV，明确的 4xx 拒绝不会回退。选择必须属于
 当前候选集合；只有一个候选时直接使用。网关将 `model` 改为选中的真实模型后
 继续执行原有调度和生成用量记录，并通过 `X-Sub2API-Selected-Model` 响应头
 告知实际模型。System One 决策调用沿用 `/v1/systemone` 的零计费量用量记录。

@@ -47,3 +47,51 @@ test("cancellation during submission prevents browser recovery and closes the br
   assert.ok(close.mock.callCount() >= 1);
   await runtime.close();
 });
+
+// 新会话必须经过真实的登录与文本探测，成功前不能出现在目录中。
+test("web login persists encrypted credentials and a new verified session", async (t) => {
+  const config = fixture(t);
+  t.mock.method(ArenaBrowser.prototype, "login", async () => ({ email: model.accountEmail, cookieHeader: "private-cookie", password: "private-password" }));
+  t.mock.method(ArenaBrowser.prototype, "close", async () => {});
+  t.mock.method(Bridge.prototype, "createAgentSession", async () => ({ id: model.sessionId }));
+  const records = [
+    { body: JSON.stringify({ data: { type: "text-delta", delta: "READY" } }) },
+    { body: JSON.stringify({ data: { type: "finish", messageMetadata: { nodeId: "turn-1" } } }) },
+  ];
+  t.mock.method(Bridge.prototype, "readAgentOutput", async () => `data: ${JSON.stringify({ records })}\n\n`);
+  const runtime = createRuntime(config);
+  const result = await runtime.loginAndPrepare(model.accountEmail, "private-password", new AbortController().signal);
+  assert.equal(result.model_id, `arena-session-${model.sessionId}`);
+  assert.equal(runtime.models()[0].accountEmail, model.accountEmail);
+  const saved = fs.readFileSync(config.core.credentialsFile, "utf8");
+  assert.ok(!saved.includes("private-password"));
+  assert.ok(!saved.includes("private-cookie"));
+  assert.equal(JSON.stringify(result).includes("private"), false);
+});
+
+test("failed session probe does not publish a model or credentials", async (t) => {
+  const config = fixture(t);
+  const close = t.mock.method(ArenaBrowser.prototype, "close", async () => {});
+  t.mock.method(ArenaBrowser.prototype, "login", async () => ({ email: model.accountEmail, cookieHeader: "cookie", password: "secret" }));
+  t.mock.method(Bridge.prototype, "createAgentSession", async () => ({ id: model.sessionId }));
+  t.mock.method(Bridge.prototype, "readAgentOutput", async () => "");
+  const runtime = createRuntime(config);
+  await assert.rejects(runtime.loginAndPrepare(model.accountEmail, "secret", new AbortController().signal), { code: "session_not_ready" });
+  assert.deepEqual(runtime.models(), []);
+  assert.equal(fs.existsSync(config.core.credentialsFile), false);
+  assert.equal(close.mock.callCount(), 1);
+});
+
+test("cancelling web login before completion never saves credentials", async (t) => {
+  const config = fixture(t);
+  const controller = new AbortController();
+  t.mock.method(ArenaBrowser.prototype, "close", async () => {});
+  t.mock.method(ArenaBrowser.prototype, "login", async () => {
+    controller.abort();
+    return { email: model.accountEmail, cookieHeader: "cookie", password: "secret" };
+  });
+  const runtime = createRuntime(config);
+  await assert.rejects(runtime.loginAndPrepare(model.accountEmail, "secret", controller.signal));
+  assert.equal(fs.existsSync(config.core.credentialsFile), false);
+  assert.deepEqual(runtime.models(), []);
+});

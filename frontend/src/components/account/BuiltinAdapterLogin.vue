@@ -1,7 +1,7 @@
 <template>
   <div class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-dark-600" data-testid="builtin-adapter-login">
     <p class="text-sm text-gray-600 dark:text-gray-300">{{ t(hintKey) }}</p>
-    <p class="input-hint">{{ t(platform === 'deepseek_web' ? 'admin.accounts.builtinLogin.deepseekWebPoolHint' : platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexPoolHint' : platform === 'zcode' ? 'admin.accounts.builtinLogin.zcodePoolHint' : 'admin.accounts.builtinLogin.poolHint') }}</p>
+    <p class="input-hint">{{ t(platform === 'arena' ? 'admin.accounts.arena.loginSessionHint' : platform === 'deepseek_web' ? 'admin.accounts.builtinLogin.deepseekWebPoolHint' : platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexPoolHint' : platform === 'zcode' ? 'admin.accounts.builtinLogin.zcodePoolHint' : 'admin.accounts.builtinLogin.poolHint') }}</p>
     <div v-if="platform === 'zcode'" class="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <div>
         <label for="zcode-login-plan" class="input-label">{{ t('admin.accounts.builtinLogin.zcodePlan') }}</label>
@@ -18,11 +18,21 @@
         </select>
       </div>
     </div>
-    <button type="button" class="btn btn-secondary" :disabled="busy" @click="start">
+    <div v-if="platform === 'arena'" class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+      <div>
+        <label for="arena-login-email" class="input-label">{{ t('admin.accounts.arena.email') }}</label>
+        <input id="arena-login-email" v-model="arenaEmail" type="email" autocomplete="username" class="input" :disabled="busy || session?.status === 'pending'" />
+      </div>
+      <div>
+        <label for="arena-login-password" class="input-label">{{ t('admin.accounts.arena.password') }}</label>
+        <input id="arena-login-password" v-model="arenaPassword" type="password" autocomplete="current-password" class="input" :disabled="busy || session?.status === 'pending'" @keydown.enter.prevent="start" />
+      </div>
+    </div>
+    <button type="button" class="btn btn-secondary" :disabled="busy || (platform === 'arena' && (!arenaEmail.trim() || !arenaPassword || session?.status === 'pending'))" @click="start">
       {{ t(startKey) }}
     </button>
     <template v-if="session?.status === 'pending'">
-      <a :href="session.auth_url" target="_blank" rel="noopener noreferrer" class="block text-sm text-primary-600 underline dark:text-primary-400">
+      <a v-if="session.auth_url" :href="session.auth_url" target="_blank" rel="noopener noreferrer" class="block text-sm text-primary-600 underline dark:text-primary-400">
         {{ t(platform === 'deepseek_web' ? 'admin.accounts.builtinLogin.deepseekWebOpen' : 'admin.accounts.builtinLogin.open') }}
       </a>
       <template v-if="session.mode === 'callback'">
@@ -44,7 +54,7 @@
           {{ t(platform === 'deepseek_web' ? 'admin.accounts.builtinLogin.deepseekWebComplete' : 'admin.accounts.builtinLogin.complete') }}
         </button>
       </template>
-      <p v-else class="input-hint" role="status">{{ t('admin.accounts.builtinLogin.waiting') }}</p>
+      <p v-else class="input-hint" role="status">{{ t(platform === 'arena' ? 'admin.accounts.arena.loggingIn' : 'admin.accounts.builtinLogin.waiting') }}</p>
       <button type="button" class="btn btn-secondary ml-2" @click="cancel">{{ t('common.cancel') }}</button>
     </template>
     <p v-if="session?.status === 'completed'" role="status" class="text-sm text-green-700 dark:text-green-400">
@@ -61,21 +71,26 @@ import { cancelBuiltinLogin, completeBuiltinLogin, startBuiltinLogin, type Built
 
 const props = defineProps<{ platform: BuiltinLoginPlatform }>()
 const emit = defineEmits<{
-  authorized: []
+  authorized: [session: BuiltinLoginSession]
 }>()
 const { t } = useI18n()
 const session = ref<BuiltinLoginSession | null>(null)
 const callback = ref('')
+const arenaEmail = ref('')
+const arenaPassword = ref('')
 const browserToken = ref('')
 const browserDeviceID = ref('')
 const error = ref('')
 const busy = ref(false)
 const zcodePlan = ref<ZcodeLoginOptions['plan']>('coding-plan')
 const zcodeProvider = ref<ZcodeLoginOptions['provider']>('zai')
-const hintKey = computed(() => props.platform === 'deepseek_web'
+const hintKey = computed(() => props.platform === 'arena'
+  ? 'admin.accounts.arena.loginHint'
+  : props.platform === 'deepseek_web'
   ? 'admin.accounts.builtinLogin.deepseekWebHint'
   : `admin.accounts.builtinLogin.${props.platform}Hint`)
 const startKey = computed(() => {
+  if (props.platform === 'arena') return 'admin.accounts.arena.login'
   if (props.platform === 'deepseek_web') {
     return session.value ? 'admin.accounts.builtinLogin.deepseekWebRestart' : 'admin.accounts.builtinLogin.deepseekWebStart'
   }
@@ -101,6 +116,10 @@ function stop() {
 
 function showError(err: unknown) {
   const detail = err as { code?: string; message?: string }
+  if (props.platform === 'arena') {
+    error.value = t(detail.code === 'BUILTIN_ADAPTER_DISABLED' ? 'admin.accounts.arena.unavailable' : 'admin.accounts.arena.loginFailed')
+    return
+  }
   if (props.platform === 'deepseek_web' && detail.code === 'BUILTIN_ADAPTER_DISABLED') {
     error.value = t('admin.accounts.builtinLogin.deepseekWebUnavailable')
     return
@@ -112,6 +131,7 @@ async function cancel() {
   const current = session.value
   stop()
   session.value = null
+  arenaPassword.value = ''
   if (!current || current.status !== 'pending') return
   try {
     await cancelBuiltinLogin(props.platform, current.session_id)
@@ -122,6 +142,8 @@ async function cancel() {
 
 async function start() {
   if (starting || disposed) return
+  if (props.platform === 'arena' && (!arenaEmail.value.trim() || !arenaPassword.value || session.value?.status === 'pending')) return
+  const arenaCredentials = props.platform === 'arena' ? { email: arenaEmail.value.trim(), password: arenaPassword.value } : undefined
   starting = true
   await cancel()
   if (disposed) { starting = false; return }
@@ -130,10 +152,15 @@ async function start() {
   const version = generation
   controller = new AbortController()
   try {
-    const result = props.platform === 'zcode'
+    const result = props.platform === 'arena'
+      ? await startBuiltinLogin(props.platform, controller.signal, arenaCredentials)
+      : props.platform === 'zcode'
       ? await startBuiltinLogin(props.platform, controller.signal, { plan: zcodePlan.value, provider: zcodeProvider.value })
       : await startBuiltinLogin(props.platform, controller.signal)
-    if (version !== generation) return
+    if (version !== generation) {
+      if (props.platform === 'arena') await cancelBuiltinLogin(props.platform, result.session_id)
+      return
+    }
     session.value = result
     if (result.mode === 'poll') timer = setTimeout(complete, 2500)
   } catch (err) {
@@ -170,17 +197,29 @@ async function complete() {
       browserDeviceID.value = ''
       if (!authorizedEmitted) {
         authorizedEmitted = true
-        emit('authorized')
+        emit('authorized', result)
       }
     }
     else if (result.mode === 'poll') timer = setTimeout(complete, 2500)
   } catch (err) {
-    if (version === generation) showError(err)
+    if (version === generation) {
+      showError(err)
+      if (props.platform === 'arena') {
+        await cancel()
+      }
+    }
   } finally {
     if (version === generation) busy.value = false
   }
 }
 
 // 关闭表单立即中止轮询；服务端未完成会话会在十分钟后过期。
-onBeforeUnmount(() => { disposed = true; stop() })
+onBeforeUnmount(() => {
+  disposed = true
+  if (props.platform === 'arena') {
+    void cancel()
+  } else {
+    stop()
+  }
+})
 </script>

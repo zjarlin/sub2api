@@ -110,6 +110,8 @@ type Config struct {
 // BuiltinAdapterConfig 控制随 Sub2API 部署一起启动的豆包、TRAE 和 WorkBuddy 适配器。
 // 启用后账号表单不再要求手填地址与密钥，后端统一注入内部地址和共享密钥。
 type BuiltinAdapterConfig struct {
+	ArenaURL       string `mapstructure:"arena_url"`
+	ArenaKey       string `mapstructure:"arena_key"`
 	Enabled        bool   `mapstructure:"enabled"`
 	DesktopURL     string `mapstructure:"desktop_url"`
 	DesktopKey     string `mapstructure:"desktop_key"`
@@ -168,6 +170,14 @@ func (c BuiltinAdapterConfig) ZcodeBaseURL() string {
 		return "http://sub2api-zcode:7865"
 	}
 	return strings.TrimSpace(c.ZcodeURL)
+}
+
+// ArenaBaseURL 返回内置 Arena 网页登录服务地址。
+func (c BuiltinAdapterConfig) ArenaBaseURL() string {
+	if strings.TrimSpace(c.ArenaURL) == "" {
+		return "http://sub2api-arena:7867"
+	}
+	return strings.TrimSpace(c.ArenaURL)
 }
 
 // DeepseekWebBaseURL 返回仓库内 DeepSeek 网页适配器地址。
@@ -2158,6 +2168,8 @@ func setDefaults() {
 	viper.SetDefault("builtin_adapter.workbuddy_key", "")
 	viper.SetDefault("builtin_adapter.vibex_url", "")
 	viper.SetDefault("builtin_adapter.vibex_key", "")
+	viper.SetDefault("builtin_adapter.arena_url", "")
+	viper.SetDefault("builtin_adapter.arena_key", "")
 	viper.SetDefault("builtin_adapter.zcode_url", "")
 	viper.SetDefault("builtin_adapter.zcode_key", "")
 	viper.SetDefault("builtin_adapter.deepseek_web_url", "")
