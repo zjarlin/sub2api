@@ -2,9 +2,13 @@ import { buildGatewayUrl } from './url'
 
 export type ChatPlaygroundRole = 'system' | 'user' | 'assistant'
 
+export type ChatPlaygroundContentPart =
+  | { type: 'text'; text: string }
+  | { type: 'image_url'; image_url: { url: string } }
+
 export interface ChatPlaygroundMessage {
   role: ChatPlaygroundRole
-  content: string
+  content: string | ChatPlaygroundContentPart[]
 }
 
 export interface ChatPlaygroundModel {

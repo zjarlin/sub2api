@@ -62,8 +62,20 @@
             />
           </div>
 
-          <div v-if="isImageMode" class="chat-field chat-field--grow">
-            <label for="chat-reference-image">{{ t('chatPlayground.referenceImage') }}</label>
+          <div v-if="!isImageMode" class="chat-field chat-field--grow">
+            <label for="chat-system-prompt">{{ t('chatPlayground.systemPrompt') }}</label>
+            <textarea
+              id="chat-system-prompt"
+              v-model="systemPrompt"
+              class="chat-textarea"
+              :disabled="isGenerating"
+              :placeholder="t('chatPlayground.systemPromptPlaceholder')"
+              rows="7"
+            ></textarea>
+          </div>
+
+          <div v-if="selectedModel" class="chat-field">
+            <label for="chat-reference-image">{{ t(isImageMode ? 'chatPlayground.referenceImage' : 'chatPlayground.imageAttachment') }}</label>
             <input
               id="chat-reference-image"
               ref="referenceImageInputRef"
@@ -120,18 +132,6 @@
               <Icon name="upload" />
               <span>{{ t('chatPlayground.selectReferenceImages') }}</span>
             </button>
-          </div>
-
-          <div v-else class="chat-field chat-field--grow">
-            <label for="chat-system-prompt">{{ t('chatPlayground.systemPrompt') }}</label>
-            <textarea
-              id="chat-system-prompt"
-              v-model="systemPrompt"
-              class="chat-textarea"
-              :disabled="isGenerating"
-              :placeholder="t('chatPlayground.systemPromptPlaceholder')"
-              rows="7"
-            ></textarea>
           </div>
 
           <div v-if="modelError" class="chat-alert" role="alert">
@@ -230,7 +230,18 @@
                   v-html="renderMarkdown(message.content || '▌')"
                 ></div>
               </template>
-              <div v-else class="chat-message__content chat-message__plain">{{ message.content }}</div>
+              <template v-else>
+                <div v-if="message.attachments?.length" class="chat-message__images">
+                  <img
+                    v-for="(image, imageIndex) in message.attachments"
+                    :key="`${message.id}-${imageIndex}`"
+                    :src="image.previewUrl"
+                    :alt="image.file.name"
+                    class="chat-message__attachment"
+                  />
+                </div>
+                <div class="chat-message__content chat-message__plain">{{ message.content }}</div>
+              </template>
 
               <footer v-if="message.error || message.stopped || message.usage?.total_tokens">
                 <span v-if="message.error" class="chat-message__error">{{ message.error }}</span>
@@ -311,6 +322,7 @@ interface DisplayMessage {
   role: 'user' | 'assistant'
   content: string
   images?: ChatPlaygroundImage[]
+  attachments?: ReferenceImage[]
   excludedFromContext?: boolean
   error?: string
   stopped?: boolean
@@ -469,18 +481,43 @@ async function refreshModels(): Promise<void> {
   }
 }
 
-function buildRequestMessages(): ChatPlaygroundMessage[] {
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result)
+      } else {
+        reject(new Error(t('chatPlayground.readImageFailed')))
+      }
+    }
+    reader.onerror = () => reject(new Error(t('chatPlayground.readImageFailed')))
+    reader.readAsDataURL(file)
+  })
+}
+
+async function buildRequestMessages(): Promise<ChatPlaygroundMessage[]> {
   const result: ChatPlaygroundMessage[] = []
   const normalizedSystemPrompt = systemPrompt.value.trim()
   if (normalizedSystemPrompt) {
     result.push({ role: 'system', content: normalizedSystemPrompt })
   }
-  result.push(...messages.value
-    .filter((message) => !message.excludedFromContext && message.content.trim())
-    .map((message) => ({
-      role: message.role,
-      content: message.content,
-    })))
+  const conversationMessages = await Promise.all(messages.value
+    .filter((message) => !message.excludedFromContext && (message.content.trim() || message.attachments?.length))
+    .map(async (message) => {
+      if (!message.attachments?.length) {
+        return { role: message.role, content: message.content }
+      }
+      const content: ChatPlaygroundMessage['content'] = [
+        { type: 'text', text: message.content },
+        ...await Promise.all(message.attachments.map(async ({ file }) => ({
+          type: 'image_url' as const,
+          image_url: { url: await fileToDataUrl(file) },
+        }))),
+      ]
+      return { role: message.role, content }
+    }))
+  result.push(...conversationMessages)
   return result
 }
 
@@ -501,6 +538,10 @@ async function sendMessage(): Promise<void> {
     id: ++messageSequence,
     role: 'user',
     content,
+    attachments: referenceImages.value.splice(0),
+  }
+  if (referenceImageInputRef.value) {
+    referenceImageInputRef.value.value = ''
   }
   messages.value.push(userMessage)
   draft.value = ''
@@ -523,7 +564,7 @@ async function sendMessage(): Promise<void> {
         apiKey: apiKey.key,
         model,
         prompt: content,
-        referenceImages: referenceImages.value.map((referenceImage) => referenceImage.file),
+        referenceImages: userMessage.attachments?.map((referenceImage) => referenceImage.file),
         signal: requestController.signal,
       })
       assistantMessage.images = result.images
@@ -533,7 +574,7 @@ async function sendMessage(): Promise<void> {
       return
     }
 
-    const requestMessages = buildRequestMessages()
+    const requestMessages = await buildRequestMessages()
     const result = await streamChatCompletion({
       apiKey: apiKey.key,
       model,
@@ -578,6 +619,9 @@ function stopGeneration(): void {
 function clearConversation(): void {
   stopGeneration()
   conversationId = createConversationIdentity()
+  messages.value.forEach((message) => {
+    message.attachments?.forEach((image) => URL.revokeObjectURL(image.previewUrl))
+  })
   messages.value = []
   draft.value = ''
   composerRef.value?.focus()
@@ -680,9 +724,6 @@ watch(selectedApiKeyId, (apiKeyID) => {
 })
 
 watch(selectedModel, (model) => {
-  if (!isImageGenerationModel(model || '')) {
-    clearReferenceImages()
-  }
   const apiKeyID = selectedApiKeyId.value
   if (!apiKeyID || !model) {
     return
@@ -700,6 +741,9 @@ onBeforeUnmount(() => {
   modelRequestController?.abort()
   generationController?.abort()
   clearReferenceImages()
+  messages.value.forEach((message) => {
+    message.attachments?.forEach((image) => URL.revokeObjectURL(image.previewUrl))
+  })
 })
 </script>
 
