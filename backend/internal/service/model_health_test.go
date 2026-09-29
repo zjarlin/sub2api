@@ -75,11 +75,27 @@ func TestGetAvailableModelsUsesUpstreamCatalogWithoutStaticDefaults(t *testing.T
 		Source: "upstream", SyncedAt: time.Now().UTC().Format(time.RFC3339),
 		Models: []string{"openrouter/free", "stealth/space-bunny-alpha"},
 	})
-	svc := &GatewayService{
-		accountRepo:  &modelHealthAccountRepoStub{accounts: []Account{account}},
-		usageLogRepo: &modelHealthUsageRepoStub{observations: []ModelHealthObservation{{AccountID: 253, Model: "retired-model"}}},
-	}
-	require.Equal(t, []string{"openrouter/free", "stealth/space-bunny-alpha"}, svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI))
+	repo := &modelHealthAccountRepoStub{accounts: []Account{account}}
+	usage := &modelHealthUsageRepoStub{observations: []ModelHealthObservation{{AccountID: 253, Model: "retired-model"}}}
+	svc := &GatewayService{accountRepo: repo, usageLogRepo: usage}
+	want := []string{"openrouter/free", "stealth/space-bunny-alpha"}
+	require.Equal(t, want, svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI))
+
+	codex := &OpenAIGatewayService{accountRepo: repo, usageLogRepo: usage}
+	group := &Group{ID: groupID, Platform: PlatformOpenAI}
+	manifest, configured, err := codex.BuildGroupConfiguredCodexModelsManifest(context.Background(), group, "")
+	require.NoError(t, err)
+	require.True(t, configured)
+	require.Equal(t, want, codexManifestModelSlugs(t, manifest.Body))
+
+	// 后续测试成功只更新健康状态，不改变目录成员或客户端 ETag。
+	usage.observations = []ModelHealthObservation{{AccountID: 253, Model: "stealth/space-bunny-alpha", CheckedAt: time.Now()}}
+	after, configured, err := codex.BuildGroupConfiguredCodexModelsManifest(context.Background(), group, manifest.ETag)
+	require.NoError(t, err)
+	require.True(t, configured)
+	require.True(t, after.NotModified)
+	require.Equal(t, want, svc.GetAvailableModels(context.Background(), &groupID, PlatformOpenAI))
+	require.Empty(t, usage.platforms)
 }
 
 func TestGetAvailableModelsKeepsConfiguredModelsDuringAccountErrorsAndCooldowns(t *testing.T) {
@@ -92,6 +108,8 @@ func TestGetAvailableModelsKeepsConfiguredModelsDuringAccountErrorsAndCooldowns(
 		{ID: 253, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusError, Schedulable: true,
 			ErrorMessage: "Payment required (402): Insufficient credits",
 			Credentials:  map[string]any{"model_mapping": map[string]any{"openrouter/free": "openrouter/free"}}},
+		{ID: 999, Platform: PlatformOpenAI, Status: StatusDisabled, Schedulable: true,
+			Credentials: map[string]any{"model_mapping": map[string]any{"disabled-model": "disabled-model"}}},
 	}
 	for i := range accounts {
 		require.False(t, accounts[i].IsSchedulable())

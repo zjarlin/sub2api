@@ -437,7 +437,11 @@ func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T
 				for _, model := range got.Data {
 					require.Equal(t, "model", model.Object, model.ID)
 					require.Positive(t, model.Created, model.ID)
-					require.Equal(t, "openai", model.OwnedBy, model.ID)
+					owner := "openai"
+					if model.ID == autoModelID {
+						owner = "sub2api"
+					}
+					require.Equal(t, owner, model.OwnedBy, model.ID)
 					require.Empty(t, model.CreatedAt, model.ID)
 				}
 				if tt.config.Enabled {

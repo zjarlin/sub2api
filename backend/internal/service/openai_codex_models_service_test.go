@@ -1513,8 +1513,7 @@ func TestBuildGroupConfiguredCodexModelsManifestExpandsSelectedModelCoveredByWil
 	require.NotContains(t, string(manifest.Body), "gpt-*")
 }
 
-// Scenario: OpenAI 配置目录对仅因瞬态状态退出当前调度池的账号取能力交集，
-// 且不发布其独有模型。持久 schedulable 仍为 true。
+// 临时停调账号继续贡献目录成员，重复别名的能力仍取所有配置账号的交集。
 func TestBuildGroupConfiguredCodexModelsManifestIntersectsTransientlyUnschedulableMappedAccounts(t *testing.T) {
 	t.Parallel()
 

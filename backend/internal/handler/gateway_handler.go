@@ -1408,8 +1408,8 @@ func writeOpenAIModelsList(c *gin.Context, modelIDs []string) {
 }
 
 // modelListingSource 汇总模型列表过滤的候选来源：账号映射键（availableModels）
-// 与平台默认列表（fallbackModels）。账号映射为空时回落默认列表；Anthropic
-// 平台两者取并集，其余平台以账号映射键为准。
+// 与平台默认列表（fallbackModels）。nil 表示账号尚无目录，空切片表示确定为空。
+// Anthropic 非空目录沿用默认模型补全，其余平台以配置目录为准。
 func modelListingSource(platform string, availableModels, fallbackModels []string) []string {
 	if availableModels == nil {
 		return fallbackModels

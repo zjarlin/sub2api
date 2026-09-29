@@ -1308,9 +1308,6 @@ func (s *GatewayService) getOAuthToken(ctx context.Context, account *Account) (s
 	return accessToken, "oauth", nil
 }
 
-// GetAvailableModels returns the list of models available for a group
-// It aggregates model_mapping keys from all schedulable accounts in the group
-
 // DoGrokNativeResponsesJSON POSTs a non-streaming Responses body to the account's
 // Grok upstream and returns the raw JSON body. Used by /v1/web_search.
 // Gin-free: UA is always the pinned Grok CLI identity (resolveGrokUpstreamUserAgent ignores inbound).
