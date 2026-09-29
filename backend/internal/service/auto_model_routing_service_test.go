@@ -115,6 +115,8 @@ func TestAutoModelAccountAdmissionRejectsHighestTierMappings(t *testing.T) {
 	}{
 		{name: "requested highest", requestedModel: "gpt-6-astra", accountModel: "gpt-5.5"},
 		{name: "account highest", requestedModel: "gpt-5.5", accountModel: "gpt-6-astra"},
+		{name: "account doubao", requestedModel: "gpt-5.5", accountModel: "volcengine/doubao-seed"},
+		{name: "compact doubao", requestedModel: "gpt-5.5", accountModel: "gpt-5.5", compactModel: "doubao-pro", compact: true},
 		{name: "compact highest", requestedModel: "gpt-5.5", accountModel: "gpt-5.5", compactModel: "gpt-6-astra", compact: true},
 		{name: "compact mapping unused", requestedModel: "gpt-5.5", accountModel: "gpt-5.5", compactModel: "gpt-6-astra", allowed: true},
 		{name: "allowed ordinary", requestedModel: "gpt-5.5", accountModel: "gpt-5.5", allowed: true},

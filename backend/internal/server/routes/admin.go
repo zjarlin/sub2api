@@ -593,6 +593,8 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		adminSettings.PUT("/overload-cooldown", h.Admin.Setting.UpdateOverloadCooldownSettings)
 		// 429默认回避配置
 		adminSettings.GET("/model-fallback", h.Admin.Setting.GetModelFallbackPolicy)
+		adminSettings.GET("/auto-model", h.Admin.Setting.GetAutoModelPolicy)
+		adminSettings.PUT("/auto-model", h.Admin.Setting.UpdateAutoModelPolicy)
 		adminSettings.GET("/model-fallback/preset", h.Admin.Setting.GetModelFallbackPreset)
 		adminSettings.PUT("/model-fallback", h.Admin.Setting.UpdateModelFallbackPolicy)
 		adminSettings.GET("/vision-fallback", h.Admin.Setting.GetVisionFallbackPolicy)

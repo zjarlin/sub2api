@@ -220,6 +220,88 @@ describe('ChatPlaygroundView', () => {
     expect(streamCompletion.mock.calls[2][0].sessionId).not.toBe(first.sessionId)
   })
 
+  it.each(['describe these images', ''])('auto 发送图片并保留后续对话上下文，文本为 %j', async (prompt) => {
+    listModels.mockResolvedValue([{ id: 'gpt-image-2' }, { id: 'auto' }])
+    const wrapper = await mountView()
+    const input = wrapper.get('#chat-reference-image')
+    Object.defineProperty(input.element, 'files', {
+      configurable: true,
+      value: [
+        new File(['first'], 'first.png', { type: 'image/png' }),
+        new File(['second'], 'second.webp', { type: 'image/webp' }),
+      ],
+    })
+    await input.trigger('change')
+    await wrapper.get('#chat-model').setValue('auto')
+    expect(wrapper.findAll('.chat-reference__item')).toHaveLength(2)
+    expect(wrapper.find('#chat-system-prompt').exists()).toBe(true)
+
+    await wrapper.get('.chat-composer__input').setValue(prompt)
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
+    await wrapper.get('.chat-composer').trigger('submit')
+    await vi.waitFor(() => expect(streamCompletion).toHaveBeenCalledOnce())
+    await flushPromises()
+
+    const imageMessage = {
+      role: 'user',
+      content: [
+        { type: 'text', text: prompt },
+        { type: 'image_url', image_url: { url: 'data:image/png;base64,Zmlyc3Q=' } },
+        { type: 'image_url', image_url: { url: 'data:image/webp;base64,c2Vjb25k' } },
+      ],
+    }
+    expect(streamCompletion).toHaveBeenCalledWith(expect.objectContaining({
+      model: 'auto',
+      messages: [imageMessage],
+    }))
+    expect(generateImage).not.toHaveBeenCalled()
+    expect(wrapper.findAll('.chat-message__attachment')).toHaveLength(2)
+    expect(wrapper.findAll('.chat-reference__item')).toHaveLength(0)
+    expect(URL.revokeObjectURL).not.toHaveBeenCalled()
+
+    await wrapper.get('.chat-composer__input').setValue('compare them')
+    await wrapper.get('.chat-composer').trigger('submit')
+    await vi.waitFor(() => expect(streamCompletion).toHaveBeenCalledTimes(2))
+    await flushPromises()
+    expect(streamCompletion.mock.calls[1][0].messages).toEqual([
+      imageMessage,
+      { role: 'assistant', content: 'streamed response' },
+      { role: 'user', content: 'compare them' },
+    ])
+
+    await wrapper.get('.chat-page__header button').trigger('click')
+    expect(wrapper.findAll('.chat-message__attachment')).toHaveLength(0)
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:first.png')
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:second.webp')
+    wrapper.unmount()
+  })
+
+  it('读取附件期间停止发送不会发出聊天请求', async () => {
+    listModels.mockResolvedValue([{ id: 'auto' }])
+    const wrapper = await mountView()
+    const readImage = vi.spyOn(FileReader.prototype, 'readAsDataURL').mockImplementation(() => {})
+    try {
+      const input = wrapper.get('#chat-reference-image')
+      Object.defineProperty(input.element, 'files', {
+        value: [new File(['image'], 'image.png', { type: 'image/png' })],
+      })
+      await input.trigger('change')
+      await wrapper.get('.chat-composer').trigger('submit')
+      await flushPromises()
+      const reader = readImage.mock.contexts[0] as FileReader
+      expect(reader).toBeDefined()
+      await wrapper.get('.chat-composer__action').trigger('click')
+      Object.defineProperty(reader, 'result', { value: 'data:image/png;base64,aW1hZ2U=' })
+      reader.dispatchEvent(new ProgressEvent('load'))
+      await flushPromises()
+      expect(streamCompletion).not.toHaveBeenCalled()
+      expect(wrapper.text()).toContain('chatPlayground.stopped')
+    } finally {
+      readImage.mockRestore()
+      wrapper.unmount()
+    }
+  })
+
   it('重试失败请求时不重复发送失败轮次', async () => {
     streamCompletion.mockRejectedValueOnce(new Error('upstream unavailable'))
     const wrapper = await mountView()

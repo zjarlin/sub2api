@@ -1,5 +1,13 @@
 export default {
     settings: {
+      autoModel: {
+        title: 'Auto 自动模型',
+        description: '配置 auto 自动选模的模型黑名单，候选选择、模型映射和降级重试均排除命中模型。手动指定模型不受此黑名单影响；最高成本档仍按现有规则排除。',
+        blacklist: '模型黑名单',
+        hint: '每行一条，不区分大小写；支持精确 ID 或末尾 * 前缀匹配。不带供应商前缀的规则同时匹配命名空间后的模型名，例如 doubao* 也排除 volcengine/doubao-seed。默认排除 doubao 系列；清空并保存可移除黑名单。',
+        invalidRules: '最多 128 条且不能重复；每条最多 200 字符，仅支持末尾 *，不支持 ?、方括号或反斜杠。',
+        saved: 'Auto 模型黑名单已保存，后续请求生效。',
+      },
       visionFallback: {
         title: '视觉助手与自动降级',
         description: '主模型需要看图时，由视觉助手描述图片。按调度评分串行选择助手，成功后由主模型继续处理原任务。',

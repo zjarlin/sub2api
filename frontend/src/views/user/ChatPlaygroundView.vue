@@ -387,7 +387,7 @@ const modelOptions = computed<SelectOption[]>(() => models.value.map((model) => 
 const canSend = computed(() => Boolean(
   selectedApiKey.value
   && selectedModel.value
-  && draft.value.trim()
+  && (draft.value.trim() || (!isImageMode.value && referenceImages.value.length > 0))
   && !isGenerating.value,
 ))
 
@@ -530,7 +530,7 @@ async function sendMessage(): Promise<void> {
   const apiKey = selectedApiKey.value
   const model = selectedModel.value
   const content = draft.value.trim()
-  if (!apiKey || !model || !content || isGenerating.value) {
+  if (!apiKey || !model || !canSend.value) {
     return
   }
 
@@ -538,7 +538,7 @@ async function sendMessage(): Promise<void> {
     id: ++messageSequence,
     role: 'user',
     content,
-    attachments: referenceImages.value.splice(0),
+    attachments: isImageMode.value ? [] : referenceImages.value.splice(0),
   }
   if (referenceImageInputRef.value) {
     referenceImageInputRef.value.value = ''
@@ -552,19 +552,19 @@ async function sendMessage(): Promise<void> {
     content: '',
   }
   messages.value.push(assistantMessage)
-  await scrollMessagesToBottom()
-
   const requestController = new AbortController()
   generationController = requestController
   isGenerating.value = true
 
   try {
+    await scrollMessagesToBottom()
+    requestController.signal.throwIfAborted()
     if (isImageGenerationModel(model)) {
       const result = await generateChatPlaygroundImage({
         apiKey: apiKey.key,
         model,
         prompt: content,
-        referenceImages: userMessage.attachments?.map((referenceImage) => referenceImage.file),
+        referenceImages: referenceImages.value.map((referenceImage) => referenceImage.file),
         signal: requestController.signal,
       })
       assistantMessage.images = result.images
@@ -575,6 +575,7 @@ async function sendMessage(): Promise<void> {
     }
 
     const requestMessages = await buildRequestMessages()
+    requestController.signal.throwIfAborted()
     const result = await streamChatCompletion({
       apiKey: apiKey.key,
       model,
@@ -1240,6 +1241,13 @@ onBeforeUnmount(() => {
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+
+.chat-message__attachment {
+  max-width: 100%;
+  max-height: 20rem;
+  object-fit: contain;
+  border-radius: var(--neo-radius);
 }
 
 .chat-message > footer {

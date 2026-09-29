@@ -204,6 +204,7 @@
         <!-- Tab: Gateway -->
         <div v-show="activeTab === 'gateway'" class="space-y-6">
           <ModelFallbackSettings v-if="activeTab === 'gateway'" />
+          <AutoModelSettings v-if="activeTab === 'gateway'" />
           <VisionFallbackSettings v-if="activeTab === 'gateway'" />
           <ModelAliasSettings v-if="activeTab === 'gateway'" />
           <ModelSystemPromptSettings v-if="activeTab === 'gateway'" />
@@ -8879,6 +8880,7 @@ import ImageUpload from "@/components/common/ImageUpload.vue";
 import BackupSettings from "@/views/admin/BackupView.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import ModelFallbackSettings from "@/views/admin/settings/ModelFallbackSettings.vue";
+import AutoModelSettings from "@/views/admin/settings/AutoModelSettings.vue";
 import VisionFallbackSettings from "@/views/admin/settings/VisionFallbackSettings.vue";
 import ModelAliasSettings from "@/views/admin/settings/ModelAliasSettings.vue";
 import ModelSystemPromptSettings from "@/views/admin/settings/ModelSystemPromptSettings.vue";

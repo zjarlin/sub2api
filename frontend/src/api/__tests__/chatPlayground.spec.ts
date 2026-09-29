@@ -73,6 +73,36 @@ describe('chatPlayground API', () => {
     expect(isImageGenerationModel('gpt-5.6-sol')).toBe(false)
   })
 
+  it('auto 多模态聊天将图片内容发送到 Chat Completions', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(createStreamResponse(['data: [DONE]\n\n']))
+    vi.stubGlobal('fetch', fetchMock)
+    await streamChatCompletion({
+      apiKey: 'sk-test',
+      model: 'auto',
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: 'describe this' },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,aW1hZ2U=' } },
+        ],
+      }],
+      onDelta: () => {},
+    })
+    const [url, request] = fetchMock.mock.calls[0]
+    expect(url).toContain('/v1/chat/completions')
+    expect(JSON.parse(request.body)).toEqual({
+      model: 'auto',
+      stream: true,
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: 'describe this' },
+          { type: 'image_url', image_url: { url: 'data:image/png;base64,aW1hZ2U=' } },
+        ],
+      }],
+    })
+  })
+
   it('通过 Images API 生成并规范化 base64 图片', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       data: [{

@@ -1608,6 +1608,18 @@ export interface ModelFallbackPolicy {
   enabled: boolean;
   tiers: ModelCapabilityTier[];
 }
+
+export interface AutoModelPolicy {
+  blacklist: string[];
+}
+export async function getAutoModelPolicy(): Promise<AutoModelPolicy> {
+  const { data } = await apiClient.get<AutoModelPolicy>("/admin/settings/auto-model");
+  return data;
+}
+export async function updateAutoModelPolicy(policy: AutoModelPolicy): Promise<AutoModelPolicy> {
+  const { data } = await apiClient.put<AutoModelPolicy>("/admin/settings/auto-model", policy);
+  return data;
+}
 export async function getModelFallbackPolicy(): Promise<ModelFallbackPolicy> {
   const { data } = await apiClient.get<ModelFallbackPolicy>("/admin/settings/model-fallback");
   return data;

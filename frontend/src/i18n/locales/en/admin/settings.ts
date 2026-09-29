@@ -1,5 +1,13 @@
 export default {
     settings: {
+      autoModel: {
+        title: 'Auto model routing',
+        description: 'Exclude blacklisted models from auto selection, model mappings and fallback retries. Explicit model requests are unaffected. The highest cost tier remains excluded.',
+        blacklist: 'Model blacklist',
+        hint: 'One case-insensitive rule per line: an exact ID or a prefix ending in *. Rules without a provider prefix also match namespaced model names, so doubao* excludes volcengine/doubao-seed. The doubao family is excluded by default. Clear and save to remove the blacklist.',
+        invalidRules: 'Use up to 128 unique rules of at most 200 characters each. Only a trailing * is supported; ?, brackets and backslashes are not supported.',
+        saved: 'Auto model blacklist saved. New requests use the updated configuration.',
+      },
       visionFallback: {
         title: 'Vision assistants and fallback',
         description: 'Vision assistants describe images for the primary model. Assistants run sequentially using scheduler scores; the primary model continues after a successful description.',

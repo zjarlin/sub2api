@@ -32,6 +32,11 @@ func TestAutoModelCostLimitExcludesHighestTier(t *testing.T) {
 			selected string
 		}{
 			{name: "one cheaper candidate", models: []string{"gpt-6-astra", "gpt-5.5"}, status: http.StatusOK, selected: "gpt-5.5"},
+			{name: "doubao excluded by default", models: []string{"doubao-seed-2.0", "gpt-5.5"}, status: http.StatusOK, selected: "gpt-5.5"},
+			{name: "doubao only", models: []string{"doubao-seed-2.0"}, status: http.StatusServiceUnavailable},
+			{name: "custom blacklist", models: []string{"gpt-5.5", "gpt-5.6-sol"}, status: http.StatusOK, selected: "gpt-5.5", settings: map[string]string{
+				service.SettingKeyAutoModelPolicy: `{"blacklist":["gpt-5.6-*"]}`,
+			}},
 			{name: "highest tier only", models: []string{"gpt-6-astra"}, status: http.StatusServiceUnavailable},
 			{name: "highest tier alias", models: []string{"gpt-6-astra-premium", "gpt-5.5"}, status: http.StatusOK, selected: "gpt-5.5", settings: map[string]string{
 				service.SettingKeyModelAliases: `{"groups":[{"canonical":"gpt-6-astra","aliases":["gpt-6-astra-premium"]}]}`,

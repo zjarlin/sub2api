@@ -39,6 +39,7 @@ type autoModelRoutingPolicyContextKey struct{}
 type autoModelRoutingPolicy struct {
 	excluded map[string]struct{}
 	aliases  *ModelAliasPolicy
+	policy   *AutoModelPolicy
 }
 
 // 采用公开榜单最高已测推理强度的粗粒度分段，依据和局限见 docs/model-fallback-tiers.md。
@@ -127,10 +128,14 @@ func (s *SettingService) SetModelFallbackPolicy(ctx context.Context, policy *Mod
 	return s.settingRepo.Set(ctx, SettingKeyModelFallbackPolicy, string(data))
 }
 
-// Auto 请求固定最高档与别名快照；关闭降级开关不解除成本限制。
+// Auto 请求固定最高档、黑名单与别名快照；关闭降级开关不解除这些限制。
 func (s *SettingService) BindAutoModelRoutingPolicy(ctx context.Context) (context.Context, error) {
 	if _, bound := ctx.Value(autoModelRoutingPolicyContextKey{}).(*autoModelRoutingPolicy); bound {
 		return ctx, nil
+	}
+	autoPolicy, err := s.GetAutoModelPolicy(ctx)
+	if err != nil {
+		return ctx, err
 	}
 	policy, err := s.GetModelFallbackPolicy(ctx)
 	if err != nil {
@@ -151,12 +156,17 @@ func (s *SettingService) BindAutoModelRoutingPolicy(ctx context.Context) (contex
 	for _, model := range policy.Tiers[0].Models {
 		excluded[aliasSnapshot.Canonicalize(model)] = struct{}{}
 	}
-	snapshot := &autoModelRoutingPolicy{excluded: excluded, aliases: aliasSnapshot}
+	for _, group := range aliasSnapshot.Groups {
+		if autoPolicy.excludes(group.Canonical) || slices.ContainsFunc(group.Aliases, autoPolicy.excludes) {
+			excluded[group.Canonical] = struct{}{}
+		}
+	}
+	snapshot := &autoModelRoutingPolicy{excluded: excluded, aliases: aliasSnapshot, policy: autoPolicy}
 	ctx = WithModelAliases(ctx, aliasSnapshot)
 	return context.WithValue(ctx, autoModelRoutingPolicyContextKey{}, snapshot), nil
 }
 
-// 仅约束已绑定的 Auto 请求，模型和别名均精确匹配，不推断版本等价关系。
+// 仅约束已绑定的 Auto 请求，同时检查原始模型、规范模型与黑名单规则。
 func AutoModelAllowed(ctx context.Context, models ...string) bool {
 	if ctx == nil {
 		return true
@@ -166,7 +176,8 @@ func AutoModelAllowed(ctx context.Context, models ...string) bool {
 		return true
 	}
 	for _, model := range models {
-		if _, excluded := snapshot.excluded[snapshot.aliases.Canonicalize(model)]; excluded {
+		canonical := snapshot.aliases.Canonicalize(model)
+		if _, excluded := snapshot.excluded[canonical]; excluded || snapshot.policy.excludes(model) || snapshot.policy.excludes(canonical) {
 			return false
 		}
 	}
