@@ -227,6 +227,10 @@ func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, accou
 			model.Type = "model"
 		}
 	}
+	// 专属会话目录只取上游实际配置，不补充目录中不存在的手填模型。
+	if isArenaSessionAdapter(account) {
+		return payload.Data, nil
+	}
 	// Manual self-mappings are authoritative test-picker entries even when the
 	// upstream /models response is stale or omits the model. Aliases still rely
 	// on the shared catalog projection above so stale alias targets stay hidden.

@@ -20,7 +20,7 @@ type ModelProbePolicy struct {
 
 func (a *Account) ModelProbePolicy() ModelProbePolicy {
 	policy := ModelProbePolicy{Enabled: true, Interval: defaultModelHealthProbeIntervalHours * time.Hour}
-	if a == nil {
+	if a == nil || isArenaSessionAdapter(a) {
 		policy.Enabled = false
 		return policy
 	}

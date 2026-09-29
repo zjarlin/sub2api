@@ -29,6 +29,39 @@ func arenaTestAccount() *Account {
 	return account
 }
 
+func TestArenaPlatformAccountConfigurationAndProtocol(t *testing.T) {
+	input := &CreateAccountInput{
+		Name: "Arena", Platform: PlatformArena, Type: AccountTypeAPIKey, Concurrency: 32,
+		Credentials: map[string]any{"base_url": "http://sub2api-arena:7867/v1", "api_key": "adapter-key"},
+	}
+	account, err := buildAccountForCreate(input, map[string]any{"custom": true, "model_health_probe_enabled": true})
+	require.NoError(t, err)
+	require.True(t, account.IsOpenAICompatible())
+	require.True(t, isArenaSessionAdapter(account))
+	require.Equal(t, 1, account.Concurrency)
+	require.Equal(t, APIProtocolChatCompletions, account.GetAPIProtocol())
+	require.Equal(t, "http://sub2api-arena:7867/v1", account.GetOpenAIBaseURL())
+	require.Equal(t, "force_chat_completions", account.GetExtraString("openai_responses_mode"))
+	require.Equal(t, true, account.Extra["custom"])
+	require.False(t, account.ModelProbePolicy().Enabled)
+	account.Extra = map[string]any{"model_health_probe_enabled": true}
+	require.False(t, account.ModelProbePolicy().Enabled)
+	require.True(t, IsAllowedQuotaPlatform(PlatformArena))
+	require.Empty(t, defaultModelsListCandidateIDs(PlatformArena))
+	platform, detected := DetectModelPlatform("arena-session")
+	require.True(t, detected)
+	require.Equal(t, PlatformArena, platform)
+	for _, credentials := range []map[string]any{
+		{"api_key": "adapter-key"},
+		{"base_url": "http://sub2api-arena:7867/v1"},
+		{"base_url": "file:///local", "api_key": "adapter-key"},
+		{"base_url": "http://sub2api-arena:7867/v1", "api_key": "adapter-key", "api_protocol": "responses"},
+	} {
+		require.Error(t, validateArenaCredentials(AccountTypeAPIKey, credentials))
+	}
+	require.Error(t, validateArenaCredentials(AccountTypeOAuth, input.Credentials))
+}
+
 func TestArenaSessionHeadersIsolateTenantsAndRequests(t *testing.T) {
 	first := arenaTestContext(41)
 	second := arenaTestContext(42)
@@ -87,7 +120,10 @@ func TestArenaResponsesConversionPreservesSessionAndSystem(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 	upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"id":"chatcmpl_arena","object":"chat.completion","model":"arena-session","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))}}
 	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
-	result, err := svc.Forward(context.Background(), c, arenaTestAccount(), body)
+	account := arenaTestAccount()
+	account.Platform = PlatformArena
+	account.Extra = nil
+	result, err := svc.Forward(context.Background(), c, account, body)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, arenaNamespacedIdentity(41, "responses-session"), upstream.lastReq.Header.Get("X-Arena-Session-Id"))

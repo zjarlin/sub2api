@@ -1356,6 +1356,7 @@ function generateRoutedCodexFiles(
     zhipu: 'Zhipu',
     deepseek: 'DeepSeek',
     deepseek_web: 'DeepSeek Web',
+    arena: 'Arena',
     doubao: 'Doubao',
     traework: 'TRAE Work',
     workbuddy: 'WorkBuddy',

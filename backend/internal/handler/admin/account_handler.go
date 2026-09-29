@@ -2821,6 +2821,21 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
+	// Arena 只显示适配器实际配置的会话模型，不回落到通用默认模型。
+	if account.IsArena() {
+		if h.accountTestService == nil {
+			response.Error(c, http.StatusServiceUnavailable, "Arena model discovery is unavailable")
+			return
+		}
+		models, fetchErr := h.accountTestService.FetchOpenAIAccountModels(c.Request.Context(), account)
+		if fetchErr != nil {
+			response.ErrorFrom(c, fetchErr)
+			return
+		}
+		response.Success(c, models)
+		return
+	}
+
 	// Handle OpenAI accounts
 	if account.IsOpenAI() {
 		// Prefer the shared, account-keyed upstream catalog. If discovery fails,

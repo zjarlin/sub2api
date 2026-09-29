@@ -10,12 +10,16 @@ const concretePlatforms = [
   'kimi',
   'zhipu',
   'deepseek',
+  'deepseek_web',
+  'arena',
   'minimax',
   'opencode_go',
   'doubao',
   'traework',
   'workbuddy',
+  'vibex',
   'zcode',
+  'qoder',
   // System One 决策模型：与其它平台并列，可在账号表单中直接选择。
   'laya',
   'jev'

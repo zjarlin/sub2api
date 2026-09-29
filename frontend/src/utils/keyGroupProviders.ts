@@ -12,6 +12,7 @@ const PROVIDER_BY_PLATFORM: Record<GroupPlatform, KeyGroupProvider> = {
   zhipu: 'domestic',
   deepseek: 'domestic',
   deepseek_web: 'domestic',
+  arena: 'other',
   doubao: 'domestic',
   traework: 'domestic',
   workbuddy: 'domestic',

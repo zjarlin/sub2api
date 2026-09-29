@@ -173,6 +173,8 @@ func DetectModelPlatform(model string) (string, bool) {
 		return PlatformZhipu, true
 	case strings.HasPrefix(normalized, "deepseek-web-"):
 		return PlatformDeepseekWeb, true
+	case strings.HasPrefix(normalized, "arena-"):
+		return PlatformArena, true
 	case strings.HasPrefix(normalized, "deepseek-"):
 		return PlatformDeepseek, true
 	case strings.HasPrefix(normalized, "doubao-"):

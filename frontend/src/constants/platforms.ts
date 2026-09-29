@@ -20,6 +20,7 @@ export const CONCRETE_PLATFORM_OPTIONS = [
   { value: 'zhipu', label: 'Zhipu GLM' },
   { value: 'deepseek', label: 'DeepSeek' },
   { value: 'deepseek_web', label: 'DeepSeek Web' },
+  { value: 'arena', label: 'Arena' },
   { value: 'minimax', label: 'MiniMax' },
   { value: 'opencode_go', label: 'OpenCode' },
   { value: 'doubao', label: 'Doubao' },

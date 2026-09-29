@@ -1,5 +1,10 @@
 export default {
     accounts: {
+      arena: {
+        title: 'Arena',
+        baseUrlHint: 'Enter an Arena adapter URL reachable from the Sub2API server.',
+        apiKeyHint: 'Enter the adapter connection key, not your Arena login password.',
+      },
       vibex: {
         title: 'VibeX',
         usage: 'RunningHub balance and quota',

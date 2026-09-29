@@ -202,6 +202,23 @@ async function openCodexImportStep(toggleClicks = 0) {
 }
 
 describe('CreateAccountModal OpenAI long-context billing', () => {
+  it('creates an Arena account with an explicit adapter URL and key without billing probes', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="platform-arena"]').trigger('click')
+    expect(wrapper.find('[data-testid="builtin-adapter-login"]').exists()).toBe(false)
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Arena Local Bridge')
+    await wrapper.get('input[placeholder="http://sub2api-arena:7867/v1"]').setValue('http://sub2api-arena:7867/v1')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('adapter-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({
+      platform: 'arena', type: 'apikey', concurrency: 1,
+      credentials: { base_url: 'http://sub2api-arena:7867/v1', api_key: 'adapter-key', api_protocol: 'chat_completions', openai_capabilities: ['chat_completions'] },
+    })
+    expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
+  })
+
   it('creates a Doubao adapter account and synchronizes its model catalog', async () => {
     const wrapper = mountModal()
     await wrapper.get('[data-testid="platform-doubao"]').trigger('click')

@@ -1482,7 +1482,7 @@ func defaultModelIDsForPlatform(platform string) []string {
 		return service.DefaultDeepseekWebModelIDs()
 	case service.PlatformTraework:
 		return service.DefaultTraeworkModelIDs()
-	case service.PlatformVibex:
+	case service.PlatformVibex, service.PlatformArena:
 		return nil
 	case service.PlatformWorkbuddy:
 		return service.DefaultWorkbuddyModelIDs()

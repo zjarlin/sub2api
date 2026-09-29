@@ -5,6 +5,8 @@ services:
     build:
       context: ./tools/arena2api
       dockerfile: Dockerfile
+      args:
+        DEBIAN_MIRROR: ${ARENA_DEBIAN_MIRROR:-}
     image: ${ARENA_IMAGE:-sub2api-arena:local}
     restart: unless-stopped
     environment:

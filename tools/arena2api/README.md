@@ -105,7 +105,9 @@ npm run manage -- status
 
 ## 接入 Sub2API
 
-使用 `sub2api-account.example.json` 的字段创建 `openai` / `apikey` 账号，并分配独立试接分组。
+使用 `sub2api-account.example.json` 的字段创建 `arena` / `apikey` 账号，并分配独立试接分组。
+Arena 已有独立平台入口；地址与适配器密钥需显式填写，固定为文本 Chat Completions 和单并发。
+原有 `openai` / `apikey` 加 `openai_session_adapter=arena` 的试接账号仍可使用。
 创建请求可发到后台 `POST /api/v1/admin/accounts`，共享密钥取本机 `.env`，不要把真实密钥放进版本库。
 
 三个关键 `extra` 设置：
@@ -142,6 +144,8 @@ docker compose --project-directory . \
 服务不发布公网端口，使用 `arena-data` 命名卷，保存凭据、加密密钥、模型配置和绑定。
 可用 `ARENA_STATE_DIR` 替换成私有宿主机目录，需允许 UID 1000 读写。
 使用上述相同 Compose 参数执行 `exec -it sub2api-arena npm run manage -- login` 和 `add-session` 完成配置。
+252 集群部署可在私有 `.env` 中设置 `SUB2API_ARENA=1`，部署脚本会叠加此服务并保留适配器密钥。
+下载 Debian 依赖较慢时，可用 `ARENA_DEBIAN_MIRROR` 指定镜像根地址；APT 仍校验发行版签名。
 
 ## 验证
 
@@ -152,4 +156,4 @@ npm test
 测试覆盖本地 HTTP 协议、消息保留、跨客户端拒绝、重启后绑定与幂等重放、SSE 结束与失败、串行限制、取消、超时及密钥文件权限。
 测试生成器使用模拟上游，不能作为真实 Arena 登录和生成的证据。
 配套 Go 定向测试覆盖网关身份隔离、Responses 转换、取消及流内失败；Compose 配置可离线校验。
-当前未运行 Docker 镜像，也未验证真实 Arena 生成。
+Docker 存活检查只验证进程可用；真实 Arena 登录和生成需单独验收。

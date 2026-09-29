@@ -1,6 +1,6 @@
 {
   "name": "Arena dedicated text session",
-  "platform": "openai",
+  "platform": "arena",
   "type": "apikey",
   "concurrency": 1,
   "credentials": {

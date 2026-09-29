@@ -315,6 +315,11 @@
             <PlatformIcon platform="qoder" size="sm" />
             {{ t('admin.accounts.qoder.title') }}
           </button>
+          <button type="button" data-testid="platform-arena" @click="selectArenaPlatform"
+            :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'arena' ? 'bg-white text-emerald-600 shadow-sm dark:bg-dark-600 dark:text-emerald-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
+            <PlatformIcon platform="arena" size="sm" />
+            Arena
+          </button>
           <button type="button" data-testid="platform-laya" @click="selectLayaPlatform"
             :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'laya' ? 'bg-white text-violet-600 shadow-sm dark:bg-dark-600 dark:text-violet-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
             <PlatformIcon platform="laya" size="sm" />
@@ -3192,7 +3197,7 @@
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.concurrency') }}</label>
-          <input v-model.number="form.concurrency" type="number" min="1" :max="form.platform === 'doubao' ? 1 : undefined" :readonly="form.platform === 'doubao'" class="input"
+          <input v-model.number="form.concurrency" type="number" min="1" :max="['doubao', 'arena'].includes(form.platform) ? 1 : undefined" :readonly="['doubao', 'arena'].includes(form.platform)" class="input"
             @input="form.concurrency = Math.max(1, form.concurrency || 1)" />
         </div>
         <div>
@@ -4243,6 +4248,7 @@ const baseUrlHint = computed(() => {
   if (form.platform === 'vibex') return t('admin.accounts.vibex.baseUrlHint')
   if (form.platform === 'zcode') return t('admin.accounts.zcode.baseUrlHint')
   if (form.platform === 'deepseek_web') return t('admin.accounts.deepseekWeb.baseUrlHint')
+  if (form.platform === 'arena') return t('admin.accounts.arena.baseUrlHint')
   if (form.platform === 'laya') return t('admin.accounts.laya.baseUrlHint')
   if (form.platform === 'jev') return t('admin.accounts.jev.baseUrlHint')
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
@@ -4258,6 +4264,7 @@ const apiKeyHint = computed(() => {
   if (form.platform === 'vibex') return t('admin.accounts.vibex.apiKeyHint')
   if (form.platform === 'zcode') return t('admin.accounts.zcode.apiKeyHint')
   if (form.platform === 'deepseek_web') return t('admin.accounts.deepseekWeb.apiKeyHint')
+  if (form.platform === 'arena') return t('admin.accounts.arena.apiKeyHint')
   if (form.platform === 'laya') return t('admin.accounts.laya.apiKeyHint')
   if (form.platform === 'jev') return t('admin.accounts.jev.apiKeyHint')
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
@@ -4268,6 +4275,7 @@ const apiKeyHint = computed(() => {
 
 // Base URL / API Key 占位符：国产供应商随账号类型变化。
 const apiKeyBaseUrlPlaceholder = computed(() => {
+  if (form.platform === 'arena') return 'http://sub2api-arena:7867/v1'
   if (form.platform === 'doubao') return 'http://sub2api-doubao-desktop:8080/v1'
   if (isMultiProtocolPlatform.value) {
     const mode = form.platform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
@@ -4296,6 +4304,7 @@ const apiKeyValuePlaceholder = computed(() => {
     case 'kimi':
       return 'sk-...'
     case 'doubao':
+    case 'arena':
       return 'adapter-api-key'
     case 'zhipu':
       return '<api-key>.<secret>'
@@ -4569,6 +4578,16 @@ function selectZcodePlatform() {
 function selectDeepseekWebPlatform() {
   selectTraeworkPlatform()
   form.platform = 'deepseek_web'
+}
+
+function selectArenaPlatform() {
+  upstreamBillingAutoProbeEnabled.value = false
+  form.platform = 'arena'
+  accountCategory.value = 'apikey'
+  form.type = 'apikey'
+  apiProtocol.value = 'chat_completions'
+  apiKeyValue.value = ''
+  form.concurrency = 1
 }
 
 // Qoder 使用官方 Model Server：默认走设备流 OAuth，也可手动粘贴访问令牌（apikey）。
@@ -5270,6 +5289,10 @@ watch(
     if ((BUILTIN_ADAPTER_PLATFORMS as readonly string[]).includes(newPlatform)) {
       apiKeyBaseUrl.value = ''
       accountCategory.value = newPlatform === 'qoder' ? 'oauth-based' : 'apikey'
+      form.concurrency = 1
+    } else if (newPlatform === 'arena') {
+      apiKeyBaseUrl.value = ''
+      accountCategory.value = 'apikey'
       form.concurrency = 1
     } else if (isCNProviderPlatform(newPlatform) || newPlatform === 'opencode_go') {
       const mode = newPlatform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
@@ -6262,7 +6285,7 @@ const handleSubmit = async () => {
   // Determine default base URL based on platform.
   // 内置适配器平台（含 Laya / JEV）地址由后端按平台注入，不能落到 Anthropic 默认值，
   // 否则会把决策请求发到错误的上游。
-  const defaultBaseUrl = isBuiltinAdapterPlatform.value
+  const defaultBaseUrl = isBuiltinAdapterPlatform.value || form.platform === 'arena'
     ? ''
     : form.platform === 'openai'
       ? 'https://api.openai.com'
@@ -6285,7 +6308,7 @@ const handleSubmit = async () => {
   if (form.platform === 'gemini') {
     credentials.tier_id = geminiTierAIStudio.value
   }
-  if (form.platform === 'doubao' || form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'vibex' || form.platform === 'zcode' || form.platform === 'deepseek_web' || form.platform === 'qoder') {
+  if (form.platform === 'doubao' || form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'vibex' || form.platform === 'zcode' || form.platform === 'deepseek_web' || form.platform === 'arena' || form.platform === 'qoder') {
     credentials.api_protocol = 'chat_completions'
     credentials.openai_capabilities = ['chat_completions']
   }

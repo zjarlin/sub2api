@@ -41,7 +41,7 @@
             type="text"
             class="input"
             :placeholder="
-              account.platform === 'doubao'
+              ['doubao', 'arena'].includes(account.platform)
                 ? 'http://sub2api-desktop:8080/v1'
                 : account.platform === 'traework'
                 ? 'http://sub2api-traework:7864/v1'
@@ -1678,7 +1678,7 @@
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.concurrency') }}</label>
-          <input v-model.number="form.concurrency" type="number" min="1" :max="props.account?.platform === 'doubao' ? 1 : undefined" :readonly="props.account?.platform === 'doubao'" class="input"
+          <input v-model.number="form.concurrency" type="number" min="1" :max="['doubao', 'arena'].includes(props.account?.platform ?? '') ? 1 : undefined" :readonly="['doubao', 'arena'].includes(props.account?.platform ?? '')" class="input"
             @input="form.concurrency = Math.max(1, form.concurrency || 1)" />
         </div>
         <div>
@@ -3203,6 +3203,7 @@ const baseUrlHint = computed(() => {
   if (props.account?.platform === 'traework') return t('admin.accounts.traework.baseUrlHint')
   if (props.account?.platform === 'zcode') return t('admin.accounts.zcode.baseUrlHint')
   if (props.account?.platform === 'deepseek_web') return t('admin.accounts.deepseekWeb.baseUrlHint')
+  if (props.account?.platform === 'arena') return t('admin.accounts.arena.baseUrlHint')
   if (!props.account) return t('admin.accounts.baseUrlHint')
   if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (props.account.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
@@ -3876,6 +3877,7 @@ const tempUnschedPresets = computed(() => [
 
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
+  if (props.account?.platform === 'arena') return ''
   if (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web'].includes(props.account?.platform ?? '')) return ''
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
@@ -5074,7 +5076,7 @@ const handleSubmit = async () => {
         delete newCredentials.base_url
       }
 
-      if (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web'].includes(props.account.platform)) {
+      if (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'arena'].includes(props.account.platform)) {
         newCredentials.api_protocol = 'chat_completions'
         newCredentials.openai_capabilities = ['chat_completions']
         if (props.account.platform !== 'traework') {

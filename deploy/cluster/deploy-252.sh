@@ -47,6 +47,24 @@ if [ "$DEEPSEEK_WEB_ENABLED" = "1" ]; then
   COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.deepseek-web.yml")
 fi
 
+# Arena 独立启用，只启动私网文本适配器；真实登录与专属会话另行配置。
+ARENA_ENABLED="${SUB2API_ARENA:-}"
+if [ -z "$ARENA_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
+  ARENA_ENABLED="$(awk -F= '
+    $1 ~ /^[[:space:]]*(export[[:space:]]+)?SUB2API_ARENA[[:space:]]*$/ {
+      value=$2
+      sub(/#.*/, "", value)
+      gsub(/[[:space:]"\047]/, "", value)
+      result=value
+    }
+    END { if (result == "1") print "1"; else print "0" }
+  ' "$DEPLOY_DIR/.env")"
+fi
+if [ "$ARENA_ENABLED" = "1" ]; then
+  test -f "$DEPLOY_DIR/deploy/docker-compose.arena.yml"
+  COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.arena.yml" --profile arena)
+fi
+
 # 只读取编排开关，不执行 .env 中的 shell 内容；显式环境变量优先。
 EDGE_MEDIA_ENABLED="${SUB2API_EDGE_MEDIA:-}"
 if [ -z "$EDGE_MEDIA_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
@@ -109,6 +127,9 @@ fi
 if [ "$DEEPSEEK_WEB_ENABLED" = "1" ]; then
   ensure_adapter_key DEEPSEEK_WEB_ADAPTER_KEY
 fi
+if [ "$ARENA_ENABLED" = "1" ]; then
+  ensure_adapter_key ARENA_AGENT_BRIDGE_KEY
+fi
 docker image inspect "$IMAGE" > "$RELEASE_DIR/image.json"
 
 CURRENT_IMAGE="$(docker ps --filter 'label=com.docker.compose.service=sub2api' --format '{{.Image}}' | head -n1)"
@@ -152,6 +173,10 @@ fi
 if [ "$DEEPSEEK_WEB_ENABLED" = "1" ]; then
   echo "Building and starting DeepSeek web adapter"
   "${COMPOSE[@]}" up -d --build sub2api-deepseek-web
+fi
+if [ "$ARENA_ENABLED" = "1" ]; then
+  echo "Building and starting Arena adapter"
+  "${COMPOSE[@]}" up -d --build sub2api-arena
 fi
 echo "Starting canary with replicas=$CANARY_REPLICAS"
 "${COMPOSE[@]}" up -d --wait --wait-timeout 180 --no-deps --scale "sub2api=$CANARY_REPLICAS" sub2api gateway

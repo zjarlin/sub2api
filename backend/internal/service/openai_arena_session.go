@@ -3,10 +3,10 @@ package service
 import (
 	"crypto/sha256"
 	"fmt"
+	"maps"
 	"net/http"
 	"net/url"
 	"strings"
-	"maps"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/gin-gonic/gin"

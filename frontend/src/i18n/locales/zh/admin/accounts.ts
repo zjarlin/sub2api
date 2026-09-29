@@ -1,5 +1,10 @@
 export default {
     accounts: {
+      arena: {
+        title: 'Arena',
+        baseUrlHint: '填写 Sub2API 服务器可访问的 Arena 适配器地址。',
+        apiKeyHint: '填写适配器的连接密钥，不是 Arena 登录密码。',
+      },
       vibex: {
         title: 'VibeX',
         usage: 'RunningHub 余额与额度',

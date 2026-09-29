@@ -101,8 +101,46 @@ func setupSyncUpstreamModelsRouter(adminSvc service.AdminService, upstream servi
 	)
 	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, accountTestSvc, nil, nil, nil, nil, nil)
 	router.POST("/api/v1/admin/accounts/:id/models/sync-upstream", handler.SyncUpstreamModels)
+	router.GET("/api/v1/admin/accounts/:id/models", handler.GetAvailableModels)
 	router.POST("/api/v1/admin/accounts/models/sync-upstream-preview", handler.SyncUpstreamModelsPreview)
 	return router
+}
+
+func TestArenaAccountModelsUsesOnlyAdapterCatalog(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		body string
+		want []string
+	}{
+		{name: "unconfigured", body: `{"data":[]}`, want: []string{}},
+		{name: "configured", body: `{"data":[{"id":"arena-session","owned_by":"arena-session"}]}`, want: []string{"arena-session"}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			account := service.Account{ID: 860, Platform: service.PlatformArena, Type: service.AccountTypeAPIKey, Credentials: map[string]any{
+				"base_url": "https://arena.example/v1", "api_key": "adapter-key",
+				"model_mapping": map[string]any{"arena-session": "arena-session", "arena-guessed": "arena-guessed"},
+			}}
+			adminSvc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: account}
+			upstream := &syncUpstreamHTTPUpstream{resp: &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(tt.body))}}
+			router := setupSyncUpstreamModelsRouter(adminSvc, upstream)
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/860/models", nil))
+			require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+			var response struct {
+				Data []struct {
+					ID string `json:"id"`
+				} `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+			ids := make([]string, 0, len(response.Data))
+			for _, model := range response.Data {
+				ids = append(ids, model.ID)
+			}
+			require.Equal(t, tt.want, ids)
+			require.NotContains(t, recorder.Body.String(), "claude")
+			require.NotContains(t, recorder.Body.String(), "arena-guessed")
+		})
+	}
 }
 
 func TestAccountHandlerGetAvailableModels_GrokUsesXAIModels(t *testing.T) {
