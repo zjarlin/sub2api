@@ -2,10 +2,12 @@ package service
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
@@ -26,10 +28,10 @@ func TestProbeOpenAIAPIKeyResponsesSupportUsesCodexProbeHeaders(t *testing.T) {
 			"base_url":      "https://compat-upstream.example/v1",
 		},
 	}
-	repo := &snapshotUpdateAccountRepo{
+	repo := &responsesProbeClaimRepo{snapshotUpdateAccountRepo: &snapshotUpdateAccountRepo{
 		stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
 		updateExtraCalls:      updateCalls,
-	}
+	}}
 	upstream := &httpUpstreamRecorder{resp: &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     make(http.Header),
@@ -48,6 +50,9 @@ func TestProbeOpenAIAPIKeyResponsesSupportUsesCodexProbeHeaders(t *testing.T) {
 	requireOpenAICodexProbeHeaders(t, upstream.lastReq.Header)
 	updates := <-updateCalls
 	require.Equal(t, true, updates[openai_compat.ExtraKeyResponsesSupported])
+	svc.ProbeOpenAIAPIKeyResponsesSupport(context.Background(), account.ID)
+	require.Len(t, upstream.requests, 1, "saving the account again must not issue another paid probe")
+	require.Equal(t, 2, repo.claimCalls)
 }
 
 func TestProbeOpenAIAPIKeyResponsesSupportCNProviders(t *testing.T) {
@@ -180,4 +185,42 @@ func TestSelectResponsesProbeModel(t *testing.T) {
 		"model_mapping": map[string]any{"a": "gpt-*"},
 	}}
 	require.Equal(t, openai.DefaultTestModel, selectResponsesProbeModel(acctAllWild))
+}
+
+type responsesProbeClaimRepo struct {
+	*snapshotUpdateAccountRepo
+	claimed    bool
+	claimErr   error
+	claimCalls int
+}
+
+func (r *responsesProbeClaimRepo) ClaimAccountModelProbe(context.Context, int64, string, time.Duration) (bool, error) {
+	r.claimCalls++
+	if r.claimErr != nil || r.claimed {
+		return false, r.claimErr
+	}
+	r.claimed = true
+	return true, nil
+}
+
+func TestResponsesProbeClaimDenialPreservesUnknownOrExistingCapabilities(t *testing.T) {
+	for _, prior := range []any{nil, false, true} {
+		for _, claimErr := range []error{nil, errors.New("database unavailable")} {
+			account := newResponsesProbeAccount(42)
+			account.Extra = map[string]any{}
+			if prior != nil {
+				account.Extra[openai_compat.ExtraKeyResponsesSupported] = prior
+			}
+			updates := make(chan map[string]any, 1)
+			repo := &responsesProbeClaimRepo{snapshotUpdateAccountRepo: &snapshotUpdateAccountRepo{
+				stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}}, updateExtraCalls: updates,
+			}, claimed: true, claimErr: claimErr}
+			// 无请求客户端；拒绝占用必须在付费调用之前返回，也不能凭文本健康猜测协议能力。
+			svc := &AccountTestService{accountRepo: repo, cfg: &config.Config{}}
+			svc.ProbeOpenAIAPIKeyResponsesSupport(context.Background(), account.ID)
+			require.Equal(t, 1, repo.claimCalls)
+			require.Empty(t, updates)
+			require.Equal(t, prior, account.Extra[openai_compat.ExtraKeyResponsesSupported])
+		}
+	}
 }

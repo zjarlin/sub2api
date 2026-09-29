@@ -100,8 +100,11 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	if s != nil {
 		scheduleOllamaCloudUsageActivity(s.deferredService, account)
 	}
-	if s != nil && account != nil && account.Platform == PlatformOpenAI && isUpstreamConcurrencyLimit(statusCode, responseBody) {
-		s.BlockAccountScheduling(account, time.Now().Add(UpstreamConcurrencyCooldown), "upstream_concurrency")
+	if s != nil && account.IsOpenAICompatible() && isUpstreamConcurrencyLimit(statusCode, responseBody) {
+		// 兼容适配器沿用请求内的短等待，不把并发繁忙写成持久化额度封禁。
+		if account.Platform == PlatformOpenAI {
+			s.BlockAccountScheduling(account, time.Now().Add(UpstreamConcurrencyCooldown), "upstream_concurrency")
+		}
 		return false
 	}
 	// Capacity shedding describes this request, not account health. Keep the

@@ -363,6 +363,20 @@ describe('EditAccountModal', () => {
     expect(wrapper.find('[data-testid="builtin-adapter-login"]').exists()).toBe(false)
   })
 
+  it('allows configuring automatic DeepSeek sign-in when adapter credentials already exist', () => {
+    const account = buildAccount()
+    account.platform = 'deepseek_web'
+    account.credentials = { api_protocol: 'chat_completions' }
+    account.credentials_status = { has_api_key: true }
+
+    const wrapper = mountModal(account)
+
+    expect(wrapper.find('[data-testid="builtin-adapter-login"]').exists()).toBe(true)
+    expect(wrapper.find('#deepseek-auto-relogin').exists()).toBe(true)
+    expect((wrapper.get('#deepseek-login-password').element as HTMLInputElement).value).toBe('')
+    wrapper.unmount()
+  })
+
   it('preserves the Doubao adapter credentials and enables both protocols when editing', async () => {
     const account = buildAccount()
     account.platform = 'doubao'

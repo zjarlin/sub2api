@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"sub2api/builtinlogin"
 )
@@ -21,22 +22,30 @@ type proofOfWork interface {
 }
 
 type adapter struct {
-	key          string
-	stateFile    string
-	upstream     *upstreamClient
-	pow          proofOfWork
-	mu           sync.RWMutex
-	accounts     []webCredential
-	next         atomic.Uint64
-	slots        chan struct{}
-	loginBrowser loginBrowser
+	key             string
+	stateFile       string
+	upstream        *upstreamClient
+	pow             proofOfWork
+	mu              sync.RWMutex
+	accounts        []webCredential
+	next            atomic.Uint64
+	slots           chan struct{}
+	loginBrowser    loginBrowser
+	refreshMu       sync.Mutex
+	refreshes       map[string]*credentialRefresh
+	refreshFailures map[string]refreshFailure
+	refreshTimeout  time.Duration
 }
 
 func newAdapter(key, stateFile string, upstream *upstreamClient, pow proofOfWork) (*adapter, error) {
 	if strings.TrimSpace(key) == "" || upstream == nil || pow == nil {
 		return nil, errors.New("DeepSeek adapter key, upstream and PoW solver are required")
 	}
-	a := &adapter{key: key, stateFile: stateFile, upstream: upstream, pow: pow, slots: make(chan struct{}, 4)}
+	a := &adapter{
+		key: key, stateFile: stateFile, upstream: upstream, pow: pow, slots: make(chan struct{}, 4),
+		refreshes: make(map[string]*credentialRefresh), refreshFailures: make(map[string]refreshFailure),
+		refreshTimeout: 90 * time.Second,
+	}
 	data, err := os.ReadFile(stateFile)
 	if errors.Is(err, os.ErrNotExist) {
 		return a, nil
@@ -104,6 +113,9 @@ func (a *adapter) beginLogin(ctx context.Context, rawOptions json.RawMessage) (*
 	if (options.Email == "") != (options.Password == "") || len(options.Email) > 320 || len(options.Password) > 4096 {
 		return nil, errors.New("DeepSeek email and password must be provided together")
 	}
+	if options.AutoRelogin && options.Email == "" {
+		return nil, errors.New("DeepSeek automatic sign-in requires email and password")
+	}
 	session, err := a.loginBrowser.Start(ctx, options)
 	if err != nil {
 		return nil, err
@@ -126,13 +138,13 @@ func (a *adapter) beginLogin(ctx context.Context, rawOptions json.RawMessage) (*
 			if !ready {
 				return nil, builtinlogin.ErrPending
 			}
-			return a.importCredential(ctx, credential)
+			return a.importCredential(ctx, credential, options)
 		},
 		Close: session.Close,
 	}, nil
 }
 
-func (a *adapter) importCredential(ctx context.Context, imported webCredential) (*builtinlogin.Account, error) {
+func (a *adapter) importCredential(ctx context.Context, imported webCredential, options browserLoginOptions) (*builtinlogin.Account, error) {
 	imported.Token = strings.TrimSpace(strings.TrimPrefix(imported.Token, "Bearer "))
 	imported.DeviceID = strings.TrimSpace(imported.DeviceID)
 	if imported.Token == "" || imported.DeviceID == "" || len(imported.Token) > 16<<10 || len(imported.DeviceID) > 4096 {
@@ -141,6 +153,18 @@ func (a *adapter) importCredential(ctx context.Context, imported webCredential) 
 	verified, err := a.upstream.verify(ctx, imported)
 	if err != nil {
 		return nil, &builtinlogin.PublicError{Status: 400, Message: "DeepSeek could not verify this browser session"}
+	}
+	verified.ReloginCredentials = ""
+	if options.AutoRelogin {
+		// 上游可能只返回脱敏邮箱；独立浏览器已使用输入密码登录，后续续登再核对 UID。
+		unmaskedEmail := verified.Email != "" && !strings.ContainsRune(verified.Email, '*')
+		if options.Email == "" || options.Password == "" || (unmaskedEmail && !strings.EqualFold(options.Email, verified.Email)) {
+			return nil, &builtinlogin.PublicError{Status: 400, Message: "DeepSeek browser account does not match the supplied email"}
+		}
+		verified.ReloginCredentials, err = a.encryptLogin(verified.UID, options)
+		if err != nil {
+			return nil, err
+		}
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -163,7 +187,8 @@ func (a *adapter) importCredential(ctx context.Context, imported webCredential) 
 		return nil, err
 	}
 	a.accounts = accounts
-	return &builtinlogin.Account{UID: verified.UID, Nickname: verified.Email}, nil
+	autoRelogin := verified.ReloginCredentials != ""
+	return &builtinlogin.Account{UID: verified.UID, Nickname: verified.Email, AutoRelogin: &autoRelogin}, nil
 }
 
 type apiError struct {

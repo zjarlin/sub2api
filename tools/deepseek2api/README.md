@@ -6,10 +6,22 @@
 
 ## 登录
 
-在「添加账号」中选择 DeepSeek 网页版，打开官方登录页，完成登录后导入浏览器的
-Bearer token 和该账号对应的 `device_id`。适配器验证 `/users/current` 和
-`/users/auth_token/check_device` 后，将凭据保存在 `DEEPSEEK_WEB_STATE_FILE`。
-每个 DeepSeek 账号应使用自己的真实浏览器设备指纹。
+在「添加账号」或编辑账号时选择 DeepSeek 网页版，输入邮箱和密码。适配器使用独立
+Chromium 登录官方网页，获取 Bearer token 和该浏览器的 `device_id`，再验证
+`/users/current` 和 `/users/auth_token/check_device`，将凭据保存在
+`DEEPSEEK_WEB_STATE_FILE`。网页要求验证时，可查看登录页面并按提示重新登录。
+
+勾选「失效后自动重新登录」后，只有登录验证成功才会保存邮箱和密码。密码和登录邮箱
+使用 AES-GCM 加密，密钥由 `DEEPSEEK_WEB_ADAPTER_KEY` 派生，密文绑定账号 UID；
+状态文件权限为 `0600`。接口只返回开关状态，不返回密码或密文。更换适配器密钥后，
+需要重新登录才能恢复自动登录。取消勾选并成功登录，会删除该账号已保存的密码。
+
+对话遇到上游 HTTP 401 或 `40003` 鉴权错误时，会使用已保存的账号密码重新登录，
+验证 UID 与原账号一致，再原子保存新 token 和设备信息，并重试当前对话一次。
+同一账号的并发请求共用一次登录；自动登录最多等待 90 秒，失败后暂停重试 1 分钟。
+额度、限流和其他错误不会触发重新登录。验证码、密码错误等无法自动完成的情况会返回
+HTTP 503 `deepseek_relogin_failed`，提示在账号设置中重新登录，避免暂时的登录失败
+将 Sub2API 账号永久停用。旧账号未保存密码时返回 HTTP 401 `deepseek_login_required`。
 
 DeepSeek 目前没有向第三方适配器提供 OAuth2 授权码回调接口，因此此流程是
 **网页登录后的会话导入**，不是 OAuth2 授权。浏览器同源限制也不允许本系统

@@ -23,12 +23,14 @@ import (
 type fallbackTestUpstream struct {
 	service.HTTPUpstream
 	models        []string
+	bodies        [][]byte
 	status        int
 	errorResponse string
 }
 
 func (u *fallbackTestUpstream) Do(req *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
 	body, _ := io.ReadAll(req.Body)
+	u.bodies = append(u.bodies, body)
 	model := gjson.GetBytes(body, "model").String()
 	u.models = append(u.models, model)
 	status := http.StatusOK
@@ -156,16 +158,81 @@ func TestFallbackToolsReplayableClientTools(t *testing.T) {
 		`[{"type":"custom","name":"apply_patch","format":{"type":"grammar","syntax":"lark","definition":"start: /.+/"}}]`,
 		`[{"type":"namespace","name":"functions","tools":[{"type":"function","name":"exec"},{"type":"custom","name":"apply_patch"}]}]`,
 		`[{"type":"tool_search","execution":"client"}]`,
+		`[{"type":"web_search"}]`,
+		`[{"type":"web_search_preview_2025_03_11"}]`,
+		`[{"type":"namespace","name":"search","tools":[{"type":"web_search_preview"}]}]`,
 	} {
 		require.True(t, fallbackToolsReplayable(gjson.Parse(body)))
 	}
 	for _, body := range []string{
-		`[{"type":"web_search"}]`,
+		`[{"type":"file_search","vector_store_ids":["vs_private"]}]`,
 		`[{"type":"namespace","name":"hosted","tools":[{"type":"code_interpreter"}]}]`,
 		`[{"type":"custom","name":"apply_patch"},{"type":"file_search"}]`,
 		`[{"type":"tool_search","execution":"server"}]`,
 		`[{"type":"tool_search"}]`,
 	} {
 		require.False(t, fallbackToolsReplayable(gjson.Parse(body)))
+	}
+}
+
+func TestModelFallbackBlockedReasonPreservesUpstreamError(t *testing.T) {
+	for _, tc := range []struct{ body, reason string }{
+		{`{"previous_response_id":"private-response-id"}`, "previous_response_id"},
+		{`{"conversation":"private-conversation-id"}`, "conversation"},
+		{`{"input":[{"type":"reasoning","encrypted_content":"private-ciphertext"}]}`, "nonportable_input"},
+		{`{"tools":[{"type":"file_search","vector_store_ids":["vs_private"]}]}`, "hosted_tools"},
+		{`{"input":[{"type":"web_search_call","id":"private-item-id","status":"completed"}],"tools":[{"type":"web_search"}]}`, "hosted_tool_state"},
+	} {
+		t.Run(tc.reason, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/responses", nil)
+			service.SetOpsUpstreamError(c, 429, "upstream busy", "original detail")
+			h := &OpenAIGatewayHandler{gatewayService: &service.OpenAIGatewayService{}}
+			key := &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}}
+			_, ok := h.nextModelFallback(c, key, "glm-5.3", []byte(tc.body), false)
+			require.False(t, ok)
+			require.Equal(t, 429, c.GetInt(service.OpsUpstreamStatusCodeKey))
+			require.Equal(t, "upstream busy", c.GetString(service.OpsUpstreamErrorMessageKey))
+			events := c.MustGet(service.OpsUpstreamErrorsKey).([]*service.OpsUpstreamErrorEvent)
+			require.Len(t, events, 1)
+			require.Equal(t, tc.reason, events[0].Reason)
+			encoded, err := json.Marshal(events)
+			require.NoError(t, err)
+			require.NotContains(t, string(encoded), "private-")
+		})
+	}
+}
+
+func TestModelFallbackReplayDistinguishesDeclarationsFromHostedState(t *testing.T) {
+	key := &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}}
+	for _, body := range []string{
+		`{"conversation":null,"input":"continue","tools":[{"type":"web_search"}]}`,
+		`{"input":[{"type":"reasoning","summary":[],"encrypted_content":null},{"type":"function_call","name":"shell","call_id":"call_1","arguments":"{}"},{"type":"function_call_output","call_id":"call_1","output":"ok"}],"tools":[{"type":"web_search_preview"},{"type":"function","name":"shell"}]}`,
+		`{"input":[{"type":"function_call_output","call_id":"call_1","output":{"type":"web_search_call","business_data":true}}]}`,
+		`{"input":[{"type":"additional_tools","tools":[{"type":"web_search_preview_2025_03_11"}]}]}`,
+	} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodPost, "/responses", nil)
+		require.Empty(t, modelFallbackReplayBlockReason(c, key, "glm-5.3", []byte(body)), body)
+	}
+	for _, itemType := range []string{"web_search_call", "file_search_call", "code_interpreter_call", "image_generation_call", "mcp_call", "mcp_approval_response", "mcp_approval_request", "mcp_list_tools"} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodPost, "/responses", nil)
+		body := []byte(fmt.Sprintf(`{"input":[{"type":%q,"id":"private-item-id"}],"tools":[{"type":"web_search"}]}`, itemType))
+		require.Equal(t, "hosted_tool_state", modelFallbackReplayBlockReason(c, key, "glm-5.3", body))
+	}
+}
+
+func TestModelFallbackAdditionalToolsReplayUsesEffectiveDeclarations(t *testing.T) {
+	key := &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}}
+	for _, tools := range []string{
+		`[{"type":"file_search","vector_store_ids":["vs_private"]}]`,
+		`[{"type":"namespace","name":"hosted","tools":[{"type":"code_interpreter","container":"private"}]}]`,
+		`[{"type":"web_search"},{"type":"mcp","server_url":"https://private.example"}]`,
+	} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest(http.MethodPost, "/responses", nil)
+		body := []byte(fmt.Sprintf(`{"tools":[{"type":"web_search"}],"input":[{"type":"additional_tools","tools":[{"type":"function","name":"shell"}]},{"type":"additional_tools","tools":%s}]}`, tools))
+		require.Equal(t, "hosted_tools", modelFallbackReplayBlockReason(c, key, "glm-5.3", body))
 	}
 }

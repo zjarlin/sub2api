@@ -22,9 +22,10 @@ type BuiltinLoginResult struct {
 	Status    string `json:"status"`
 	ExpiresAt int64  `json:"expires_at"`
 	Account   *struct {
-		UID      string `json:"uid"`
-		ModelID  string `json:"model_id,omitempty"`
-		Nickname string `json:"nickname,omitempty"`
+		UID         string `json:"uid"`
+		ModelID     string `json:"model_id,omitempty"`
+		Nickname    string `json:"nickname,omitempty"`
+		AutoRelogin *bool  `json:"auto_relogin,omitempty"`
 	} `json:"account,omitempty"`
 }
 
@@ -34,10 +35,11 @@ type BuiltinLoginView struct {
 }
 
 type BuiltinLoginOptions struct {
-	Email    string `json:"email,omitempty"`
-	Password string `json:"password,omitempty"`
-	Plan     string `json:"plan,omitempty"`
-	Provider string `json:"provider,omitempty"`
+	Email       string `json:"email,omitempty"`
+	Password    string `json:"password,omitempty"`
+	Plan        string `json:"plan,omitempty"`
+	Provider    string `json:"provider,omitempty"`
+	AutoRelogin bool   `json:"auto_relogin,omitempty"`
 }
 
 // BuiltinAdapterLogin 只连接部署配置指定的内部服务，不接受浏览器提供的目标地址或密钥。
@@ -71,7 +73,7 @@ func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action
 	} else if action != "start" {
 		return nil, infraerrors.BadRequest("INVALID_LOGIN_SESSION", "Login session is required")
 	}
-	payload := map[string]string{"callback_url": callback}
+	payload := map[string]any{"callback_url": callback}
 	if len(options) > 0 && action == "start" && platform == PlatformZcode {
 		option := options[0]
 		if (option.Plan != "" && option.Plan != "coding-plan" && option.Plan != "start-plan") || (option.Provider != "" && option.Provider != "zai" && option.Provider != "bigmodel") {
@@ -90,6 +92,9 @@ func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action
 			return nil, infraerrors.BadRequest(code, message)
 		}
 		payload["email"], payload["password"] = strings.TrimSpace(options[0].Email), options[0].Password
+		if platform == PlatformDeepseekWeb {
+			payload["auto_relogin"] = options[0].AutoRelogin
+		}
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

@@ -7,7 +7,7 @@ export interface BuiltinLoginSession {
   mode: 'callback' | 'poll'
   status: 'pending' | 'completed' | 'cancelled'
   expires_at: number
-  account?: { uid: string; nickname?: string; model_id?: string }
+  account?: { uid: string; nickname?: string; model_id?: string; auto_relogin?: boolean }
 }
 
 const path = (platform: BuiltinLoginPlatform) => `/admin/builtin-adapters/${platform}/login-sessions`
@@ -22,9 +22,13 @@ export interface PasswordLoginOptions {
   password: string
 }
 
+export interface DeepseekLoginOptions extends PasswordLoginOptions {
+  auto_relogin: boolean
+}
+
 export type ArenaLoginOptions = PasswordLoginOptions
 
-export async function startBuiltinLogin(platform: BuiltinLoginPlatform, signal?: AbortSignal, options?: ZcodeLoginOptions | PasswordLoginOptions) {
+export async function startBuiltinLogin(platform: BuiltinLoginPlatform, signal?: AbortSignal, options?: ZcodeLoginOptions | PasswordLoginOptions | DeepseekLoginOptions) {
   const hasOptions = platform === 'zcode' || platform === 'arena' || platform === 'deepseek_web'
   const { data } = await apiClient.post<BuiltinLoginSession>(path(platform), hasOptions ? options ?? {} : {}, { signal, timeout: 50000 })
   return data

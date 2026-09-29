@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -147,4 +148,35 @@ func TestArenaWebLoginUsesInternalCredentials(t *testing.T) {
 	require.Equal(t, server.URL+"/v1", credentials["base_url"])
 	require.Equal(t, "internal-arena", credentials["api_key"])
 	require.NoError(t, validateBuiltinChatCredentials(PlatformArena, AccountTypeAPIKey, credentials))
+}
+
+func TestDeepseekWebLoginAutoReloginOptionsAndSanitizedStatus(t *testing.T) {
+	for _, enabled := range []bool{true, false} {
+		t.Run(fmt.Sprint(enabled), func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]any
+				require.NoError(t, json.NewDecoder(r.Body).Decode(&body))
+				require.Equal(t, enabled, body["auto_relogin"])
+				require.Equal(t, "user@example.com", body["email"])
+				require.Equal(t, "private-password", body["password"])
+				_ = json.NewEncoder(w).Encode(map[string]any{
+					"session_id": strings.Repeat("e", 64), "status": "completed", "mode": "poll",
+					"account": map[string]any{"uid": "user", "auto_relogin": enabled, "password": "private-password", "token": "private-token"},
+				})
+			}))
+			defer server.Close()
+			SetBuiltinAdapterConfig(&config.BuiltinAdapterConfig{Enabled: true, DeepseekWebURL: server.URL, DeepseekWebKey: "private-key"})
+			t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
+			result, err := BuiltinAdapterLogin(context.Background(), PlatformDeepseekWeb, "admin:7", "", "start", "", BuiltinLoginOptions{
+				Email: " user@example.com ", Password: "private-password", AutoRelogin: enabled,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, result.Account.AutoRelogin)
+			require.Equal(t, enabled, *result.Account.AutoRelogin)
+			raw, err := json.Marshal(result)
+			require.NoError(t, err)
+			require.Contains(t, string(raw), fmt.Sprintf(`"auto_relogin":%t`, enabled))
+			require.NotContains(t, string(raw), "private-")
+		})
+	}
 }

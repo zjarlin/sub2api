@@ -21,6 +21,10 @@ const accountTestSuppressCompletionContextKey = "account_test_suppress_completio
 // adaptive CN-provider account. Zhipu uses Chat Completions plus Anthropic;
 // DeepSeek and Kimi additionally use their native Responses endpoints.
 func (s *AccountTestService) testCNProviderAdaptiveConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
+	// 周期探测只调用首选原生协议，完整多协议诊断由管理员显式触发。
+	if c.GetBool(accountTestHealthProbeContextKey) {
+		return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt)
+	}
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
 		testModelID = openai.DefaultTestModel
@@ -67,6 +71,7 @@ func (s *AccountTestService) testCNProviderAdaptiveAnthropicConnection(c *gin.Co
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create adaptive Anthropic test payload")
 	}
+	applyAccountHealthProbePayload(c, account, payload, APIProtocolAnthropic)
 	payloadBytes, _ := json.Marshal(payload)
 
 	s.sendEvent(c, TestEvent{Type: "status", Text: "正在通过原生 /v1/messages 测试自适应 Anthropic 端点"})
@@ -162,6 +167,7 @@ func (s *AccountTestService) testCNProviderAdaptiveResponsesConnection(c *gin.Co
 	apiURL := buildOpenAIResponsesURLForPlatform(account.Platform, baseURL)
 
 	payload := createOpenAITestPayload(testModelID, false)
+	applyAccountHealthProbePayload(c, account, payload, APIProtocolResponses)
 	// DeepSeek / Kimi native Responses endpoints are stateless and do not need
 	// the OpenAI probe's synthetic instructions.
 	delete(payload, "instructions")
@@ -250,6 +256,7 @@ func (s *AccountTestService) testCNProviderAnthropicConnection(c *gin.Context, a
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create Anthropic test payload")
 	}
+	applyAccountHealthProbePayload(c, account, payload, APIProtocolAnthropic)
 	payloadBytes, _ := json.Marshal(payload)
 
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})

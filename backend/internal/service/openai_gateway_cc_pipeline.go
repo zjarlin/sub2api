@@ -277,8 +277,8 @@ type ccStreamScanState struct {
 }
 
 // scanCCStream 驱动两条 CC 回退路径共享的 SSE 读循环：提取 data 行、在 [DONE]
-// 哨兵处停止、保留最新 usage、记录首 token 时延，并把每个解析成功的 chunk 交给
-// emit 回调做各自的协议转换与写出。读错误按既有约定过滤 context 取消类噪声后
+// 哨兵处停止、保留最新 usage、记录首 token 时延，空前导在真实输出或正常终态
+// 后才交给 emit 转换与写出。读错误按既有约定过滤 context 取消类噪声后
 // 记入 Warn 日志。
 func (s *OpenAIGatewayService) scanCCStream(
 	c *gin.Context,
@@ -290,6 +290,17 @@ func (s *OpenAIGatewayService) scanCCStream(
 ) ccStreamScanState {
 	var st ccStreamScanState
 	var eventName string
+	var pending []*apicompat.ChatCompletionsChunk
+	var pendingBytes int
+	outputStarted := false
+	sawFinish := false
+	flushPending := func() {
+		for _, chunk := range pending {
+			emit(chunk)
+		}
+		pending = nil
+		pendingBytes = 0
+	}
 
 	scanner := s.newUpstreamSSEScanner(resp.Body)
 	for scanner.Scan() {
@@ -336,9 +347,29 @@ func (s *OpenAIGatewayService) scanCCStream(
 			)
 			continue
 		}
-		if st.FirstTokenMs == nil && !isOpenAIChatUsageOnlyStreamChunk(payload) && chatChunkStartsResponsesOutput(&chunk) {
+		startsOutput := chatChunkStartsResponsesOutput(&chunk)
+		if st.FirstTokenMs == nil && !isOpenAIChatUsageOnlyStreamChunk(payload) && startsOutput {
 			ms := int(time.Since(startTime).Milliseconds())
 			st.FirstTokenMs = &ms
+		}
+		for _, choice := range chunk.Choices {
+			if choice.FinishReason != nil && *choice.FinishReason != "" {
+				sawFinish = true
+			}
+		}
+		// role、空 delta 和用量前导都不能提交响应，否则后续 429 无法透明降级。
+		if !outputStarted && !startsOutput {
+			if pendingBytes+len(payload) > ccStreamPreambleMaxBytes || len(pending) >= ccStreamPreambleMaxItems {
+				st.Err = ccStreamPreambleLimitError()
+				break
+			}
+			pending = append(pending, &chunk)
+			pendingBytes += len(payload)
+			continue
+		}
+		if !outputStarted {
+			outputStarted = true
+			flushPending()
 		}
 		emit(&chunk)
 	}
@@ -351,6 +382,13 @@ func (s *OpenAIGatewayService) scanCCStream(
 			)
 		}
 		st.Err = err
+	}
+	if st.Err == nil && !outputStarted && !st.SawDone && !sawFinish {
+		st.Err = parseCCStreamError(`{"error":{"code":"upstream_stream_incomplete","type":"upstream_error","message":"Upstream Chat Completions stream ended before output without a finish reason or [DONE]; please retry"}}`, "error")
+	}
+	// 空但正常结束的流仍保留原协议事件顺序；错误或截断时丢弃未提交前导。
+	if st.Err == nil && (st.SawDone || sawFinish) {
+		flushPending()
 	}
 	return st
 }

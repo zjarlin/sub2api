@@ -31,6 +31,7 @@ func (h *AccountHandler) BuiltinAdapterLogin(c *gin.Context) {
 		Password    string `json:"password"`
 		Plan        string `json:"plan"`
 		Provider    string `json:"provider"`
+		AutoRelogin bool   `json:"auto_relogin"`
 	}
 	action := c.Param("action")
 	if c.Param("session") == "" {
@@ -53,7 +54,7 @@ func (h *AccountHandler) BuiltinAdapterLogin(c *gin.Context) {
 			return
 		}
 	}
-	options := service.BuiltinLoginOptions{Plan: body.Plan, Provider: body.Provider, Email: body.Email, Password: body.Password}
+	options := service.BuiltinLoginOptions{Plan: body.Plan, Provider: body.Provider, Email: body.Email, Password: body.Password, AutoRelogin: body.AutoRelogin}
 	result, err := service.BuiltinAdapterLogin(c.Request.Context(), c.Param("platform"), owner, c.Param("session"), action, body.CallbackURL, options)
 	if err != nil {
 		response.ErrorFrom(c, err)

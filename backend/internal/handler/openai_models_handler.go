@@ -48,7 +48,13 @@ func writeOpenAIModelsError(c *gin.Context, status int, errorType, message strin
 
 func writeOpenAIModelsResponse(c *gin.Context, manifest *service.OpenAIModelsResponse) {
 	if c.GetBool(autoModelListingKey) && !manifest.NotModified {
-		body, err := appendAutoModelToCatalog(manifest.Body)
+		modelIDs := []string{autoModelID}
+		if value, ok := c.Get(autoModelListingModelsKey); ok {
+			if listed, ok := value.([]string); ok && len(listed) > 0 {
+				modelIDs = listed
+			}
+		}
+		body, err := appendVirtualModelsToCatalog(manifest.Body, modelIDs)
 		if err != nil {
 			writeOpenAIModelsError(c, http.StatusBadGateway, "upstream_error", "Invalid model catalogue")
 			return
@@ -87,6 +93,10 @@ func writeOpenAIModelsResponse(c *gin.Context, manifest *service.OpenAIModelsRes
 }
 
 func appendAutoModelToCatalog(body []byte) ([]byte, error) {
+	return appendVirtualModelsToCatalog(body, []string{autoModelID})
+}
+
+func appendVirtualModelsToCatalog(body []byte, modelIDs []string) ([]byte, error) {
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		return nil, err
@@ -102,53 +112,66 @@ func appendAutoModelToCatalog(body []byte) ([]byte, error) {
 	if err := json.Unmarshal(envelope[field], &entries); err != nil {
 		return nil, err
 	}
+	entryIndex := make(map[string]int, len(entries))
 	for i, raw := range entries {
 		var item map[string]json.RawMessage
 		if json.Unmarshal(raw, &item) != nil {
 			continue
 		}
 		var id string
-		if json.Unmarshal(item[idField], &id) == nil && id == autoModelID {
-			// 固定目录可能已含旧版 Auto；同步网关能力并保留其余上游字段。
+		if json.Unmarshal(item[idField], &id) == nil {
+			entryIndex[id] = i
+		}
+	}
+	for _, modelID := range modelIDs {
+		if !isVirtualModelID(modelID) {
+			continue
+		}
+		var item map[string]json.RawMessage
+		index, exists := entryIndex[modelID]
+		if exists {
+			if json.Unmarshal(entries[index], &item) != nil {
+				return nil, fmt.Errorf("invalid virtual model entry")
+			}
+		} else if field == "models" {
+			generated, err := service.BuildCodexModelsManifest([]string{modelID})
+			if err != nil {
+				return nil, err
+			}
+			var catalog struct {
+				Models []json.RawMessage `json:"models"`
+			}
+			if err := json.Unmarshal(generated, &catalog); err != nil || len(catalog.Models) != 1 || json.Unmarshal(catalog.Models[0], &item) != nil {
+				return nil, fmt.Errorf("invalid virtual model manifest")
+			}
+		} else {
+			item = map[string]json.RawMessage{
+				"id":       json.RawMessage(fmt.Sprintf("%q", modelID)),
+				"object":   json.RawMessage(`"model"`),
+				"type":     json.RawMessage(`"model"`),
+				"created":  json.RawMessage(`1704067200`),
+				"owned_by": json.RawMessage(`"sub2api"`),
+			}
+		}
+		if modelID == askModelID {
+			item["display_name"] = json.RawMessage(`"Ask"`)
+			item["input_modalities"] = json.RawMessage(`["text"]`)
+		} else {
+			item["display_name"] = json.RawMessage(`"Auto"`)
 			item["input_modalities"] = json.RawMessage(`["text","image"]`)
-			item["supports_image_detail_original"] = json.RawMessage(`false`)
-			encoded, err := json.Marshal(item)
-			if err != nil {
-				return nil, err
-			}
-			entries[i] = encoded
-			envelope[field], err = json.Marshal(entries)
-			if err != nil {
-				return nil, err
-			}
-			return json.Marshal(envelope)
 		}
-	}
-	var item []byte
-	if field == "models" {
-		generated, err := service.BuildCodexModelsManifest([]string{autoModelID})
+		item["supports_image_detail_original"] = json.RawMessage(`false`)
+		encoded, err := json.Marshal(item)
 		if err != nil {
 			return nil, err
 		}
-		var catalog struct {
-			Models []json.RawMessage `json:"models"`
-		}
-		if err := json.Unmarshal(generated, &catalog); err != nil || len(catalog.Models) != 1 {
-			return nil, fmt.Errorf("invalid auto model manifest")
-		}
-		item = catalog.Models[0]
-	} else {
-		var err error
-		item, err = json.Marshal(map[string]any{
-			"id": autoModelID, "object": "model", "type": "model", "created": 1704067200,
-			"owned_by": "sub2api", "display_name": "Auto",
-			"input_modalities": []string{"text", "image"}, "supports_image_detail_original": false,
-		})
-		if err != nil {
-			return nil, err
+		if exists {
+			entries[index] = encoded
+		} else {
+			entryIndex[modelID] = len(entries)
+			entries = append(entries, encoded)
 		}
 	}
-	entries = append(entries, item)
 	encoded, err := json.Marshal(entries)
 	if err != nil {
 		return nil, err

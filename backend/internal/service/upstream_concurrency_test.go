@@ -72,3 +72,33 @@ func TestUpstreamConcurrencyServiceBusyDoesNotTripHealthBreaker(t *testing.T) {
 	require.False(t, eligible)
 	require.False(t, isUpstreamConcurrencyLimit(503, []byte(`{"error":{"message":"Service temporarily unavailable"}}`)))
 }
+
+func TestZcodeConcurrencyClassification(t *testing.T) {
+	for _, body := range []string{
+		`{"code":3009,"msg":"model concurrency limit exceeded"}`,
+		`{"error":{"message":"{\"code\":3009,\"msg\":\"model concurrency limit exceeded\"}","type":"Too Many Requests"}}`,
+		`{"response":{"error":{"message":"{\"code\":3009,\"msg\":\"model concurrency limit exceeded\"}"}}}`,
+	} {
+		t.Run(body, func(t *testing.T) {
+			svc := &OpenAIGatewayService{}
+			account := &Account{ID: 861, Platform: PlatformZcode, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true}
+			require.False(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, 429, nil, []byte(body)))
+			require.True(t, account.Schedulable)
+			require.Nil(t, account.RateLimitResetAt)
+			failure := svc.newOpenAIAccountFailoverError(account, 429, nil, []byte(body), "", false, true)
+			require.True(t, failure.IsUpstreamConcurrencyLimited())
+			require.True(t, failure.ShouldRetryNextAccount())
+			require.False(t, failure.RetryableOnSameAccount)
+			_, _, healthFailure := classifyOpenAIAPIKeyHealthFailure(failure)
+			require.False(t, healthFailure)
+		})
+	}
+	for _, body := range []string{
+		`{"code":3009,"msg":"quota exceeded"}`,
+		`{"code":3010,"msg":"model concurrency limit exceeded"}`,
+		`{"input":{"code":3009,"msg":"model concurrency limit exceeded"}}`,
+		`{"error":{"message":"echo: {\"code\":3009,\"msg\":\"model concurrency limit exceeded\"}"}}`,
+	} {
+		require.False(t, isUpstreamConcurrencyLimit(429, []byte(body)), body)
+	}
+}

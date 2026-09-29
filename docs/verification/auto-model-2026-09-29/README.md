@@ -1,5 +1,7 @@
 # Auto 与 331 模型验证记录
 
+部署状态更新（2026-09-29 22:14，Asia/Shanghai）：Auto 恢复修复及七天持久化探测已上线至两个健康副本，镜像 `sub2api:auto-recovery-20260929`，迁移 253 已应用。详见 [本轮恢复与发布](auto-recovery.md)、[七天探测](health-probe-policy.md)。下文全量探测数字与各轮“未部署”记录保留当时状态，不代表全部 331 项当前都可用。
+
 验证对象：本机 `/root/.codex` 配置的 Sub2API 网关。用户提到的 macOS `/Users/zjarlin/.codex/model-sync/catalog.json` 不在本机；此处以同网关实时返回的 331 项目录为准。未部署本次源码变更。
 
 ## 降级与周期的实际含义
@@ -50,3 +52,7 @@ Buddy 目录同步默认每 5 分钟执行一次，但同步不调用推理接�
 - PostgreSQL 单模型恢复集成验证通过；已有六处无关测试编译问题使用临时 overlay，限制见 [probe-recovery-validation.md](probe-recovery-validation.md)。
 
 Auto 在所有候选失败、超时/取消或请求不可重放时必须返回真实错误；本次不能承诺全供应商故障时仍成功。
+
+## 后续：节约探测额度
+
+按后续要求，自动探测增加持久化七天占用、最小请求和客户端七天结果复用；详见 [七天冷却与低成本健康探测](health-probe-policy.md)。后续已随本轮恢复版本上线；没有新增供应商推理验证请求。

@@ -28,7 +28,7 @@
 
       <!-- API Key fields (only for apikey type) -->
       <BuiltinAdapterLogin
-        v-if="show && (account.platform === 'arena' || account.platform === 'traework' || account.platform === 'workbuddy' || account.platform === 'vibex' || account.platform === 'zcode' || account.platform === 'deepseek_web') && (account.platform === 'arena' || !hasBuiltinAdapterCredentials)"
+        v-if="show && (account.platform === 'arena' || account.platform === 'traework' || account.platform === 'workbuddy' || account.platform === 'vibex' || account.platform === 'zcode' || account.platform === 'deepseek_web') && (account.platform === 'arena' || account.platform === 'deepseek_web' || !hasBuiltinAdapterCredentials)"
         :key="account.id"
         :platform="account.platform"
         @authorized="handleArenaAuthorized"

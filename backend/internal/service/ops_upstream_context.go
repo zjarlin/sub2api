@@ -499,6 +499,14 @@ func RecordOpsModelFallback(c *gin.Context, from, to, tier string) {
 	})
 }
 
+// 将重放阻断原因保留在原请求错误链中，不覆盖最后一次上游错误。
+func RecordOpsModelFallbackBlocked(c *gin.Context, model, reason string) {
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		Kind: "model_fallback_blocked", Stage: string(GatewayFailureStageRouting),
+		Model: model, Reason: reason, Message: "Model fallback blocked by request replay constraints",
+	})
+}
+
 func appendOpsUpstreamError(c *gin.Context, ev OpsUpstreamErrorEvent) {
 	if c == nil {
 		return

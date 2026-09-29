@@ -69,9 +69,10 @@ type TestEvent struct {
 	Error    string `json:"error,omitempty"`
 }
 
-// AccountTestOptions carries optional media for admin connectivity tests.
-// ImageDataURL / AudioDataURL are full data URLs (data:<mime>;base64,...).
+// AccountTestOptions 提供周期健康模式和管理员媒体测试所需的完整 data URL。
 type AccountTestOptions struct {
+	// HealthProbe 启用周期探测的最小文本请求与严格健康记录。
+	HealthProbe  bool
 	ImageDataURL string
 	AudioDataURL string
 }
@@ -386,6 +387,9 @@ func createTestPayload(modelID string) (map[string]any, error) {
 func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int64, modelID string, prompt string, mode string, opts ...AccountTestOptions) (testErr error) {
 	ctx := c.Request.Context()
 	testOpts := firstAccountTestOptions(opts)
+	if testOpts.HealthProbe {
+		c.Set(accountTestHealthProbeContextKey, true)
+	}
 
 	// Get account
 	account, err := s.accountRepo.GetByID(ctx, accountID)
@@ -408,6 +412,9 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	defer func() {
+		if testOpts.HealthProbe && testErr == nil && !c.GetBool(accountTestHealthTextContextKey) {
+			testErr = s.sendErrorAndEnd(c, "Health probe returned no generated text")
+		}
 		model := strings.TrimSpace(modelID)
 		if model == "" {
 			return
@@ -637,6 +644,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
 	}
+	applyAccountHealthProbePayload(c, account, payload, APIProtocolAnthropic)
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event
@@ -715,6 +723,7 @@ func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Con
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
 	}
+	applyAccountHealthProbePayload(c, account, payload, APIProtocolAnthropic)
 	payloadBytes, _ := json.Marshal(payload)
 	vertexBody, err := buildVertexAnthropicRequestBody(payloadBytes)
 	if err != nil {
@@ -799,6 +808,7 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 		"max_tokens":  256,
 		"temperature": 1,
 	}
+	applyAccountHealthProbePayload(c, account, bedrockPayload, APIProtocolAnthropic)
 	bedrockBody, _ := json.Marshal(bedrockPayload)
 
 	// Use non-streaming endpoint (response is standard Claude JSON)
@@ -861,6 +871,9 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 		text = result.Content[0].Text
 	}
 	if text == "" {
+		if c.GetBool(accountTestHealthProbeContextKey) {
+			return s.sendErrorAndEnd(c, "Health probe returned no generated text")
+		}
 		text = "(empty response)"
 	}
 
@@ -884,6 +897,14 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	// account model mapping. Native remote compaction v2 rides the ordinary
 	// /responses wire and does NOT apply the legacy compact-only mapping
 	// (post-#5641 semantics: compact_model_mapping is /responses/compact-only).
+	// The picker may send a provider-qualified model ID while account mappings
+	// are keyed by the shared canonical ID. Resolve the global alias first so
+	// the test path uses the same mapping as gateway scheduling.
+	if s.settingService != nil {
+		if aliases, aliasErr := s.settingService.GetModelAliasPolicy(ctx); aliasErr == nil {
+			testModelID = aliases.Canonicalize(testModelID)
+		}
+	}
 	testModelID = account.GetMappedModel(testModelID)
 	if mode == AccountTestModeCompact {
 		return s.testOpenAICompactConnection(c, account, testModelID)
@@ -964,6 +985,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		upstreamTestModelID = normalizeOpenAIModelForUpstream(credentialAccount, testModelID)
 	}
 	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth)
+	applyAccountHealthProbePayload(c, credentialAccount, payload, APIProtocolResponses)
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event once. A task-invalid Agent Identity response may
@@ -1336,6 +1358,15 @@ func (s *AccountTestService) testGrokResponsesConnection(c *gin.Context, ctx con
 	payloadBytes, err := buildGrokQuotaProbeBody(testModelID)
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create Grok test payload")
+	}
+	if c.GetBool(accountTestHealthProbeContextKey) {
+		// 原生 CLI 代理沿用最小字段集，短提示约束输出，不加入额外预算参数。
+		payloadBytes, err = json.Marshal(map[string]any{
+			"model": testModelID, "input": accountHealthProbePrompt, "stream": true,
+		})
+		if err != nil {
+			return s.sendErrorAndEnd(c, "Failed to create Grok health probe payload")
+		}
 	}
 
 	if !agentIdentityTaskRecoveryWasTried(ctx) {
@@ -2213,6 +2244,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	c.Writer.Flush()
 
 	payload := createOpenAIChatCompletionsTestPayload(testModelID, prompt)
+	applyAccountHealthProbePayload(c, account, payload, APIProtocolChatCompletions)
 	payloadBytes, _ := json.Marshal(payload)
 
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
@@ -2490,7 +2522,7 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 	c.Writer.Flush()
 
 	// Create test payload (Gemini format)
-	payload := createGeminiTestPayload(testModelID, prompt)
+	payload := createGeminiTestPayload(testModelID, prompt, c.GetBool(accountTestHealthProbeContextKey))
 
 	// Build request based on account type
 	var req *http.Request
@@ -2569,7 +2601,7 @@ func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, ac
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
 
 	// 调用 AntigravityGatewayService.TestConnection（复用协议转换逻辑）
-	result, err := s.antigravityGatewayService.TestConnection(ctx, account, testModelID)
+	result, err := s.antigravityGatewayService.TestConnection(ctx, account, testModelID, c.GetBool(accountTestHealthProbeContextKey))
 	if err != nil {
 		return s.sendErrorAndEnd(c, err.Error())
 	}
@@ -2719,7 +2751,7 @@ func (s *AccountTestService) buildCodeAssistRequest(ctx context.Context, accessT
 
 // createGeminiTestPayload creates a minimal test payload for Gemini API.
 // Image models use the image-generation path so the frontend can preview the returned image.
-func createGeminiTestPayload(modelID string, prompt string) []byte {
+func createGeminiTestPayload(modelID string, prompt string, healthProbe ...bool) []byte {
 	if isImageGenerationModel(modelID) {
 		imagePrompt := strings.TrimSpace(prompt)
 		if imagePrompt == "" {
@@ -2766,6 +2798,11 @@ func createGeminiTestPayload(modelID string, prompt string) []byte {
 			},
 		},
 	}
+	if len(healthProbe) > 0 && healthProbe[0] {
+		payload["contents"] = []map[string]any{{"role": "user", "parts": []map[string]any{{"text": accountHealthProbePrompt}}}}
+		delete(payload, "systemInstruction")
+		payload["generationConfig"] = map[string]any{"maxOutputTokens": accountHealthProbeMaxTokens}
+	}
 	bytes, _ := json.Marshal(payload)
 	return bytes
 }
@@ -2778,6 +2815,9 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
+				if c.GetBool(accountTestHealthProbeContextKey) {
+					return s.sendErrorAndEnd(c, "Health probe stream ended before completion")
+				}
 				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 				return nil
 			}
@@ -2813,6 +2853,9 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 					if parts, ok := content["parts"].([]any); ok {
 						for _, part := range parts {
 							if partMap, ok := part.(map[string]any); ok {
+								if thought, _ := partMap["thought"].(bool); thought && c.GetBool(accountTestHealthProbeContextKey) {
+									continue
+								}
 								if text, ok := partMap["text"].(string); ok && text != "" {
 									s.sendEvent(c, TestEvent{Type: "content", Text: text})
 								}
@@ -2906,6 +2949,9 @@ func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader)
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
+				if c.GetBool(accountTestHealthProbeContextKey) {
+					return s.sendErrorAndEnd(c, "Health probe stream ended before completion")
+				}
 				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 				return nil
 			}
@@ -3347,6 +3393,9 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 }
 
 func (s *AccountTestService) sendEvent(c *gin.Context, event TestEvent) {
+	if event.Type == "content" && strings.TrimSpace(event.Text) != "" {
+		c.Set(accountTestHealthTextContextKey, true)
+	}
 	if event.Type == "test_complete" {
 		if suppress, ok := c.Get(accountTestSuppressCompletionContextKey); ok {
 			if suppressCompletion, _ := suppress.(bool); suppressCompletion {
@@ -3369,16 +3418,15 @@ func (s *AccountTestService) sendErrorAndEnd(c *gin.Context, errorMsg string) er
 	return fmt.Errorf("%s", errorMsg)
 }
 
-// RunTestBackground executes an account test in-memory (no real HTTP client),
-// capturing SSE output via httptest.NewRecorder, then parses the result.
-func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID int64, modelID string) (*ScheduledTestResult, error) {
+// RunTestBackground 在内存中捕获测试 SSE；测试本身仍会向上游发送真实请求。
+func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID int64, modelID string, opts ...AccountTestOptions) (*ScheduledTestResult, error) {
 	startedAt := time.Now()
 
 	w := httptest.NewRecorder()
 	ginCtx, _ := gin.CreateTestContext(w)
 	ginCtx.Request = (&http.Request{}).WithContext(ctx)
 
-	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, "", AccountTestModeDefault)
+	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, "", AccountTestModeDefault, opts...)
 
 	finishedAt := time.Now()
 	body := w.Body.String()

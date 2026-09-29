@@ -22,24 +22,35 @@ const capacityBody = `{"error":{"code":"TOO_MANY_REQUESTS","type":"billing_error
 
 type capacityUpstream struct {
 	service.HTTPUpstream
-	ids []int64
+	ids       []int64
+	errorBody string
 }
 
 func (u *capacityUpstream) Do(req *http.Request, _ string, id int64, _ int) (*http.Response, error) {
 	u.ids = append(u.ids, id)
 	if len(u.ids) == 1 {
-		return &http.Response{StatusCode: 429, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(capacityBody))}, nil
+		body := u.errorBody
+		if body == "" {
+			body = capacityBody
+		}
+		return &http.Response{StatusCode: 429, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(body))}, nil
 	}
 	return (&fallbackTestUpstream{}).Do(req, "", id, 1)
 }
 
 func TestUpstreamConcurrencyHTTPRecovery(t *testing.T) {
-	for _, endpoint := range []string{"responses", "chat/completions"} {
+	for _, tc := range []struct{ endpoint, platform, body string }{
+		{"responses", service.PlatformOpenAI, capacityBody},
+		{"chat/completions", service.PlatformOpenAI, capacityBody},
+		{"responses", service.PlatformZcode, `{"error":{"message":"{\"code\":3009,\"msg\":\"model concurrency limit exceeded\"}"}}`},
+		{"chat/completions", service.PlatformZcode, `{"error":{"message":"{\"code\":3009,\"msg\":\"model concurrency limit exceeded\"}"}}`},
+	} {
+		endpoint := tc.endpoint
 		for _, count := range []int{1, 2} {
-			t.Run(fmt.Sprintf("%s/%d_accounts", endpoint, count), func(t *testing.T) {
+			t.Run(fmt.Sprintf("%s/%s/%d_accounts", tc.platform, endpoint, count), func(t *testing.T) {
 				repo := &grokCredentialHandlerRepo{}
 				for id := 1; id <= count; id++ {
-					repo.accounts = append(repo.accounts, service.Account{ID: int64(id), Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+					repo.accounts = append(repo.accounts, service.Account{ID: int64(id), Platform: tc.platform, Type: service.AccountTypeAPIKey,
 						Status: service.StatusActive, Schedulable: true, Concurrency: 1, Priority: id,
 						Credentials: map[string]any{"api_key": "test-only", "base_url": "https://upstream.example", "model_mapping": map[string]any{"deepseek-v4.1-flash": "deepseek-v4.1-flash"}},
 						Extra:       map[string]any{"openai_passthrough": true}})
@@ -48,7 +59,7 @@ func TestUpstreamConcurrencyHTTPRecovery(t *testing.T) {
 				cfg.Gateway.MaxAccountSwitches = 10
 				billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 				defer billing.Stop()
-				upstream := &capacityUpstream{}
+				upstream := &capacityUpstream{errorBody: tc.body}
 				gateway := service.NewOpenAIGatewayService(repo, nil, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, billing, upstream, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil)
 				cache := &concurrencyCacheMock{acquireUserSlotFn: func(context.Context, int64, int, string) (bool, error) { return true, nil }, acquireAccountSlotFn: func(context.Context, int64, int, string) (bool, error) { return true, nil }}
 				h := NewOpenAIGatewayHandler(gateway, service.NewConcurrencyService(cache), billing, &service.APIKeyService{}, nil, nil, nil, nil, cfg)

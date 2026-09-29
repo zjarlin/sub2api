@@ -106,8 +106,8 @@ func TestModelTierFallbackEndToEnd(t *testing.T) {
 	}
 }
 
-func TestModelFallbackRejectsHostedTools(t *testing.T) {
-	for _, body := range []string{`{"tools":[{"type":"web_search"}]}`, `{"tools":[{"type":"namespace","tools":[{"type":"computer"}]}]}`} {
+func TestModelFallbackRejectsResourceBoundAndUnsupportedTools(t *testing.T) {
+	for _, body := range []string{`{"tools":[{"type":"file_search","vector_store_ids":["vs_private"]}]}`, `{"tools":[{"type":"namespace","tools":[{"type":"computer"}]}]}`} {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 		c.Request = httptest.NewRequest(http.MethodPost, "/responses", nil)
 		h := &OpenAIGatewayHandler{gatewayService: &service.OpenAIGatewayService{}}

@@ -39,10 +39,16 @@ type AccountModelHealthState struct {
 	Model         string
 	LastSuccessAt *time.Time
 	LastFailureAt *time.Time
+	LastProbeAt   *time.Time
 }
 
 // AccountModelHealthStateReader supplies the latest probe outcome per pair to
 // the bounded background health checker.
 type AccountModelHealthStateReader interface {
 	ListAccountModelHealthStates(ctx context.Context) ([]AccountModelHealthState, error)
+}
+
+// 原子登记付费探测尝试；未取得占用时禁止发送请求，尝试本身不代表健康。
+type AccountModelProbeClaimer interface {
+	ClaimAccountModelProbe(ctx context.Context, accountID int64, model string, interval time.Duration) (bool, error)
 }

@@ -165,6 +165,33 @@ func TestAccountTestService_OpenAIOAuthTestNormalizesGPT56Alias(t *testing.T) {
 	require.Equal(t, "gpt-5.6-sol", gjson.GetBytes(body, "model").String())
 }
 
+func TestAccountTestService_OpenAIAccountTestCanonicalizesGlobalAliasBeforeMapping(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := newTestContext()
+
+	resp := newJSONResponse(http.StatusOK, "")
+	resp.Body = io.NopCloser(strings.NewReader("data: {\"type\":\"response.completed\"}\n\n"))
+	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
+	settingsRepo := newMockSettingRepo()
+	settingsRepo.data[SettingKeyModelAliases] = `{"groups":[{"canonical":"deepseek-v4.1-flash","aliases":["cline-pass/deepseek-v4.1-flash"]}]}`
+	svc := &AccountTestService{
+		httpUpstream:   upstream,
+		settingService: NewSettingService(settingsRepo, nil),
+	}
+	account := &Account{
+		ID:          91,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeOAuth,
+		Concurrency: 1,
+		Credentials: map[string]any{"access_token": "test-token", "model_mapping": map[string]any{"deepseek-v4.1-flash": "cline-pass/deepseek-v4.1-flash"}},
+	}
+
+	require.NoError(t, svc.testOpenAIAccountConnection(ctx, account, "cline-pass/deepseek-v4.1-flash", "", ""))
+	body, err := io.ReadAll(upstream.requests[0].Body)
+	require.NoError(t, err)
+	require.Equal(t, "cline-pass/deepseek-v4.1-flash", gjson.GetBytes(body, "model").String())
+}
+
 func TestAccountTestService_OpenAIShadowUsesParentCredentialsAndShadowModel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, recorder := newTestContext()

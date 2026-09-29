@@ -205,7 +205,28 @@ func (d *deepSeekDelta) apply(raw json.RawMessage, prefix string) error {
 }
 
 func readDeepSeekStream(body io.Reader) (string, string, int, error) {
-	scanner := bufio.NewScanner(body)
+	reader := bufio.NewReader(body)
+	for {
+		prefix, err := reader.Peek(1)
+		if err != nil {
+			break
+		}
+		if !strings.ContainsRune(" \t\r\n", rune(prefix[0])) {
+			break
+		}
+		_, _ = reader.ReadByte()
+	}
+	if prefix, _ := reader.Peek(1); len(prefix) > 0 && prefix[0] == '{' {
+		var envelope upstreamEnvelope
+		if err := json.NewDecoder(io.LimitReader(reader, 2<<20)).Decode(&envelope); err != nil {
+			return "", "", 0, fmt.Errorf("decode DeepSeek response: %w", err)
+		}
+		if err := envelope.responseError(); err != nil {
+			return "", "", 0, err
+		}
+		return "", "", 0, errors.New("DeepSeek returned JSON instead of a completion stream")
+	}
+	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 64<<10), 8<<20)
 	delta := &deepSeekDelta{operation: "SET"}
 	for scanner.Scan() {
@@ -216,6 +237,12 @@ func readDeepSeekStream(body io.Reader) (string, string, int, error) {
 		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if data == "" || data == "[DONE]" {
 			continue
+		}
+		var envelope upstreamEnvelope
+		if json.Unmarshal([]byte(data), &envelope) == nil {
+			if err := envelope.responseError(); err != nil {
+				return "", "", 0, err
+			}
 		}
 		if err := delta.apply(json.RawMessage(data), ""); err != nil {
 			return "", "", 0, fmt.Errorf("decode DeepSeek event: %w", err)
@@ -245,6 +272,56 @@ func newCompletionID() string {
 	return "chatcmpl-" + hex.EncodeToString(random[:])
 }
 
+type chatResult struct {
+	content     string
+	reasoning   string
+	totalTokens int
+}
+
+func (a *adapter) completeChat(ctx context.Context, credential webCredential, prompt string, thinking bool) (chatResult, error) {
+	sessionID, err := a.upstream.createSession(ctx, credential)
+	if err != nil {
+		return chatResult{}, err
+	}
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		a.upstream.deleteSession(cleanupCtx, credential, sessionID)
+	}()
+	challenge, err := a.upstream.challenge(ctx, credential)
+	if err != nil {
+		return chatResult{}, err
+	}
+	pow, err := a.pow.solveChallenge(ctx, challenge)
+	if err != nil {
+		return chatResult{}, err
+	}
+	resp, err := a.upstream.completion(ctx, credential, sessionID, prompt, "default", thinking, pow)
+	if err != nil {
+		return chatResult{}, err
+	}
+	defer resp.Body.Close()
+	content, reasoning, totalTokens, err := readDeepSeekStream(resp.Body)
+	return chatResult{content: content, reasoning: reasoning, totalTokens: totalTokens}, err
+}
+
+func (a *adapter) chatWithRelogin(ctx context.Context, credential webCredential, prompt string, thinking bool) (chatResult, error) {
+	result, err := a.completeChat(ctx, credential, prompt, thinking)
+	if !errors.Is(err, errDeepSeekUnauthorized) {
+		return result, err
+	}
+	refreshed, err := a.renewCredential(ctx, credential)
+	if err != nil {
+		return chatResult{}, err
+	}
+	// 上游鉴权失败时只重试一次，且此时还没有向调用方输出正文或 SSE。
+	result, err = a.completeChat(ctx, refreshed, prompt, thinking)
+	if errors.Is(err, errDeepSeekUnauthorized) {
+		return chatResult{}, a.rejectRefreshedCredential(refreshed)
+	}
+	return result, err
+}
+
 func (a *adapter) chat(w http.ResponseWriter, r *http.Request) {
 	req, prompt, thinking, err := parseChat(w, r)
 	if err != nil {
@@ -261,33 +338,7 @@ func (a *adapter) chat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	sessionID, err := a.upstream.createSession(r.Context(), credential)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	defer func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		a.upstream.deleteSession(ctx, credential, sessionID)
-	}()
-	challenge, err := a.upstream.challenge(r.Context(), credential)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	pow, err := a.pow.solveChallenge(r.Context(), challenge)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	resp, err := a.upstream.completion(r.Context(), credential, sessionID, prompt, "default", thinking, pow)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	defer resp.Body.Close()
-	content, reasoning, totalTokens, err := readDeepSeekStream(resp.Body)
+	result, err := a.chatWithRelogin(r.Context(), credential, prompt, thinking)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -303,12 +354,12 @@ func (a *adapter) chat(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	usage := map[string]int{"prompt_tokens": promptTokens, "completion_tokens": totalTokens, "total_tokens": promptTokens + totalTokens}
-	message := map[string]any{"role": "assistant", "content": content}
-	delta := map[string]any{"role": "assistant", "content": content}
-	if reasoning != "" {
-		message["reasoning_content"] = reasoning
-		delta["reasoning_content"] = reasoning
+	usage := map[string]int{"prompt_tokens": promptTokens, "completion_tokens": result.totalTokens, "total_tokens": promptTokens + result.totalTokens}
+	message := map[string]any{"role": "assistant", "content": result.content}
+	delta := map[string]any{"role": "assistant", "content": result.content}
+	if result.reasoning != "" {
+		message["reasoning_content"] = result.reasoning
+		delta["reasoning_content"] = result.reasoning
 	}
 	if !req.Stream {
 		writeJSON(w, 200, map[string]any{

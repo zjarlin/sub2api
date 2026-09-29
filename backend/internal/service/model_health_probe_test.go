@@ -1,6 +1,8 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -67,11 +69,9 @@ func TestModelProbeIntervalUsesAccountConfigurationAndRealTraffic(t *testing.T) 
 		collectModelHealthProbeCandidates([]Account{account}, states, now, 10),
 		"probe cadence is tracked per model, so an untested catalog entry is due")
 	account.Extra[ModelHealthProbeIntervalKey] = float64(24)
-	require.Equal(t, []modelHealthProbeCandidate{
-		{AccountID: 198, Model: "never-called"},
-		{AccountID: 198, Model: "agnes-3.0-flash", CheckedAt: &last},
-	},
-		collectModelHealthProbeCandidates([]Account{account}, states, now, 10))
+	require.Equal(t, []modelHealthProbeCandidate{{AccountID: 198, Model: "never-called"}},
+		collectModelHealthProbeCandidates([]Account{account}, states, now, 10),
+		"short account settings cannot bypass the minimum seven-day cooldown")
 	account.Extra[ModelHealthProbeIntervalKey] = float64(-1)
 	require.Equal(t, 168*time.Hour, account.ModelProbePolicy().Interval)
 }
@@ -160,5 +160,87 @@ func modelHealthProbeAccount(id int64, models []string) Account {
 			SyncedAt: time.Now().UTC().Format(time.RFC3339),
 			Models:   models,
 		}},
+	}
+}
+
+func TestModelProbePolicyEnforcesSevenDayFloorAndPreservesLongerSettings(t *testing.T) {
+	for _, tc := range []struct {
+		value any
+		want  time.Duration
+	}{
+		{nil, 168 * time.Hour}, {24, 168 * time.Hour}, {float64(167), 168 * time.Hour},
+		{168, 168 * time.Hour}, {float64(336), 336 * time.Hour}, {8760, 8760 * time.Hour},
+		{-1, 168 * time.Hour}, {float64(8761), 168 * time.Hour},
+	} {
+		t.Run(fmt.Sprint(tc.value), func(t *testing.T) {
+			account := modelHealthProbeAccount(1, nil)
+			account.Extra[ModelHealthProbeIntervalKey] = tc.value
+			require.Equal(t, tc.want, account.ModelProbePolicy().Interval)
+		})
+	}
+}
+
+func TestModelHealthProbeWaitsFullIntervalAfterSuccessFailureOrInterruptedAttempt(t *testing.T) {
+	checked := time.Date(2026, 9, 29, 0, 0, 0, 0, time.UTC)
+	for _, outcome := range []string{"success", "failure", "interrupted"} {
+		for _, hours := range []int{24, 168, 336} {
+			t.Run(fmt.Sprintf("%s/%d", outcome, hours), func(t *testing.T) {
+				account := modelHealthProbeAccount(1, []string{"model"})
+				account.Extra[ModelHealthProbeIntervalKey] = hours
+				state := AccountModelHealthState{AccountID: 1, Model: "model"}
+				switch outcome {
+				case "success":
+					state.LastSuccessAt = &checked
+				case "failure":
+					state.LastFailureAt = &checked
+				case "interrupted":
+					state.LastProbeAt = &checked
+				}
+				interval := account.ModelProbePolicy().Interval
+				require.Empty(t, collectModelHealthProbeCandidates([]Account{account}, []AccountModelHealthState{state}, checked.Add(interval-time.Nanosecond), 10))
+				require.Len(t, collectModelHealthProbeCandidates([]Account{account}, []AccountModelHealthState{state}, checked.Add(interval), 10), 1)
+			})
+		}
+	}
+}
+
+func TestModelHealthProbeCatalogAliasesShareAttemptCooldown(t *testing.T) {
+	now := time.Now()
+	recent := now.Add(-time.Hour)
+	account := modelHealthProbeAccount(9, []string{"alias", "actual", "ACTUAL"})
+	account.Credentials = map[string]any{"model_mapping": map[string]any{"alias": "actual"}}
+	require.Len(t, collectModelHealthProbeCandidates([]Account{account}, nil, now, 10), 1)
+	require.Empty(t, collectModelHealthProbeCandidates([]Account{account}, []AccountModelHealthState{{
+		AccountID: 9, Model: "actual", LastProbeAt: &recent,
+	}}, now, 10))
+}
+
+type modelProbeClaimGateRepo struct {
+	AccountRepository
+	account Account
+	claims  int
+	err     error
+}
+
+func (r *modelProbeClaimGateRepo) ListAccountModelHealthStates(context.Context) ([]AccountModelHealthState, error) {
+	return nil, nil
+}
+
+func (r *modelProbeClaimGateRepo) GetByID(context.Context, int64) (*Account, error) {
+	return &r.account, nil
+}
+
+func (r *modelProbeClaimGateRepo) ClaimAccountModelProbe(context.Context, int64, string, time.Duration) (bool, error) {
+	r.claims++
+	return false, r.err
+}
+
+func TestModelHealthProbeDoesNotSendWithoutDurableClaim(t *testing.T) {
+	for _, claimErr := range []error{nil, errors.New("database unavailable")} {
+		repo := &modelProbeClaimGateRepo{account: modelHealthProbeAccount(1, []string{"model"}), err: claimErr}
+		svc := &UpstreamModelRefreshService{accountRepo: repo}
+		// 没有请求执行器；占用失败或已被其他实例占用必须在发送请求前返回。
+		svc.probeDueModels(context.Background(), []Account{repo.account})
+		require.Equal(t, 1, repo.claims)
 	}
 }

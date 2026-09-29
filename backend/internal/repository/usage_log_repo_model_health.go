@@ -18,6 +18,7 @@ func (r *usageLogRepository) ListModelHealthObservations(
 		FROM account_model_health h
 		JOIN accounts a ON a.id = h.account_id AND a.deleted_at IS NULL
 		WHERE h.model <> ''
+		  AND h.last_success_at IS NOT NULL
 		  AND (h.last_failure_at IS NULL OR h.last_success_at > h.last_failure_at)`
 	args := make([]any, 0, 2)
 	if platform = strings.TrimSpace(platform); platform != "" {

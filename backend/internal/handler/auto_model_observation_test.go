@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -54,10 +55,12 @@ func TestAutoModelObservationStreamPreservesWireAndTracksActualModel(t *testing.
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.RequestID, "125732b5-c9e0-4038-a0a3-05cba6e71e9b"))
 	c.Request.Header.Set("session_id", observationSession)
 	c.Request.Header.Set("X-Codex-Turn-Metadata", `{"turn_id":"turn-1"}`)
 	finish := h.observeAutoModelRoute(c, &service.APIKey{ID: 81}, "model-first")
 	require.Len(t, cache.routes, 1)
+	require.Equal(t, "125732b5-c9e0-4038-a0a3-05cba6e71e9b", cache.routes[0].RequestID)
 	route := c.MustGet(autoRouteObservationKey).(*service.AutoModelRouteObservation)
 	route.AttemptedModels = append(route.AttemptedModels, "model-next")
 	c.Header("Content-Type", "text/event-stream")

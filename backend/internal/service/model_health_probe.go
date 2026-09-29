@@ -30,6 +30,11 @@ func (s *UpstreamModelRefreshService) probeDueModels(parent context.Context, acc
 	if !ok {
 		return
 	}
+	claimer, ok := s.accountRepo.(AccountModelProbeClaimer)
+	if !ok {
+		slog.Warn(modelHealthProbeLogCategory + "_claim_unavailable")
+		return
+	}
 	states, err := reader.ListAccountModelHealthStates(parent)
 	if err != nil {
 		slog.Warn(modelHealthProbeLogCategory+"_state_failed", "error", err)
@@ -55,13 +60,22 @@ func (s *UpstreamModelRefreshService) probeDueModels(parent context.Context, acc
 			defer func() { <-sem }()
 			ctx, cancel := context.WithTimeout(parent, modelHealthProbeTimeout)
 			defer cancel()
-			// Re-read settings after queuing so a just-disabled account is not
-			// tested from the catalog refresh's older account snapshot.
+			// 入队后重新读取配置，避免旧快照继续探测刚被停用的账号。
 			account, err := s.accountRepo.GetByID(ctx, candidate.AccountID)
 			if err != nil || account == nil || !account.IsSchedulable() || !account.allowsAutomaticModelProbe(candidate.Model) {
 				return
 			}
-			result, runErr := s.syncer.RunTestBackground(ctx, candidate.AccountID, candidate.Model)
+			// 先持久化占用，避免多实例并发、重启或结果写入失败造成重复付费。
+			modelKey := observedUnsupportedModelKey(account, candidate.Model)
+			claimed, err := claimer.ClaimAccountModelProbe(ctx, candidate.AccountID, modelKey, account.ModelProbePolicy().Interval)
+			if err != nil {
+				slog.Warn(modelHealthProbeLogCategory+"_claim_failed", "account_id", candidate.AccountID, "model", candidate.Model, "error", err)
+				return
+			}
+			if !claimed || ctx.Err() != nil {
+				return
+			}
+			result, runErr := s.syncer.RunTestBackground(ctx, candidate.AccountID, candidate.Model, AccountTestOptions{HealthProbe: true})
 			if runErr != nil {
 				slog.Warn(modelHealthProbeLogCategory+"_failed", "account_id", candidate.AccountID, "model", candidate.Model, "error", runErr)
 				return
@@ -140,7 +154,8 @@ func collectModelHealthProbeCandidates(
 			if !isTextModelHealthProbeCandidate(model) || !account.allowsAutomaticModelProbe(model) {
 				continue
 			}
-			key := modelHealthProbeKey(account.ID, model)
+			// 映射别名与真实模型共享到期时间，避免同步目录中的别名绕过冷却。
+			key := modelHealthProbeKey(account.ID, observedUnsupportedModelKey(account, model))
 			if seen[key] {
 				continue
 			}
@@ -176,13 +191,13 @@ func collectModelHealthProbeCandidates(
 }
 
 func latestModelHealthCheck(state AccountModelHealthState) *time.Time {
-	if state.LastSuccessAt == nil {
-		return state.LastFailureAt
+	var latest *time.Time
+	for _, checked := range []*time.Time{state.LastSuccessAt, state.LastFailureAt, state.LastProbeAt} {
+		if checked != nil && (latest == nil || checked.After(*latest)) {
+			latest = checked
+		}
 	}
-	if state.LastFailureAt == nil || state.LastSuccessAt.After(*state.LastFailureAt) {
-		return state.LastSuccessAt
-	}
-	return state.LastFailureAt
+	return latest
 }
 
 func modelHealthProbeKey(accountID int64, model string) string {

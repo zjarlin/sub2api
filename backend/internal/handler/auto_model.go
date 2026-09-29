@@ -18,9 +18,11 @@ import (
 )
 
 const (
-	autoModelID             = "auto"
-	autoModelListingKey     = "auto_model_listing"
-	autoModelListingETagKey = "auto_model_listing_etag"
+	autoModelID               = "auto"
+	askModelID                = "ask"
+	autoModelListingKey       = "auto_model_listing"
+	autoModelListingModelsKey = "auto_model_listing_models"
+	autoModelListingETagKey   = "auto_model_listing_etag"
 )
 
 type autoModelRouteCandidate struct {
@@ -30,21 +32,48 @@ type autoModelRouteCandidate struct {
 }
 
 func prependAutoModel(models []string) []string {
-	withAuto := make([]string, 0, len(models)+1)
-	withAuto = append(withAuto, autoModelID)
+	return prependVirtualModels(models, autoModelID, askModelID)
+}
+
+func prependVirtualModels(models []string, virtualModels ...string) []string {
+	result := make([]string, 0, len(models)+len(virtualModels))
+	result = append(result, virtualModels...)
 	for _, model := range models {
-		if model != autoModelID {
-			withAuto = append(withAuto, model)
+		if !isVirtualModelID(model) {
+			result = append(result, model)
 		}
 	}
-	return withAuto
+	return result
+}
+
+func (h *GatewayHandler) availableVirtualModelIDs(ctx context.Context, group *service.Group, models []string) []string {
+	virtualModels := make([]string, 0, 2)
+	if h.autoModelAvailable(ctx, group, models) {
+		virtualModels = append(virtualModels, autoModelID)
+	}
+	if h.askModelAvailable(ctx, group, models) {
+		virtualModels = append(virtualModels, askModelID)
+	}
+	return virtualModels
+}
+
+func (h *GatewayHandler) prependAvailableVirtualModels(ctx context.Context, group *service.Group, models []string) []string {
+	virtualModels := h.availableVirtualModelIDs(ctx, group, models)
+	if len(virtualModels) == 0 {
+		return models
+	}
+	return prependVirtualModels(models, virtualModels...)
+}
+
+func isVirtualModelID(model string) bool {
+	return model == autoModelID || model == askModelID
 }
 
 // 模型名称不决定协议平台；这里只排除决策模型和专用模型。
 func autoModelCandidates(models []string) []string {
 	candidates := make([]string, 0, len(models))
 	for _, model := range service.FilterCodexModelIDsForGroup(models, nil) {
-		if model == autoModelID || !autoModelTextCandidate(model) {
+		if isVirtualModelID(model) || !autoModelTextCandidate(model) {
 			continue
 		}
 		candidates = append(candidates, model)
@@ -78,7 +107,7 @@ func (h *GatewayHandler) autoModelEligibleCandidates(ctx context.Context, group 
 
 func autoModelTextCandidate(model string) bool {
 	platform, _ := service.DetectModelPlatform(model)
-	if model == autoModelID || strings.Contains(model, "*") || service.IsSystemOneDecisionPlatform(platform) {
+	if isVirtualModelID(model) || strings.Contains(model, "*") || service.IsSystemOneDecisionPlatform(platform) {
 		return false
 	}
 	name := strings.ToLower(model)
@@ -107,9 +136,17 @@ func autoModelTextPlatform(platform string) bool {
 }
 
 func (h *GatewayHandler) autoModelAvailable(ctx context.Context, group *service.Group, models []string) bool {
+	return h.virtualModelAvailable(ctx, group, models, autoModelID)
+}
+
+func (h *GatewayHandler) askModelAvailable(ctx context.Context, group *service.Group, models []string) bool {
+	return h.virtualModelAvailable(ctx, group, models, askModelID)
+}
+
+func (h *GatewayHandler) virtualModelAvailable(ctx context.Context, group *service.Group, models []string, virtualModel string) bool {
 	if h == nil || h.gatewayService == nil || group == nil ||
 		(group.Platform != service.PlatformComposite && group.Platform != service.PlatformOpenAI) ||
-		(group.ModelAllowlistEnabled() && !group.ModelAllowlist.Allows(autoModelID)) {
+		(group.ModelAllowlistEnabled() && !group.ModelAllowlist.Allows(virtualModel)) {
 		return false
 	}
 	ctx, err := h.settingService.BindAutoModelRoutingPolicy(ctx)
@@ -150,14 +187,23 @@ func (h *GatewayHandler) PrepareAutoModelListing(c *gin.Context) {
 	if !ok || apiKey == nil || apiKey.Group == nil || apiKey.Group.Platform != service.PlatformOpenAI {
 		return
 	}
-	if model := c.Param("model"); model != "" && model != autoModelID {
+	model := c.Param("model")
+	if model != "" && !isVirtualModelID(model) {
 		return
 	}
 	models := h.autoModelCatalog(c.Request.Context(), apiKey.Group)
-	if !h.autoModelAvailable(c.Request.Context(), apiKey.Group, models) {
+	listed := h.availableVirtualModelIDs(c.Request.Context(), apiKey.Group, models)
+	if model != "" {
+		listed = nil
+		if h.virtualModelAvailable(c.Request.Context(), apiKey.Group, models, model) {
+			listed = []string{model}
+		}
+	}
+	if len(listed) == 0 {
 		return
 	}
 	c.Set(autoModelListingKey, true)
+	c.Set(autoModelListingModelsKey, listed)
 	c.Set(autoModelListingETagKey, c.GetHeader("If-None-Match"))
 	c.Request.Header.Del("If-None-Match")
 }
@@ -185,12 +231,13 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 			return
 		}
 		requestmodel.ResetRequestBody(c.Request, body)
-		if gjson.GetBytes(body, "model").String() != autoModelID {
+		virtualModel := gjson.GetBytes(body, "model").String()
+		if !isVirtualModelID(virtualModel) {
 			c.Next()
 			return
 		}
 		modelNames := requestmodel.FromBodyCandidates(c.FullPath(), c.GetHeader("Content-Type"), body)
-		if len(modelNames) != 1 || modelNames[0] != autoModelID || !gjson.ValidBytes(body) {
+		if len(modelNames) != 1 || modelNames[0] != virtualModel || !gjson.ValidBytes(body) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": "model must have one unambiguous value"}})
 			c.Abort()
 			return
@@ -204,6 +251,11 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 		}
 		ctx = service.WithAutoModelRequestCapabilities(ctx, body)
 		c.Request = c.Request.WithContext(ctx)
+		if virtualModel == askModelID && (service.AutoModelRequestNeedsTools(ctx) || service.AutoModelRequestNeedsImages(ctx)) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "unsupported_request", "message": "ask only supports text conversation requests without tools"}})
+			c.Abort()
+			return
+		}
 		ctx, models, err := h.gatewayService.BindAutoModelInventory(ctx, apiKey.Group.ID)
 		if err != nil {
 			logger.FromContext(ctx).Warn("gateway.auto_model_inventory_unavailable", zap.Error(err))
@@ -220,8 +272,8 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 			return
 		}
 		c.Request = c.Request.WithContext(ctx)
-		if !h.autoModelAvailable(ctx, apiKey.Group, models) {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "scheduling_error", "message": "Auto model routing is unavailable for this group"}})
+		if !h.virtualModelAvailable(ctx, apiKey.Group, models, virtualModel) {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "scheduling_error", "message": virtualModel + " model routing is unavailable for this group"}})
 			c.Abort()
 			return
 		}

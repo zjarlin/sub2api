@@ -6,20 +6,19 @@ import (
 )
 
 const (
-	ModelHealthProbeEnabledKey           = "model_health_probe_enabled"
-	ModelHealthProbeIntervalKey          = "model_health_probe_interval_hours"
-	defaultModelHealthProbeIntervalHours = 168
+	ModelHealthProbeEnabledKey      = "model_health_probe_enabled"
+	ModelHealthProbeIntervalKey     = "model_health_probe_interval_hours"
+	MinimumModelHealthProbeInterval = 7 * 24 * time.Hour
 )
 
-// ModelProbePolicy controls paid, automatic inference tests. Catalog discovery
-// and health observations from real requests do not consume this probe budget.
+// 自动付费探测至少间隔一周；目录发现和真实请求健康记录不额外消耗探测额度。
 type ModelProbePolicy struct {
 	Enabled  bool
 	Interval time.Duration
 }
 
 func (a *Account) ModelProbePolicy() ModelProbePolicy {
-	policy := ModelProbePolicy{Enabled: true, Interval: defaultModelHealthProbeIntervalHours * time.Hour}
+	policy := ModelProbePolicy{Enabled: true, Interval: MinimumModelHealthProbeInterval}
 	if a == nil || isArenaSessionAdapter(a) {
 		policy.Enabled = false
 		return policy
@@ -30,13 +29,13 @@ func (a *Account) ModelProbePolicy() ModelProbePolicy {
 	var hours int
 	switch value := a.Extra[ModelHealthProbeIntervalKey].(type) {
 	case float64:
-		if value >= 24 && value <= 8760 {
+		if value >= MinimumModelHealthProbeInterval.Hours() && value <= 8760 {
 			hours = int(value)
 		}
 	case int:
 		hours = value
 	}
-	if hours >= 24 && hours <= 8760 {
+	if hours >= int(MinimumModelHealthProbeInterval.Hours()) && hours <= 8760 {
 		policy.Interval = time.Duration(hours) * time.Hour
 	}
 	return policy

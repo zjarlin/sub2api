@@ -111,6 +111,17 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		return nil, policyErr
 	}
 	upstreamBody = updatedBody
+	upstreamBody, kimiEffort, normalizeErr := normalizeNVIDIAKimiK3ReasoningEffort(ctx, c, account, upstreamModel, upstreamBody)
+	if normalizeErr != nil {
+		if IsReasoningEffortPolicyDenied(normalizeErr) {
+			MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
+			writeChatCompletionsError(c, http.StatusForbidden, "permission_error", normalizeErr.Error())
+		}
+		return nil, normalizeErr
+	}
+	if kimiEffort != nil {
+		reasoningEffort = kimiEffort
+	}
 	// Keep the final outbound tier separate from the observed response tier so
 	// usage recording can apply the selected credential's response contract.
 	serviceTier := extractOpenAIServiceTierFromBody(upstreamBody)
@@ -307,6 +318,8 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	clientDisconnected := false
 	clientOutputStarted := false
 	pendingLines := make([]string, 0, 8)
+	pendingBytes := 0
+	semanticOutputSeen := false
 	refusalDetector := newOpenAIChatSilentRefusalDetector(requestBodyLen)
 	var terminal openAIRawStreamTerminalState
 	var streamErr *ccStreamError
@@ -316,8 +329,13 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 		if clientDisconnected {
 			return
 		}
-		if !clientOutputStarted && !refusalDetector.ShouldReleaseClientOutput() {
+		if !clientOutputStarted && !semanticOutputSeen {
+			if pendingBytes+len(line)+1 > ccStreamPreambleMaxBytes || len(pendingLines) >= ccStreamPreambleMaxItems {
+				streamErr = ccStreamPreambleLimitError()
+				return
+			}
 			pendingLines = append(pendingLines, line)
+			pendingBytes += len(line) + 1
 			return
 		}
 		if !clientOutputStarted {
@@ -369,17 +387,26 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 				if u := extractCCStreamUsage(payload); u != nil {
 					usage = *u
 				}
-				if firstTokenMs == nil && !usageOnlyChunk {
+				startsOutput := chatPayloadStartsClientOutput(trimmedPayload)
+				semanticOutputSeen = semanticOutputSeen || startsOutput
+				if firstTokenMs == nil && !usageOnlyChunk && startsOutput {
 					elapsed := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &elapsed
 				}
 			}
+		} else if strings.TrimSpace(line) != "" && !strings.HasPrefix(line, ":") &&
+			!strings.HasPrefix(line, "event:") && !strings.HasPrefix(line, "id:") && !strings.HasPrefix(line, "retry:") {
+			// 兼容既有裸 JSON 直转；未知内容一经发送就不可重放。
+			semanticOutputSeen = true
 		}
 		line = applyOllamaCloudRawChatCompletionsSSELine(account, line)
 		line = stripEmptyChatToolCallIdentityFromSSELine(line)
 
 		line = s.replaceModelInSSELine(line, upstreamModel, originalModel)
 		writeLine(line)
+		if streamErr != nil {
+			break
+		}
 		if line == "" {
 			if !clientDisconnected && clientOutputStarted {
 				c.Writer.Flush()

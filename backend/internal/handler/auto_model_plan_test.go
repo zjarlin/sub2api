@@ -128,6 +128,51 @@ func TestAutoModelPlanKeepsProviderAlternativesAndExhaustsFiniteChain(t *testing
 	require.False(t, ok)
 }
 
+func TestSeedAutoModelFallbackPrefersMostSimilarModelID(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	routes := []autoModelRouteCandidate{
+		{model: "glm-5.3", targetPlatform: service.PlatformOpenAI, upstreamModel: "glm-5.3"},
+		{model: "gpt-5.5", targetPlatform: service.PlatformOpenAI, upstreamModel: "gpt-5.5"},
+		{model: "glm-4.7", targetPlatform: service.PlatformOpenAI, upstreamModel: "glm-4.7"},
+		{model: "glm-5.2", targetPlatform: service.PlatformOpenAI, upstreamModel: "glm-5.2"},
+		{model: "glm-5.3", targetPlatform: service.PlatformZhipu, upstreamModel: "glm-5.3"},
+		{model: "vendor/glm-5.3", targetPlatform: service.PlatformOpenAI, upstreamModel: "vendor/glm-5.3"},
+	}
+
+	seedAutoModelFallback(c, "glm-5.3", routes)
+	state, found := c.Get(modelFallbackStateKey)
+	require.True(t, found)
+	fallback, ok := state.(*modelFallbackState)
+	require.True(t, ok)
+	require.Equal(t, []string{
+		"glm-5.3", // 同一公开模型的备用平台先于任何跨模型降级。
+		"vendor/glm-5.3",
+		"glm-5.2",
+		"glm-4.7",
+		"gpt-5.5",
+	}, []string{
+		fallback.candidates[0].Model,
+		fallback.candidates[1].Model,
+		fallback.candidates[2].Model,
+		fallback.candidates[3].Model,
+		fallback.candidates[4].Model,
+	})
+	require.Equal(t, []string{
+		service.PlatformZhipu,
+		service.PlatformOpenAI,
+		service.PlatformOpenAI,
+		service.PlatformOpenAI,
+		service.PlatformOpenAI,
+	}, []string{
+		fallback.targets[0].platform,
+		fallback.targets[1].platform,
+		fallback.targets[2].platform,
+		fallback.targets[3].platform,
+		fallback.targets[4].platform,
+	})
+}
+
 func TestAutoModelInventoryUsesSnapshotAndKeepsAutoListedWithoutSuccessfulModels(t *testing.T) {
 	accounts := autoModelTestAccounts()[:1]
 	accounts[0].Credentials = map[string]any{}
@@ -214,4 +259,116 @@ func TestAutoModelPlanUsesCatalogScopeAndExplainsDiscoveryOnlyModels(t *testing.
 			require.Equal(t, 2, repo.reads, "a snapshot cannot leak into a different group")
 		})
 	}
+}
+
+// 决策适配器保存的共享目录不构成文本模型来源，离线文本账号仍应显示排除原因。
+func TestAutoModelPlanExcludesDecisionPlatformCatalogPollution(t *testing.T) {
+	for _, groupPlatform := range []string{service.PlatformOpenAI, service.PlatformComposite} {
+		t.Run(groupPlatform, func(t *testing.T) {
+			textModel := "deepseek-v4.1-flash"
+			alias := "cn:deepseek-v4.1-flash"
+			accounts := []service.Account{
+				{ID: 1, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true,
+					Credentials: map[string]any{"model_mapping": map[string]any{textModel: textModel}}},
+				{ID: 2, Platform: service.PlatformWorkbuddy, Type: service.AccountTypeAPIKey, Status: service.StatusError, Schedulable: false,
+					Credentials: map[string]any{"model_mapping": map[string]any{alias: textModel}}},
+				{ID: 3, Platform: service.PlatformJev, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true,
+					Credentials: map[string]any{"api_protocol": service.APIProtocolSystemOne, "model_mapping": map[string]any{service.DefaultJevModel: service.DefaultJevModel}}},
+				{ID: 4, Platform: service.PlatformLaya, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true,
+					Credentials: map[string]any{"api_protocol": service.APIProtocolSystemOne, "model_mapping": map[string]any{service.DefaultLayaModel: service.DefaultLayaModel}}},
+				{ID: 5, Platform: service.PlatformAnthropic, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true,
+					Credentials: map[string]any{"model_mapping": map[string]any{"claude-unroutable": "claude-unroutable"}}},
+			}
+			for i := 2; i < 4; i++ {
+				accounts[i].SetUpstreamSupportedModelsSnapshot(service.UpstreamSupportedModelsSnapshot{
+					Source: "upstream", SyncedAt: time.Now().UTC().Format(time.RFC3339),
+					Models: []string{textModel, alias, "decision-only-chat"},
+				})
+			}
+			h := newAutoModelTestHandler(accounts)
+			ctx := service.WithModelAliases(context.Background(), &service.ModelAliasPolicy{Groups: []service.ModelAliasGroup{{Canonical: textModel, Aliases: []string{alias}}}})
+			ctx, err := h.settingService.BindAutoModelRoutingPolicy(ctx)
+			require.NoError(t, err)
+			ctx, models, err := h.gatewayService.BindAutoModelInventory(ctx, 71)
+			require.NoError(t, err)
+			require.NotContains(t, models, "decision-only-chat")
+			require.ElementsMatch(t, []string{service.PlatformOpenAI, service.PlatformWorkbuddy}, service.AutoModelInventoryPlatforms(ctx, textModel))
+
+			group := &service.Group{ID: 71, Platform: groupPlatform}
+			routes, plan, err := h.autoModelPlan(ctx, group, nil, "/v1/responses", []byte(`{"input":"hello"}`), models)
+			require.NoError(t, err)
+			require.Equal(t, []autoModelRouteCandidate{{model: textModel, targetPlatform: service.PlatformOpenAI, upstreamModel: textModel}}, routes)
+			var offline, unsupported bool
+			decisions := make(map[string]string)
+			for _, entry := range plan {
+				require.NotEqual(t, "decision-only-chat", entry.Model)
+				if entry.Model == textModel {
+					require.False(t, service.IsSystemOneDecisionPlatform(entry.Platform), entry)
+				}
+				if entry.Model == textModel && entry.Platform == service.PlatformWorkbuddy {
+					offline = true
+					require.False(t, entry.Eligible)
+					require.Equal(t, "no_compatible_account", entry.Reason)
+				}
+				if entry.Model == "claude-unroutable" {
+					unsupported = true
+					require.False(t, entry.Eligible)
+					require.Equal(t, "protocol_not_supported", entry.Reason)
+				}
+				if service.IsSystemOneDecisionPlatform(entry.Platform) {
+					require.False(t, entry.Eligible)
+					decisions[entry.Model] = entry.Reason
+				}
+			}
+			require.True(t, offline)
+			require.True(t, unsupported)
+			require.Equal(t, map[string]string{service.DefaultJevModel: "not_text_generation", service.DefaultLayaModel: "not_text_generation"}, decisions)
+			for _, platform := range []string{service.PlatformJev, service.PlatformLaya} {
+				ordinary := h.gatewayService.GetAvailableModels(context.Background(), &group.ID, platform)
+				if platform == service.PlatformJev {
+					require.Equal(t, []string{service.DefaultJevModel}, ordinary)
+				} else {
+					require.Equal(t, []string{service.DefaultLayaModel}, ordinary)
+				}
+			}
+		})
+	}
+}
+
+func TestAutoModelPlanFiltersDecisionOnlyDiscoveryAndExplicitRoutes(t *testing.T) {
+	accounts := autoModelTestAccounts()[:1]
+	accounts = append(accounts, service.Account{
+		ID: 3, Platform: service.PlatformJev, Status: service.StatusActive, Schedulable: true,
+		Credentials: map[string]any{"api_protocol": service.APIProtocolSystemOne},
+	})
+	accounts[1].SetUpstreamSupportedModelsSnapshot(service.UpstreamSupportedModelsSnapshot{
+		Source: "upstream", SyncedAt: time.Now().UTC().Format(time.RFC3339),
+		Models: []string{service.DefaultJevModel, "decision-only-chat", "valid-public-alias"},
+	})
+	h := newAutoModelTestHandler(accounts)
+	ctx, err := h.settingService.BindAutoModelRoutingPolicy(context.Background())
+	require.NoError(t, err)
+	ctx, models, err := h.gatewayService.BindAutoModelInventory(ctx, 71)
+	require.NoError(t, err)
+	group := &service.Group{ID: 71, Platform: service.PlatformComposite}
+	resolver := service.NewCompositeRouteResolver(autoCostCompositeRouteRepo{routes: []service.CompositeModelRoute{
+		{PublicModel: "misleading-text-alias", UpstreamModel: service.DefaultJevModel, TargetPlatform: service.PlatformJev,
+			MatchType: service.CompositeRouteMatchExact, Endpoint: service.CompositeRouteEndpointAny, Enabled: true},
+		{PublicModel: "valid-public-alias", UpstreamModel: "gpt-5.5", TargetPlatform: service.PlatformOpenAI,
+			MatchType: service.CompositeRouteMatchExact, Endpoint: service.CompositeRouteEndpointAny, Enabled: true},
+	}})
+	routes, plan, err := h.autoModelPlan(ctx, group, resolver, "/v1/responses", []byte(`{"input":"hello"}`), models)
+	require.NoError(t, err)
+	require.Len(t, routes, 2)
+	entries := make(map[string]service.AutoModelCandidate)
+	for _, entry := range plan {
+		entries[entry.Model] = entry
+	}
+	require.NotContains(t, entries, "decision-only-chat", "the shared discovery catalog must not reintroduce a source_missing candidate")
+	require.NotContains(t, entries, "misleading-text-alias", "an explicit route cannot turn a decision platform into a text source")
+	require.True(t, entries["valid-public-alias"].Eligible, "a valid explicit text source must take precedence over an unrelated polluted snapshot")
+	require.Equal(t, "not_text_generation", entries[service.DefaultJevModel].Reason)
+	ordinary := h.gatewayService.GetAvailableModels(ctx, &group.ID, service.PlatformJev)
+	require.Contains(t, ordinary, service.DefaultJevModel, "the original decision catalog remains available in the same context")
+	require.Contains(t, ordinary, "decision-only-chat", "the Auto projection must not mutate the saved account snapshot")
 }

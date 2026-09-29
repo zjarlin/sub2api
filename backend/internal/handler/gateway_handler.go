@@ -1143,11 +1143,17 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 
 	if platform == service.PlatformComposite {
 		availableModels := h.compositeAvailableModels(c.Request.Context(), groupID)
-		if apiKey != nil && h.autoModelAvailable(c.Request.Context(), apiKey.Group, availableModels) {
-			availableModels = prependAutoModel(availableModels)
-			// 合成分组也在最终目录写出时补齐 Auto 能力，并按最终正文校验缓存。
-			c.Set(autoModelListingKey, true)
-			c.Set(autoModelListingETagKey, c.GetHeader("If-None-Match"))
+		if apiKey != nil {
+			virtualModels := h.availableVirtualModelIDs(c.Request.Context(), apiKey.Group, availableModels)
+			if len(virtualModels) > 0 {
+				availableModels = prependVirtualModels(availableModels, virtualModels...)
+			}
+			if len(virtualModels) > 0 {
+				// 合成分组也在最终目录写出时补齐虚拟模型能力，并按最终正文校验缓存。
+				c.Set(autoModelListingKey, true)
+				c.Set(autoModelListingModelsKey, virtualModels)
+				c.Set(autoModelListingETagKey, c.GetHeader("If-None-Match"))
+			}
 		}
 		if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
 			source := availableModels
@@ -1163,6 +1169,16 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 
 	// Get available models from account configurations for the selected group platform.
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
+	if platform == service.PlatformOpenAI && apiKey != nil && apiKey.Group != nil {
+		virtualModels := h.availableVirtualModelIDs(c.Request.Context(), apiKey.Group, availableModels)
+		if len(virtualModels) > 0 {
+			availableModels = prependVirtualModels(availableModels, virtualModels...)
+		}
+		if len(virtualModels) > 0 {
+			c.Set(autoModelListingKey, true)
+			c.Set(autoModelListingModelsKey, virtualModels)
+		}
+	}
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
 		fallbackModels := defaultModelIDsForPlatform(platform)
 		source := modelListingSource(platform, availableModels, fallbackModels)
@@ -1239,9 +1255,7 @@ func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *servi
 	}
 	if platform == service.PlatformComposite {
 		availableModels := h.compositeAvailableModels(ctx, groupID)
-		if h.autoModelAvailable(ctx, group, availableModels) {
-			availableModels = prependAutoModel(availableModels)
-		}
+		availableModels = h.prependAvailableVirtualModels(ctx, group, availableModels)
 		fallbackModels := defaultCodexModelIDsForPlatform(service.PlatformComposite)
 		if group.ModelAllowlistEnabled() {
 			source := availableModels

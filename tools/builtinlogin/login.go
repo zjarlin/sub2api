@@ -26,8 +26,9 @@ type PublicError struct {
 func (e *PublicError) Error() string { return e.Message }
 
 type Account struct {
-	UID      string `json:"uid"`
-	Nickname string `json:"nickname,omitempty"`
+	UID         string `json:"uid"`
+	Nickname    string `json:"nickname,omitempty"`
+	AutoRelogin *bool  `json:"auto_relogin,omitempty"`
 }
 
 type View struct {

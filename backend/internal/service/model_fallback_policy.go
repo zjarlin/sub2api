@@ -226,6 +226,20 @@ func autoModelRequestNeedsTools(ctx context.Context) bool {
 	return capabilities.tools
 }
 
+// 暴露已解析的工具调用能力，供虚拟模型路由复用。
+func AutoModelRequestNeedsTools(ctx context.Context) bool {
+	return autoModelRequestNeedsTools(ctx)
+}
+
+// 暴露已解析的图像输入能力，供虚拟模型路由复用。
+func AutoModelRequestNeedsImages(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	capabilities, _ := ctx.Value(autoModelRequestCapabilitiesContextKey{}).(autoModelRequestCapabilities)
+	return capabilities.images
+}
+
 func autoModelToolCapabilityBlockKey(model string) string {
 	model = normalizeUnsupportedModelKey(model)
 	if model == "" {
@@ -427,7 +441,7 @@ func ModelAccountCompatible(account *Account, model string, body []byte) bool {
 }
 
 func modelAccountCompatible(account *Account, model string, body []byte, assistedVision bool) bool {
-	if account == nil {
+	if account == nil || !modelAccountPreservesSearchTools(account, model, body) {
 		return false
 	}
 	upstream := account.GetMappedModel(model)

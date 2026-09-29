@@ -15,8 +15,9 @@ import (
 const deepseekLoginURL = "https://chat.deepseek.com/sign_in"
 
 type browserLoginOptions struct {
-	Email    string `json:"email"`
-	Password string `json:"password"`
+	Email       string `json:"email"`
+	Password    string `json:"password"`
+	AutoRelogin bool   `json:"auto_relogin"`
 }
 
 type browserLoginSession interface {
@@ -85,6 +86,8 @@ func (b *chromiumLoginBrowser) Start(ctx context.Context, login browserLoginOpti
 		profile:         profile,
 		release:         b.release,
 	}
+	// 管理页面异常退出后也会主动关闭浏览器，避免占用自动登录的唯一槽位。
+	session.expireAfter(10 * time.Minute)
 
 	actions := []chromedp.Action{
 		chromedp.Navigate(deepseekLoginURL),
@@ -166,12 +169,26 @@ type chromiumLoginSession struct {
 	closeOnce       sync.Once
 }
 
+func (s *chromiumLoginSession) expireAfter(lifetime time.Duration) {
+	go func() {
+		timer := time.NewTimer(lifetime)
+		defer timer.Stop()
+		select {
+		case <-s.context.Done():
+		case <-timer.C:
+		}
+		s.Close()
+	}()
+}
+
 func (s *chromiumLoginSession) Screenshot(ctx context.Context) ([]byte, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var screenshot []byte
 	captureContext, cancel := context.WithTimeout(s.context, 15*time.Second)
 	defer cancel()
+	stop := context.AfterFunc(ctx, cancel)
+	defer stop()
 	if err := chromedp.Run(captureContext, chromedp.CaptureScreenshot(&screenshot)); err != nil {
 		return nil, err
 	}
@@ -189,6 +206,8 @@ func (s *chromiumLoginSession) Credential(ctx context.Context) (webCredential, b
 	var credential webCredential
 	evaluateContext, cancel := context.WithTimeout(s.context, 10*time.Second)
 	defer cancel()
+	stop := context.AfterFunc(ctx, cancel)
+	defer stop()
 	const expression = `(() => {
 		const raw = localStorage.getItem('userToken');
 		let stored = null;

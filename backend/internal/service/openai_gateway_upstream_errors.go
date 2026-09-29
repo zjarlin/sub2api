@@ -374,11 +374,12 @@ func (s *OpenAIGatewayService) newAutoModelCapabilityMismatchFailoverError(
 		return nil
 	}
 	toolMismatch := isOpenAIToolCapabilityError(statusCode, message, body)
-	if !toolMismatch && !isOpenAIParameterCapabilityError(statusCode, body) {
+	searchMismatch := isOpenAISearchToolCapabilityError(statusCode, message, body)
+	if !toolMismatch && !searchMismatch && !isOpenAIParameterCapabilityError(statusCode, body) {
 		return nil
 	}
 	// 参数能力缺失仅切换当前候选，不删除请求参数，也不把它误记成工具能力缺失。
-	if toolMismatch {
+	if toolMismatch && !searchMismatch {
 		s.recordAutoModelToolCapabilityMismatch(ctx, account, upstreamModel)
 	}
 	return &UpstreamFailoverError{
@@ -389,6 +390,19 @@ func (s *OpenAIGatewayService) newAutoModelCapabilityMismatchFailoverError(
 	}
 }
 
+// 托管搜索不支持不能据此隔离普通函数调用能力；只切换当前请求的候选。
+func isOpenAISearchToolCapabilityError(statusCode int, upstreamMsg string, body []byte) bool {
+	if statusCode != http.StatusBadRequest && statusCode != http.StatusUnprocessableEntity {
+		return false
+	}
+	message := strings.ToLower(strings.TrimSpace(upstreamMsg))
+	for _, path := range []string{"error.message", "response.error.message", "message"} {
+		message += " " + strings.ToLower(gjson.GetBytes(body, path).String())
+	}
+	return strings.Contains(message, "web_search") &&
+		(strings.Contains(message, "not supported") || strings.Contains(message, "does not support") || strings.Contains(message, "unsupported"))
+}
+
 // 明确的参数不支持属于供应商能力差异；格式、鉴权和安全拒绝不在此扩大重试。
 func isOpenAIParameterCapabilityError(statusCode int, body []byte) bool {
 	if statusCode != http.StatusBadRequest && statusCode != http.StatusUnprocessableEntity {
@@ -396,6 +410,16 @@ func isOpenAIParameterCapabilityError(statusCode int, body []byte) bool {
 	}
 	for _, path := range []string{"error.code", "response.error.code", "code"} {
 		if strings.EqualFold(strings.TrimSpace(gjson.GetBytes(body, path).String()), "unsupported_parameter") {
+			return true
+		}
+	}
+	// Kimi K3 的代理有时只返回文字消息，不提供 unsupported_parameter 结构化代码。
+	message := strings.TrimSpace(extractUpstreamErrorMessage(body))
+	if message == "" {
+		message = strings.TrimSpace(gjson.GetBytes(body, "response.error.message").String())
+	}
+	for _, effort := range []string{"none", "minimal", "medium", "xhigh"} {
+		if message == fmt.Sprintf("Unsupported Kimi K3 thinking_effort=%q; supported values are low, high, and max", effort) {
 			return true
 		}
 	}

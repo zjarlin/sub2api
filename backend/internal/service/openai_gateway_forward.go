@@ -19,6 +19,7 @@ import (
 
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
+	needsNativeSearchTools := modelRequestNeedsNativeSearchTools(body)
 	c.Set(deepSeekCompactContextKey, false)
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
@@ -1237,7 +1238,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				)
 				continue
 			}
-			if !responsesToChatFallbackRetried && shouldRetryOpenAIResponsesViaChatCompletions(resp.StatusCode, account, respBody) {
+			if !responsesToChatFallbackRetried && !needsNativeSearchTools && shouldRetryOpenAIResponsesViaChatCompletions(resp.StatusCode, account, respBody) {
 				responsesToChatFallbackRetried = true
 				logger.LegacyPrintf(
 					"service.openai_gateway",

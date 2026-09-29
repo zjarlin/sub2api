@@ -10,7 +10,7 @@
     </div>
     <label v-if="modelValue.enabled" class="block">
       <span class="input-label">{{ t('admin.accounts.modelProbe.interval') }}</span>
-      <input type="number" min="24" max="8760" step="1" required class="input w-full"
+      <input type="number" min="168" max="8760" step="1" required class="input w-full"
         data-testid="model-probe-interval" :value="modelValue.intervalHours"
         @input="update({ intervalHours: Number(($event.target as HTMLInputElement).value) })" />
     </label>

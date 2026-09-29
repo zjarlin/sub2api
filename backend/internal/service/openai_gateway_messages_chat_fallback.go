@@ -99,6 +99,17 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 			}
 		}
 	}
+	chatBody, kimiEffort, err := normalizeNVIDIAKimiK3ReasoningEffort(ctx, c, account, upstreamModel, chatBody)
+	if err != nil {
+		if IsReasoningEffortPolicyDenied(err) {
+			MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
+			writeAnthropicError(c, http.StatusForbidden, "forbidden_error", err.Error())
+		}
+		return nil, err
+	}
+	if kimiEffort != nil {
+		reasoningEffort = kimiEffort
+	}
 	// Unlike forwardResponsesViaRawChatCompletions, applyOpenAIFastPolicyToBody
 	// is intentionally skipped: Anthropic Messages bodies carry no service_tier,
 	// so the converted Chat Completions body never contains one and the policy

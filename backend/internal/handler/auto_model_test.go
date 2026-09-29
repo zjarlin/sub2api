@@ -124,6 +124,7 @@ func TestAutoModelOpenAIGroupCatalogAndETag(t *testing.T) {
 	var ordinaryCatalog gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(ordinary.Body.Bytes(), &ordinaryCatalog))
 	require.True(t, containsModelID(ordinaryCatalog.Data, autoModelID))
+	require.True(t, containsModelID(ordinaryCatalog.Data, askModelID))
 
 	manifestBody := []byte(`{"models":[{"slug":"gpt-5.5","visibility":"list"}]}`)
 	manifest := func(c *gin.Context) {
@@ -199,6 +200,26 @@ func TestAppendAutoModelUpdatesExistingVisionCapability(t *testing.T) {
 	}
 }
 
+func TestAskModelRejectsToolsAndImages(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	h := newAutoModelTestHandler(autoModelTestAccounts())
+	group := &service.Group{ID: 71, Platform: service.PlatformOpenAI}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{Group: group})
+	}, h.AutoModelMiddleware(nil))
+	router.POST("/v1/chat/completions", func(c *gin.Context) { c.Status(http.StatusOK) })
+	for _, body := range []string{
+		`{"model":"ask","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"lookup"}}]}`,
+		`{"model":"ask","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}]}]}`,
+	} {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)))
+		require.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())
+		require.Contains(t, recorder.Body.String(), "ask only supports text conversation")
+	}
+}
+
 func containsModelID(models []gatewayModelItemForTest, id string) bool {
 	for _, model := range models {
 		if model.ID == id {
@@ -216,7 +237,7 @@ func TestAutoModelCandidatesExcludeDecisionAndMediaModels(t *testing.T) {
 		"gpt-5.5", "deepseek-v4-flash",
 	}
 	require.Equal(t, []string{"gpt-5.5", "deepseek-v4-flash"}, autoModelCandidates(models))
-	require.Equal(t, []string{"auto", "gpt-5.5"}, prependAutoModel([]string{"gpt-5.5", "auto"}))
+	require.Equal(t, []string{"auto", "ask", "gpt-5.5"}, prependAutoModel([]string{"gpt-5.5", "auto", "ask"}))
 }
 
 func TestAutoModelMiddlewareFiltersToolIncompatibleCandidates(t *testing.T) {

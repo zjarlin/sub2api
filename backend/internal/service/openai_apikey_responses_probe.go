@@ -48,15 +48,14 @@ func openaiResponsesProbePayload(modelID string) []byte {
 			{
 				"role": "user",
 				"content": []map[string]any{
-					{"type": "input_text", "text": "Call the probe_ping function with ok=true to acknowledge readiness. You must use the tool."},
+					{"type": "input_text", "text": "Call probe_ping with ok=true."},
 				},
 			},
 		},
 		"tools": []map[string]any{
 			{
-				"type":        "function",
-				"name":        "probe_ping",
-				"description": "Capability probe. Call to acknowledge.",
+				"type": "function",
+				"name": "probe_ping",
 				"parameters": map[string]any{
 					"type": "object",
 					"properties": map[string]any{
@@ -121,7 +120,8 @@ func selectResponsesProbeModel(account *Account) string {
 //   - 网络层失败（连接错误、超时）→ 不写标记，保持 unknown
 //     （后续请求仍按"现状即证据"默认走 Responses）
 //
-// 该方法是幂等的：重复调用会以最新探测结果覆盖标记。
+// 自动创建/更新探测与周期健康探测共用账号/模型冷却；显式手动诊断保留独立触发语义。
+// 冷却期内保留原能力标记，不把近期文本健康等同于 Responses 或工具能力。
 //
 // 关于失败处理：探测本身的失败不应阻塞账号创建——账号能创建/更新成功就够了，
 // 探测结果只影响后续路由优化。所有错误都仅记录日志，不向调用方传播。
@@ -199,6 +199,22 @@ func (s *AccountTestService) ProbeOpenAIAPIKeyResponsesSupport(ctx context.Conte
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
+	}
+
+	// 保存账号不能绕过自动付费探测的周冷却；无法持久化占用时不发送请求。
+	claimer, ok := s.accountRepo.(AccountModelProbeClaimer)
+	if !ok {
+		logger.LegacyPrintf("service.openai_probe", "probe_claim_unavailable: account_id=%d", accountID)
+		return
+	}
+	modelKey := observedUnsupportedModelKey(account, probeModel)
+	claimed, err := claimer.ClaimAccountModelProbe(probeCtx, accountID, modelKey, account.ModelProbePolicy().Interval)
+	if err != nil {
+		logger.LegacyPrintf("service.openai_probe", "probe_claim_failed: account_id=%d err=%v", accountID, err)
+		return
+	}
+	if !claimed || probeCtx.Err() != nil {
+		return
 	}
 
 	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))

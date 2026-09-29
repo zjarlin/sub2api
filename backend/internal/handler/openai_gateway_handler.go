@@ -712,6 +712,10 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
+			// Auto 先用其余可重放候选，避免在繁忙模型上等待挤占整个请求时限。
+			if errors.Is(err, service.ErrNoAvailableAccounts) && switchBudget.auto && switchBudget.replayable && len(busyRetry.accounts) > 0 && advanceModel() {
+				continue
+			}
 			if errors.Is(err, service.ErrNoAvailableAccounts) && busyRetry.retry(c.Request.Context(), failedAccountIDs) {
 				continue
 			}

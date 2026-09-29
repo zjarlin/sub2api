@@ -37,6 +37,13 @@
         <label for="deepseek-login-password" class="input-label">{{ t('admin.accounts.builtinLogin.deepseekWebPassword') }}</label>
         <input id="deepseek-login-password" v-model="deepseekPassword" type="password" autocomplete="current-password" class="input" :disabled="busy || session?.status === 'pending'" @keydown.enter.prevent="start" />
       </div>
+      <div class="sm:col-span-2">
+        <label for="deepseek-auto-relogin" class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+          <input id="deepseek-auto-relogin" v-model="deepseekAutoRelogin" type="checkbox" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500 dark:bg-dark-700" :disabled="busy || session?.status === 'pending'" aria-describedby="deepseek-auto-relogin-hint" />
+          {{ t('admin.accounts.builtinLogin.deepseekWebAutoRelogin') }}
+        </label>
+        <p id="deepseek-auto-relogin-hint" class="input-hint">{{ t('admin.accounts.builtinLogin.deepseekWebAutoReloginHint') }}</p>
+      </div>
     </div>
     <button type="button" class="btn btn-secondary" :disabled="startDisabled" @click="start">
       {{ t(startKey) }}
@@ -62,6 +69,9 @@
     <p v-if="session?.status === 'completed'" role="status" class="text-sm text-green-700 dark:text-green-400">
       {{ t('admin.accounts.builtinLogin.success', { name: session.account?.nickname || session.account?.uid }) }}
     </p>
+    <p v-if="platform === 'deepseek_web' && session?.status === 'completed' && session.account?.auto_relogin !== undefined" role="status" class="input-hint" data-testid="deepseek-auto-relogin-status">
+      {{ t(session.account.auto_relogin ? 'admin.accounts.builtinLogin.deepseekWebAutoReloginEnabled' : 'admin.accounts.builtinLogin.deepseekWebAutoReloginDisabled') }}
+    </p>
     <p v-if="error" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ error }}</p>
   </div>
 </template>
@@ -69,7 +79,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { cancelBuiltinLogin, completeBuiltinLogin, getBuiltinLoginView, startBuiltinLogin, type BuiltinLoginPlatform, type BuiltinLoginSession, type PasswordLoginOptions, type ZcodeLoginOptions } from '@/api/admin/builtinAdapters'
+import { cancelBuiltinLogin, completeBuiltinLogin, getBuiltinLoginView, startBuiltinLogin, type BuiltinLoginPlatform, type BuiltinLoginSession, type DeepseekLoginOptions, type PasswordLoginOptions, type ZcodeLoginOptions } from '@/api/admin/builtinAdapters'
 
 const props = defineProps<{ platform: BuiltinLoginPlatform }>()
 const emit = defineEmits<{
@@ -82,6 +92,7 @@ const arenaEmail = ref('')
 const arenaPassword = ref('')
 const deepseekEmail = ref('')
 const deepseekPassword = ref('')
+const deepseekAutoRelogin = ref(true)
 const loginViewURL = ref('')
 const error = ref('')
 const busy = ref(false)
@@ -169,13 +180,13 @@ async function refreshLoginView(current: BuiltinLoginSession, version: number) {
 
 async function start() {
   if (starting || disposed || startDisabled.value) return
-  let options: ZcodeLoginOptions | PasswordLoginOptions | undefined
+  let options: ZcodeLoginOptions | PasswordLoginOptions | DeepseekLoginOptions | undefined
   if (props.platform === 'zcode') {
     options = { plan: zcodePlan.value, provider: zcodeProvider.value }
   } else if (props.platform === 'arena') {
     options = { email: arenaEmail.value.trim(), password: arenaPassword.value }
   } else if (props.platform === 'deepseek_web') {
-    options = { email: deepseekEmail.value.trim(), password: deepseekPassword.value }
+    options = { email: deepseekEmail.value.trim(), password: deepseekPassword.value, auto_relogin: deepseekAutoRelogin.value }
   }
   starting = true
   await cancel()

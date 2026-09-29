@@ -104,6 +104,17 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	// /v1/responses 降级到 raw CC 的出站与 forwardAsRawChatCompletions 共用同一个
 	// 独立 Ollama Cloud token 钩子；chatReq.Model 已是模型映射后的 upstreamModel。
 	chatBody = clampOllamaCloudUpstreamMaxTokens(account, chatBody)
+	chatBody, kimiEffort, err := normalizeNVIDIAKimiK3ReasoningEffort(ctx, c, account, upstreamModel, chatBody)
+	if err != nil {
+		if IsReasoningEffortPolicyDenied(err) {
+			MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalPolicyDenied)
+			writeOpenAIResponsesFallbackError(c, http.StatusForbidden, "permission_error", err.Error())
+		}
+		return nil, err
+	}
+	if kimiEffort != nil {
+		reasoningEffort = kimiEffort
+	}
 	// Keep the final outbound tier for usage-time reconciliation. A policy
 	// filter that removes the field therefore leaves this nil.
 	serviceTier := extractOpenAIServiceTierFromBody(chatBody)
@@ -377,8 +388,18 @@ func chatChunkStartsResponsesOutput(chunk *apicompat.ChatCompletionsChunk) bool 
 		return false
 	}
 	for _, choice := range chunk.Choices {
-		if choice.Delta.Content != nil || choice.Delta.ReasoningContent != nil || len(choice.Delta.ToolCalls) > 0 {
+		delta := choice.Delta
+		if (delta.Content != nil && *delta.Content != "") ||
+			(delta.ReasoningContent != nil && *delta.ReasoningContent != "") ||
+			(delta.Reasoning != nil && *delta.Reasoning != "") {
 			return true
+		}
+		for _, tool := range delta.ToolCalls {
+			// 索引与 function 类型仅为前导；未知工具类型保守视为已经输出。
+			if tool.ID != "" || tool.Function.Name != "" || tool.Function.Arguments != "" ||
+				(tool.Type != "" && tool.Type != "function") {
+				return true
+			}
 		}
 	}
 	return false

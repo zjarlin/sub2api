@@ -33,10 +33,26 @@ type upstreamEnvelope struct {
 }
 
 type webCredential struct {
-	Token    string `json:"token"`
-	DeviceID string `json:"device_id"`
-	UID      string `json:"uid"`
-	Email    string `json:"email,omitempty"`
+	Token              string `json:"token"`
+	DeviceID           string `json:"device_id"`
+	UID                string `json:"uid"`
+	Email              string `json:"email,omitempty"`
+	ReloginCredentials string `json:"relogin_credentials,omitempty"`
+}
+
+var errDeepSeekUnauthorized = errors.New("DeepSeek browser session is no longer authorized")
+
+func (e upstreamEnvelope) responseError() error {
+	if e.Code == 40003 || (e.Data != nil && e.Data.BizCode == 40003) {
+		return errDeepSeekUnauthorized
+	}
+	if e.Code != 0 {
+		return fmt.Errorf("DeepSeek rejected the request, code %d", e.Code)
+	}
+	if e.Data != nil && e.Data.BizCode != 0 {
+		return fmt.Errorf("DeepSeek rejected the request, business code %d", e.Data.BizCode)
+	}
+	return nil
 }
 
 type upstreamFlag bool
@@ -87,6 +103,9 @@ func (u *upstreamClient) request(ctx context.Context, credential webCredential, 
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		resp.Body.Close()
+		if resp.StatusCode == http.StatusUnauthorized {
+			return nil, errDeepSeekUnauthorized
+		}
 		return nil, fmt.Errorf("DeepSeek returned HTTP %d", resp.StatusCode)
 	}
 	return resp, nil
@@ -102,11 +121,11 @@ func (u *upstreamClient) call(ctx context.Context, credential webCredential, met
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&envelope); err != nil {
 		return fmt.Errorf("decode DeepSeek response: %w", err)
 	}
-	if envelope.Code != 0 || envelope.Data == nil {
-		return fmt.Errorf("DeepSeek rejected the request, code %d", envelope.Code)
+	if err := envelope.responseError(); err != nil {
+		return err
 	}
-	if envelope.Data.BizCode != 0 {
-		return fmt.Errorf("DeepSeek rejected the request, business code %d", envelope.Data.BizCode)
+	if envelope.Data == nil {
+		return errors.New("DeepSeek response has no data")
 	}
 	if out == nil {
 		return nil

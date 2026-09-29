@@ -42,7 +42,7 @@ func TestListModelHealthObservationsRequiresLatestOutcomeToBeSuccess(t *testing.
 	require.NoError(t, err)
 	defer func() { _ = db.Close() }()
 
-	mock.ExpectQuery(`last_failure_at IS NULL OR h.last_success_at > h.last_failure_at`).
+	mock.ExpectQuery(`(?s)h.last_success_at IS NOT NULL.*last_failure_at IS NULL OR h.last_success_at > h.last_failure_at`).
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "model", "checked_at"}))
 
 	repo := newUsageLogRepositoryWithSQL(nil, db)

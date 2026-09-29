@@ -46,7 +46,7 @@ func TestBuiltinAdapterLoginDeepseekWebForwardsCredentials(t *testing.T) {
 	handler := &AccountHandler{}
 	router.POST("/api/v1/admin/builtin-adapters/:platform/login-sessions", handler.BuiltinAdapterLogin)
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/builtin-adapters/deepseek_web/login-sessions",
-		strings.NewReader(`{"email":" user@example.com ","password":" test-password "}`))
+		strings.NewReader(`{"email":" user@example.com ","password":" test-password ","auto_relogin":true}`))
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 
@@ -57,6 +57,7 @@ func TestBuiltinAdapterLoginDeepseekWebForwardsCredentials(t *testing.T) {
 	case options := <-forwarded:
 		require.Equal(t, "user@example.com", options.Email)
 		require.Equal(t, " test-password ", options.Password)
+		require.True(t, options.AutoRelogin)
 	default:
 		t.Fatal("DeepSeek 登录凭据未转发到适配器")
 	}

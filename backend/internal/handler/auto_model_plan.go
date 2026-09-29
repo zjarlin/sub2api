@@ -66,9 +66,17 @@ func (h *GatewayHandler) autoModelPlan(ctx context.Context, group *service.Group
 			}
 		}
 		if len(platforms) == 0 {
+			// 目录里的决策平台模型不能通过展示补全变成无来源文本候选。
+			if service.AutoModelInventoryDecisionOnlyModel(ctx, model) {
+				continue
+			}
 			platforms = []string{""}
 		}
 		for _, platform := range platforms {
+			// 显式合成规则同样不能把文本模型指向仅提供决策协议的平台。
+			if service.IsSystemOneDecisionPlatform(platform) && !service.AutoModelInventoryDecisionSource(platform, model) {
+				continue
+			}
 			entry := service.AutoModelCandidate{Model: model, Platform: platform, Aliases: aliasesByModel[model]}
 			switch {
 			case platform == "":

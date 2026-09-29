@@ -78,6 +78,10 @@ export default {
         deepseekWebUnavailable: 'DeepSeek 网页适配器尚未启用。请在部署配置中设置 SUB2API_DEEPSEEK_WEB=1，并重启服务。',
         deepseekWebEmail: 'DeepSeek 邮箱',
         deepseekWebPassword: 'DeepSeek 密码',
+        deepseekWebAutoRelogin: '凭据失效时自动重新登录',
+        deepseekWebAutoReloginHint: '勾选后，密码将加密保存在此部署，用于凭据失效时重新登录。此设置在本次登录成功后生效；修改选项后需再次登录。',
+        deepseekWebAutoReloginEnabled: '已启用自动重新登录，密码已加密保存。',
+        deepseekWebAutoReloginDisabled: '自动重新登录已关闭，密码不会保存。凭据失效后需手动登录。',
         deepseekWebStart: '账号密码登录',
         deepseekWebRestart: '重新登录',
         deepseekWebOpen: '打开 DeepSeek 登录页',
@@ -139,8 +143,8 @@ export default {
       modelProbe: {
         title: '自动模型可用性探测',
         hint: '会发送真实测试请求，付费模型可能扣额度。关闭不影响正常调用、模型列表同步和手动测试。',
-        interval: '探测间隔（小时，24–8760）',
-        gptExcluded: 'GPT 系列不参与自动探测。每个账号下的模型分别计时，默认 7 天到期；每 15 分钟最多探测 10 个到期模型。近期调用仅推迟该模型的探测。'
+        interval: '探测间隔（小时，168–8760）',
+        gptExcluded: 'GPT 系列不参与自动探测。每个账号和模型至少间隔 7 天，失败或中断也进入冷却，更长设置继续生效。近期调用会推迟该模型的额外探测；每 15 分钟最多探测 10 个到期模型。'
       },
       title: '账号管理',
       description: '管理 AI 平台账号和 Cookie',

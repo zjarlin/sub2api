@@ -26,6 +26,13 @@ func isUpstreamConcurrencyLimit(status int, body []byte) bool {
 	if status == http.StatusServiceUnavailable {
 		return message == "模型服务当前并发繁忙，请稍后重试"
 	}
+	// ZCode 原始错误与适配器包装的 JSON 字符串必须同时匹配代码和消息。
+	for _, payload := range []string{string(body), message} {
+		if gjson.Valid(payload) && gjson.Get(payload, "code").String() == "3009" &&
+			gjson.Get(payload, "msg").String() == "model concurrency limit exceeded" {
+			return true
+		}
+	}
 	if upstreamConcurrencyMessage.MatchString(message) {
 		return true
 	}
