@@ -3,6 +3,10 @@
 !builtinlogin/
 !builtinlogin/*.go
 !builtinlogin/go.mod
+!deepseek2api/
+!deepseek2api/go.mod
+!deepseek2api/go.sum
+!deepseek2api/*.go
 !traework2api/
 !traework2api/go.mod
 !traework2api/cmd/
