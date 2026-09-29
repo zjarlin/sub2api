@@ -259,67 +259,81 @@ func TestAutoModelCostLimitSurvivesHTTPFallback(t *testing.T) {
 	}
 }
 
-func TestAutoModelToolCapabilityErrorFallsBackWithinRequest(t *testing.T) {
+func TestAutoModelUpstreamErrorFallsBackWithinRequest(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, endpoint := range []string{"responses", "chat/completions"} {
-		t.Run(endpoint, func(t *testing.T) {
-			accounts := []service.Account{autoModelTestAccounts()[0], autoModelTestAccounts()[2]}
-			accounts[0].Type = service.AccountTypeAPIKey
-			accounts[0].Concurrency = 1
-			accounts[0].Credentials = map[string]any{
-				"api_key":  "test-only",
-				"base_url": "https://upstream.example",
-				"model_mapping": map[string]any{
-					"gpt-5.6-sol": "gpt-5.6-sol",
-					"gpt-5.5":     "gpt-5.5",
-				},
-			}
-			accounts[0].Extra = map[string]any{"openai_passthrough": true}
-			decision := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				_, _ = w.Write([]byte(`{"answers":{"model":{"choice":"gpt-5.6-sol"}}}`))
-			}))
-			defer decision.Close()
-			accounts[1].Type = service.AccountTypeAPIKey
-			accounts[1].Credentials["base_url"] = decision.URL
+		for _, tc := range []struct {
+			name   string
+			status int
+			body   string
+		}{
+			{"tool_capability", http.StatusBadRequest, `{"error":{"code":400,"message":"\"auto\" tool choice requires --enable-auto-tool-choice and --tool-call-parser to be set","type":"BadRequestError"}}`},
+			{"unauthorized", http.StatusUnauthorized, `{"error":{"message":"Invalid API key"}}`},
+			{"forbidden", http.StatusForbidden, "error code: 1010\n"},
+			{"unavailable", http.StatusServiceUnavailable, `{"error":{"message":"Service unavailable"}}`},
+		} {
+			t.Run(endpoint+"/"+tc.name, func(t *testing.T) {
+				accounts := []service.Account{autoModelTestAccounts()[0], autoModelTestAccounts()[2]}
+				accounts[0].Type = service.AccountTypeAPIKey
+				accounts[0].Concurrency = 1
+				accounts[0].Credentials = map[string]any{
+					"api_key":  "test-only",
+					"base_url": "https://upstream.example",
+					"model_mapping": map[string]any{
+						"gpt-5.6-sol": "gpt-5.6-sol",
+						"gpt-5.5":     "gpt-5.5",
+					},
+				}
+				accounts[0].Extra = map[string]any{"openai_passthrough": true}
+				decision := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					_, _ = w.Write([]byte(`{"answers":{"model":{"choice":"gpt-5.6-sol"}}}`))
+				}))
+				defer decision.Close()
+				accounts[1].Type = service.AccountTypeAPIKey
+				accounts[1].Credentials["base_url"] = decision.URL
 
-			cfg := &config.Config{RunMode: config.RunModeSimple}
-			settings := service.NewSettingService(&contentModerationHandlerSettingRepo{values: map[string]string{
-				service.SettingKeyModelFallbackPolicy: `{"enabled":true,"tiers":[{"name":"highest","models":["gpt-6-astra"]},{"name":"standard","models":["gpt-5.6-sol","gpt-5.5"]}]}`,
-			}}, cfg)
-			billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
-			defer billing.Stop()
-			upstream := &fallbackTestUpstream{
-				status:        http.StatusBadRequest,
-				errorResponse: `{"error":{"code":400,"message":"\"auto\" tool choice requires --enable-auto-tool-choice and --tool-call-parser to be set","type":"BadRequestError"}}`,
-			}
-			gateway := service.NewOpenAIGatewayService(
-				&grokCredentialHandlerRepo{accounts: accounts}, nil, nil, nil, nil, nil, nil, cfg, nil, nil,
-				service.NewBillingService(cfg, nil), nil, billing, upstream, &service.DeferredService{}, nil, nil, nil, nil, nil, settings, nil,
-			)
-			concurrency := service.NewConcurrencyService(&concurrencyCacheMock{
-				acquireUserSlotFn:    func(context.Context, int64, int, string) (bool, error) { return true, nil },
-				acquireAccountSlotFn: func(context.Context, int64, int, string) (bool, error) { return true, nil },
+				cfg := &config.Config{RunMode: config.RunModeSimple}
+				settings := service.NewSettingService(&contentModerationHandlerSettingRepo{values: map[string]string{
+					service.SettingKeyModelFallbackPolicy: `{"enabled":true,"tiers":[{"name":"highest","models":["gpt-6-astra"]},{"name":"standard","models":["gpt-5.6-sol","gpt-5.5"]}]}`,
+				}}, cfg)
+				billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
+				defer billing.Stop()
+				upstream := &fallbackTestUpstream{
+					status:        tc.status,
+					errorResponse: tc.body,
+				}
+				gateway := service.NewOpenAIGatewayService(
+					&grokCredentialHandlerRepo{accounts: accounts}, nil, nil, nil, nil, nil, nil, cfg, nil, nil,
+					service.NewBillingService(cfg, nil), nil, billing, upstream, &service.DeferredService{}, nil, nil, nil, nil, nil, settings, nil,
+				)
+				concurrency := service.NewConcurrencyService(&concurrencyCacheMock{
+					acquireUserSlotFn:    func(context.Context, int64, int, string) (bool, error) { return true, nil },
+					acquireAccountSlotFn: func(context.Context, int64, int, string) (bool, error) { return true, nil },
+				})
+				openAI := NewOpenAIGatewayHandler(gateway, concurrency, billing, &service.APIKeyService{}, nil, nil, nil, nil, cfg)
+				h := newAutoModelTestHandler(accounts)
+				h.settingService = settings
+				group := &service.Group{ID: 71, Platform: service.PlatformOpenAI, Status: service.StatusActive}
+				key := &service.APIKey{ID: 2, GroupID: &group.ID, Group: group, User: &service.User{ID: 3, Status: service.StatusActive}}
+				router := gin.New()
+				router.Use(func(c *gin.Context) {
+					c.Set(string(middleware.ContextKeyAPIKey), key)
+					c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 3, Concurrency: 1})
+				}, h.AutoModelMiddleware(nil))
+				router.POST("/v1/responses", openAI.Responses)
+				router.POST("/v1/chat/completions", openAI.ChatCompletions)
+
+				recorder := httptest.NewRecorder()
+				body := `{"model":"auto","input":"use shell","tool_choice":"auto","tools":[{"type":"function","name":"shell","parameters":{"type":"object","properties":{}}}]}`
+				if endpoint == "chat/completions" {
+					body = `{"model":"auto","messages":[{"role":"user","content":"use shell"}],"tool_choice":"auto","tools":[{"type":"function","function":{"name":"shell","parameters":{"type":"object","properties":{}}}}]}`
+				}
+				router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/"+endpoint, strings.NewReader(body)))
+				require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+				require.Equal(t, []string{"gpt-5.6-sol", "gpt-5.5"}, upstream.models)
+				require.Equal(t, "gpt-5.5", recorder.Header().Get("X-Sub2api-Fallback-Model"))
 			})
-			openAI := NewOpenAIGatewayHandler(gateway, concurrency, billing, &service.APIKeyService{}, nil, nil, nil, nil, cfg)
-			h := newAutoModelTestHandler(accounts)
-			h.settingService = settings
-			group := &service.Group{ID: 71, Platform: service.PlatformOpenAI, Status: service.StatusActive}
-			key := &service.APIKey{ID: 2, GroupID: &group.ID, Group: group, User: &service.User{ID: 3, Status: service.StatusActive}}
-			router := gin.New()
-			router.Use(func(c *gin.Context) {
-				c.Set(string(middleware.ContextKeyAPIKey), key)
-				c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 3, Concurrency: 1})
-			}, h.AutoModelMiddleware(nil))
-			router.POST("/v1/responses", openAI.Responses)
-			router.POST("/v1/chat/completions", openAI.ChatCompletions)
-
-			recorder := httptest.NewRecorder()
-			body := `{"model":"auto","input":"use shell","messages":[{"role":"user","content":"use shell"}]}`
-			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/"+endpoint, strings.NewReader(body)))
-			require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
-			require.Equal(t, []string{"gpt-5.6-sol", "gpt-5.5"}, upstream.models)
-			require.Equal(t, "gpt-5.5", recorder.Header().Get("X-Sub2api-Fallback-Model"))
-		})
+		}
 	}
 }
 

@@ -250,6 +250,9 @@ func (h *GatewayHandler) PrepareAutoModelListing(c *gin.Context) {
 
 // AutoModelMiddleware 在合成路由解析前将虚拟模型解析为真实模型。
 func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteResolver) gin.HandlerFunc {
+	if resolver == nil {
+		resolver = service.NewCompositeRouteResolver(nil)
+	}
 	return func(c *gin.Context) {
 		if c.Request == nil || c.Request.Method != http.MethodPost || !autoModelRequestPath(c.FullPath()) {
 			c.Next()
@@ -292,9 +295,6 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "scheduling_error", "message": "Auto model routing is unavailable for this group"}})
 			c.Abort()
 			return
-		}
-		if resolver == nil {
-			resolver = service.NewCompositeRouteResolver(nil)
 		}
 		routes, err := h.autoModelRoutableCandidates(
 			ctx,

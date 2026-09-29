@@ -391,10 +391,6 @@ func (s *OpenAIGatewayService) recordAutoModelToolCapabilityMismatch(ctx context
 	if !ok {
 		return
 	}
-	if account.Extra == nil {
-		account.Extra = make(map[string]any)
-	}
-	account.Extra[key] = block
 	stateCtx, cancel := openAIAccountStateContext(ctx)
 	defer cancel()
 	if err := s.accountRepo.UpdateExtra(stateCtx, account.ID, map[string]any{key: block}); err != nil {

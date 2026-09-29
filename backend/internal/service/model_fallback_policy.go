@@ -240,6 +240,9 @@ func (a *Account) AutoModelToolCapabilityBlocked(requestedModel string, now time
 		return false
 	}
 	canonicalModel := canonicalOpenAIAccountSchedulingModel(a, requestedModel)
+	if a.IsOpenAIPassthroughEnabled() {
+		canonicalModel = unsupportedModelKeyForAccount(a, requestedModel)
+	}
 	key := autoModelToolCapabilityBlockKey(canonicalModel)
 	if key == "" {
 		return false

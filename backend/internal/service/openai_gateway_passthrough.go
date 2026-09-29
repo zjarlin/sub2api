@@ -475,7 +475,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			// 透传模式默认保持原样代理；容量错误以及 API-key 上游的瞬时
 			// 5xx 应先触发多账号 failover，且此时尚未写入下游响应。
 			// probeBody 已在上方任务探测时读取过一次，直接复用避免重复读取。
-			if shouldFailoverOpenAIPassthroughResponse(account, resp.StatusCode, probeBody) {
+			if s.shouldFailoverOpenAIPassthroughRequest(ctx, account, resp.StatusCode, probeBody) {
 				return nil, s.handleFailoverErrorResponsePassthrough(ctx, resp, c, account, body, probeBody)
 			}
 			return nil, s.handleErrorResponsePassthrough(ctx, resp, c, account, body, probeBody)
@@ -510,7 +510,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 				if signal, ok := asOpenAICompactFallbackSignal(handleErr); ok {
 					_ = resp.Body.Close()
 					compactResp, compactBody := openAICompactFallbackErrorResponse(resp, signal)
-					if shouldFailoverOpenAIPassthroughResponse(account, compactResp.StatusCode, compactBody) {
+					if s.shouldFailoverOpenAIPassthroughRequest(ctx, account, compactResp.StatusCode, compactBody) {
 						return nil, s.handleFailoverErrorResponsePassthrough(ctx, compactResp, c, account, body, compactBody)
 					}
 					return nil, s.handleErrorResponsePassthrough(ctx, compactResp, c, account, body, compactBody)
@@ -537,7 +537,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 				if signal, ok := asOpenAICompactFallbackSignal(handleErr); ok {
 					_ = resp.Body.Close()
 					compactResp, compactBody := openAICompactFallbackErrorResponse(resp, signal)
-					if shouldFailoverOpenAIPassthroughResponse(account, compactResp.StatusCode, compactBody) {
+					if s.shouldFailoverOpenAIPassthroughRequest(ctx, account, compactResp.StatusCode, compactBody) {
 						return nil, s.handleFailoverErrorResponsePassthrough(ctx, compactResp, c, account, body, compactBody)
 					}
 					return nil, s.handleErrorResponsePassthrough(ctx, compactResp, c, account, body, compactBody)
@@ -812,6 +812,14 @@ func stripOpenAILegacyResponsesBeta(headers http.Header) {
 	for _, value := range preserved {
 		headers.Add("OpenAI-Beta", value)
 	}
+}
+
+// Auto 透传请求也遵循网关故障切换规则，避免上游鉴权失败直接终止候选链。
+func (s *OpenAIGatewayService) shouldFailoverOpenAIPassthroughRequest(ctx context.Context, account *Account, statusCode int, responseBody []byte) bool {
+	if IsAutoModelRouting(ctx) {
+		return s.shouldFailoverOpenAIUpstreamResponse(account, statusCode, "", responseBody)
+	}
+	return shouldFailoverOpenAIPassthroughResponse(account, statusCode, responseBody)
 }
 
 func shouldFailoverOpenAIPassthroughResponse(account *Account, statusCode int, responseBody []byte) bool {
