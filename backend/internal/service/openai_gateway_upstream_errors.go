@@ -370,16 +370,36 @@ func (s *OpenAIGatewayService) newAutoModelCapabilityMismatchFailoverError(
 	body []byte,
 	message string,
 ) *UpstreamFailoverError {
-	if !IsAutoModelRouting(ctx) || !isOpenAIToolCapabilityError(statusCode, message, body) {
+	if !IsAutoModelRouting(ctx) {
 		return nil
 	}
-	s.recordAutoModelToolCapabilityMismatch(ctx, account, upstreamModel)
+	toolMismatch := isOpenAIToolCapabilityError(statusCode, message, body)
+	if !toolMismatch && !isOpenAIParameterCapabilityError(statusCode, body) {
+		return nil
+	}
+	// 参数能力缺失仅切换当前候选，不删除请求参数，也不把它误记成工具能力缺失。
+	if toolMismatch {
+		s.recordAutoModelToolCapabilityMismatch(ctx, account, upstreamModel)
+	}
 	return &UpstreamFailoverError{
 		StatusCode: statusCode, ResponseBody: body, ResponseHeaders: headers.Clone(),
 		Stage: GatewayFailureStageInference, Scope: GatewayFailureScopeAccount,
 		Reason: AutoModelCapabilityMismatchReason, NextAccountAction: NextAccountRetry,
 		ClientStatusCode: statusCode, ClientMessage: message,
 	}
+}
+
+// 明确的参数不支持属于供应商能力差异；格式、鉴权和安全拒绝不在此扩大重试。
+func isOpenAIParameterCapabilityError(statusCode int, body []byte) bool {
+	if statusCode != http.StatusBadRequest && statusCode != http.StatusUnprocessableEntity {
+		return false
+	}
+	for _, path := range []string{"error.code", "response.error.code", "code"} {
+		if strings.EqualFold(strings.TrimSpace(gjson.GetBytes(body, path).String()), "unsupported_parameter") {
+			return true
+		}
+	}
+	return false
 }
 
 // 明确的工具能力缺失同时进入调度失败打分，并在后续 Auto 工具请求中立即排除该账号模型。

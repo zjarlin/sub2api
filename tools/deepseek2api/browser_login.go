@@ -109,8 +109,8 @@ func (b *chromiumLoginBrowser) Start(ctx context.Context, login browserLoginOpti
 				return nil
 			}),
 			chromedp.WaitVisible(`input[placeholder="Phone number / email address"]`, chromedp.ByQuery),
-			chromedp.SetValue(`input[placeholder="Phone number / email address"]`, login.Email, chromedp.ByQuery),
-			chromedp.SetValue(`input[placeholder="Password"]`, login.Password, chromedp.ByQuery),
+			chromedp.SendKeys(`input[placeholder="Phone number / email address"]`, login.Email, chromedp.ByQuery),
+			chromedp.SendKeys(`input[placeholder="Password"]`, login.Password, chromedp.ByQuery),
 			chromedp.Evaluate(`(() => {
 				const target = [...document.querySelectorAll('button,[role="button"]')]
 					.find((element) => (element.textContent || '').trim() === 'Log in');

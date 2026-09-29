@@ -1,0 +1,5696 @@
+{
+  "version": 1,
+  "provider": "OpenAIProxy",
+  "endpoint": "http://192.168.31.252:18080/v1/models",
+  "startedAt": "2026-09-29T12:08:55.144Z",
+  "completedAt": "2026-09-29T12:11:21.871Z",
+  "catalogCount": 331,
+  "selectedCount": 331,
+  "selectedIds": [
+    "0",
+    "01-ai/yi-large",
+    "2",
+    "deepseek-v4-flash",
+    "deepseek-v4-pro",
+    "Doubao-Seed-2.0-Code",
+    "Doubao-Seed-2.1-Pro",
+    "Doubao-Seed-2.1-Turbo",
+    "Doubao-Seed-Evolving",
+    "minimax-m3",
+    "MiniMax-M3.1-Flash-Preview",
+    "minimax-m2.5",
+    "qwen3.6-max-preview",
+    "qwen3.7-flash",
+    "qwen3.7-max",
+    "qwen3.7-plus",
+    "qwen3.8-27b",
+    "qwen3.8-max",
+    "qwen3.8-omni-flash",
+    "adept/fuyu-8b",
+    "agnes-2.5-flash",
+    "agnes-2.5-pro",
+    "agnes-2.5-pro-alpha",
+    "agnes-2.5-pro-beta",
+    "agnes-3.0-flash",
+    "ai21labs/jamba-1.5-large-instruct",
+    "aisingapore/sea-lion-7b-instruct",
+    "claude-opus-4-7",
+    "claude-sonnet-4-6",
+    "aquila",
+    "baai/bge-m3",
+    "bge-m3",
+    "bigcode/starcoder2-15b",
+    "browser_use_subagent",
+    "claude-fable-5",
+    "claude-fable-5-1",
+    "claude-fable-5.1",
+    "claude-haiku-4-5",
+    "claude-haiku-4-5-20251001",
+    "claude-opus-4-6",
+    "claude-opus-4-8",
+    "claude-opus-5",
+    "claude-sonnet-4-5",
+    "claude-sonnet-5",
+    "cn:auto",
+    "cn:balanced-model",
+    "cn:deep-model",
+    "cn:deepseek-r1-0528-lkeap",
+    "cn:deepseek-v3-0324",
+    "cn:deepseek-v3-0324-lkeap",
+    "cn:deepseek-v3-1-lkeap",
+    "cn:deepseek-v3-2-volc",
+    "deepseek-v4.1-flash",
+    "cn:fast-model",
+    "cn:glm-5.0-turbo",
+    "glm-5.1",
+    "glm-5.2",
+    "glm-5.3",
+    "glm-5.3-flash",
+    "cn:glm-5v-turbo",
+    "cn:hunyuan-2.0-instruct",
+    "cn:hunyuan-chat",
+    "cn:hy3",
+    "cn:hy3-x",
+    "cn:hy4-preview",
+    "cn:hy4-preview-f",
+    "cn:kimi-k2.5",
+    "kimi-k2.6",
+    "cn:kimi-k2.7",
+    "cn:kimi-k2.8-preview",
+    "kimi-k3",
+    "minimax-m2.7",
+    "codex-auto-review",
+    "cohere/north-mini-code:free",
+    "computer_use_subagent",
+    "custom_model_1M",
+    "custom_model_1M_text",
+    "custom_model_claude",
+    "custom_model_deepseek_chat",
+    "custom_model_deepseek_reasoner",
+    "custom_model_deepseek_v4",
+    "custom_model_doubao_1M",
+    "custom_model_doubao_256k",
+    "custom_model_gemini",
+    "custom_model_gpt-5",
+    "custom_model_gpt-6",
+    "custom_model_kimi",
+    "custom_model_no-fc",
+    "custom_model_placeholder",
+    "databricks/dbrx-instruct",
+    "deepseek-ai/deepseek-coder-6.7b-instruct",
+    "deepseek-ai/deepseek-v4-flash-0731",
+    "deepseek-chat",
+    "deepseek-v3.2",
+    "deepseek-v4-1-flash",
+    "deepseek-v4-flash-0731",
+    "deepseek-v4-flash-vision-exp",
+    "deepseek-v4-pro-0813",
+    "deepseek-v4.1-flash-0910",
+    "dots-studio/dots-3-note-preview:free",
+    "doubao-auto",
+    "doubao-pro",
+    "esmfold",
+    "explore_sub_agent_v2",
+    "file_search_agent",
+    "qwen3.8-flash-next",
+    "gemini-3.1-flash-lite",
+    "gemini-3.1-pro",
+    "gemini-3.5-flash",
+    "gemini-3.6-flash",
+    "gemini-3.7-flash",
+    "gemini-3.8-flash",
+    "glm",
+    "glm-5",
+    "glm-5-2",
+    "glm-5-turbo",
+    "glm-5.3-flashx",
+    "glm-flash",
+    "glm-vision",
+    "google/codegemma-1.1-7b",
+    "google/codegemma-7b",
+    "google/deplot",
+    "google/diffusiongemma-26b-a4b-it",
+    "google/gemini-3.1-flash-lite",
+    "google/gemini-3.5-flash",
+    "google/gemini-3.5-flash-lite",
+    "google/gemini-3.6-flash",
+    "google/gemini-3.8-flash",
+    "google/gemma-2b",
+    "google/gemma-3-12b-it",
+    "google/gemma-3-4b-it",
+    "google/gemma-4-31b-it",
+    "google/recurrentgemma-2b",
+    "gpt-3.5-turbo",
+    "gpt-4.1",
+    "gpt-4.1-mini",
+    "gpt-4.1-nano",
+    "gpt-4o",
+    "gpt-4o-audio-preview",
+    "gpt-4o-mini",
+    "gpt-4o-realtime-preview",
+    "gpt-5",
+    "gpt-5-mini",
+    "gpt-5-nano",
+    "gpt-5.1",
+    "gpt-5.2",
+    "gpt-5.2-2025-12-11",
+    "gpt-5.2-chat-latest",
+    "gpt-5.2-pro",
+    "gpt-5.2-pro-2025-12-11",
+    "gpt-5.3-codex",
+    "gpt-5.3-codex-spark",
+    "gpt-5.4",
+    "gpt-5.4-2026-03-05",
+    "gpt-5.4-mini",
+    "gpt-5.4-nano",
+    "gpt-5.5",
+    "gpt-5.6",
+    "gpt-5.6-luna",
+    "gpt-5.6-sol",
+    "gpt-5.6-terra",
+    "gpt-6",
+    "gpt-6-astra",
+    "gpt-6-luna",
+    "gpt-6-sol",
+    "gpt-image-1",
+    "gpt-image-1.5",
+    "gpt-image-2",
+    "gpt-image-2.5",
+    "gpt-image-2.5-flare",
+    "gpt-image-2.5-sunburst",
+    "gpt-reserve",
+    "grok-4.5",
+    "grok-4.6",
+    "grok-4.7",
+    "grok-build-0.1",
+    "grok-imagine-video-1.5",
+    "hy3",
+    "hy4",
+    "hy4-preview",
+    "ibm/granite-3.0-3b-a800m-instruct",
+    "ibm/granite-3.0-8b-instruct",
+    "ibm/granite-34b-code-instruct",
+    "ibm/granite-8b-code-instruct",
+    "inclusionai/ling-3.0-flash-sante:free",
+    "kimi-k2.7-code",
+    "laya",
+    "liquid/lfm-2.5-2.6b:free",
+    "longcat-2.0",
+    "longcat-2.5-preview-free",
+    "mercury-2.5",
+    "meta/codellama-70b",
+    "meta/llama-3.1-70b-instruct",
+    "meta/llama-3.1-8b-instruct",
+    "meta/llama-3.2-11b-vision-instruct",
+    "meta/llama-3.2-1b-instruct",
+    "meta/llama-3.2-3b-instruct",
+    "meta/llama-3.2-90b-vision-instruct",
+    "meta/llama-3.3-70b-instruct",
+    "meta/llama-guard-4-12b",
+    "meta/llama2-70b",
+    "meta/muse-glimmer-30b",
+    "meta/muse-spark-1.1",
+    "meta/muse-spark-1.2",
+    "meta/muse-spark-1.2-contributor",
+    "meta/muse-spark-1.3",
+    "meta/muse-spark-1.3-contributor",
+    "microsoft/kosmos-2",
+    "microsoft/phi-3-vision-128k-instruct",
+    "microsoft/phi-3.5-moe-instruct",
+    "mimo-v2.5",
+    "mimo-v2.5-pro",
+    "mimo-v2.6-flash",
+    "mimo-v2.6-pro",
+    "minimaxai/minimax-m3",
+    "mistralai/codestral-22b-instruct-v0.1",
+    "mistralai/mistral-7b-instruct-v0.3",
+    "mistralai/mistral-large",
+    "mistralai/mistral-large-2-instruct",
+    "mistralai/mistral-nemotron",
+    "mistralai/mixtral-8x22b-v0.1",
+    "kimi-k2.5",
+    "kimi-k2.7-code-highspeed",
+    "muse-spark-1.2-contributor",
+    "muse-spark-1.3-contributor",
+    "nv-mistralai/mistral-nemo-12b-instruct",
+    "nvidia/ai-synthetic-video-detector",
+    "nvidia/cosmos-reason2-8b",
+    "nvidia/embed-qa-4",
+    "nvidia/esmfold",
+    "nvidia/ising-calibration-1.5-31b",
+    "nvidia/llama-3.1-nemoguard-8b-content-safety",
+    "nvidia/llama-3.1-nemoguard-8b-topic-control",
+    "nvidia/llama-3.1-nemotron-51b-instruct",
+    "nvidia/llama-3.1-nemotron-70b-instruct",
+    "nvidia/llama-3.1-nemotron-nano-8b-v1",
+    "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
+    "nvidia/llama-3.1-nemotron-safety-guard-8b-v3",
+    "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+    "nvidia/llama-3.2-nemoretriever-1b-vlm-embed-v1",
+    "nvidia/llama-3.2-nv-embedqa-1b-v1",
+    "nvidia/llama-3.3-nemotron-super-49b-v1",
+    "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+    "nvidia/llama-nemotron-embed-1b-v2",
+    "nvidia/llama-nemotron-embed-vl-1b-v2",
+    "nvidia/llama3-chatqa-1.5-70b",
+    "nvidia/mistral-nemo-minitron-8b-8k-instruct",
+    "nvidia/nemoretriever-parse",
+    "nvidia/nemotron-3-embed-1b",
+    "nvidia/nemotron-3-nano-30b-a3b",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+    "nvidia/nemotron-3-super-120b-a12b",
+    "nvidia/nemotron-3-ultra-550b-a55b",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "nvidia/nemotron-3.5-content-safety",
+    "nvidia/nemotron-3.5-content-safety:free",
+    "nvidia/nemotron-3.5-lightning-30b-a3b",
+    "nvidia/nemotron-3.5-lightning:free",
+    "nvidia/nemotron-4-340b-instruct",
+    "nvidia/nemotron-4-340b-reward",
+    "nvidia/nemotron-mini-4b-instruct",
+    "nvidia/nemotron-nano-12b-v2-vl",
+    "nvidia/nemotron-nano-3-30b-a3b",
+    "nvidia/nemotron-parse",
+    "nvidia/nemotron-parse-2.0",
+    "nvidia/neva-22b",
+    "nvidia/nv-embed-v1",
+    "nvidia/nv-embedcode-7b-v1",
+    "nvidia/nv-embedqa-e5-v5",
+    "nvidia/nv-embedqa-mistral-7b-v2",
+    "nvidia/nvclip",
+    "nvidia/nvidia-nemotron-nano-9b-v2",
+    "nvidia/riva-translate-4b-instruct",
+    "nvidia/riva-translate-4b-instruct-v1.1",
+    "nvidia/riva-translate-4b-instruct-v2",
+    "nvidia/vila",
+    "ocg/deepseek-v4-flash",
+    "ocg/deepseek-v4-pro",
+    "omen-alpha",
+    "opc-image-v1",
+    "opc-image-v2",
+    "opc-txt-v1",
+    "opc-txt-v2",
+    "opc-video-v1",
+    "opc-video-v2",
+    "openai/gpt-oss-120b",
+    "openai/gpt-oss-20b",
+    "openrouter/free",
+    "poolside/laguna-s-2.1-free",
+    "poolside/laguna-xs-2.1",
+    "poolside/laguna-xs-2.1:free",
+    "q3-14b",
+    "q3-4b",
+    "q3-emb",
+    "qwen-3.8-max",
+    "qwen/qwen3.8-max",
+    "qwen2.5:7b",
+    "qwen3.6-plus",
+    "qwen3.8-flash",
+    "qwen3.8-max-0902",
+    "sagitta",
+    "seed-code-pro-0430",
+    "sensenova-6-8-flash-lite",
+    "sensenova-6.8-flash-lite",
+    "sensenova-u1-fast",
+    "snowflake/arctic-embed-l",
+    "space-bunny-free",
+    "stealth/pixel-canary",
+    "stealth/space-bunny-alpha",
+    "step-5-preview",
+    "stepfun-ai/step-3.7-flash",
+    "stepfun/Step-3.5-Flash",
+    "stepfun/Step-3.7-Flash",
+    "stepfun/Step-5-Preview",
+    "summary",
+    "tencent/hy3-paid",
+    "thinkingmachines/inkling",
+    "thinkingmachines/inkling-small",
+    "thinkingmachines/inkling-small:free",
+    "thinkingmachines/inkling:free",
+    "typesafe/jev",
+    "union-alpha",
+    "writer/palmyra-creative-122b",
+    "writer/palmyra-fin-70b-32k",
+    "writer/palmyra-med-70b",
+    "writer/palmyra-med-70b-32k",
+    "mimo-v2.6-pro-ultraspeed",
+    "z-ai/glm-5.3",
+    "glm-5.2-fast",
+    "zyphra/zamba2-7b-instruct",
+    "auto"
+  ],
+  "checkedCount": 331,
+  "concurrency": 6,
+  "timeoutMs": 30000,
+  "complete": true,
+  "results": [
+    {
+      "id": "0",
+      "checkedAt": "2026-09-29T12:08:55.145Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 400,
+        "checkedAt": "2026-09-29T12:08:55.145Z",
+        "latencyMs": 55
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "01-ai/yi-large",
+      "checkedAt": "2026-09-29T12:08:55.147Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:08:55.147Z",
+        "latencyMs": 607
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "2",
+      "checkedAt": "2026-09-29T12:08:55.148Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 400,
+        "checkedAt": "2026-09-29T12:08:55.148Z",
+        "latencyMs": 165
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "adept/fuyu-8b",
+      "checkedAt": "2026-09-29T12:09:02.282Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:09:02.282Z",
+        "latencyMs": 462
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "agnes-2.5-flash",
+      "checkedAt": "2026-09-29T12:09:02.311Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:02.311Z",
+        "latencyMs": 70
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "agnes-2.5-pro",
+      "checkedAt": "2026-09-29T12:09:02.381Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:02.381Z",
+        "latencyMs": 72
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "agnes-2.5-pro-alpha",
+      "checkedAt": "2026-09-29T12:09:02.453Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:02.453Z",
+        "latencyMs": 73
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "agnes-2.5-pro-beta",
+      "checkedAt": "2026-09-29T12:09:02.527Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:02.527Z",
+        "latencyMs": 74
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "agnes-3.0-flash",
+      "checkedAt": "2026-09-29T12:09:02.602Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:02.602Z",
+        "latencyMs": 71
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "ai21labs/jamba-1.5-large-instruct",
+      "checkedAt": "2026-09-29T12:09:02.666Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:09:02.666Z",
+        "latencyMs": 191
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "aisingapore/sea-lion-7b-instruct",
+      "checkedAt": "2026-09-29T12:09:02.673Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:09:02.673Z",
+        "latencyMs": 203
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "aquila",
+      "checkedAt": "2026-09-29T12:09:02.809Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:02.809Z",
+        "latencyMs": 72
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "auto",
+      "checkedAt": "2026-09-29T12:10:50.905Z",
+      "status": "unavailable",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "glm-5.3",
+        "checkedAt": "2026-09-29T12:10:50.905Z",
+        "latencyMs": 5161
+      },
+      "tools": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 400,
+        "checkedAt": "2026-09-29T12:10:56.066Z",
+        "latencyMs": 3024
+      }
+    },
+    {
+      "id": "baai/bge-m3",
+      "checkedAt": "2026-09-29T12:09:02.859Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "bge-m3",
+      "checkedAt": "2026-09-29T12:09:02.860Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "bigcode/starcoder2-15b",
+      "checkedAt": "2026-09-29T12:09:02.861Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:09:02.861Z",
+        "latencyMs": 181
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "browser_use_subagent",
+      "checkedAt": "2026-09-29T12:09:02.877Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:02.877Z",
+        "latencyMs": 86
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "claude-fable-5",
+      "checkedAt": "2026-09-29T12:09:02.882Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:02.882Z",
+        "latencyMs": 81
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "claude-fable-5-1",
+      "checkedAt": "2026-09-29T12:09:02.964Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:02.964Z",
+        "latencyMs": 91
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "claude-fable-5.1",
+      "checkedAt": "2026-09-29T12:09:02.967Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:02.967Z",
+        "latencyMs": 91
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "claude-haiku-4-5",
+      "checkedAt": "2026-09-29T12:09:03.043Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:03.043Z",
+        "latencyMs": 83
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "claude-haiku-4-5-20251001",
+      "checkedAt": "2026-09-29T12:09:03.056Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:03.056Z",
+        "latencyMs": 120
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "claude-opus-4-6",
+      "checkedAt": "2026-09-29T12:09:03.059Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:03.059Z",
+        "latencyMs": 96
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "claude-opus-4-7",
+      "checkedAt": "2026-09-29T12:09:02.745Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 400,
+        "checkedAt": "2026-09-29T12:09:02.745Z",
+        "latencyMs": 31
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "claude-opus-4-8",
+      "checkedAt": "2026-09-29T12:09:03.128Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:03.128Z",
+        "latencyMs": 93
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "claude-opus-5",
+      "checkedAt": "2026-09-29T12:09:03.156Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:03.156Z",
+        "latencyMs": 84
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "claude-sonnet-4-5",
+      "checkedAt": "2026-09-29T12:09:03.178Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:03.178Z",
+        "latencyMs": 92
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "claude-sonnet-4-6",
+      "checkedAt": "2026-09-29T12:09:02.777Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 400,
+        "checkedAt": "2026-09-29T12:09:02.777Z",
+        "latencyMs": 31
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "claude-sonnet-5",
+      "checkedAt": "2026-09-29T12:09:03.222Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:03.222Z",
+        "latencyMs": 82
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "cn:auto",
+      "checkedAt": "2026-09-29T12:09:03.241Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:03.241Z",
+        "latencyMs": 102
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "cn:balanced-model",
+      "checkedAt": "2026-09-29T12:09:03.272Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:03.272Z",
+        "latencyMs": 93
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "cn:deep-model",
+      "checkedAt": "2026-09-29T12:09:03.309Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:03.309Z",
+        "latencyMs": 84
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "cn:deepseek-r1-0528-lkeap",
+      "checkedAt": "2026-09-29T12:09:03.344Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:03.344Z",
+        "latencyMs": 176
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "cn:deepseek-v3-0324",
+      "checkedAt": "2026-09-29T12:09:03.369Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:03.369Z",
+        "latencyMs": 137
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "cn:deepseek-v3-0324-lkeap",
+      "checkedAt": "2026-09-29T12:09:03.394Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:03.394Z",
+        "latencyMs": 108
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "cn:deepseek-v3-1-lkeap",
+      "checkedAt": "2026-09-29T12:09:03.519Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:03.519Z",
+        "latencyMs": 99
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "cn:deepseek-v3-2-volc",
+      "checkedAt": "2026-09-29T12:09:03.522Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:03.522Z",
+        "latencyMs": 111
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "cn:fast-model",
+      "checkedAt": "2026-09-29T12:09:03.619Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:03.619Z",
+        "latencyMs": 75
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "cn:glm-5.0-turbo",
+      "checkedAt": "2026-09-29T12:09:03.635Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:03.635Z",
+        "latencyMs": 88
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "cn:glm-5v-turbo",
+      "checkedAt": "2026-09-29T12:09:03.974Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:03.974Z",
+        "latencyMs": 73
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "cn:hunyuan-2.0-instruct",
+      "checkedAt": "2026-09-29T12:09:04.048Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:04.048Z",
+        "latencyMs": 79
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "cn:hunyuan-chat",
+      "checkedAt": "2026-09-29T12:09:04.129Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:04.129Z",
+        "latencyMs": 77
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "cn:hy3",
+      "checkedAt": "2026-09-29T12:09:04.208Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:04.208Z",
+        "latencyMs": 82
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "cn:hy3-x",
+      "checkedAt": "2026-09-29T12:09:04.291Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:04.291Z",
+        "latencyMs": 73
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "cn:hy4-preview",
+      "checkedAt": "2026-09-29T12:09:04.365Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:04.365Z",
+        "latencyMs": 69
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "cn:hy4-preview-f",
+      "checkedAt": "2026-09-29T12:09:04.435Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:04.435Z",
+        "latencyMs": 72
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "cn:kimi-k2.5",
+      "checkedAt": "2026-09-29T12:09:04.509Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:04.509Z",
+        "latencyMs": 69
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "cn:kimi-k2.7",
+      "checkedAt": "2026-09-29T12:09:04.766Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:04.766Z",
+        "latencyMs": 70
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "cn:kimi-k2.8-preview",
+      "checkedAt": "2026-09-29T12:09:04.837Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:04.837Z",
+        "latencyMs": 71
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "codex-auto-review",
+      "checkedAt": "2026-09-29T12:09:13.174Z",
+      "status": "available",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "codex-auto-review",
+        "checkedAt": "2026-09-29T12:09:13.174Z",
+        "latencyMs": 2316
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "codex-auto-review",
+        "checkedAt": "2026-09-29T12:09:15.490Z",
+        "latencyMs": 2343
+      }
+    },
+    {
+      "id": "cohere/north-mini-code:free",
+      "checkedAt": "2026-09-29T12:09:13.862Z",
+      "status": "available",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "cohere/north-mini-code:free",
+        "checkedAt": "2026-09-29T12:09:13.862Z",
+        "latencyMs": 2090
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "cohere/north-mini-code:free",
+        "checkedAt": "2026-09-29T12:09:15.952Z",
+        "latencyMs": 2885
+      }
+    },
+    {
+      "id": "computer_use_subagent",
+      "checkedAt": "2026-09-29T12:09:17.834Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:17.834Z",
+        "latencyMs": 88
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "custom_model_1M",
+      "checkedAt": "2026-09-29T12:09:17.923Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:17.923Z",
+        "latencyMs": 82
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "custom_model_1M_text",
+      "checkedAt": "2026-09-29T12:09:18.006Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:18.006Z",
+        "latencyMs": 72
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "custom_model_claude",
+      "checkedAt": "2026-09-29T12:09:18.079Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:18.079Z",
+        "latencyMs": 85
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "custom_model_deepseek_chat",
+      "checkedAt": "2026-09-29T12:09:18.166Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:18.166Z",
+        "latencyMs": 81
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "custom_model_deepseek_reasoner",
+      "checkedAt": "2026-09-29T12:09:18.248Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:18.248Z",
+        "latencyMs": 76
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "custom_model_deepseek_v4",
+      "checkedAt": "2026-09-29T12:09:18.325Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:18.325Z",
+        "latencyMs": 79
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "custom_model_doubao_1M",
+      "checkedAt": "2026-09-29T12:09:18.405Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:18.405Z",
+        "latencyMs": 96
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "custom_model_doubao_256k",
+      "checkedAt": "2026-09-29T12:09:18.502Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:18.502Z",
+        "latencyMs": 76
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "custom_model_gemini",
+      "checkedAt": "2026-09-29T12:09:18.579Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:18.579Z",
+        "latencyMs": 80
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "custom_model_gpt-5",
+      "checkedAt": "2026-09-29T12:09:18.661Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:18.662Z",
+        "latencyMs": 81
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "custom_model_gpt-6",
+      "checkedAt": "2026-09-29T12:09:18.745Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:18.745Z",
+        "latencyMs": 86
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "custom_model_kimi",
+      "checkedAt": "2026-09-29T12:09:18.832Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:18.832Z",
+        "latencyMs": 102
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "custom_model_no-fc",
+      "checkedAt": "2026-09-29T12:09:18.838Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:18.838Z",
+        "latencyMs": 96
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "custom_model_placeholder",
+      "checkedAt": "2026-09-29T12:09:18.912Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:18.912Z",
+        "latencyMs": 75
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "databricks/dbrx-instruct",
+      "checkedAt": "2026-09-29T12:09:18.935Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:09:18.935Z",
+        "latencyMs": 220
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "deepseek-ai/deepseek-coder-6.7b-instruct",
+      "checkedAt": "2026-09-29T12:09:18.936Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:09:18.936Z",
+        "latencyMs": 242
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "deepseek-ai/deepseek-v4-flash-0731",
+      "checkedAt": "2026-09-29T12:09:18.988Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:18.988Z",
+        "latencyMs": 73
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "deepseek-chat",
+      "checkedAt": "2026-09-29T12:09:19.063Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:19.063Z",
+        "latencyMs": 127
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "deepseek-v3.2",
+      "checkedAt": "2026-09-29T12:09:19.156Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:19.156Z",
+        "latencyMs": 82
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "deepseek-v4-1-flash",
+      "checkedAt": "2026-09-29T12:09:19.180Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:19.180Z",
+        "latencyMs": 85
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "deepseek-v4-flash",
+      "checkedAt": "2026-09-29T12:08:55.148Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "deepseek-v4-flash",
+        "checkedAt": "2026-09-29T12:08:55.148Z",
+        "latencyMs": 1288
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-terra",
+        "fallbackModel": "gpt-5.6-terra",
+        "requestedModel": "deepseek-v4-flash",
+        "checkedAt": "2026-09-29T12:08:56.436Z",
+        "latencyMs": 2121
+      }
+    },
+    {
+      "id": "deepseek-v4-flash-0731",
+      "checkedAt": "2026-09-29T12:09:19.192Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:19.192Z",
+        "latencyMs": 93
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "deepseek-v4-flash-vision-exp",
+      "checkedAt": "2026-09-29T12:09:19.242Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "deepseek-v4-flash-vision-exp",
+        "checkedAt": "2026-09-29T12:09:19.242Z",
+        "latencyMs": 1609
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "deepseek-v4-flash-vision-exp",
+        "checkedAt": "2026-09-29T12:09:20.851Z",
+        "latencyMs": 2104
+      }
+    },
+    {
+      "id": "deepseek-v4-pro",
+      "checkedAt": "2026-09-29T12:08:55.149Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "deepseek-v4-pro",
+        "checkedAt": "2026-09-29T12:08:55.149Z",
+        "latencyMs": 2380
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-terra",
+        "fallbackModel": "gpt-5.6-terra",
+        "requestedModel": "deepseek-v4-pro",
+        "checkedAt": "2026-09-29T12:08:57.529Z",
+        "latencyMs": 2443
+      }
+    },
+    {
+      "id": "deepseek-v4-pro-0813",
+      "checkedAt": "2026-09-29T12:09:19.278Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:19.278Z",
+        "latencyMs": 98
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "deepseek-v4.1-flash",
+      "checkedAt": "2026-09-29T12:09:03.524Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-terra",
+        "fallbackModel": "gpt-5.6-terra",
+        "requestedModel": "deepseek-v4.1-flash",
+        "checkedAt": "2026-09-29T12:09:03.524Z",
+        "latencyMs": 1643
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-terra",
+        "fallbackModel": "gpt-5.6-terra",
+        "requestedModel": "deepseek-v4.1-flash",
+        "checkedAt": "2026-09-29T12:09:05.167Z",
+        "latencyMs": 2093
+      }
+    },
+    {
+      "id": "deepseek-v4.1-flash-0910",
+      "checkedAt": "2026-09-29T12:09:19.303Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:19.303Z",
+        "latencyMs": 86
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "dots-studio/dots-3-note-preview:free",
+      "checkedAt": "2026-09-29T12:09:19.432Z",
+      "status": "available",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "dots-studio/dots-3-note-preview:free",
+        "checkedAt": "2026-09-29T12:09:19.432Z",
+        "latencyMs": 1782
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "dots-studio/dots-3-note-preview:free",
+        "checkedAt": "2026-09-29T12:09:21.214Z",
+        "latencyMs": 2653
+      }
+    },
+    {
+      "id": "doubao-auto",
+      "checkedAt": "2026-09-29T12:09:19.434Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "unexpected_text",
+        "httpStatus": 200,
+        "reportedModel": "doubao-auto",
+        "checkedAt": "2026-09-29T12:09:19.434Z",
+        "latencyMs": 2644
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "doubao-pro",
+      "checkedAt": "2026-09-29T12:09:22.097Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "unexpected_text",
+        "httpStatus": 200,
+        "reportedModel": "doubao-pro",
+        "checkedAt": "2026-09-29T12:09:22.097Z",
+        "latencyMs": 2131
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "Doubao-Seed-2.0-Code",
+      "checkedAt": "2026-09-29T12:08:55.150Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:08:55.150Z",
+        "latencyMs": 107
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "Doubao-Seed-2.1-Pro",
+      "checkedAt": "2026-09-29T12:08:55.202Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:08:55.202Z",
+        "latencyMs": 83
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "Doubao-Seed-2.1-Turbo",
+      "checkedAt": "2026-09-29T12:08:55.266Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:08:55.266Z",
+        "latencyMs": 76
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "Doubao-Seed-Evolving",
+      "checkedAt": "2026-09-29T12:08:55.286Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:08:55.286Z",
+        "latencyMs": 106
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "esmfold",
+      "checkedAt": "2026-09-29T12:09:22.961Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:09:22.961Z",
+        "latencyMs": 191
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "explore_sub_agent_v2",
+      "checkedAt": "2026-09-29T12:09:23.176Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:23.176Z",
+        "latencyMs": 121
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "file_search_agent",
+      "checkedAt": "2026-09-29T12:09:23.313Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:23.313Z",
+        "latencyMs": 111
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gemini-3.1-flash-lite",
+      "checkedAt": "2026-09-29T12:09:23.486Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:23.486Z",
+        "latencyMs": 121
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gemini-3.1-pro",
+      "checkedAt": "2026-09-29T12:09:23.609Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:23.609Z",
+        "latencyMs": 82
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gemini-3.5-flash",
+      "checkedAt": "2026-09-29T12:09:23.693Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:23.693Z",
+        "latencyMs": 140
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gemini-3.6-flash",
+      "checkedAt": "2026-09-29T12:09:23.700Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:23.700Z",
+        "latencyMs": 132
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gemini-3.7-flash",
+      "checkedAt": "2026-09-29T12:09:23.842Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:23.842Z",
+        "latencyMs": 174
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gemini-3.8-flash",
+      "checkedAt": "2026-09-29T12:09:23.843Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:23.843Z",
+        "latencyMs": 201
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "glm",
+      "checkedAt": "2026-09-29T12:09:23.868Z",
+      "status": "available",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "glm",
+        "checkedAt": "2026-09-29T12:09:23.868Z",
+        "latencyMs": 5107
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "glm",
+        "checkedAt": "2026-09-29T12:09:28.975Z",
+        "latencyMs": 6706
+      }
+    },
+    {
+      "id": "glm-5",
+      "checkedAt": "2026-09-29T12:09:24.018Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "glm-5",
+        "checkedAt": "2026-09-29T12:09:24.018Z",
+        "latencyMs": 3258
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "glm-5",
+        "checkedAt": "2026-09-29T12:09:27.276Z",
+        "latencyMs": 2558
+      }
+    },
+    {
+      "id": "glm-5-2",
+      "checkedAt": "2026-09-29T12:09:24.047Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:24.048Z",
+        "latencyMs": 154
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "glm-5-turbo",
+      "checkedAt": "2026-09-29T12:09:24.207Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:24.207Z",
+        "latencyMs": 161
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "glm-5.1",
+      "checkedAt": "2026-09-29T12:09:03.695Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 400,
+        "checkedAt": "2026-09-29T12:09:03.695Z",
+        "latencyMs": 45
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "glm-5.2",
+      "checkedAt": "2026-09-29T12:09:03.724Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 400,
+        "checkedAt": "2026-09-29T12:09:03.724Z",
+        "latencyMs": 37
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "glm-5.2-fast",
+      "checkedAt": "2026-09-29T12:10:50.833Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:10:50.833Z",
+        "latencyMs": 68
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "glm-5.3",
+      "checkedAt": "2026-09-29T12:09:03.741Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "glm-5.3",
+        "checkedAt": "2026-09-29T12:09:03.741Z",
+        "latencyMs": 5418
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-terra",
+        "fallbackModel": "gpt-5.6-terra",
+        "requestedModel": "glm-5.3",
+        "checkedAt": "2026-09-29T12:09:09.159Z",
+        "latencyMs": 4702
+      }
+    },
+    {
+      "id": "glm-5.3-flash",
+      "checkedAt": "2026-09-29T12:09:03.762Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "glm-5.3-flash",
+        "checkedAt": "2026-09-29T12:09:03.762Z",
+        "latencyMs": 12749
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-terra",
+        "fallbackModel": "gpt-5.6-terra",
+        "requestedModel": "glm-5.3-flash",
+        "checkedAt": "2026-09-29T12:09:16.511Z",
+        "latencyMs": 2398
+      }
+    },
+    {
+      "id": "glm-5.3-flashx",
+      "checkedAt": "2026-09-29T12:09:24.234Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:09:24.234Z",
+        "latencyMs": 509
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "glm-flash",
+      "checkedAt": "2026-09-29T12:09:24.369Z",
+      "status": "available",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "glm-flash",
+        "checkedAt": "2026-09-29T12:09:24.369Z",
+        "latencyMs": 5862
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "glm-flash",
+        "checkedAt": "2026-09-29T12:09:30.231Z",
+        "latencyMs": 8338
+      }
+    },
+    {
+      "id": "glm-vision",
+      "checkedAt": "2026-09-29T12:09:24.749Z",
+      "status": "available",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "glm-vision",
+        "checkedAt": "2026-09-29T12:09:24.749Z",
+        "latencyMs": 4479
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "glm-vision",
+        "checkedAt": "2026-09-29T12:09:29.228Z",
+        "latencyMs": 7296
+      }
+    },
+    {
+      "id": "google/codegemma-1.1-7b",
+      "checkedAt": "2026-09-29T12:09:27.020Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:09:27.020Z",
+        "latencyMs": 528
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "google/codegemma-7b",
+      "checkedAt": "2026-09-29T12:09:27.550Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:09:27.550Z",
+        "latencyMs": 193
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "google/deplot",
+      "checkedAt": "2026-09-29T12:09:27.745Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:09:27.745Z",
+        "latencyMs": 205
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "google/diffusiongemma-26b-a4b-it",
+      "checkedAt": "2026-09-29T12:09:27.952Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "timeout",
+        "checkedAt": "2026-09-29T12:09:27.952Z",
+        "latencyMs": 30001
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "google/gemini-3.1-flash-lite",
+      "checkedAt": "2026-09-29T12:09:29.835Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:09:29.836Z",
+        "latencyMs": 1078
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "google/gemini-3.5-flash",
+      "checkedAt": "2026-09-29T12:09:30.915Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:09:30.915Z",
+        "latencyMs": 1028
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "google/gemini-3.5-flash-lite",
+      "checkedAt": "2026-09-29T12:09:31.945Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:09:31.945Z",
+        "latencyMs": 1267
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "google/gemini-3.6-flash",
+      "checkedAt": "2026-09-29T12:09:33.214Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:09:33.214Z",
+        "latencyMs": 1180
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "google/gemini-3.8-flash",
+      "checkedAt": "2026-09-29T12:09:34.395Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:09:34.395Z",
+        "latencyMs": 995
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "google/gemma-2b",
+      "checkedAt": "2026-09-29T12:09:34.912Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:09:34.912Z",
+        "latencyMs": 197
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "google/gemma-3-12b-it",
+      "checkedAt": "2026-09-29T12:09:35.116Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:09:35.116Z",
+        "latencyMs": 206
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "google/gemma-3-4b-it",
+      "checkedAt": "2026-09-29T12:09:35.323Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:09:35.323Z",
+        "latencyMs": 221
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "google/gemma-4-31b-it",
+      "checkedAt": "2026-09-29T12:09:35.392Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "timeout",
+        "checkedAt": "2026-09-29T12:09:35.392Z",
+        "latencyMs": 30002
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "google/recurrentgemma-2b",
+      "checkedAt": "2026-09-29T12:09:35.562Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:09:35.562Z",
+        "latencyMs": 212
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gpt-3.5-turbo",
+      "checkedAt": "2026-09-29T12:09:35.689Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:35.689Z",
+        "latencyMs": 83
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gpt-4.1",
+      "checkedAt": "2026-09-29T12:09:35.778Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:35.778Z",
+        "latencyMs": 122
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gpt-4.1-mini",
+      "checkedAt": "2026-09-29T12:09:35.781Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:35.781Z",
+        "latencyMs": 117
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gpt-4.1-nano",
+      "checkedAt": "2026-09-29T12:09:35.901Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:35.901Z",
+        "latencyMs": 88
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gpt-4o",
+      "checkedAt": "2026-09-29T12:09:35.902Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:35.902Z",
+        "latencyMs": 96
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gpt-4o-audio-preview",
+      "checkedAt": "2026-09-29T12:09:35.990Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "gpt-4o-mini",
+      "checkedAt": "2026-09-29T12:09:35.991Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:35.991Z",
+        "latencyMs": 129
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gpt-4o-realtime-preview",
+      "checkedAt": "2026-09-29T12:09:36.000Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "gpt-5",
+      "checkedAt": "2026-09-29T12:09:36.000Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:36.000Z",
+        "latencyMs": 155
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gpt-5-mini",
+      "checkedAt": "2026-09-29T12:09:36.121Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:36.121Z",
+        "latencyMs": 119
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gpt-5-nano",
+      "checkedAt": "2026-09-29T12:09:36.156Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:36.157Z",
+        "latencyMs": 90
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gpt-5.1",
+      "checkedAt": "2026-09-29T12:09:36.242Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:36.242Z",
+        "latencyMs": 83
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gpt-5.2",
+      "checkedAt": "2026-09-29T12:09:36.248Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "gpt-5.2",
+        "checkedAt": "2026-09-29T12:09:36.248Z",
+        "latencyMs": 2992
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "gpt-5.2",
+        "checkedAt": "2026-09-29T12:09:39.240Z",
+        "latencyMs": 3099
+      }
+    },
+    {
+      "id": "gpt-5.2-2025-12-11",
+      "checkedAt": "2026-09-29T12:09:36.326Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 400,
+        "checkedAt": "2026-09-29T12:09:36.326Z",
+        "latencyMs": 1165
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gpt-5.2-chat-latest",
+      "checkedAt": "2026-09-29T12:09:36.525Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 400,
+        "checkedAt": "2026-09-29T12:09:36.525Z",
+        "latencyMs": 2325
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gpt-5.2-pro",
+      "checkedAt": "2026-09-29T12:09:37.492Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 400,
+        "checkedAt": "2026-09-29T12:09:37.492Z",
+        "latencyMs": 1246
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gpt-5.2-pro-2025-12-11",
+      "checkedAt": "2026-09-29T12:09:38.571Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 400,
+        "checkedAt": "2026-09-29T12:09:38.571Z",
+        "latencyMs": 637
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gpt-5.3-codex",
+      "checkedAt": "2026-09-29T12:09:38.739Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-terra",
+        "fallbackModel": "gpt-5.6-terra",
+        "requestedModel": "gpt-5.3-codex",
+        "checkedAt": "2026-09-29T12:09:38.739Z",
+        "latencyMs": 2425
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "glm-5.3",
+        "fallbackModel": "glm-5.3",
+        "requestedModel": "gpt-5.3-codex",
+        "checkedAt": "2026-09-29T12:09:41.164Z",
+        "latencyMs": 12912
+      }
+    },
+    {
+      "id": "gpt-5.3-codex-spark",
+      "checkedAt": "2026-09-29T12:09:38.851Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 400,
+        "checkedAt": "2026-09-29T12:09:38.851Z",
+        "latencyMs": 1319
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gpt-5.4",
+      "checkedAt": "2026-09-29T12:09:39.210Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "timeout",
+        "checkedAt": "2026-09-29T12:09:39.210Z",
+        "latencyMs": 30000
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gpt-5.4-2026-03-05",
+      "checkedAt": "2026-09-29T12:09:40.172Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 400,
+        "checkedAt": "2026-09-29T12:09:40.172Z",
+        "latencyMs": 2044
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gpt-5.4-mini",
+      "checkedAt": "2026-09-29T12:09:42.217Z",
+      "status": "unavailable",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "gpt-5.4-mini",
+        "checkedAt": "2026-09-29T12:09:42.217Z",
+        "latencyMs": 5672
+      },
+      "tools": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 400,
+        "checkedAt": "2026-09-29T12:09:47.889Z",
+        "latencyMs": 1799
+      }
+    },
+    {
+      "id": "gpt-5.4-nano",
+      "checkedAt": "2026-09-29T12:09:42.341Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:42.341Z",
+        "latencyMs": 71
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "gpt-5.5",
+      "checkedAt": "2026-09-29T12:09:42.413Z",
+      "status": "available",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.5",
+        "checkedAt": "2026-09-29T12:09:42.413Z",
+        "latencyMs": 1562
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.5",
+        "checkedAt": "2026-09-29T12:09:43.975Z",
+        "latencyMs": 2309
+      }
+    },
+    {
+      "id": "gpt-5.6",
+      "checkedAt": "2026-09-29T12:09:46.285Z",
+      "status": "available",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6",
+        "checkedAt": "2026-09-29T12:09:46.285Z",
+        "latencyMs": 1803
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6",
+        "checkedAt": "2026-09-29T12:09:48.088Z",
+        "latencyMs": 2851
+      }
+    },
+    {
+      "id": "gpt-5.6-luna",
+      "checkedAt": "2026-09-29T12:09:49.689Z",
+      "status": "available",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "checkedAt": "2026-09-29T12:09:49.689Z",
+        "latencyMs": 2068
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "checkedAt": "2026-09-29T12:09:51.757Z",
+        "latencyMs": 1549
+      }
+    },
+    {
+      "id": "gpt-5.6-sol",
+      "checkedAt": "2026-09-29T12:09:50.941Z",
+      "status": "available",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-sol",
+        "checkedAt": "2026-09-29T12:09:50.941Z",
+        "latencyMs": 2200
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-sol",
+        "checkedAt": "2026-09-29T12:09:53.141Z",
+        "latencyMs": 2573
+      }
+    },
+    {
+      "id": "gpt-5.6-terra",
+      "checkedAt": "2026-09-29T12:09:53.307Z",
+      "status": "available",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-terra",
+        "checkedAt": "2026-09-29T12:09:53.307Z",
+        "latencyMs": 1577
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-terra",
+        "checkedAt": "2026-09-29T12:09:54.884Z",
+        "latencyMs": 2356
+      }
+    },
+    {
+      "id": "gpt-6",
+      "checkedAt": "2026-09-29T12:09:54.077Z",
+      "status": "available",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-6",
+        "checkedAt": "2026-09-29T12:09:54.077Z",
+        "latencyMs": 1711
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-6",
+        "checkedAt": "2026-09-29T12:09:55.788Z",
+        "latencyMs": 2859
+      }
+    },
+    {
+      "id": "gpt-6-astra",
+      "checkedAt": "2026-09-29T12:09:55.715Z",
+      "status": "available",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-6-astra",
+        "checkedAt": "2026-09-29T12:09:55.715Z",
+        "latencyMs": 2746
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-6-astra",
+        "checkedAt": "2026-09-29T12:09:58.461Z",
+        "latencyMs": 2964
+      }
+    },
+    {
+      "id": "gpt-6-luna",
+      "checkedAt": "2026-09-29T12:09:57.242Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "gpt-6-luna",
+        "checkedAt": "2026-09-29T12:09:57.242Z",
+        "latencyMs": 3230
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "gpt-6-luna",
+        "checkedAt": "2026-09-29T12:10:00.472Z",
+        "latencyMs": 3503
+      }
+    },
+    {
+      "id": "gpt-6-sol",
+      "checkedAt": "2026-09-29T12:09:57.955Z",
+      "status": "available",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-6-sol",
+        "checkedAt": "2026-09-29T12:09:57.955Z",
+        "latencyMs": 1603
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-6-sol",
+        "checkedAt": "2026-09-29T12:09:59.558Z",
+        "latencyMs": 2518
+      }
+    },
+    {
+      "id": "gpt-image-1",
+      "checkedAt": "2026-09-29T12:09:58.649Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "gpt-image-1.5",
+      "checkedAt": "2026-09-29T12:09:58.649Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "gpt-image-2",
+      "checkedAt": "2026-09-29T12:09:58.650Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "gpt-image-2.5",
+      "checkedAt": "2026-09-29T12:09:58.651Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "gpt-image-2.5-flare",
+      "checkedAt": "2026-09-29T12:09:58.652Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "gpt-image-2.5-sunburst",
+      "checkedAt": "2026-09-29T12:09:58.653Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "gpt-reserve",
+      "checkedAt": "2026-09-29T12:09:58.653Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:09:58.653Z",
+        "latencyMs": 77
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "grok-4.5",
+      "checkedAt": "2026-09-29T12:09:58.731Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-terra",
+        "fallbackModel": "gpt-5.6-terra",
+        "requestedModel": "grok-4.5",
+        "checkedAt": "2026-09-29T12:09:58.731Z",
+        "latencyMs": 2185
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-terra",
+        "fallbackModel": "gpt-5.6-terra",
+        "requestedModel": "grok-4.5",
+        "checkedAt": "2026-09-29T12:10:00.916Z",
+        "latencyMs": 1918
+      }
+    },
+    {
+      "id": "grok-4.6",
+      "checkedAt": "2026-09-29T12:10:01.427Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-terra",
+        "fallbackModel": "gpt-5.6-terra",
+        "requestedModel": "grok-4.6",
+        "checkedAt": "2026-09-29T12:10:01.427Z",
+        "latencyMs": 1428
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-terra",
+        "fallbackModel": "gpt-5.6-terra",
+        "requestedModel": "grok-4.6",
+        "checkedAt": "2026-09-29T12:10:02.855Z",
+        "latencyMs": 2710
+      }
+    },
+    {
+      "id": "grok-4.7",
+      "checkedAt": "2026-09-29T12:10:02.077Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-terra",
+        "fallbackModel": "gpt-5.6-terra",
+        "requestedModel": "grok-4.7",
+        "checkedAt": "2026-09-29T12:10:02.077Z",
+        "latencyMs": 2752
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-terra",
+        "fallbackModel": "gpt-5.6-terra",
+        "requestedModel": "grok-4.7",
+        "checkedAt": "2026-09-29T12:10:04.829Z",
+        "latencyMs": 1967
+      }
+    },
+    {
+      "id": "grok-build-0.1",
+      "checkedAt": "2026-09-29T12:10:02.837Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:02.837Z",
+        "latencyMs": 85
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "grok-imagine-video-1.5",
+      "checkedAt": "2026-09-29T12:10:02.924Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "hy3",
+      "checkedAt": "2026-09-29T12:10:02.925Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "hy3",
+        "checkedAt": "2026-09-29T12:10:02.925Z",
+        "latencyMs": 2816
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "hy3",
+        "checkedAt": "2026-09-29T12:10:05.741Z",
+        "latencyMs": 2162
+      }
+    },
+    {
+      "id": "hy4",
+      "checkedAt": "2026-09-29T12:10:03.977Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:03.977Z",
+        "latencyMs": 77
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "hy4-preview",
+      "checkedAt": "2026-09-29T12:10:04.057Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "hy4-preview",
+        "checkedAt": "2026-09-29T12:10:04.057Z",
+        "latencyMs": 1684
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "hy4-preview",
+        "checkedAt": "2026-09-29T12:10:05.741Z",
+        "latencyMs": 2882
+      }
+    },
+    {
+      "id": "ibm/granite-3.0-3b-a800m-instruct",
+      "checkedAt": "2026-09-29T12:10:05.397Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:05.397Z",
+        "latencyMs": 213
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "ibm/granite-3.0-8b-instruct",
+      "checkedAt": "2026-09-29T12:10:05.569Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:05.569Z",
+        "latencyMs": 228
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "ibm/granite-34b-code-instruct",
+      "checkedAt": "2026-09-29T12:10:05.611Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:05.611Z",
+        "latencyMs": 198
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "ibm/granite-8b-code-instruct",
+      "checkedAt": "2026-09-29T12:10:05.801Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:05.801Z",
+        "latencyMs": 219
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "inclusionai/ling-3.0-flash-sante:free",
+      "checkedAt": "2026-09-29T12:10:05.810Z",
+      "status": "available",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "inclusionai/ling-3.0-flash-sante:free",
+        "checkedAt": "2026-09-29T12:10:05.810Z",
+        "latencyMs": 1275
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "inclusionai/ling-3.0-flash-sante:free",
+        "checkedAt": "2026-09-29T12:10:07.085Z",
+        "latencyMs": 1695
+      }
+    },
+    {
+      "id": "kimi-k2.5",
+      "checkedAt": "2026-09-29T12:10:20.291Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "kimi-k2.5",
+        "checkedAt": "2026-09-29T12:10:20.291Z",
+        "latencyMs": 3043
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "kimi-k2.5",
+        "checkedAt": "2026-09-29T12:10:23.334Z",
+        "latencyMs": 3354
+      }
+    },
+    {
+      "id": "kimi-k2.6",
+      "checkedAt": "2026-09-29T12:09:04.579Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:09:04.579Z",
+        "latencyMs": 185
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "kimi-k2.7-code",
+      "checkedAt": "2026-09-29T12:10:06.021Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "kimi-k2.7-code",
+        "checkedAt": "2026-09-29T12:10:06.021Z",
+        "latencyMs": 4335
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "kimi-k2.7-code",
+        "checkedAt": "2026-09-29T12:10:10.356Z",
+        "latencyMs": 2389
+      }
+    },
+    {
+      "id": "kimi-k2.7-code-highspeed",
+      "checkedAt": "2026-09-29T12:10:21.655Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:21.655Z",
+        "latencyMs": 301
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "kimi-k3",
+      "checkedAt": "2026-09-29T12:09:04.909Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "timeout",
+        "checkedAt": "2026-09-29T12:09:04.909Z",
+        "latencyMs": 30002
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "laya",
+      "checkedAt": "2026-09-29T12:10:06.798Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:06.798Z",
+        "latencyMs": 32
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "liquid/lfm-2.5-2.6b:free",
+      "checkedAt": "2026-09-29T12:10:06.832Z",
+      "status": "available",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "liquid/lfm-2.5-2.6b:free",
+        "checkedAt": "2026-09-29T12:10:06.832Z",
+        "latencyMs": 1951
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "liquid/lfm-2.5-2.6b:free",
+        "checkedAt": "2026-09-29T12:10:08.783Z",
+        "latencyMs": 2121
+      }
+    },
+    {
+      "id": "longcat-2.0",
+      "checkedAt": "2026-09-29T12:10:07.906Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "longcat-2.0",
+        "checkedAt": "2026-09-29T12:10:07.906Z",
+        "latencyMs": 2204
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "longcat-2.0",
+        "checkedAt": "2026-09-29T12:10:10.110Z",
+        "latencyMs": 2164
+      }
+    },
+    {
+      "id": "longcat-2.5-preview-free",
+      "checkedAt": "2026-09-29T12:10:08.624Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:08.624Z",
+        "latencyMs": 307
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "mercury-2.5",
+      "checkedAt": "2026-09-29T12:10:08.784Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:08.784Z",
+        "latencyMs": 82
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "meta/codellama-70b",
+      "checkedAt": "2026-09-29T12:10:08.867Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:08.867Z",
+        "latencyMs": 206
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "meta/llama-3.1-70b-instruct",
+      "checkedAt": "2026-09-29T12:10:08.935Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:10:08.935Z",
+        "latencyMs": 73
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "meta/llama-3.1-8b-instruct",
+      "checkedAt": "2026-09-29T12:10:09.011Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:10:09.011Z",
+        "latencyMs": 108
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "meta/llama-3.2-11b-vision-instruct",
+      "checkedAt": "2026-09-29T12:10:09.075Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "unexpected_text",
+        "httpStatus": 200,
+        "reportedModel": "meta/llama-3.2-11b-vision-instruct",
+        "checkedAt": "2026-09-29T12:10:09.075Z",
+        "latencyMs": 540
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "meta/llama-3.2-1b-instruct",
+      "checkedAt": "2026-09-29T12:10:09.123Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:10:09.123Z",
+        "latencyMs": 76
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "meta/llama-3.2-3b-instruct",
+      "checkedAt": "2026-09-29T12:10:09.201Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:10:09.201Z",
+        "latencyMs": 78
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "meta/llama-3.2-90b-vision-instruct",
+      "checkedAt": "2026-09-29T12:10:09.211Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "timeout",
+        "checkedAt": "2026-09-29T12:10:09.211Z",
+        "latencyMs": 30001
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "meta/llama-3.3-70b-instruct",
+      "checkedAt": "2026-09-29T12:10:09.281Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:10:09.281Z",
+        "latencyMs": 84
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "meta/llama-guard-4-12b",
+      "checkedAt": "2026-09-29T12:10:09.367Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "timeout",
+        "checkedAt": "2026-09-29T12:10:09.367Z",
+        "latencyMs": 30002
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "meta/llama2-70b",
+      "checkedAt": "2026-09-29T12:10:09.617Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:09.617Z",
+        "latencyMs": 187
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "meta/muse-glimmer-30b",
+      "checkedAt": "2026-09-29T12:10:09.807Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "timeout",
+        "checkedAt": "2026-09-29T12:10:09.807Z",
+        "latencyMs": 29999
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "meta/muse-spark-1.1",
+      "checkedAt": "2026-09-29T12:10:10.905Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:10.905Z",
+        "latencyMs": 963
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "meta/muse-spark-1.2",
+      "checkedAt": "2026-09-29T12:10:11.870Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:11.870Z",
+        "latencyMs": 957
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "meta/muse-spark-1.2-contributor",
+      "checkedAt": "2026-09-29T12:10:12.276Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:12.276Z",
+        "latencyMs": 1050
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "meta/muse-spark-1.3",
+      "checkedAt": "2026-09-29T12:10:12.746Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:12.746Z",
+        "latencyMs": 940
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "meta/muse-spark-1.3-contributor",
+      "checkedAt": "2026-09-29T12:10:12.828Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:12.828Z",
+        "latencyMs": 940
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "microsoft/kosmos-2",
+      "checkedAt": "2026-09-29T12:10:13.328Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:13.328Z",
+        "latencyMs": 198
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "microsoft/phi-3-vision-128k-instruct",
+      "checkedAt": "2026-09-29T12:10:13.528Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:13.528Z",
+        "latencyMs": 198
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "microsoft/phi-3.5-moe-instruct",
+      "checkedAt": "2026-09-29T12:10:13.688Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:13.688Z",
+        "latencyMs": 190
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "mimo-v2.5",
+      "checkedAt": "2026-09-29T12:10:13.727Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "mimo-v2.5",
+        "checkedAt": "2026-09-29T12:10:13.727Z",
+        "latencyMs": 2728
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "mimo-v2.5",
+        "checkedAt": "2026-09-29T12:10:16.455Z",
+        "latencyMs": 2080
+      }
+    },
+    {
+      "id": "mimo-v2.5-pro",
+      "checkedAt": "2026-09-29T12:10:13.770Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-terra",
+        "fallbackModel": "gpt-5.6-terra",
+        "requestedModel": "mimo-v2.5-pro",
+        "checkedAt": "2026-09-29T12:10:13.770Z",
+        "latencyMs": 2379
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-terra",
+        "fallbackModel": "gpt-5.6-terra",
+        "requestedModel": "mimo-v2.5-pro",
+        "checkedAt": "2026-09-29T12:10:16.149Z",
+        "latencyMs": 2730
+      }
+    },
+    {
+      "id": "mimo-v2.6-flash",
+      "checkedAt": "2026-09-29T12:10:13.880Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "mimo-v2.6-flash",
+        "checkedAt": "2026-09-29T12:10:13.880Z",
+        "latencyMs": 4367
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "mimo-v2.6-flash",
+        "checkedAt": "2026-09-29T12:10:18.247Z",
+        "latencyMs": 3405
+      }
+    },
+    {
+      "id": "mimo-v2.6-pro",
+      "checkedAt": "2026-09-29T12:10:18.539Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-terra",
+        "fallbackModel": "gpt-5.6-terra",
+        "requestedModel": "mimo-v2.6-pro",
+        "checkedAt": "2026-09-29T12:10:18.539Z",
+        "latencyMs": 2008
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-terra",
+        "fallbackModel": "gpt-5.6-terra",
+        "requestedModel": "mimo-v2.6-pro",
+        "checkedAt": "2026-09-29T12:10:20.547Z",
+        "latencyMs": 2324
+      }
+    },
+    {
+      "id": "mimo-v2.6-pro-ultraspeed",
+      "checkedAt": "2026-09-29T12:10:50.689Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:50.689Z",
+        "latencyMs": 240
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "minimax-m2.5",
+      "checkedAt": "2026-09-29T12:08:55.393Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "minimax-m2.5",
+        "checkedAt": "2026-09-29T12:08:55.393Z",
+        "latencyMs": 3741
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "minimax-m2.5",
+        "checkedAt": "2026-09-29T12:08:59.134Z",
+        "latencyMs": 3101
+      }
+    },
+    {
+      "id": "minimax-m2.7",
+      "checkedAt": "2026-09-29T12:09:07.261Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "minimax-m2.7",
+        "checkedAt": "2026-09-29T12:09:07.261Z",
+        "latencyMs": 3242
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "minimax-m2.7",
+        "checkedAt": "2026-09-29T12:09:10.503Z",
+        "latencyMs": 2670
+      }
+    },
+    {
+      "id": "minimax-m3",
+      "checkedAt": "2026-09-29T12:08:55.314Z",
+      "status": "available",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "minimax-m3",
+        "checkedAt": "2026-09-29T12:08:55.314Z",
+        "latencyMs": 16267
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "minimax-m3",
+        "checkedAt": "2026-09-29T12:09:11.581Z",
+        "latencyMs": 15426
+      }
+    },
+    {
+      "id": "MiniMax-M3.1-Flash-Preview",
+      "checkedAt": "2026-09-29T12:08:55.343Z",
+      "status": "available",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "MiniMax-M3.1-Flash-Preview",
+        "checkedAt": "2026-09-29T12:08:55.343Z",
+        "latencyMs": 10586
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "MiniMax-M3.1-Flash-Preview",
+        "checkedAt": "2026-09-29T12:09:05.929Z",
+        "latencyMs": 17770
+      }
+    },
+    {
+      "id": "minimaxai/minimax-m3",
+      "checkedAt": "2026-09-29T12:10:18.882Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:10:18.882Z",
+        "latencyMs": 90
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "mistralai/codestral-22b-instruct-v0.1",
+      "checkedAt": "2026-09-29T12:10:18.976Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:18.976Z",
+        "latencyMs": 195
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "mistralai/mistral-7b-instruct-v0.3",
+      "checkedAt": "2026-09-29T12:10:19.174Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:19.174Z",
+        "latencyMs": 197
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "mistralai/mistral-large",
+      "checkedAt": "2026-09-29T12:10:19.375Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:19.375Z",
+        "latencyMs": 207
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "mistralai/mistral-large-2-instruct",
+      "checkedAt": "2026-09-29T12:10:19.583Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:19.583Z",
+        "latencyMs": 189
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "mistralai/mistral-nemotron",
+      "checkedAt": "2026-09-29T12:10:19.773Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:19.773Z",
+        "latencyMs": 292
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "mistralai/mixtral-8x22b-v0.1",
+      "checkedAt": "2026-09-29T12:10:20.069Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:20.069Z",
+        "latencyMs": 219
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "muse-spark-1.2-contributor",
+      "checkedAt": "2026-09-29T12:10:21.957Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "unexpected_text",
+        "httpStatus": 200,
+        "reportedModel": "doubao-pro",
+        "fallbackModel": "doubao-pro",
+        "requestedModel": "muse-spark-1.2-contributor",
+        "checkedAt": "2026-09-29T12:10:21.957Z",
+        "latencyMs": 2956
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "muse-spark-1.3-contributor",
+      "checkedAt": "2026-09-29T12:10:22.872Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "unexpected_text",
+        "httpStatus": 200,
+        "reportedModel": "doubao-pro",
+        "fallbackModel": "doubao-pro",
+        "requestedModel": "muse-spark-1.3-contributor",
+        "checkedAt": "2026-09-29T12:10:22.872Z",
+        "latencyMs": 4250
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nv-mistralai/mistral-nemo-12b-instruct",
+      "checkedAt": "2026-09-29T12:10:24.915Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:24.915Z",
+        "latencyMs": 192
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/ai-synthetic-video-detector",
+      "checkedAt": "2026-09-29T12:10:25.110Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "nvidia/cosmos-reason2-8b",
+      "checkedAt": "2026-09-29T12:10:25.111Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:25.111Z",
+        "latencyMs": 193
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/embed-qa-4",
+      "checkedAt": "2026-09-29T12:10:25.306Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "nvidia/esmfold",
+      "checkedAt": "2026-09-29T12:10:25.307Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:10:25.307Z",
+        "latencyMs": 84
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/ising-calibration-1.5-31b",
+      "checkedAt": "2026-09-29T12:10:25.392Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "unexpected_text",
+        "httpStatus": 200,
+        "reportedModel": "nvidia/ising-calibration-1.5-31b",
+        "checkedAt": "2026-09-29T12:10:25.392Z",
+        "latencyMs": 1116
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/llama-3.1-nemoguard-8b-content-safety",
+      "checkedAt": "2026-09-29T12:10:26.510Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 400,
+        "checkedAt": "2026-09-29T12:10:26.510Z",
+        "latencyMs": 741
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/llama-3.1-nemoguard-8b-topic-control",
+      "checkedAt": "2026-09-29T12:10:26.689Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 400,
+        "checkedAt": "2026-09-29T12:10:26.689Z",
+        "latencyMs": 571
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/llama-3.1-nemotron-51b-instruct",
+      "checkedAt": "2026-09-29T12:10:27.123Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:27.123Z",
+        "latencyMs": 200
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/llama-3.1-nemotron-70b-instruct",
+      "checkedAt": "2026-09-29T12:10:27.253Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:27.253Z",
+        "latencyMs": 215
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/llama-3.1-nemotron-nano-8b-v1",
+      "checkedAt": "2026-09-29T12:10:27.262Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:10:27.262Z",
+        "latencyMs": 90
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/llama-3.1-nemotron-nano-vl-8b-v1",
+      "checkedAt": "2026-09-29T12:10:27.326Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:10:27.327Z",
+        "latencyMs": 87
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/llama-3.1-nemotron-safety-guard-8b-v3",
+      "checkedAt": "2026-09-29T12:10:27.354Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "unexpected_text",
+        "httpStatus": 200,
+        "reportedModel": "nvidia/llama-3.1-nemotron-safety-guard-8b-v3",
+        "checkedAt": "2026-09-29T12:10:27.354Z",
+        "latencyMs": 4046
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/llama-3.1-nemotron-ultra-253b-v1",
+      "checkedAt": "2026-09-29T12:10:27.416Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:27.416Z",
+        "latencyMs": 200
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/llama-3.2-nemoretriever-1b-vlm-embed-v1",
+      "checkedAt": "2026-09-29T12:10:27.472Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "nvidia/llama-3.2-nv-embedqa-1b-v1",
+      "checkedAt": "2026-09-29T12:10:27.475Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:27.475Z",
+        "latencyMs": 194
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/llama-3.3-nemotron-super-49b-v1",
+      "checkedAt": "2026-09-29T12:10:27.618Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:10:27.618Z",
+        "latencyMs": 81
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/llama-3.3-nemotron-super-49b-v1.5",
+      "checkedAt": "2026-09-29T12:10:27.671Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:10:27.671Z",
+        "latencyMs": 87
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/llama-nemotron-embed-1b-v2",
+      "checkedAt": "2026-09-29T12:10:27.702Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "nvidia/llama-nemotron-embed-vl-1b-v2",
+      "checkedAt": "2026-09-29T12:10:27.703Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "nvidia/llama3-chatqa-1.5-70b",
+      "checkedAt": "2026-09-29T12:10:27.704Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:27.704Z",
+        "latencyMs": 207
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/mistral-nemo-minitron-8b-8k-instruct",
+      "checkedAt": "2026-09-29T12:10:27.759Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:27.759Z",
+        "latencyMs": 202
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/nemoretriever-parse",
+      "checkedAt": "2026-09-29T12:10:27.913Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:10:27.913Z",
+        "latencyMs": 98
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/nemotron-3-embed-1b",
+      "checkedAt": "2026-09-29T12:10:27.962Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "nvidia/nemotron-3-nano-30b-a3b",
+      "checkedAt": "2026-09-29T12:10:27.964Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:10:27.964Z",
+        "latencyMs": 85
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+      "checkedAt": "2026-09-29T12:10:28.013Z",
+      "status": "available",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+        "checkedAt": "2026-09-29T12:10:28.013Z",
+        "latencyMs": 1020
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning",
+        "checkedAt": "2026-09-29T12:10:29.033Z",
+        "latencyMs": 5825
+      }
+    },
+    {
+      "id": "nvidia/nemotron-3-super-120b-a12b",
+      "checkedAt": "2026-09-29T12:10:28.051Z",
+      "status": "available",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "nvidia/nemotron-3-super-120b-a12b",
+        "checkedAt": "2026-09-29T12:10:28.051Z",
+        "latencyMs": 1261
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "nvidia/nemotron-3-super-120b-a12b",
+        "checkedAt": "2026-09-29T12:10:29.312Z",
+        "latencyMs": 1016
+      }
+    },
+    {
+      "id": "nvidia/nemotron-3-ultra-550b-a55b",
+      "checkedAt": "2026-09-29T12:10:30.330Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:30.330Z",
+        "latencyMs": 795
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/nemotron-3-ultra-550b-a55b:free",
+      "checkedAt": "2026-09-29T12:10:31.126Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:31.126Z",
+        "latencyMs": 817
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/nemotron-3.5-content-safety",
+      "checkedAt": "2026-09-29T12:10:31.402Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "unexpected_text",
+        "httpStatus": 200,
+        "reportedModel": "nvidia/nemotron-3.5-content-safety",
+        "checkedAt": "2026-09-29T12:10:31.402Z",
+        "latencyMs": 401
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/nemotron-3.5-content-safety:free",
+      "checkedAt": "2026-09-29T12:10:31.805Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "unexpected_text",
+        "httpStatus": 200,
+        "reportedModel": "nvidia/nemotron-3.5-content-safety:free",
+        "checkedAt": "2026-09-29T12:10:31.805Z",
+        "latencyMs": 4128
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/nemotron-3.5-lightning-30b-a3b",
+      "checkedAt": "2026-09-29T12:10:31.944Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "timeout",
+        "checkedAt": "2026-09-29T12:10:31.944Z",
+        "latencyMs": 30001
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/nemotron-3.5-lightning:free",
+      "checkedAt": "2026-09-29T12:10:34.860Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "timeout",
+        "checkedAt": "2026-09-29T12:10:34.860Z",
+        "latencyMs": 30001
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/nemotron-4-340b-instruct",
+      "checkedAt": "2026-09-29T12:10:35.936Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:35.936Z",
+        "latencyMs": 205
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/nemotron-4-340b-reward",
+      "checkedAt": "2026-09-29T12:10:36.144Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "nvidia/nemotron-mini-4b-instruct",
+      "checkedAt": "2026-09-29T12:10:36.145Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:10:36.145Z",
+        "latencyMs": 75
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/nemotron-nano-12b-v2-vl",
+      "checkedAt": "2026-09-29T12:10:36.223Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:10:36.223Z",
+        "latencyMs": 75
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/nemotron-nano-3-30b-a3b",
+      "checkedAt": "2026-09-29T12:10:36.300Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:36.300Z",
+        "latencyMs": 196
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/nemotron-parse",
+      "checkedAt": "2026-09-29T12:10:36.498Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 400,
+        "checkedAt": "2026-09-29T12:10:36.498Z",
+        "latencyMs": 337
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/nemotron-parse-2.0",
+      "checkedAt": "2026-09-29T12:10:36.836Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:36.836Z",
+        "latencyMs": 86
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/neva-22b",
+      "checkedAt": "2026-09-29T12:10:36.924Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:36.924Z",
+        "latencyMs": 214
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/nv-embed-v1",
+      "checkedAt": "2026-09-29T12:10:37.141Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "nvidia/nv-embedcode-7b-v1",
+      "checkedAt": "2026-09-29T12:10:37.142Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:10:37.142Z",
+        "latencyMs": 81
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/nv-embedqa-e5-v5",
+      "checkedAt": "2026-09-29T12:10:37.225Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:10:37.225Z",
+        "latencyMs": 83
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/nv-embedqa-mistral-7b-v2",
+      "checkedAt": "2026-09-29T12:10:37.309Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:37.309Z",
+        "latencyMs": 178
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/nvclip",
+      "checkedAt": "2026-09-29T12:10:37.489Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:37.489Z",
+        "latencyMs": 187
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/nvidia-nemotron-nano-9b-v2",
+      "checkedAt": "2026-09-29T12:10:37.678Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:10:37.678Z",
+        "latencyMs": 79
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/riva-translate-4b-instruct",
+      "checkedAt": "2026-09-29T12:10:37.759Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:37.759Z",
+        "latencyMs": 201
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/riva-translate-4b-instruct-v1.1",
+      "checkedAt": "2026-09-29T12:10:37.961Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "unexpected_text",
+        "httpStatus": 200,
+        "reportedModel": "nvidia/riva-translate-4b-instruct-v1.1",
+        "checkedAt": "2026-09-29T12:10:37.961Z",
+        "latencyMs": 4944
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/riva-translate-4b-instruct-v2",
+      "checkedAt": "2026-09-29T12:10:39.215Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "unexpected_text",
+        "httpStatus": 200,
+        "reportedModel": "nvidia/riva-translate-4b-instruct-v2",
+        "checkedAt": "2026-09-29T12:10:39.215Z",
+        "latencyMs": 1862
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "nvidia/vila",
+      "checkedAt": "2026-09-29T12:10:39.371Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:39.371Z",
+        "latencyMs": 212
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "ocg/deepseek-v4-flash",
+      "checkedAt": "2026-09-29T12:10:39.585Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:39.585Z",
+        "latencyMs": 92
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "ocg/deepseek-v4-pro",
+      "checkedAt": "2026-09-29T12:10:39.679Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:39.679Z",
+        "latencyMs": 83
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "omen-alpha",
+      "checkedAt": "2026-09-29T12:10:39.764Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:10:39.764Z",
+        "latencyMs": 94
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "opc-image-v1",
+      "checkedAt": "2026-09-29T12:10:39.808Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "opc-image-v2",
+      "checkedAt": "2026-09-29T12:10:39.809Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "opc-txt-v1",
+      "checkedAt": "2026-09-29T12:10:39.810Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:39.810Z",
+        "latencyMs": 82
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "opc-txt-v2",
+      "checkedAt": "2026-09-29T12:10:39.860Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:39.860Z",
+        "latencyMs": 76
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "opc-video-v1",
+      "checkedAt": "2026-09-29T12:10:39.894Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "opc-video-v2",
+      "checkedAt": "2026-09-29T12:10:39.895Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "openai/gpt-oss-120b",
+      "checkedAt": "2026-09-29T12:10:39.896Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:10:39.896Z",
+        "latencyMs": 94
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "openai/gpt-oss-20b",
+      "checkedAt": "2026-09-29T12:10:39.938Z",
+      "status": "unavailable",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "openai/gpt-oss-20b",
+        "checkedAt": "2026-09-29T12:10:39.938Z",
+        "latencyMs": 11893
+      },
+      "tools": {
+        "status": "failed",
+        "reason": "timeout",
+        "checkedAt": "2026-09-29T12:10:51.831Z",
+        "latencyMs": 30000
+      }
+    },
+    {
+      "id": "openrouter/free",
+      "checkedAt": "2026-09-29T12:10:39.991Z",
+      "status": "unavailable",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "cohere/north-mini-code:free",
+        "checkedAt": "2026-09-29T12:10:39.991Z",
+        "latencyMs": 1080
+      },
+      "tools": {
+        "status": "failed",
+        "reason": "expected_function_call_missing",
+        "httpStatus": 200,
+        "reportedModel": "nvidia/nemotron-3-super-120b-a12b:free",
+        "checkedAt": "2026-09-29T12:10:41.071Z",
+        "latencyMs": 1795
+      }
+    },
+    {
+      "id": "poolside/laguna-s-2.1-free",
+      "checkedAt": "2026-09-29T12:10:41.079Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 429,
+        "checkedAt": "2026-09-29T12:10:41.079Z",
+        "latencyMs": 1054
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "poolside/laguna-xs-2.1",
+      "checkedAt": "2026-09-29T12:10:42.134Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:42.134Z",
+        "latencyMs": 691
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "poolside/laguna-xs-2.1:free",
+      "checkedAt": "2026-09-29T12:10:42.827Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 429,
+        "checkedAt": "2026-09-29T12:10:42.827Z",
+        "latencyMs": 783
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "q3-14b",
+      "checkedAt": "2026-09-29T12:10:42.869Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "unexpected_text",
+        "httpStatus": 200,
+        "reportedModel": "doubao-pro",
+        "fallbackModel": "doubao-pro",
+        "requestedModel": "q3-14b",
+        "checkedAt": "2026-09-29T12:10:42.869Z",
+        "latencyMs": 2293
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "q3-4b",
+      "checkedAt": "2026-09-29T12:10:42.906Z",
+      "status": "available",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "q3-4b",
+        "checkedAt": "2026-09-29T12:10:42.907Z",
+        "latencyMs": 2248
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "q3-4b",
+        "checkedAt": "2026-09-29T12:10:45.155Z",
+        "latencyMs": 1850
+      }
+    },
+    {
+      "id": "q3-emb",
+      "checkedAt": "2026-09-29T12:10:43.612Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:43.612Z",
+        "latencyMs": 1084
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "qwen-3.8-max",
+      "checkedAt": "2026-09-29T12:10:44.699Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:44.699Z",
+        "latencyMs": 69
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "qwen/qwen3.8-max",
+      "checkedAt": "2026-09-29T12:10:44.770Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:44.770Z",
+        "latencyMs": 60
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "qwen2.5:7b",
+      "checkedAt": "2026-09-29T12:10:44.834Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:44.834Z",
+        "latencyMs": 25
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "qwen3.6-max-preview",
+      "checkedAt": "2026-09-29T12:08:55.756Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:08:55.756Z",
+        "latencyMs": 282
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "qwen3.6-plus",
+      "checkedAt": "2026-09-29T12:10:44.864Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "qwen3.6-plus",
+        "checkedAt": "2026-09-29T12:10:44.864Z",
+        "latencyMs": 3777
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "qwen3.6-plus",
+        "checkedAt": "2026-09-29T12:10:48.641Z",
+        "latencyMs": 2044
+      }
+    },
+    {
+      "id": "qwen3.7-flash",
+      "checkedAt": "2026-09-29T12:08:56.039Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:08:56.039Z",
+        "latencyMs": 311
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "qwen3.7-max",
+      "checkedAt": "2026-09-29T12:08:56.351Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "qwen3.7-max",
+        "checkedAt": "2026-09-29T12:08:56.351Z",
+        "latencyMs": 3542
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "qwen3.7-max",
+        "checkedAt": "2026-09-29T12:08:59.893Z",
+        "latencyMs": 2772
+      }
+    },
+    {
+      "id": "qwen3.7-plus",
+      "checkedAt": "2026-09-29T12:08:58.559Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "qwen3.7-plus",
+        "checkedAt": "2026-09-29T12:08:58.559Z",
+        "latencyMs": 1655
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "qwen3.7-plus",
+        "checkedAt": "2026-09-29T12:09:00.214Z",
+        "latencyMs": 2020
+      }
+    },
+    {
+      "id": "qwen3.8-27b",
+      "checkedAt": "2026-09-29T12:08:59.974Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "qwen3.8-27b",
+        "checkedAt": "2026-09-29T12:08:59.974Z",
+        "latencyMs": 2078
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "qwen3.8-27b",
+        "checkedAt": "2026-09-29T12:09:02.052Z",
+        "latencyMs": 1921
+      }
+    },
+    {
+      "id": "qwen3.8-flash",
+      "checkedAt": "2026-09-29T12:10:45.163Z",
+      "status": "fallback",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "qwen3.8-flash",
+        "checkedAt": "2026-09-29T12:10:45.164Z",
+        "latencyMs": 1906
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "gpt-5.6-luna",
+        "fallbackModel": "gpt-5.6-luna",
+        "requestedModel": "qwen3.8-flash",
+        "checkedAt": "2026-09-29T12:10:47.070Z",
+        "latencyMs": 2839
+      }
+    },
+    {
+      "id": "qwen3.8-flash-next",
+      "checkedAt": "2026-09-29T12:09:23.434Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 400,
+        "checkedAt": "2026-09-29T12:09:23.434Z",
+        "latencyMs": 50
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "qwen3.8-max",
+      "checkedAt": "2026-09-29T12:09:02.235Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 400,
+        "checkedAt": "2026-09-29T12:09:02.235Z",
+        "latencyMs": 45
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "qwen3.8-max-0902",
+      "checkedAt": "2026-09-29T12:10:47.007Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:47.007Z",
+        "latencyMs": 55
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "qwen3.8-omni-flash",
+      "checkedAt": "2026-09-29T12:09:02.236Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:09:02.236Z",
+        "latencyMs": 74
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "sagitta",
+      "checkedAt": "2026-09-29T12:10:47.073Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:47.073Z",
+        "latencyMs": 60
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "seed-code-pro-0430",
+      "checkedAt": "2026-09-29T12:10:47.135Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:47.135Z",
+        "latencyMs": 56
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "sensenova-6-8-flash-lite",
+      "checkedAt": "2026-09-29T12:10:47.194Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:47.194Z",
+        "latencyMs": 64
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "sensenova-6.8-flash-lite",
+      "checkedAt": "2026-09-29T12:10:47.260Z",
+      "status": "available",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "sensenova-6.8-flash-lite",
+        "checkedAt": "2026-09-29T12:10:47.260Z",
+        "latencyMs": 446
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "reportedModel": "sensenova-6.8-flash-lite",
+        "checkedAt": "2026-09-29T12:10:47.706Z",
+        "latencyMs": 1675
+      }
+    },
+    {
+      "id": "sensenova-u1-fast",
+      "checkedAt": "2026-09-29T12:10:49.383Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:49.383Z",
+        "latencyMs": 69
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "snowflake/arctic-embed-l",
+      "checkedAt": "2026-09-29T12:10:49.454Z",
+      "status": "skipped",
+      "reason": "specialized_endpoint"
+    },
+    {
+      "id": "space-bunny-free",
+      "checkedAt": "2026-09-29T12:10:49.455Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:49.455Z",
+        "latencyMs": 58
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "stealth/pixel-canary",
+      "checkedAt": "2026-09-29T12:10:49.515Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:49.516Z",
+        "latencyMs": 64
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "stealth/space-bunny-alpha",
+      "checkedAt": "2026-09-29T12:10:49.581Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:49.581Z",
+        "latencyMs": 58
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "step-5-preview",
+      "checkedAt": "2026-09-29T12:10:49.642Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:49.642Z",
+        "latencyMs": 56
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "stepfun-ai/step-3.7-flash",
+      "checkedAt": "2026-09-29T12:10:49.700Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:10:49.700Z",
+        "latencyMs": 56
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "stepfun/Step-3.5-Flash",
+      "checkedAt": "2026-09-29T12:10:49.758Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:49.758Z",
+        "latencyMs": 250
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "stepfun/Step-3.7-Flash",
+      "checkedAt": "2026-09-29T12:10:49.911Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:49.911Z",
+        "latencyMs": 268
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "stepfun/Step-5-Preview",
+      "checkedAt": "2026-09-29T12:10:50.010Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:50.010Z",
+        "latencyMs": 60
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "summary",
+      "checkedAt": "2026-09-29T12:10:50.073Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:50.073Z",
+        "latencyMs": 59
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "tencent/hy3-paid",
+      "checkedAt": "2026-09-29T12:10:50.134Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:50.134Z",
+        "latencyMs": 78
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "thinkingmachines/inkling",
+      "checkedAt": "2026-09-29T12:10:50.183Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:50.183Z",
+        "latencyMs": 69
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "thinkingmachines/inkling-small",
+      "checkedAt": "2026-09-29T12:10:50.216Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:50.216Z",
+        "latencyMs": 64
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "thinkingmachines/inkling-small:free",
+      "checkedAt": "2026-09-29T12:10:50.254Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:50.254Z",
+        "latencyMs": 62
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "thinkingmachines/inkling:free",
+      "checkedAt": "2026-09-29T12:10:50.284Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:50.284Z",
+        "latencyMs": 76
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "typesafe/jev",
+      "checkedAt": "2026-09-29T12:10:50.320Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 404,
+        "checkedAt": "2026-09-29T12:10:50.320Z",
+        "latencyMs": 58
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "union-alpha",
+      "checkedAt": "2026-09-29T12:10:50.365Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:50.365Z",
+        "latencyMs": 68
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "writer/palmyra-creative-122b",
+      "checkedAt": "2026-09-29T12:10:50.383Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:50.383Z",
+        "latencyMs": 193
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "writer/palmyra-fin-70b-32k",
+      "checkedAt": "2026-09-29T12:10:50.436Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:50.436Z",
+        "latencyMs": 202
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "writer/palmyra-med-70b",
+      "checkedAt": "2026-09-29T12:10:50.578Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:50.578Z",
+        "latencyMs": 198
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "writer/palmyra-med-70b-32k",
+      "checkedAt": "2026-09-29T12:10:50.641Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:50.641Z",
+        "latencyMs": 188
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "z-ai/glm-5.3",
+      "checkedAt": "2026-09-29T12:10:50.780Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 503,
+        "checkedAt": "2026-09-29T12:10:50.780Z",
+        "latencyMs": 57
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    },
+    {
+      "id": "zyphra/zamba2-7b-instruct",
+      "checkedAt": "2026-09-29T12:10:50.839Z",
+      "status": "unavailable",
+      "text": {
+        "status": "failed",
+        "reason": "http_error",
+        "httpStatus": 502,
+        "checkedAt": "2026-09-29T12:10:50.839Z",
+        "latencyMs": 228
+      },
+      "tools": {
+        "status": "skipped",
+        "reason": "text_probe_failed"
+      }
+    }
+  ],
+  "counts": {
+    "available": 22,
+    "unavailable": 256,
+    "fallback": 29,
+    "different_model": 0,
+    "skipped": 24
+  },
+  "ok": false
+}

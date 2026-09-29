@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "provider": "OpenAIProxy",
+  "endpoint": "http://192.168.31.252:18080/v1/models",
+  "startedAt": "2026-09-29T12:16:25.898Z",
+  "completedAt": "2026-09-29T12:16:52.312Z",
+  "catalogCount": 331,
+  "selectedCount": 1,
+  "selectedIds": [
+    "auto"
+  ],
+  "checkedCount": 1,
+  "concurrency": 1,
+  "timeoutMs": 60000,
+  "complete": true,
+  "results": [
+    {
+      "id": "auto",
+      "checkedAt": "2026-09-29T12:16:25.909Z",
+      "status": "available",
+      "text": {
+        "status": "passed",
+        "httpStatus": 200,
+        "selectedModel": "glm-5.3",
+        "reportedModel": "glm-5.3",
+        "checkedAt": "2026-09-29T12:16:25.910Z",
+        "latencyMs": 16001
+      },
+      "tools": {
+        "status": "passed",
+        "httpStatus": 200,
+        "selectedModel": "glm-5.3",
+        "reportedModel": "glm-5.3",
+        "checkedAt": "2026-09-29T12:16:41.911Z",
+        "latencyMs": 10370
+      }
+    }
+  ],
+  "counts": {
+    "available": 1,
+    "unavailable": 0,
+    "fallback": 0,
+    "different_model": 0,
+    "unverified_identity": 0,
+    "skipped": 0
+  },
+  "ok": true
+}

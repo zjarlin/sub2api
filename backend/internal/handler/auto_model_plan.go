@@ -16,6 +16,17 @@ func (h *GatewayHandler) autoModelPlan(ctx context.Context, group *service.Group
 	if err != nil {
 		return nil, nil, err
 	}
+	// 展示目录与实际来源一起进入元数据；没有来源的默认模型只解释排除原因。
+	var discovered []string
+	if group.Platform == service.PlatformComposite {
+		discovered = h.compositeAvailableModels(ctx, &group.ID)
+	} else {
+		discovered = h.gatewayService.GetAvailableModels(ctx, &group.ID, group.Platform)
+		if discovered == nil {
+			discovered = defaultCodexModelIDsForPlatform(group.Platform)
+		}
+	}
+	models = mergeModelIDs(models, discovered)
 	aliases := service.ModelAliasesFromContext(ctx)
 	if group.Platform == service.PlatformComposite {
 		for _, rule := range explicit {
@@ -60,6 +71,8 @@ func (h *GatewayHandler) autoModelPlan(ctx context.Context, group *service.Group
 		for _, platform := range platforms {
 			entry := service.AutoModelCandidate{Model: model, Platform: platform, Aliases: aliasesByModel[model]}
 			switch {
+			case platform == "":
+				entry.Reason = "source_missing"
 			case !autoModelTextCandidate(model) || !autoModelTextCandidate(upstream):
 				entry.Reason = "not_text_generation"
 			case !h.autoModelTargetAllowed(ctx, group.ID, model) || !h.autoModelTargetAllowed(ctx, group.ID, upstream):

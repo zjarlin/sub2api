@@ -140,7 +140,7 @@ export default {
         title: 'Automatic model health probes',
         hint: 'Sends real inference requests that may incur upstream charges. Disabling leaves normal requests, model catalog sync and manual tests available.',
         interval: 'Probe interval (hours, 24–8760)',
-        gptExcluded: 'GPT models are excluded. Defaults to at most one model test per account every 7 days; recent request health observations postpone probes.'
+        gptExcluded: 'GPT models are excluded. Each account/model pair is due every 7 days by default; up to 10 due pairs are tested every 15 minutes. Recent traffic only postpones that model’s probe.'
       },
       title: 'Account Management',
       description: 'Manage AI platform accounts and credentials',

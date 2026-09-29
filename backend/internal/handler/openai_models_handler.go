@@ -109,9 +109,6 @@ func appendAutoModelToCatalog(body []byte) ([]byte, error) {
 		}
 		var id string
 		if json.Unmarshal(item[idField], &id) == nil && id == autoModelID {
-			if field != "models" {
-				return body, nil
-			}
 			// 固定目录可能已含旧版 Auto；同步网关能力并保留其余上游字段。
 			item["input_modalities"] = json.RawMessage(`["text","image"]`)
 			item["supports_image_detail_original"] = json.RawMessage(`false`)
@@ -145,6 +142,7 @@ func appendAutoModelToCatalog(body []byte) ([]byte, error) {
 		item, err = json.Marshal(map[string]any{
 			"id": autoModelID, "object": "model", "type": "model", "created": 1704067200,
 			"owned_by": "sub2api", "display_name": "Auto",
+			"input_modalities": []string{"text", "image"}, "supports_image_detail_original": false,
 		})
 		if err != nil {
 			return nil, err

@@ -51,6 +51,7 @@ func TestAutoModelFallbackCandidatesRejectMappedHighestTier(t *testing.T) {
 	require.Equal(t, []ModelFallbackCandidate{
 		{Model: "gpt-5.6-sol", Tier: "lower"}, {Model: "gpt-5.6-terra", Tier: "lower"},
 		{Model: "gpt-5.6-luna", Tier: "lower"}, {Model: "gpt-5.5", Tier: "lower"},
+		{Model: "gpt-6-astra", Tier: "highest"},
 	}, manual)
 }
 

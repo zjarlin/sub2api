@@ -8,7 +8,7 @@
 
 `selected` 表示当前仍在尝试，`responding` 表示已经观察到响应模型，`completed` 要求观察到正常完成信号；HTTP/业务错误为 `failed`，不完整响应或无正常终止信号为 `interrupted`。`selected_model` 是初选公开模型，`resolved_model` 来自实际响应的模型字段，回退路径记录在 `attempted_models`。缺少上游实际模型字段时，客户端只能展示尝试模型，不能据此推断未知的内部路由。
 
-最新请求还返回完整 `candidates` 计划；每项含 `model`、`platform`、可选 `aliases`、`eligible`，可执行项带从 1 开始的 `order`，排除项带 `reason`。原因包括 `not_text_generation`（专用模型）、`auto_policy_excluded`（黑名单或最高档）、`protocol_not_supported`（当前文本入口不支持）、`no_compatible_account`（账号未就绪、模型不支持或请求能力不符）。这是请求开始时的快照，真实尝试另外记录，不把候选资格当作成功证明。
+最新请求还返回完整 `candidates` 计划；每项含 `model`、`platform`、可选 `aliases`、`eligible`，可执行项带从 1 开始的 `order`，排除项带 `reason`。原因包括 `source_missing`（目录展示模型缺少实际账号来源）、`not_text_generation`（专用模型）、`auto_policy_excluded`（黑名单或最高档）、`protocol_not_supported`（当前文本入口不支持）、`no_compatible_account`（账号未就绪、模型不支持或请求能力不符）。目录投影复用本次分组账号快照，错误账号的模型仍可解释，但不能直接进入执行顺序。这是请求开始时的快照，真实尝试另外记录，不把候选资格当作成功证明。
 
 计划按内容摘要 `plan_id` 去重存储，同 Key/会话内相同计划复用。历史请求保留摘要，但每次查询只给最新请求附带完整清单，避免 128 条请求重复传输数百个模型；按 run_id 查询可取回历史回合的计划。客户端支持超过 128 次模型尝试，并在卡片详情中按顺序显示和搜索全部候选；不会把候选数量误当作完成次数。
 

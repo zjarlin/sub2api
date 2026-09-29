@@ -156,6 +156,9 @@ docs/*
 !docs/channel-monitor-v2-safe-defaults.md
 !docs/model-fallback-tiers.md
 !docs/auto-route-observations.md
+!docs/verification/
+docs/verification/*
+!docs/verification/auto-model-2026-09-29/
 !docs/legal/
 !docs/legal/*.md
  !docs/screenshots/

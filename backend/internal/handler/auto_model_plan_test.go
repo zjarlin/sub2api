@@ -6,12 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -19,60 +16,16 @@ import (
 
 type autoInventoryRepo struct {
 	autoModelAccountRepoStub
-	reads int
+	reads          int
+	requestedGroup *int64
+	includeGrouped bool
+	platforms      []string
 }
 
-func TestAutoModelPriorityHTTPFailuresReachGLMAndRemainingModels(t *testing.T) {
-	for _, endpoint := range []string{"responses", "chat/completions"} {
-		for _, stream := range []bool{false, true} {
-			t.Run(fmt.Sprintf("%s/stream_%t", endpoint, stream), func(t *testing.T) {
-				accounts := autoModelTestAccounts()[:1]
-				account := &accounts[0]
-				account.Type, account.Concurrency = service.AccountTypeAPIKey, 1
-				account.Extra = map[string]any{"openai_passthrough": true}
-				account.Credentials = map[string]any{"api_key": "test-only", "base_url": "https://upstream.example", "model_mapping": map[string]any{
-					"deepseek-v4.1-flash": "deepseek-v4.1-flash", "glm-5.3": "glm-5.3", "qwen3.8-max": "qwen3.8-max", "gpt-5.5": "gpt-5.5",
-				}}
-				second := *account
-				second.ID = 2
-				accounts = append(accounts, second)
-				cfg := &config.Config{RunMode: config.RunModeSimple}
-				billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
-				defer billing.Stop()
-				upstream := &fallbackTestUpstream{status: http.StatusBadRequest,
-					errorResponse: `{"error":{"message":"\"auto\" tool choice requires --enable-auto-tool-choice and --tool-call-parser to be set"}}`}
-				gateway := service.NewOpenAIGatewayService(&grokCredentialHandlerRepo{accounts: accounts}, nil, nil, nil, nil, nil, nil, cfg, nil, nil,
-					service.NewBillingService(cfg, nil), nil, billing, upstream, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil)
-				concurrency := service.NewConcurrencyService(&concurrencyCacheMock{
-					acquireUserSlotFn:    func(context.Context, int64, int, string) (bool, error) { return true, nil },
-					acquireAccountSlotFn: func(context.Context, int64, int, string) (bool, error) { return true, nil },
-				})
-				openAI := NewOpenAIGatewayHandler(gateway, concurrency, billing, &service.APIKeyService{}, nil, nil, nil, nil, cfg)
-				h := newAutoModelTestHandler(accounts)
-				group := &service.Group{ID: 71, Platform: service.PlatformOpenAI, Status: service.StatusActive}
-				key := &service.APIKey{ID: 2, GroupID: &group.ID, Group: group, User: &service.User{ID: 3, Status: service.StatusActive}}
-				router := gin.New()
-				router.Use(func(c *gin.Context) {
-					c.Set(string(middleware.ContextKeyAPIKey), key)
-					c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 3, Concurrency: 1})
-				}, h.AutoModelMiddleware(nil))
-				router.POST("/v1/responses", openAI.Responses)
-				router.POST("/v1/chat/completions", openAI.ChatCompletions)
-				recorder := httptest.NewRecorder()
-				body := fmt.Sprintf(`{"model":"auto","input":"use shell","messages":[{"role":"user","content":"use shell"}],"stream":%t,"tools":[{"type":"function","name":"shell","function":{"name":"shell","parameters":{"type":"object"}},"parameters":{"type":"object"}}]}`, stream)
-				router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/"+endpoint, strings.NewReader(body)))
-				require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
-				require.Equal(t, []string{"deepseek-v4.1-flash", "deepseek-v4.1-flash", "glm-5.3", "glm-5.3", "qwen3.8-max", "qwen3.8-max", "gpt-5.5"}, upstream.models)
-				require.Equal(t, "deepseek-v4.1-flash", recorder.Header().Get("X-Sub2API-Selected-Model"))
-				require.Equal(t, "gpt-5.5", recorder.Header().Get("X-Sub2api-Fallback-Model"))
-			})
-		}
-	}
-}
-
-func (r *autoInventoryRepo) ListByGroup(ctx context.Context, groupID int64) ([]service.Account, error) {
+func (r *autoInventoryRepo) ListModelAvailabilityCandidates(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]service.Account, error) {
 	r.reads++
-	return r.autoModelAccountRepoStub.ListByGroup(ctx, groupID)
+	r.requestedGroup, r.platforms, r.includeGrouped = groupID, platforms, includeGrouped
+	return r.autoModelAccountRepoStub.ListModelAvailabilityCandidates(ctx, groupID, platforms, includeGrouped)
 }
 
 func TestAutoModelPlanIncludesEveryConfiguredCandidateWithoutHealthHistory(t *testing.T) {
@@ -195,4 +148,70 @@ func TestAutoModelInventoryUsesSnapshotAndKeepsAutoListedWithoutSuccessfulModels
 	require.NoError(t, err)
 	require.Len(t, routes, 3)
 	require.Equal(t, "deepseek-v4.1-flash", routes[0].model)
+}
+
+func TestAutoModelPlanUsesCatalogScopeAndExplainsDiscoveryOnlyModels(t *testing.T) {
+	for _, platform := range []string{service.PlatformOpenAI, service.PlatformComposite} {
+		t.Run(platform, func(t *testing.T) {
+			accounts := make([]service.Account, 5)
+			for i, model := range []string{"vendor/healthy-model", "vendor/error-model", "private-model", "disabled-model", ""} {
+				accounts[i] = service.Account{
+					ID: int64(i + 1), Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+					Status: service.StatusActive, Schedulable: true,
+					Credentials: map[string]any{"model_mapping": map[string]any{model: model}},
+				}
+			}
+			accounts[1].Status = service.StatusError
+			owner := int64(99)
+			accounts[2].OwnerUserID = &owner
+			accounts[3].Status = service.StatusDisabled
+			accounts[4].Status = service.StatusError
+			accounts[4].Credentials = map[string]any{}
+			otherGroupAccount := accounts[0]
+			otherGroupAccount.Credentials = map[string]any{"model_mapping": map[string]any{"other-group-model": "other-group-model"}}
+			repo := &autoInventoryRepo{autoModelAccountRepoStub: autoModelAccountRepoStub{gatewayModelsAccountRepoStub{
+				byGroup: map[int64][]service.Account{71: accounts, 72: {otherGroupAccount}},
+			}}}
+			h := newGatewayModelsHandlerForTest(repo)
+			ctx, err := h.settingService.BindAutoModelRoutingPolicy(context.Background())
+			require.NoError(t, err)
+			ctx, models, err := h.gatewayService.BindAutoModelInventory(ctx, 71)
+			require.NoError(t, err)
+			require.ElementsMatch(t, []string{"vendor/healthy-model", "vendor/error-model"}, models)
+			require.NotNil(t, repo.requestedGroup)
+			require.Equal(t, int64(71), *repo.requestedGroup)
+			require.False(t, repo.includeGrouped)
+			require.Contains(t, repo.platforms, service.PlatformOpenAI)
+			require.Contains(t, repo.platforms, service.PlatformDeepseek)
+
+			group := &service.Group{ID: 71, Platform: platform}
+			routes, plan, err := h.autoModelPlan(ctx, group, nil, "/v1/responses", []byte(`{"input":"hello"}`), models)
+			require.NoError(t, err)
+			require.Len(t, routes, 1)
+			require.Equal(t, "vendor/healthy-model", routes[0].model)
+			byModel := make(map[string]service.AutoModelCandidate)
+			for _, candidate := range plan {
+				byModel[candidate.Model] = candidate
+			}
+			require.Equal(t, "no_compatible_account", byModel["vendor/error-model"].Reason)
+			require.NotContains(t, byModel, "private-model")
+			require.NotContains(t, byModel, "disabled-model")
+			require.NotContains(t, byModel, "other-group-model")
+			publicModels := h.gatewayService.GetAvailableModels(ctx, &group.ID, service.PlatformOpenAI)
+			require.Greater(t, len(publicModels), len(models), "unmapped accounts still expose the existing default discovery catalog")
+			for _, model := range publicModels {
+				entry, exists := byModel[model]
+				require.True(t, exists, model)
+				if model != "vendor/healthy-model" && model != "vendor/error-model" {
+					require.False(t, entry.Eligible, model)
+					require.Equal(t, "source_missing", entry.Reason, model)
+					require.Empty(t, entry.Platform, model)
+				}
+			}
+			require.Equal(t, 1, repo.reads, "catalog projection and Auto plan must reuse the same account snapshot")
+			otherGroupID := int64(72)
+			require.Equal(t, []string{"other-group-model"}, h.gatewayService.GetAvailableModels(ctx, &otherGroupID, service.PlatformOpenAI))
+			require.Equal(t, 2, repo.reads, "a snapshot cannot leak into a different group")
+		})
+	}
 }

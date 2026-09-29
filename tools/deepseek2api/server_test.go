@@ -62,7 +62,7 @@ func TestBrowserSessionImportAndChat(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/users/current":
-			_ = json.NewEncoder(w).Encode(testEnvelope(map[string]any{"id": "user-1", "email": "user@example.com"}))
+			_ = json.NewEncoder(w).Encode(testEnvelope(map[string]any{"id": "user-1", "email": "user@example.com", "chat": map[string]any{"is_muted": 0}}))
 		case "/users/auth_token/check_device":
 			_ = json.NewEncoder(w).Encode(testEnvelope(map[string]any{"rotate": nil}))
 		case "/chat_session/create":

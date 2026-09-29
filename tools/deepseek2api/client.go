@@ -39,6 +39,20 @@ type webCredential struct {
 	Email    string `json:"email,omitempty"`
 }
 
+type upstreamFlag bool
+
+func (f *upstreamFlag) UnmarshalJSON(data []byte) error {
+	switch string(bytes.TrimSpace(data)) {
+	case "true", "1":
+		*f = true
+	case "false", "0", "null":
+		*f = false
+	default:
+		return errors.New("DeepSeek returned an invalid boolean flag")
+	}
+	return nil
+}
+
 func (u *upstreamClient) request(ctx context.Context, credential webCredential, method, path string, body any, pow string) (*http.Response, error) {
 	var reader io.Reader
 	if body != nil {
@@ -109,7 +123,7 @@ func (u *upstreamClient) verify(ctx context.Context, c webCredential) (webCreden
 		Token string `json:"token"`
 		Email string `json:"email"`
 		Chat  *struct {
-			IsMuted bool `json:"is_muted"`
+			IsMuted upstreamFlag `json:"is_muted"`
 		} `json:"chat"`
 	}
 	if err := u.call(ctx, c, http.MethodGet, "/users/current", nil, &user); err != nil {

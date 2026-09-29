@@ -123,6 +123,11 @@ func (d *deepSeekDelta) applyValue(path, operation string, value json.RawMessage
 		return
 	}
 	if path == "response/fragments" && operation == "APPEND" {
+		var fragments []deepSeekFragment
+		if json.Unmarshal(value, &fragments) == nil {
+			d.fragments = append(d.fragments, fragments...)
+			return
+		}
 		var fragment deepSeekFragment
 		if json.Unmarshal(value, &fragment) == nil && fragment.Type != "" {
 			d.fragments = append(d.fragments, fragment)
@@ -157,6 +162,13 @@ func (d *deepSeekDelta) apply(raw json.RawMessage, prefix string) error {
 	}
 	if err := json.Unmarshal(raw, &event); err != nil {
 		return err
+	}
+	if len(event.Value) == 0 {
+		if event.Path != nil || event.Operation != nil {
+			return errors.New("DeepSeek delta is missing a value")
+		}
+		// 会话、标题和语音元数据不参与增量状态，也不能继承前一条 BATCH 操作。
+		return nil
 	}
 	if event.Path != nil {
 		d.path = *event.Path

@@ -66,14 +66,19 @@ func (s *UpstreamModelRefreshService) Stop() {
 func (s *UpstreamModelRefreshService) run(ctx context.Context) {
 	defer close(s.done)
 	s.refresh(ctx)
+	s.probeHealth(ctx)
 	ticker := time.NewTicker(upstreamModelRefreshInterval)
 	defer ticker.Stop()
+	probeTicker := time.NewTicker(modelHealthProbeInterval)
+	defer probeTicker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
 			s.refresh(ctx)
+		case <-probeTicker.C:
+			s.probeHealth(ctx)
 		}
 	}
 }
@@ -119,5 +124,4 @@ func (s *UpstreamModelRefreshService) refresh(parent context.Context) {
 		}(account)
 	}
 	wg.Wait()
-	s.probeDueModels(ctx, accounts)
 }

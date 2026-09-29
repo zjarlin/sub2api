@@ -46,7 +46,7 @@ func (h *AccountHandler) BuiltinAdapterLogin(c *gin.Context) {
 			return
 		}
 	}
-	if action == "start" && (c.Param("platform") == service.PlatformZcode || c.Param("platform") == service.PlatformArena) {
+	if action == "start" && (c.Param("platform") == service.PlatformZcode || c.Param("platform") == service.PlatformArena || c.Param("platform") == service.PlatformDeepseekWeb) {
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 8192)
 		if err := c.ShouldBindJSON(&body); err != nil && !errors.Is(err, io.EOF) {
 			response.BadRequest(c, "Invalid login options")

@@ -1145,6 +1145,9 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		availableModels := h.compositeAvailableModels(c.Request.Context(), groupID)
 		if apiKey != nil && h.autoModelAvailable(c.Request.Context(), apiKey.Group, availableModels) {
 			availableModels = prependAutoModel(availableModels)
+			// 合成分组也在最终目录写出时补齐 Auto 能力，并按最终正文校验缓存。
+			c.Set(autoModelListingKey, true)
+			c.Set(autoModelListingETagKey, c.GetHeader("If-None-Match"))
 		}
 		if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
 			source := availableModels

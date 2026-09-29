@@ -11,7 +11,9 @@ import (
 )
 
 const (
+	// 每十五分钟最多探测十个到期模型；每个账号/模型仍遵守自己的周期间隔。
 	modelHealthProbeLimit       = 10
+	modelHealthProbeInterval    = 15 * time.Minute
 	modelHealthProbeWorkers     = 3
 	modelHealthProbeTimeout     = 45 * time.Second
 	modelHealthProbeLogCategory = "upstream_model_health_probe"
@@ -68,10 +70,24 @@ func (s *UpstreamModelRefreshService) probeDueModels(parent context.Context, acc
 				slog.Info(modelHealthProbeLogCategory+"_unhealthy", "account_id", candidate.AccountID, "model", candidate.Model, "error", result.ErrorMessage)
 				return
 			}
+			if err := s.recoverProbedModel(ctx, account, candidate.Model); err != nil {
+				slog.Warn(modelHealthProbeLogCategory+"_recovery_failed", "account_id", candidate.AccountID, "model", candidate.Model, "error", err)
+			}
 			slog.Info(modelHealthProbeLogCategory+"_healthy", "account_id", candidate.AccountID, "model", candidate.Model, "latency_ms", result.LatencyMs)
 		}(candidate)
 	}
 	wg.Wait()
+}
+
+func (s *UpstreamModelRefreshService) probeHealth(parent context.Context) {
+	ctx, cancel := context.WithTimeout(parent, upstreamModelRefreshRunTimeout)
+	defer cancel()
+	accounts, err := s.accountRepo.ListActive(ctx)
+	if err != nil {
+		slog.Warn(modelHealthProbeLogCategory+"_accounts_failed", "error", err)
+		return
+	}
+	s.probeDueModels(ctx, accounts)
 }
 
 func collectModelHealthProbeCandidates(
@@ -83,63 +99,78 @@ func collectModelHealthProbeCandidates(
 	if limit <= 0 {
 		return nil
 	}
-	stateByPair := make(map[string]AccountModelHealthState, len(states))
-	lastCheckedByAccount := make(map[int64]*time.Time)
+	accountsByID := make(map[int64]*Account, len(accounts))
+	for i := range accounts {
+		accountsByID[accounts[i].ID] = &accounts[i]
+	}
+	checkedByPair := make(map[string]*time.Time, len(states))
 	for _, state := range states {
-		stateByPair[modelHealthProbeKey(state.AccountID, state.Model)] = state
-		if checked := latestModelHealthCheck(state); checked != nil {
-			if last := lastCheckedByAccount[state.AccountID]; last == nil || checked.After(*last) {
-				lastCheckedByAccount[state.AccountID] = checked
-			}
+		model := observedUnsupportedModelKey(accountsByID[state.AccountID], state.Model)
+		key := modelHealthProbeKey(state.AccountID, model)
+		checked := latestModelHealthCheck(state)
+		if checked != nil && (checkedByPair[key] == nil || checked.After(*checkedByPair[key])) {
+			checkedByPair[key] = checked
 		}
 	}
 
-	selected := make([]modelHealthProbeCandidate, 0, limit)
+	// 每个账号/模型单独到期，避免一个模型的流量推迟同账号其他模型的探测。
+	selected := make([]modelHealthProbeCandidate, 0)
+	seen := make(map[string]bool)
 	for i := range accounts {
 		account := &accounts[i]
 		policy := account.ModelProbePolicy()
-		if !account.IsSchedulable() || !policy.Enabled {
+		if !account.IsSchedulable() || !policy.Enabled || account.IsSyntheticUITest() {
 			continue
 		}
-		if last := lastCheckedByAccount[account.ID]; last != nil && last.After(now.Add(-policy.Interval)) {
-			continue
+		models := configuredUpstreamModelsForCapabilitySync(account)
+		if account.IsOpenAIPassthroughEnabled() {
+			models = nil
+			for model := range account.GetModelMapping() {
+				if !strings.Contains(model, "*") {
+					models = append(models, model)
+				}
+			}
+			sort.Strings(models)
 		}
-		snapshot := account.GetUpstreamSupportedModelsSnapshot()
-		if snapshot == nil {
-			continue
+		if snapshot := account.GetUpstreamSupportedModelsSnapshot(); snapshot != nil {
+			models = append(models, snapshot.Models...)
 		}
-		bucket := make([]modelHealthProbeCandidate, 0, len(snapshot.Models))
-		for _, model := range snapshot.Models {
+		for _, model := range models {
 			model = strings.TrimSpace(model)
 			if !isTextModelHealthProbeCandidate(model) || !account.allowsAutomaticModelProbe(model) {
 				continue
 			}
-			state := stateByPair[modelHealthProbeKey(account.ID, model)]
-			checkedAt := latestModelHealthCheck(state)
-			bucket = append(bucket, modelHealthProbeCandidate{AccountID: account.ID, Model: model, CheckedAt: checkedAt})
-		}
-		sort.Slice(bucket, func(i, j int) bool {
-			left, right := bucket[i], bucket[j]
-			if left.CheckedAt == nil || right.CheckedAt == nil {
-				if left.CheckedAt == nil && right.CheckedAt != nil {
-					return true
-				}
-				if left.CheckedAt != nil && right.CheckedAt == nil {
-					return false
-				}
-			} else if !left.CheckedAt.Equal(*right.CheckedAt) {
-				return left.CheckedAt.Before(*right.CheckedAt)
+			key := modelHealthProbeKey(account.ID, model)
+			if seen[key] {
+				continue
 			}
-			return left.Model < right.Model
-		})
-		if len(bucket) > 0 {
-			// One inference per account per interval, even when its catalog
-			// contains many models that have never been called.
-			selected = append(selected, bucket[0])
-			if len(selected) == limit {
-				break
+			seen[key] = true
+			checkedAt := checkedByPair[key]
+			if checkedAt != nil && checkedAt.After(now.Add(-policy.Interval)) {
+				continue
 			}
+			selected = append(selected, modelHealthProbeCandidate{AccountID: account.ID, Model: model, CheckedAt: checkedAt})
 		}
+	}
+	sort.SliceStable(selected, func(i, j int) bool {
+		left, right := selected[i], selected[j]
+		if left.CheckedAt == nil || right.CheckedAt == nil {
+			if left.CheckedAt == nil && right.CheckedAt != nil {
+				return true
+			}
+			if left.CheckedAt != nil && right.CheckedAt == nil {
+				return false
+			}
+		} else if !left.CheckedAt.Equal(*right.CheckedAt) {
+			return left.CheckedAt.Before(*right.CheckedAt)
+		}
+		if left.AccountID != right.AccountID {
+			return left.AccountID < right.AccountID
+		}
+		return left.Model < right.Model
+	})
+	if len(selected) > limit {
+		selected = selected[:limit]
 	}
 	return selected
 }

@@ -181,14 +181,22 @@ func TestAppendAutoModelRejectsInvalidCatalog(t *testing.T) {
 }
 
 func TestAppendAutoModelUpdatesExistingVisionCapability(t *testing.T) {
-	body := []byte(`{"models":[{"slug":"auto","input_modalities":["text"],"supports_image_detail_original":true,"context_window":100000},{"slug":"text-model","input_modalities":["text"]}]}`)
-	updated, err := appendAutoModelToCatalog(body)
-	require.NoError(t, err)
-	require.Equal(t, int64(2), gjson.GetBytes(updated, "models.#").Int())
-	require.Equal(t, `["text","image"]`, gjson.GetBytes(updated, "models.0.input_modalities").Raw)
-	require.False(t, gjson.GetBytes(updated, "models.0.supports_image_detail_original").Bool())
-	require.Equal(t, int64(100000), gjson.GetBytes(updated, "models.0.context_window").Int())
-	require.Equal(t, gjson.GetBytes(body, "models.1").Raw, gjson.GetBytes(updated, "models.1").Raw)
+	for _, tc := range []struct{ field, idField string }{{"models", "slug"}, {"data", "id"}} {
+		t.Run(tc.field, func(t *testing.T) {
+			body, err := json.Marshal(map[string]any{tc.field: []map[string]any{
+				{tc.idField: "auto", "input_modalities": []string{"text"}, "supports_image_detail_original": true, "context_window": 100000},
+				{tc.idField: "text-model", "input_modalities": []string{"text"}},
+			}})
+			require.NoError(t, err)
+			updated, err := appendAutoModelToCatalog(body)
+			require.NoError(t, err)
+			require.Equal(t, int64(2), gjson.GetBytes(updated, tc.field+".#").Int())
+			require.Equal(t, `["text","image"]`, gjson.GetBytes(updated, tc.field+".0.input_modalities").Raw)
+			require.False(t, gjson.GetBytes(updated, tc.field+".0.supports_image_detail_original").Bool())
+			require.Equal(t, int64(100000), gjson.GetBytes(updated, tc.field+".0.context_window").Int())
+			require.Equal(t, gjson.GetBytes(body, tc.field+".1").Raw, gjson.GetBytes(updated, tc.field+".1").Raw)
+		})
+	}
 }
 
 func containsModelID(models []gatewayModelItemForTest, id string) bool {

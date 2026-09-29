@@ -1381,6 +1381,10 @@ func (s *GatewayService) DoGrokNativeResponsesJSON(ctx context.Context, account 
 
 // 目录只依赖账号配置；nil 表示账号尚无目录，可使用平台默认值，空切片表示确定为空。
 func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string {
+	// Auto 请求已读取完整分组快照，复用它避免每个平台再次查询或混入旧缓存。
+	if snapshot, ok := ctx.Value(autoModelAccountsKey{}).(*autoModelInventory); ok && groupID != nil && snapshot.groupID == *groupID {
+		return availableModelsFromAccounts(filterModelCatalogAccountsForPlatform(snapshot.accounts, platform), platform)
+	}
 	cacheKey := modelsListCacheKey(groupID, platform)
 	if s.modelsListCache != nil {
 		if cached, found := s.modelsListCache.Get(cacheKey); found {
@@ -1400,53 +1404,7 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 	if len(accounts) == 0 {
 		return []string{}
 	}
-
-	// Collect unique models from all accounts
-	modelSet := make(map[string]struct{})
-	hasAnyCatalog := false
-
-	for _, acc := range accounts {
-		mapping := acc.GetModelMapping()
-		if len(mapping) > 0 {
-			hasAnyCatalog = true
-			for model := range mapping {
-				model = strings.TrimSpace(model)
-				if model != "" {
-					modelSet[model] = struct{}{}
-				}
-			}
-			continue
-		}
-		if snapshot := acc.GetUpstreamSupportedModelsSnapshot(); snapshot != nil {
-			hasAnyCatalog = true
-			for _, model := range snapshot.Models {
-				model = strings.TrimSpace(model)
-				if model != "" {
-					modelSet[model] = struct{}{}
-				}
-			}
-		}
-	}
-
-	// 没有账号映射或已同步目录时返回 nil，由调用方使用平台默认模型。
-	if !hasAnyCatalog {
-		if s.modelsListCache != nil {
-			s.modelsListCache.Set(cacheKey, []string(nil), s.modelsListCacheTTL)
-			modelsListCacheStoreTotal.Add(1)
-		}
-		return nil
-	}
-
-	// Convert to slice
-	models := make([]string, 0, len(modelSet))
-	for model := range modelSet {
-		models = append(models, model)
-	}
-	sort.Strings(models)
-
-	if platform == PlatformOpenAI {
-		models = supplementUnmappedOpenAIModels(accounts, models)
-	}
+	models := availableModelsFromAccounts(accounts, platform)
 
 	if s.modelsListCache != nil {
 		s.modelsListCache.Set(cacheKey, slices.Clone(models), s.modelsListCacheTTL)

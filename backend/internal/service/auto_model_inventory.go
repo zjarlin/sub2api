@@ -20,7 +20,7 @@ func (s *GatewayService) BindAutoModelInventory(ctx context.Context, groupID int
 	if snapshot, ok := ctx.Value(autoModelAccountsKey{}).(*autoModelInventory); ok && snapshot.groupID == groupID {
 		return ctx, snapshot.models, nil
 	}
-	accounts, err := s.accountRepo.ListByGroup(ctx, groupID)
+	accounts, err := loadModelCatalogAccounts(ctx, s.accountRepo, &groupID, PlatformComposite)
 	if err != nil {
 		return ctx, nil, err
 	}
