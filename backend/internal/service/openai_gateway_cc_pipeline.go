@@ -16,6 +16,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 	"go.uber.org/zap"
 )
 
@@ -192,6 +194,14 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	// 字段，上游 400 "The `reasoning_content` in the thinking mode must be
 	// passed back to the API"。在共用出站点补空格占位，真实明文不覆盖。
 	body = ensureDeepSeekChatReasoningPlaceholders(account, body)
+	// VibeX 不接受 Chat Completions 的推理档位；在共用出站点覆盖所有入口。
+	if account.Platform == PlatformVibex && gjson.GetBytes(body, "reasoning_effort").Exists() {
+		sanitizedBody, err := sjson.DeleteBytes(body, "reasoning_effort")
+		if err != nil {
+			return nil, fmt.Errorf("remove unsupported VibeX reasoning effort: %w", err)
+		}
+		body = sanitizedBody
+	}
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	upstreamReq, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, targetURL, bytes.NewReader(body))
 	releaseUpstreamCtx()
