@@ -1,3 +1,4 @@
+import * as sdk from "@cursor/sdk";
 import { CursorRuntime } from "./runtime.mjs";
 import { createServer } from "./server.mjs";
 
@@ -12,7 +13,9 @@ function integer(name, fallback, minimum, maximum) {
 const port = integer("CURSOR_PORT", 7868, 1, 65535);
 const host = process.env.CURSOR_HOST || "127.0.0.1";
 const server = createServer({
+  // 转发仍走隔离 worker（SDK 崩溃/挂死不影响父进程）；登录需要 SDK 实例本身。
   runtime: new CursorRuntime(),
+  sdk,
   adapterKey: process.env.CURSOR_ADAPTER_KEY?.trim(),
   timeoutMs: integer("CURSOR_REQUEST_TIMEOUT_MS", 300_000, 1000, 900_000),
   maxConcurrent: integer("CURSOR_MAX_CONCURRENT", 4, 1, 32),

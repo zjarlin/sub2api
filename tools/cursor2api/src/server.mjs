@@ -2,6 +2,7 @@ import http from "node:http";
 import crypto from "node:crypto";
 import { once } from "node:events";
 import { abortable } from "./abort.mjs";
+import { LoginSessions } from "./login.mjs";
 import { CursorError, normalizeRequest, publicError } from "./request.mjs";
 
 function sameSecret(left, right) {
@@ -40,8 +41,9 @@ function readJSON(req, limit) {
   });
 }
 
-export function createServer({ runtime, adapterKey, timeoutMs = 300_000, maxConcurrent = 4, maxBodyBytes = 4 << 20 }) {
+export function createServer({ runtime, sdk, adapterKey, timeoutMs = 300_000, maxConcurrent = 4, maxBodyBytes = 4 << 20 }) {
   if (!adapterKey) throw new Error("CURSOR_ADAPTER_KEY is required.");
+  const logins = sdk ? new LoginSessions({ sdk }) : null;
   const active = new Set();
   let stopping = false;
   let stopPromise;
@@ -58,12 +60,36 @@ export function createServer({ runtime, adapterKey, timeoutMs = 300_000, maxConc
       if (req.method === "GET" && path === "/livez") {
         return json(res, stopping ? 503 : 200, { status: stopping ? "stopping" : "ok" });
       }
-      if (!sameSecret(req.headers["x-sub2api-adapter-key"], adapterKey)) {
+      // 转发端点用 X-Sub2API-Adapter-Key；主服务的登录代理沿用 Authorization: Bearer。
+      const presentedKey = req.headers["x-sub2api-adapter-key"]
+        || String(req.headers.authorization || "").replace(/^Bearer\s+/i, "");
+      if (!sameSecret(presentedKey, adapterKey)) {
         throw new CursorError(401, "invalid_adapter_key", "Missing or invalid adapter key.");
       }
       if (stopping) throw new CursorError(503, "adapter_shutdown", "Cursor adapter is shutting down.");
       if (req.method === "GET" && path === "/healthz") {
         return json(res, 200, { status: "ok", runtime: "cursor-sdk", upstream_verified: false });
+      }
+      if (path.startsWith("/internal/login/sessions")) {
+        if (!logins) throw new CursorError(503, "login_unavailable", "Cursor login is unavailable in this adapter build.");
+        res.setHeader("Cache-Control", "no-store");
+        const owner = req.headers["x-login-owner"];
+        if (typeof owner !== "string" || !owner.trim() || owner.length > 256) {
+          throw new CursorError(400, "login_owner_required", "Login owner is required.");
+        }
+        if (req.method === "POST" && path === "/internal/login/sessions") {
+          return json(res, 200, await logins.startResult(owner));
+        }
+        const match = /^\/internal\/login\/sessions\/([a-f0-9]{64})(\/poll)?$/.exec(path);
+        if (match && req.method === "POST" && match[2]) {
+          return json(res, 200, logins.poll(owner, match[1]));
+        }
+        if (match && req.method === "DELETE" && !match[2]) {
+          logins.cancel(owner, match[1]);
+          res.writeHead(204);
+          return res.end();
+        }
+        throw new CursorError(404, "not_found", "Unknown login endpoint.");
       }
       if (!((req.method === "GET" && path === "/v1/models") || (req.method === "POST" && path === "/v1/chat/completions"))) {
         throw new CursorError(404, "not_found", "Endpoint not found.");
@@ -178,7 +204,7 @@ export function createServer({ runtime, adapterKey, timeoutMs = 300_000, maxConc
     const forceClose = setTimeout(() => server.closeAllConnections(), 1000);
     forceClose.unref();
     try {
-      await Promise.all([closed, runtime.stop?.()]);
+      await Promise.all([closed, runtime.stop?.(), logins?.close()]);
     } finally {
       clearTimeout(forceClose);
     }

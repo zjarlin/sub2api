@@ -21,7 +21,10 @@ type BuiltinLoginResult struct {
 	Mode      string `json:"mode"`
 	Status    string `json:"status"`
 	ExpiresAt int64  `json:"expires_at"`
-	Account   *struct {
+	// APIKey 仅由 Cursor 浏览器授权返回：SDK 登录成功后铸造的可撤销账号凭据，
+	// 由管理页面立即写入待创建账号，不写日志、不落库到登录会话。
+	APIKey  string `json:"api_key,omitempty"`
+	Account *struct {
 		UID         string `json:"uid"`
 		ModelID     string `json:"model_id,omitempty"`
 		Nickname    string `json:"nickname,omitempty"`
@@ -45,7 +48,7 @@ type BuiltinLoginOptions struct {
 // BuiltinAdapterLogin 只连接部署配置指定的内部服务，不接受浏览器提供的目标地址或密钥。
 func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action, callback string, options ...BuiltinLoginOptions) (*BuiltinLoginResult, error) {
 	switch platform {
-	case PlatformArena, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformDeepseekWeb, PlatformQoder, PlatformLaya, PlatformJev:
+	case PlatformArena, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformDeepseekWeb, PlatformQoder, PlatformCursor, PlatformLaya, PlatformJev:
 	default:
 		return nil, infraerrors.BadRequest("INVALID_LOGIN_PLATFORM", "Unsupported login platform")
 	}
@@ -162,6 +165,15 @@ func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action
 		if platform == PlatformZcode && status == http.StatusGone {
 			message = "ZCode login expired; start a new login"
 		}
+		if platform == PlatformCursor {
+			message = "Cursor sign-in did not complete; restart the sign-in"
+			if status == http.StatusGone {
+				message = "Cursor login expired; start a new login"
+			}
+			if status == http.StatusTooManyRequests {
+				message = "Cursor login is busy; wait for the current sign-in to finish"
+			}
+		}
 		return nil, infraerrors.New(status, "ADAPTER_LOGIN_FAILED", message)
 	}
 	var result BuiltinLoginResult
@@ -190,7 +202,7 @@ func arenaLoginError(res *http.Response) error {
 		message string
 	}{
 		"arena_access_blocked":         {http.StatusServiceUnavailable, "ARENA_ACCESS_BLOCKED", "The server's access to Arena was blocked by Cloudflare before credentials could be verified; configure an accessible Arena proxy"},
-		"arena_verification_required": {http.StatusServiceUnavailable, "ARENA_VERIFICATION_REQUIRED", "Arena accepted sign-in but rejected security verification when sending a chat message"},
+		"arena_verification_required":  {http.StatusServiceUnavailable, "ARENA_VERIFICATION_REQUIRED", "Arena accepted sign-in but rejected security verification when sending a chat message"},
 		"login_invalid_credentials":    {http.StatusBadRequest, "ARENA_INVALID_CREDENTIALS", "Arena rejected the supplied sign-in credentials"},
 		"session_not_usable":           {http.StatusForbidden, "ARENA_SESSION_UNUSABLE", "Arena accepted the sign-in but the account cannot access Agent sessions"},
 		"session_not_ready":            {http.StatusBadGateway, "ARENA_SESSION_NOT_READY", "Arena signed in but the new Agent session did not return a completed text response"},

@@ -353,7 +353,7 @@
         </div>
         <p class="input-hint mt-2">{{ systemOneProvider === 'laya' ? t('admin.accounts.laya.baseUrlHint') : t('admin.accounts.jev.baseUrlHint') }}</p>
       </div>
-      <BuiltinAdapterLogin v-if="show && (form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'vibex' || form.platform === 'zcode' || form.platform === 'deepseek_web' || form.platform === 'arena')" @authorized="handleArenaAuthorized" :key="form.platform" :platform="form.platform" />
+      <BuiltinAdapterLogin v-if="show && (form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'vibex' || form.platform === 'zcode' || form.platform === 'deepseek_web' || form.platform === 'arena' || form.platform === 'cursor')" @authorized="handleBuiltinAuthorized" :key="form.platform" :platform="form.platform" />
 
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
@@ -1593,7 +1593,7 @@
           :plan="openCodeAccountMode"
         />
         <div v-if="!isBuiltinAdapterPlatform">
-          <label class="input-label">{{ t(form.platform === 'cursor' ? 'admin.accounts.cursor.apiKey' : 'admin.accounts.apiKeyRequired') }}</label>
+          <label class="input-label">{{ t('admin.accounts.apiKeyRequired') }}</label>
           <input
             v-model="apiKeyValue"
             type="password"
@@ -4626,6 +4626,7 @@ function selectCursorPlatform() {
   apiProtocol.value = 'chat_completions'
   apiKeyBaseUrl.value = ''
   apiKeyValue.value = ''
+  cursorAuthorizedKey.value = ''
   form.concurrency = 1
 }
 
@@ -4645,7 +4646,7 @@ function selectSystemOnePlatform() {
 
 // 内置适配器平台（地址与共享密钥由后端注入）的单一权威列表。
 // 新增此类平台时只改这里，避免平台按钮 / base_url 复位 / 密钥必填等分支各漏一处。
-const BUILTIN_ADAPTER_PLATFORMS = ['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'qoder', 'systemone', 'arena'] as const
+const BUILTIN_ADAPTER_PLATFORMS = ['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'qoder', 'systemone', 'arena', 'cursor'] as const
 const isBuiltinAdapterPlatform = computed(() =>
   (BUILTIN_ADAPTER_PLATFORMS as readonly string[]).includes(form.platform)
 )
@@ -4738,6 +4739,15 @@ const preserveModelWhitelist = ref(false)
 const modelMappingMode = computed(() => preserveModelWhitelist.value ? 'combined' : modelRestrictionMode.value)
 const allowedModels = ref<string[]>([])
 const arenaLoginReady = ref(false)
+const cursorAuthorizedKey = ref('')
+function handleBuiltinAuthorized(session: BuiltinLoginSession) {
+  if (form.platform === 'cursor') {
+    // SDK 浏览器授权成功后返回铸造出的账号凭据，直接作为账号 api_key 保存。
+    if (session.api_key) cursorAuthorizedKey.value = session.api_key
+    return
+  }
+  handleArenaAuthorized(session)
+}
 function handleArenaAuthorized(session: BuiltinLoginSession) {
   if (form.platform !== 'arena' || !session.account?.model_id) return
   arenaLoginReady.value = true
@@ -6200,6 +6210,10 @@ const handleSubmit = async () => {
     appStore.showError(t('admin.accounts.arena.loginRequired'))
     return
   }
+  if (form.platform === 'cursor' && !cursorAuthorizedKey.value) {
+    appStore.showError(t('admin.accounts.cursor.loginRequired'))
+    return
+  }
   // For OAuth-based type, handle OAuth flow (goes to step 2)
   if (isOAuthFlow.value) {
     if (!isGrokSSOInputMethod.value && !form.name.trim()) {
@@ -6349,7 +6363,7 @@ const handleSubmit = async () => {
   // Determine default base URL based on platform.
   // 内置适配器平台（含 Laya / JEV）地址由后端按平台注入，不能落到 Anthropic 默认值，
   // 否则会把决策请求发到错误的上游。
-  const defaultBaseUrl = isBuiltinAdapterPlatform.value || form.platform === 'cursor'
+  const defaultBaseUrl = isBuiltinAdapterPlatform.value
     ? ''
     : form.platform === 'openai'
       ? 'https://api.openai.com'
@@ -6370,9 +6384,9 @@ const handleSubmit = async () => {
     if (!apiKeyValue.value.trim()) delete credentials.api_key
   }
   if (form.platform === 'cursor') {
-    if (!apiKeyBaseUrl.value.trim()) {
-      delete credentials.base_url
-    }
+    // 地址由后端内置适配器注入；账号凭据来自 Cursor 浏览器授权。
+    delete credentials.base_url
+    credentials.api_key = cursorAuthorizedKey.value
     credentials.api_protocol = 'chat_completions'
     credentials.openai_capabilities = ['chat_completions']
   }

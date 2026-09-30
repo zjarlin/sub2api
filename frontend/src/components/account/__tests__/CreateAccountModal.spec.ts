@@ -209,43 +209,40 @@ async function openCodexImportStep(toggleClicks = 0) {
 }
 
 describe('CreateAccountModal OpenAI long-context billing', () => {
-  it.each(['', 'https://cursor-adapter.example/v1'])('creates a Cursor account with an optional adapter URL (%s)', async (baseUrl) => {
+  it('requires a Cursor browser login before creating an account', async () => {
     const wrapper = mountModal()
     await wrapper.get('[data-testid="platform-cursor"]').trigger('click')
-    expect(wrapper.findComponent({ name: 'BuiltinAdapterLogin' }).exists()).toBe(false)
-    expect(wrapper.get('[data-testid="account-api-key"]').attributes('required')).toBeDefined()
-    expect(wrapper.get('[data-testid="account-base-url"]').attributes('required')).toBeUndefined()
+    // Cursor 使用浏览器授权：地址与连接密钥由内置适配器注入，不再要求手填 Dashboard Key。
+    expect(wrapper.findComponent({ name: 'BuiltinAdapterLogin' }).exists()).toBe(true)
+    expect(wrapper.find('[data-testid="account-api-key"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="account-base-url"]').exists()).toBe(false)
     await wrapper.get('[data-tour="account-form-name"]').setValue('Cursor account')
-    await wrapper.get('[data-testid="account-api-key"]').setValue(' cursor-dashboard-key ')
-    await wrapper.get('[data-testid="account-base-url"]').setValue(baseUrl)
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).not.toHaveBeenCalled()
+  })
+
+  it('creates a Cursor account after browser login without adapter credentials', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="platform-cursor"]').trigger('click')
+    const login = wrapper.findComponent({ name: 'BuiltinAdapterLogin' })
+    login.vm.$emit('authorized', { api_key: 'minted-cursor-key' })
+    await flushPromises()
+    await wrapper.get('[data-tour="account-form-name"]').setValue('Cursor account')
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
     await flushPromises()
 
     expect(createAccountMock).toHaveBeenCalledTimes(1)
-    const payload = createAccountMock.mock.calls[0]?.[0]
-    expect(payload).toMatchObject({
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({
       platform: 'cursor', type: 'apikey', concurrency: 1,
       credentials: {
-        api_key: 'cursor-dashboard-key', api_protocol: 'chat_completions',
+        api_key: 'minted-cursor-key', api_protocol: 'chat_completions',
         openai_capabilities: ['chat_completions'],
       },
     })
-    if (baseUrl) {
-      expect(payload.credentials.base_url).toBe(baseUrl)
-    } else {
-      expect(payload.credentials).not.toHaveProperty('base_url')
-    }
+    // 地址由后端内置适配器按平台注入，前端不再写入 base_url。
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials).not.toHaveProperty('base_url')
     expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
-  })
-
-  it('blocks Cursor account creation without a Dashboard API key', async () => {
-    const wrapper = mountModal()
-    await wrapper.get('[data-testid="platform-cursor"]').trigger('click')
-    await wrapper.get('[data-tour="account-form-name"]').setValue('Cursor account')
-    await wrapper.get('[data-testid="account-api-key"]').setValue('  ')
-    await wrapper.get('form#create-account-form').trigger('submit.prevent')
-    await flushPromises()
-    expect(createAccountMock).not.toHaveBeenCalled()
   })
 
   it('requires Arena web login before creating an account', async () => {

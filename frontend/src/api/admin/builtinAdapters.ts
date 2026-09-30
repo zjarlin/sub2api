@@ -1,12 +1,14 @@
 import { apiClient } from '../client'
 
-export type BuiltinLoginPlatform = 'traework' | 'workbuddy' | 'vibex' | 'zcode' | 'deepseek_web' | 'arena'
+export type BuiltinLoginPlatform = 'traework' | 'workbuddy' | 'vibex' | 'zcode' | 'deepseek_web' | 'arena' | 'cursor'
 export interface BuiltinLoginSession {
   session_id: string
   auth_url?: string
   mode: 'callback' | 'poll'
   status: 'pending' | 'completed' | 'cancelled'
   expires_at: number
+  /** 仅 Cursor 浏览器授权返回：SDK 登录成功后铸造的可撤销账号凭据。 */
+  api_key?: string
   account?: { uid: string; nickname?: string; model_id?: string; auto_relogin?: boolean }
 }
 
