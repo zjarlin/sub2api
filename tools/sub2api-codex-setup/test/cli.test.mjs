@@ -124,6 +124,52 @@ for (const scenario of [
   });
 }
 
+test('rejects a model catalog that disables Auto image input', async () => {
+  const sandboxRoot = mkdtempSync(join(tmpdir(), 'sub2api-codex-image-'));
+  const destination = join(sandboxRoot, '.codex');
+  const server = createServer((request, response) => {
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ models: [
+      { slug: 'gpt-5.5', input_modalities: ['text'] },
+      { slug: 'auto', input_modalities: ['text'] }
+    ] }));
+  });
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    await assert.rejects(execFileAsync(process.execPath, ['dist/cli.mjs',
+      '--base-url', 'http://127.0.0.1:' + server.address().port,
+      '--api-key', 'sk-test', '--no-install', '--codex-home', destination
+    ], { encoding: 'utf8' }), /auto as text-only/);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(sandboxRoot, { recursive: true, force: true });
+  }
+});
+
+test('accepts Auto image input and keeps the catalog available for image requests', async () => {
+  const sandboxRoot = mkdtempSync(join(tmpdir(), 'sub2api-codex-image-ok-'));
+  const destination = join(sandboxRoot, '.codex');
+  const server = createServer((request, response) => {
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ models: [
+      { slug: 'gpt-5.5', input_modalities: ['text', 'image'] },
+      { slug: 'auto', input_modalities: ['text', 'image'] }
+    ] }));
+  });
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    await execFileAsync(process.execPath, ['dist/cli.mjs',
+      '--base-url', 'http://127.0.0.1:' + server.address().port,
+      '--api-key', 'sk-test', '--no-install', '--codex-home', destination
+    ], { encoding: 'utf8' });
+    const catalog = JSON.parse(readFileSync(join(destination, 'codex-models.json'), 'utf8'));
+    assert.deepEqual(catalog.models.find((model) => model.slug === 'auto').input_modalities, ['text', 'image']);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    rmSync(sandboxRoot, { recursive: true, force: true });
+  }
+});
+
 test('dry-run reports custom directories and never writes or exposes the API key', () => {
   const sandboxRoot = mkdtempSync(join(tmpdir(), 'sub2api-codex-dry-'));
   const destination = join(sandboxRoot, 'data folder');

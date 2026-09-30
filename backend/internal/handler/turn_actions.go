@@ -56,7 +56,12 @@ func (h *GatewayHandler) RecommendTurnActions(c *gin.Context) {
 		return
 	}
 	var input service.TurnActionRecommendInput
-	decoder := json.NewDecoder(io.LimitReader(c.Request.Body, 128*1024+1))
+	body, err := io.ReadAll(io.LimitReader(c.Request.Body, 128*1024+1))
+	if err != nil || len(body) > 128*1024 {
+		c.Status(http.StatusRequestEntityTooLarge)
+		return
+	}
+	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&input); err != nil {
 		c.Status(http.StatusBadRequest)
@@ -169,6 +174,10 @@ func (w *turnActionDecisionWriter) WriteHeader(code int) {
 func (w *turnActionDecisionWriter) WriteHeaderNow() { w.written = true }
 func (w *turnActionDecisionWriter) Write(value []byte) (int, error) {
 	w.written = true
+	if w.body.Len()+len(value) > 256*1024 {
+		w.status = http.StatusBadGateway
+		return 0, errors.New("decision response too large")
+	}
 	return w.body.Write(value)
 }
 func (w *turnActionDecisionWriter) WriteString(value string) (int, error) {

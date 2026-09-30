@@ -209,11 +209,19 @@ async function loadCodexModelCatalog(baseUrl: string, apiKey: string, preferredM
     return undefined;
   }
 
-  const manifest = await response.json() as { models?: Array<{ slug?: string }> };
+  const manifest = await response.json() as { models?: Array<{ slug?: string; input_modalities?: string[] }> };
   const models = Array.isArray(manifest.models) ? manifest.models : [];
   if (models.length === 0) {
     console.warn('Model catalog fetch skipped: empty model list');
     return undefined;
+  }
+
+  const auto = models.find((model) => model.slug === 'auto');
+  if (auto && !Array.isArray(auto.input_modalities)) {
+    throw new Error('Model catalog is missing auto input modalities; upgrade the Sub2API gateway before running setup.');
+  }
+  if (auto && !auto.input_modalities?.includes('image')) {
+    throw new Error('Model catalog declares auto as text-only; image input would be disabled. Update the Sub2API gateway catalog before running setup.');
   }
 
   const hasPreferredModel = models.some((model) => model.slug === preferredModel);
