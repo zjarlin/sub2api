@@ -24,6 +24,7 @@ export type Platform =
   | 'vibex'
   | 'zcode'
   | 'qoder'
+  | 'systemone'
   | 'laya'
   | 'jev'
   | 'composite'
@@ -46,6 +47,7 @@ const BADGE: Record<Platform, string> = {
   zcode: 'bg-indigo-500/10 text-indigo-600 border-indigo-500/30 dark:text-indigo-400',
   arena: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30 dark:text-emerald-400',
   qoder: 'bg-teal-500/10 text-teal-600 border-teal-500/30 dark:text-teal-400',
+  systemone: 'bg-violet-500/10 text-violet-600 border-violet-500/30 dark:text-violet-400',
   laya: 'bg-violet-500/10 text-violet-600 border-violet-500/30 dark:text-violet-400',
   jev: 'bg-slate-500/10 text-slate-700 border-slate-500/30 dark:text-slate-300',
   minimax: 'bg-rose-500/10 text-rose-600 border-rose-500/30 dark:text-rose-400',
@@ -72,6 +74,7 @@ const BADGE_LIGHT: Record<Platform, string> = {
   zcode: 'bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300',
   arena: 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-300',
   qoder: 'bg-teal-500/10 text-teal-600 dark:bg-teal-500/10 dark:text-teal-300',
+  systemone: 'bg-violet-500/10 text-violet-600 dark:bg-violet-500/10 dark:text-violet-300',
   laya: 'bg-violet-500/10 text-violet-600 dark:bg-violet-500/10 dark:text-violet-300',
   jev: 'bg-slate-500/10 text-slate-700 dark:bg-slate-500/10 dark:text-slate-300',
   minimax: 'bg-rose-500/10 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300',
@@ -97,6 +100,7 @@ const BORDER: Record<Platform, string> = {
   zcode: 'border-indigo-500/20 dark:border-indigo-500/20',
   arena: 'border-emerald-500/20 dark:border-emerald-500/20',
   qoder: 'border-teal-500/20 dark:border-teal-500/20',
+  systemone: 'border-violet-500/20 dark:border-violet-500/20',
   laya: 'border-violet-500/20 dark:border-violet-500/20',
   jev: 'border-slate-500/20 dark:border-slate-500/20',
   minimax: 'border-rose-500/20 dark:border-rose-500/20',
@@ -123,6 +127,7 @@ const BORDER_STRONG: Record<Platform, string> = {
   zcode: 'border-indigo-500/35 dark:border-indigo-500/30',
   arena: 'border-emerald-500/35 dark:border-emerald-500/30',
   qoder: 'border-teal-500/35 dark:border-teal-500/30',
+  systemone: 'border-violet-500/35 dark:border-violet-500/30',
   laya: 'border-violet-500/35 dark:border-violet-500/30',
   jev: 'border-slate-500/35 dark:border-slate-500/30',
   minimax: 'border-rose-500/35 dark:border-rose-500/30',
@@ -150,6 +155,7 @@ const ACCENT: Record<Platform, string> = {
   zcode: '#6366f1',
   arena: '#10b981',
   qoder: '#14b8a6',
+  systemone: '#8b5cf6',
   laya: '#8b5cf6',
   jev: '#64748b',
   minimax: '#f43f5e', // rose-500
@@ -176,6 +182,7 @@ const ACCENT_BAR: Record<Platform, string> = {
   zcode: 'bg-gradient-to-r from-indigo-400 to-indigo-500',
   arena: 'bg-gradient-to-r from-emerald-400 to-emerald-500',
   qoder: 'bg-gradient-to-r from-teal-400 to-teal-500',
+  systemone: 'bg-gradient-to-r from-violet-400 to-violet-500',
   laya: 'bg-gradient-to-r from-violet-400 to-violet-500',
   jev: 'bg-gradient-to-r from-slate-400 to-slate-500',
   minimax: 'bg-gradient-to-r from-rose-400 to-rose-500',
@@ -202,6 +209,7 @@ const TEXT: Record<Platform, string> = {
   zcode: 'text-indigo-600 dark:text-indigo-400',
   arena: 'text-emerald-600 dark:text-emerald-400',
   qoder: 'text-teal-600 dark:text-teal-400',
+  systemone: 'text-violet-600 dark:text-violet-400',
   laya: 'text-violet-600 dark:text-violet-400',
   jev: 'text-slate-700 dark:text-slate-300',
   minimax: 'text-rose-600 dark:text-rose-400',
@@ -228,6 +236,7 @@ const ICON: Record<Platform, string> = {
   zcode: 'text-indigo-500 dark:text-indigo-400',
   arena: 'text-emerald-500 dark:text-emerald-400',
   qoder: 'text-teal-500 dark:text-teal-400',
+  systemone: 'text-violet-500 dark:text-violet-400',
   laya: 'text-violet-500 dark:text-violet-400',
   jev: 'text-slate-500 dark:text-slate-300',
   minimax: 'text-rose-500 dark:text-rose-400',
@@ -254,6 +263,7 @@ const BUTTON: Record<Platform, string> = {
   zcode: 'bg-indigo-500 text-white hover:bg-indigo-600 active:bg-indigo-700 dark:bg-indigo-500/80 dark:hover:bg-indigo-500',
   arena: 'bg-emerald-500 text-white hover:bg-emerald-600 active:bg-emerald-700 dark:bg-emerald-500/80 dark:hover:bg-emerald-500',
   qoder: 'bg-teal-500 text-white hover:bg-teal-600 active:bg-teal-700 dark:bg-teal-500/80 dark:hover:bg-teal-500',
+  systemone: 'bg-violet-500 text-white hover:bg-violet-600 active:bg-violet-700 dark:bg-violet-500/80 dark:hover:bg-violet-500',
   laya: 'bg-violet-500 text-white hover:bg-violet-600 active:bg-violet-700 dark:bg-violet-500/80 dark:hover:bg-violet-500',
   jev: 'bg-slate-600 text-white hover:bg-slate-700 active:bg-slate-800 dark:bg-slate-600/80 dark:hover:bg-slate-600',
   minimax: 'bg-rose-500 text-white hover:bg-rose-600 active:bg-rose-700 dark:bg-rose-500/80 dark:hover:bg-rose-500',
@@ -280,6 +290,7 @@ const DISCOUNT: Record<Platform, string> = {
   zcode: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300',
   arena: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-300',
   qoder: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
+  systemone: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
   laya: 'bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300',
   jev: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300',
   minimax: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',
@@ -306,6 +317,7 @@ const GRADIENT: Record<Platform, string> = {
   zcode: 'from-indigo-500 to-indigo-600',
   arena: 'from-emerald-500 to-emerald-600',
   qoder: 'from-teal-500 to-teal-600',
+  systemone: 'from-violet-500 to-violet-600',
   laya: 'from-violet-500 to-violet-600',
   jev: 'from-slate-500 to-slate-600',
   minimax: 'from-rose-500 to-rose-600',
@@ -332,6 +344,7 @@ const GRADIENT_TEXT: Record<Platform, string> = {
   zcode: 'text-indigo-100',
   arena: 'text-emerald-100',
   qoder: 'text-teal-100',
+  systemone: 'text-violet-100',
   laya: 'text-violet-100',
   jev: 'text-slate-100',
   minimax: 'text-rose-100',
@@ -357,6 +370,7 @@ const GRADIENT_SUBTEXT: Record<Platform, string> = {
   zcode: 'text-indigo-200',
   arena: 'text-emerald-200',
   qoder: 'text-teal-200',
+  systemone: 'text-violet-200',
   laya: 'text-violet-200',
   jev: 'text-slate-200',
   minimax: 'text-rose-200',
@@ -384,6 +398,7 @@ function isPlatform(p: string): p is Platform {
     p === 'workbuddy' || p === 'vibex' ||
     p === 'zcode' ||
     p === 'qoder' ||
+    p === 'systemone' ||
     p === 'laya' ||
     p === 'jev' ||
     p === 'minimax' ||
@@ -462,6 +477,7 @@ export function platformLabel(p: string): string {
     case 'workbuddy': return 'WorkBuddy'
     case 'zcode': return 'ZCode'
     case 'qoder': return 'Qoder'
+    case 'systemone': return 'System One'
     case 'laya': return 'Laya'
     case 'jev': return 'JEV'
     case 'minimax': return 'MiniMax'

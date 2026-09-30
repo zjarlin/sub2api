@@ -325,15 +325,10 @@
             <PlatformIcon platform="arena" size="sm" />
             Arena
           </button>
-          <button type="button" data-testid="platform-laya" @click="selectLayaPlatform"
-            :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'laya' ? 'bg-white text-violet-600 shadow-sm dark:bg-dark-600 dark:text-violet-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
-            <PlatformIcon platform="laya" size="sm" />
-            {{ t('admin.accounts.laya.title') }}
-          </button>
-          <button type="button" data-testid="platform-jev" @click="selectJevPlatform"
-            :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'jev' ? 'bg-white text-fuchsia-600 shadow-sm dark:bg-dark-600 dark:text-fuchsia-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
-            <PlatformIcon platform="jev" size="sm" />
-            {{ t('admin.accounts.jev.title') }}
+          <button type="button" data-testid="platform-systemone" @click="selectSystemOnePlatform"
+            :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'systemone' ? 'bg-white text-violet-600 shadow-sm dark:bg-dark-600 dark:text-violet-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
+            <PlatformIcon platform="systemone" size="sm" />
+            System One
           </button>
         </div>
       </div>
@@ -350,12 +345,14 @@
       <p v-if="form.platform === 'deepseek_web'" class="input-hint" data-testid="deepseek-web-connection-hint">
         {{ t('admin.accounts.deepseekWeb.connectionHint') }}
       </p>
-      <p v-if="form.platform === 'laya'" class="input-hint" data-testid="laya-connection-hint">
-        {{ t('admin.accounts.laya.baseUrlHint') }}
-      </p>
-      <p v-if="form.platform === 'jev'" class="input-hint" data-testid="jev-connection-hint">
-        {{ t('admin.accounts.jev.baseUrlHint') }}
-      </p>
+      <div v-if="form.platform === 'systemone'" class="rounded-lg border border-violet-200 bg-violet-50/60 p-3 dark:border-violet-800 dark:bg-violet-950/20" data-testid="systemone-provider">
+        <p class="text-sm font-medium text-violet-900 dark:text-violet-100">System One 上游</p>
+        <div class="mt-2 flex gap-2">
+          <button type="button" class="rounded px-3 py-1.5 text-sm" :class="systemOneProvider === 'laya' ? 'bg-violet-600 text-white' : 'bg-white text-gray-700 dark:bg-dark-600 dark:text-gray-300'" @click="systemOneProvider = 'laya'">Laya</button>
+          <button type="button" class="rounded px-3 py-1.5 text-sm" :class="systemOneProvider === 'jev' ? 'bg-violet-600 text-white' : 'bg-white text-gray-700 dark:bg-dark-600 dark:text-gray-300'" @click="systemOneProvider = 'jev'">JEV</button>
+        </div>
+        <p class="input-hint mt-2">{{ systemOneProvider === 'laya' ? t('admin.accounts.laya.baseUrlHint') : t('admin.accounts.jev.baseUrlHint') }}</p>
+      </div>
       <BuiltinAdapterLogin v-if="show && (form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'vibex' || form.platform === 'zcode' || form.platform === 'deepseek_web' || form.platform === 'arena')" @authorized="handleArenaAuthorized" :key="form.platform" :platform="form.platform" />
 
       <!-- Account Type Selection (Anthropic) -->
@@ -4264,8 +4261,7 @@ const baseUrlHint = computed(() => {
   if (form.platform === 'zcode') return t('admin.accounts.zcode.baseUrlHint')
   if (form.platform === 'deepseek_web') return t('admin.accounts.deepseekWeb.baseUrlHint')
   if (form.platform === 'arena') return t('admin.accounts.arena.baseUrlHint')
-  if (form.platform === 'laya') return t('admin.accounts.laya.baseUrlHint')
-  if (form.platform === 'jev') return t('admin.accounts.jev.baseUrlHint')
+  if (form.platform === 'systemone') return systemOneProvider.value === 'laya' ? t('admin.accounts.laya.baseUrlHint') : t('admin.accounts.jev.baseUrlHint')
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
   if (form.platform === 'grok') return ''
@@ -4281,8 +4277,7 @@ const apiKeyHint = computed(() => {
   if (form.platform === 'zcode') return t('admin.accounts.zcode.apiKeyHint')
   if (form.platform === 'deepseek_web') return t('admin.accounts.deepseekWeb.apiKeyHint')
   if (form.platform === 'arena') return t('admin.accounts.arena.apiKeyHint')
-  if (form.platform === 'laya') return t('admin.accounts.laya.apiKeyHint')
-  if (form.platform === 'jev') return t('admin.accounts.jev.apiKeyHint')
+  if (form.platform === 'systemone') return systemOneProvider.value === 'laya' ? t('admin.accounts.laya.apiKeyHint') : t('admin.accounts.jev.apiKeyHint')
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
   if (form.platform === 'grok') return ''
@@ -4433,6 +4428,7 @@ const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_acco
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
+const systemOneProvider = ref<'laya' | 'jev'>('laya')
 const quickOpenAIInput = ref('')
 const quickOpenAIDefaultGroupId = ref<number | null>(null)
 const upstreamBillingAutoProbeEnabled = ref(true)
@@ -4636,9 +4632,9 @@ function selectCursorPlatform() {
 // Laya / JEV 是 System One 决策模型：属内置适配器平台，地址与共享密钥由后端注入。
 // 协议由平台固定为 systemone（见 buildCredentials），表单不提供协议选择——
 // 决策模型不生成文本，不存在 chat / anthropic / responses 变体。
-function selectSystemOnePlatform(platform: 'laya' | 'jev') {
+function selectSystemOnePlatform() {
   upstreamBillingAutoProbeEnabled.value = false
-  form.platform = platform
+  form.platform = 'systemone'
   accountCategory.value = 'apikey'
   form.type = 'apikey'
   apiProtocol.value = 'chat_completions'
@@ -4647,17 +4643,9 @@ function selectSystemOnePlatform(platform: 'laya' | 'jev') {
   form.concurrency = 1
 }
 
-function selectLayaPlatform() {
-  selectSystemOnePlatform('laya')
-}
-
-function selectJevPlatform() {
-  selectSystemOnePlatform('jev')
-}
-
 // 内置适配器平台（地址与共享密钥由后端注入）的单一权威列表。
 // 新增此类平台时只改这里，避免平台按钮 / base_url 复位 / 密钥必填等分支各漏一处。
-const BUILTIN_ADAPTER_PLATFORMS = ['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'qoder', 'laya', 'jev', 'arena'] as const
+const BUILTIN_ADAPTER_PLATFORMS = ['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'qoder', 'systemone', 'arena'] as const
 const isBuiltinAdapterPlatform = computed(() =>
   (BUILTIN_ADAPTER_PLATFORMS as readonly string[]).includes(form.platform)
 )
@@ -6396,8 +6384,12 @@ const handleSubmit = async () => {
     credentials.openai_capabilities = form.platform === 'doubao' ? ['responses', 'chat_completions'] : ['chat_completions']
   }
   // System One 决策模型：协议固定 systemone，不生成文本，不声明 chat/responses 能力。
-  if (form.platform === 'laya' || form.platform === 'jev') {
+  if (form.platform === 'systemone') {
     credentials.api_protocol = 'systemone'
+    credentials.systemone_provider = systemOneProvider.value
+    credentials.model_mapping = systemOneProvider.value === 'laya'
+      ? { laya: 'laya', 'laya-english': 'laya-english', 'laya-multilingual': 'laya-multilingual' }
+      : { 'typesafe/jev': 'typesafe/jev' }
   }
 
   // 国产供应商：账号模式 + 协议 + 对应端点写入凭据；后端按 account_mode 路由
@@ -6436,7 +6428,7 @@ const handleSubmit = async () => {
 
   // 模型配置同时用于普通转发和透传账号的调度资格。
   const modelMapping = buildModelMappingObject(modelMappingMode.value, allowedModels.value, modelMappings.value)
-  if (modelMapping) {
+  if (modelMapping && form.platform !== 'systemone') {
     credentials.model_mapping = modelMapping
   }
   if (form.platform === 'openai') {

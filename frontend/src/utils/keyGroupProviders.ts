@@ -20,6 +20,7 @@ const PROVIDER_BY_PLATFORM: Record<GroupPlatform, KeyGroupProvider> = {
   vibex: 'domestic',
   zcode: 'domestic',
   qoder: 'domestic',
+  systemone: 'domestic',
   laya: 'domestic',
   jev: 'domestic',
   minimax: 'domestic',

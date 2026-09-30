@@ -9,6 +9,7 @@ import (
 )
 
 func TestIsSystemOneDecisionPlatform(t *testing.T) {
+	require.True(t, IsSystemOneDecisionPlatform(PlatformSystemOne))
 	require.True(t, IsSystemOneDecisionPlatform(PlatformLaya))
 	require.True(t, IsSystemOneDecisionPlatform(PlatformJev))
 	require.False(t, IsSystemOneDecisionPlatform(PlatformOpenAI))
@@ -16,8 +17,8 @@ func TestIsSystemOneDecisionPlatform(t *testing.T) {
 }
 
 func TestSystemOneDecisionAccountsAreDistinct(t *testing.T) {
-	laya := &Account{Platform: PlatformLaya}
-	jev := &Account{Platform: PlatformJev}
+	laya := &Account{Platform: PlatformSystemOne, Credentials: map[string]any{"systemone_provider": SystemOneProviderLaya}}
+	jev := &Account{Platform: PlatformSystemOne, Credentials: map[string]any{"systemone_provider": SystemOneProviderJev}}
 	require.True(t, laya.IsLaya())
 	require.False(t, laya.IsJev())
 	require.True(t, jev.IsJev())
@@ -38,13 +39,13 @@ func TestSystemOneDecisionCredentialsRequireBuiltinAdapter(t *testing.T) {
 	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
 
 	err := validateSystemOneDecisionCredentials(
-		PlatformLaya, AccountTypeAPIKey, map[string]any{"api_key": "k"},
+		PlatformSystemOne, AccountTypeAPIKey, map[string]any{"systemone_provider": SystemOneProviderLaya, "api_key": "k"},
 	)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "built-in")
 
 	// 非 apikey 账号同样拒绝。
-	err = validateSystemOneDecisionCredentials(PlatformLaya, AccountTypeOAuth, map[string]any{})
+	err = validateSystemOneDecisionCredentials(PlatformSystemOne, AccountTypeOAuth, map[string]any{"systemone_provider": SystemOneProviderLaya})
 	require.Error(t, err)
 
 	// 非 System One 平台直接放行，不影响其它平台的既有校验。
@@ -59,16 +60,16 @@ func TestSystemOneDecisionCredentialsRejectWrongProtocol(t *testing.T) {
 	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
 
 	err := validateSystemOneDecisionCredentials(
-		PlatformJev, AccountTypeAPIKey,
-		map[string]any{"api_key": "k", "api_protocol": APIProtocolChatCompletions},
+		PlatformSystemOne, AccountTypeAPIKey,
+		map[string]any{"systemone_provider": SystemOneProviderJev, "api_key": "k", "api_protocol": APIProtocolChatCompletions},
 	)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "systemone")
 
 	// 协议正确时应放行。
 	require.NoError(t, validateSystemOneDecisionCredentials(
-		PlatformJev, AccountTypeAPIKey,
-		map[string]any{"api_key": "k", "api_protocol": APIProtocolSystemOne},
+		PlatformSystemOne, AccountTypeAPIKey,
+		map[string]any{"systemone_provider": SystemOneProviderJev, "api_key": "k", "api_protocol": APIProtocolSystemOne},
 	))
 }
 
@@ -76,16 +77,16 @@ func TestSystemOneDecisionCredentialsAcceptLayaWithoutAPIKey(t *testing.T) {
 	SetBuiltinAdapterConfig(&config.BuiltinAdapterConfig{Enabled: true})
 	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
 
-	for _, platform := range []string{PlatformLaya, PlatformJev} {
+	for _, provider := range []string{SystemOneProviderLaya, SystemOneProviderJev} {
 		require.NoError(t, validateSystemOneDecisionCredentials(
-			platform, AccountTypeAPIKey, map[string]any{"api_key": "k"},
-		), "platform=%s", platform)
+			PlatformSystemOne, AccountTypeAPIKey, map[string]any{"systemone_provider": provider, "api_key": "k"},
+		), "provider=%s", provider)
 	}
 	require.NoError(t, validateSystemOneDecisionCredentials(
-		PlatformLaya, AccountTypeAPIKey, map[string]any{"api_protocol": APIProtocolSystemOne},
+		PlatformSystemOne, AccountTypeAPIKey, map[string]any{"systemone_provider": SystemOneProviderLaya, "api_protocol": APIProtocolSystemOne},
 	))
 	require.Error(t, validateSystemOneDecisionCredentials(
-		PlatformJev, AccountTypeAPIKey, map[string]any{"api_key": "  "},
+		PlatformSystemOne, AccountTypeAPIKey, map[string]any{"systemone_provider": SystemOneProviderJev, "api_key": "  "},
 	))
 }
 
@@ -94,8 +95,8 @@ func TestBuildLayaAccountWithoutAPIKeyUsesInternalAdapter(t *testing.T) {
 	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
 
 	account, err := buildAccountForCreate(&CreateAccountInput{
-		Name: "Laya", Platform: PlatformLaya, Type: AccountTypeAPIKey,
-		Credentials: map[string]any{"api_protocol": APIProtocolSystemOne},
+		Name: "Laya", Platform: PlatformSystemOne, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"systemone_provider": SystemOneProviderLaya, "api_protocol": APIProtocolSystemOne},
 	}, nil)
 	require.NoError(t, err)
 	require.Equal(t, "http://edge-laya:18082/v1", account.Credentials["base_url"])
@@ -105,8 +106,8 @@ func TestBuildLayaAccountWithoutAPIKeyUsesInternalAdapter(t *testing.T) {
 func TestSystemOneDecisionAccountsReportSystemOneProtocol(t *testing.T) {
 	// IsCNProvider 把 laya/jev 纳入了国产供应商集合，因此 GetAPIProtocol 必须在
 	// 通用 chat_completions 回退之前判定这两个平台，否则协议会被兜成 chat_completions。
-	for _, platform := range []string{PlatformLaya, PlatformJev} {
-		account := &Account{Platform: platform, Credentials: map[string]any{}}
+	for _, platform := range []string{PlatformSystemOne} {
+		account := &Account{Platform: platform, Credentials: map[string]any{"systemone_provider": SystemOneProviderLaya}}
 		require.Equal(t, APIProtocolSystemOne, account.GetAPIProtocol(), "platform=%s", platform)
 	}
 
@@ -117,9 +118,9 @@ func TestSystemOneDecisionAccountsReportSystemOneProtocol(t *testing.T) {
 
 func TestSystemOneDecisionSchedulingIgnoresUpstreamChatCatalog(t *testing.T) {
 	account := &Account{
-		Platform: PlatformJev,
+		Platform: PlatformSystemOne,
 		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{"model_mapping": map[string]any{
+		Credentials: map[string]any{"systemone_provider": SystemOneProviderJev, "model_mapping": map[string]any{
 			DefaultJevModel: DefaultJevModel,
 		}},
 	}

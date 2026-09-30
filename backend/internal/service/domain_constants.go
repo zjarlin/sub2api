@@ -117,7 +117,7 @@ const (
 // IsCNProvider 报告 platform 是否为国产 OpenAI 兼容供应商（含豆包桌面会话适配器）。
 func IsCNProvider(platform string) bool {
 	switch platform {
-	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformArena, PlatformMiniMax, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformLaya, PlatformJev:
+	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformArena, PlatformMiniMax, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformSystemOne, PlatformLaya, PlatformJev:
 		return true
 	default:
 		return false
@@ -155,6 +155,7 @@ var AllowedQuotaPlatforms = []string{
 	PlatformWorkbuddy,
 	PlatformVibex,
 	PlatformZcode,
+	PlatformSystemOne,
 	PlatformLaya,
 	PlatformJev,
 }
@@ -793,6 +794,7 @@ var MixedSchedulingCompatibleTargets = map[string][]string{
 	PlatformWorkbuddy:   {PlatformOpenAI},
 	PlatformVibex:       {PlatformOpenAI},
 	PlatformZcode:       {PlatformOpenAI},
+	PlatformSystemOne:   {PlatformOpenAI},
 	PlatformLaya:        {PlatformOpenAI},
 	PlatformJev:         {PlatformOpenAI},
 	PlatformCursor:      {PlatformOpenAI},

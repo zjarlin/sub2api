@@ -1426,7 +1426,7 @@ func (a *Account) SupportsHTTPResponsesContinuation() bool {
 // 适用 openai、国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）与 OpenCode Go；
 // grok 走 GetGrokBaseURL，此处对 grok 返回 "" 以保持原有行为。
 func (a *Account) GetOpenAIBaseURL() string {
-	if !a.IsOpenAI() && !a.IsCNProvider() && !a.IsOpenCodeGo() && !a.IsCursor() {
+	if !a.IsOpenAI() && !a.IsCNProvider() && !a.IsOpenCodeGo() && !a.IsCursor() && !a.IsLaya() && !a.IsJev() {
 		return ""
 	}
 	if a.IsMultiProtocolAPIKey() && a.IsAdaptiveAPIProtocol() {

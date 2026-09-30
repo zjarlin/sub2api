@@ -20,7 +20,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// systemOnePlatformForModel 把客户端 model 映射到负责它的平台。
+// systemOneProviderForModel 把客户端 model 映射到实际的上游提供方。
 //
 // System One 的 model 名本身就是平台选择器（与 /v1/systemone 的既有约定一致）：
 // `laya*` 走本地 Laya 决策模型，`typesafe/jev` 走 JEV。两者共用 wire protocol，
@@ -39,8 +39,8 @@ func systemOneSchedulingContext(ctx context.Context) context.Context {
 
 // selectSystemOneAccount 按模型所属平台调度账号，并拒绝跨平台命中。
 //
-// 返回的选择结果由调用方负责释放；platform 是模型要求的真实平台，
-// 不能沿用分组默认平台，否则混合分组可能把 JEV 请求打到 Laya 账号。
+// 返回的选择结果由调用方负责释放；provider 由账号凭据确认，
+// 避免同一 System One 平台内把 JEV 请求打到 Laya 账号。
 func (h *GatewayHandler) selectSystemOneAccount(
 	ctx context.Context, groupID *int64, model, provider string, sub2apiUserID int64,
 ) (*service.AccountSelectionResult, error) {
@@ -63,7 +63,7 @@ func (h *GatewayHandler) selectSystemOneAccount(
 	return selection, nil
 }
 
-// systemOneFallbackPlatform 报告请求平台失败时是否应隐式回退，以及回退到哪个平台。
+// systemOneFallbackProvider 报告请求上游失败时是否应隐式回退。
 // 只有 JEV 会回退到 Laya；Laya 永远不会反向回退，避免语义反转与无限回退。
 func systemOneFallbackProvider(requestedProvider string) (string, bool) {
 	if requestedProvider == service.SystemOneProviderJev {
@@ -255,7 +255,7 @@ func (h *GatewayHandler) SystemOneRelay(c *gin.Context) {
 			fallbackUsed = true
 			// 回退后用量归属实际服务平台，避免把 Laya 用量记到 JEV 名下。
 			quotaPlatform = service.PlatformSystemOne
-			status, payload, relayErr, setupErr = relay(fallback, platform)
+			status, payload, relayErr, setupErr = relay(fallback, service.SystemOneProviderLaya)
 			if setupErr != nil {
 				c.JSON(http.StatusServiceUnavailable, gin.H{
 					"error": gin.H{"type": "service_unavailable", "message": setupErr.Error()},
@@ -267,7 +267,7 @@ func (h *GatewayHandler) SystemOneRelay(c *gin.Context) {
 	}
 	if upstreamFailed {
 		logger.L().With(zap.String("component", "handler.systemone")).Warn("relay_failed",
-			zap.Int64("account_id", selection.Account.ID), zap.String("platform", platform),
+			zap.Int64("account_id", selection.Account.ID), zap.String("provider", provider),
 			zap.Int("upstream_status", status), zap.Bool("fallback_used", fallbackUsed), zap.Error(relayErr))
 		if status < http.StatusOK || status >= http.StatusMultipleChoices {
 			c.JSON(status, gin.H{"error": gin.H{"type": "upstream_error", "message": "System One upstream returned an error"}})

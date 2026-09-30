@@ -30,8 +30,7 @@ export const CONCRETE_PLATFORM_OPTIONS = [
   { value: 'zcode', label: 'ZCode' },
   { value: 'qoder', label: 'Qoder' },
   { value: 'cursor', label: 'Cursor' },
-  { value: 'laya', label: 'Laya' },
-  { value: 'jev', label: 'JEV' }
+  { value: 'systemone', label: 'System One' }
 ] as const satisfies readonly PlatformOption<AccountPlatform>[]
 
 /** Platforms that can own a group. */
@@ -60,6 +59,8 @@ export const MIXED_SCHEDULING_TARGETS: Partial<Record<AccountPlatform, GroupPlat
   zcode: ['openai'],
   qoder: ['openai'],
   cursor: ['openai'],
+  systemone: ['openai'],
+  // 历史账号读取兼容；新建账号统一使用 systemone。
   laya: ['openai'],
   jev: ['openai'],
 }
