@@ -162,7 +162,116 @@ object Deploy252Cluster : BuildType({
                   test "${'$'}(docker ps --filter name=edge-media --filter health=healthy -q | wc -l | tr -d ' ')" = "1"
                 fi
                 test "${'$'}(docker ps --filter label=com.docker.compose.service=sub2api --filter status=running -q | wc -l | tr -d ' ')" = "1"
-                test "${$}(docker ps --filter name=sub2api-canary --filter status=running -q | wc -l | tr -d ' ')" = "0"
+                test "${'$'}(docker ps --filter name=sub2api-canary --filter status=running -q | wc -l | tr -d ' ')" = "0"
+                echo "##teamcity[progressFinish '验证 252 入口']"
+                echo "DEPLOYED ${'$'}IMAGE EDGE_VISION=%env.EDGE_VISION_IMAGE_REPOSITORY%:${'$'}SHORT_SHA EDGE_MEDIA=%env.EDGE_MEDIA_IMAGE_REPOSITORY%:${'$'}SHORT_SHA"
+            """.trimIndent())
+        }
+    }
+})
+
+// 天津海光 DCU 机器：曼波 TTS + 视频配音 + edge-media 编排。
+//
+// 镜像在天津本机构建：海光 DTK 基础镜像与曼波权重体积很大，跨公网搬运不现实，
+// 而源码只有几百 KB，所以这里把源码同步过去后在天津直接 docker build。
+//
+// 252 与天津私网互不可达，但 252 已配置 cloudflared ProxyCommand 的
+// `ssh tianjin-media` 别名。该 build type 复用 252 agent，通过 SSH 在天津执行部署。
+object DeployTianjinMedia : BuildType({
+    name = "Deploy Media (GPU)"
+    description = "构建并启动曼波 GPT-SoVITS、视频配音流水线与 edge-media 编排，发布内网端口供 252 的 /media/* 调用。"
+
+    vcs {
+        root(DslContext.settingsRoot)
+        checkoutMode = CheckoutMode.ON_AGENT
+    }
+
+    requirements {
+        // 复用 252 agent：它同时能访问公网与经 cloudflared 访问天津。
+        equals("teamcity.agent.name", "ip_172.19.0.1")
+    }
+
+    params {
+        param("env.TIANJIN_SSH_HOST", "tianjin-media")
+        param("env.TIANJIN_DEPLOY_DIR", "/opt/sub2api-tianjin-media")
+        param("env.GPT_SOVITS_MODELS_DIR", "/opt/gptsovits-models")
+        param("env.GPT_SOVITS_IMAGE", "gpt-sovits:manbo-v6")
+        param("env.EDGE_DUB_IMAGE", "edge-dub:tianjin")
+        param("env.EDGE_MEDIA_IMAGE", "edge-media:tianjin")
+        param("env.EDGE_MEDIA_DATA_DIR", "/opt/edge-media/data")
+        param("env.EDGE_DUB_DATA_DIR", "/opt/edge-dub/data")
+        param("env.SUB2API_NETWORK", "sub2api_sub2api-network")
+        // frpc 跑在天津本机，发布端口只需 loopback。
+        param("env.MEDIA_TIANJIN_BIND", "127.0.0.1")
+        // 网络视频生成（Seedance 2.0 等）由 252 网关侧账号池承接，天津默认关闭。
+        param("env.MEDIA_VIDEO_GENERATION_ENABLED", "0")
+        param("env.MEDIA_VIDEO_GENERATION_UPSTREAM_URL", "")
+    }
+
+    maxRunningBuilds = 1
+
+    triggers {
+        trigger {
+            type = "vcsTrigger"
+            param("branchFilter", "+:<default>")
+        }
+    }
+
+    steps {
+        step {
+            name = "Build and deploy media services"
+            type = "simpleRunner"
+            param("use.custom.script", "true")
+            param("script.content", """
+                set -euo pipefail
+
+                CHECKOUT="%teamcity.build.checkoutDir%"
+                SHA="%build.vcs.number%"
+                SHORT_SHA="${'$'}{SHA:0:12}"
+                REMOTE="%env.TIANJIN_SSH_HOST%"
+                RDIR="%env.TIANJIN_DEPLOY_DIR%"
+
+                cd "${'$'}CHECKOUT"
+                test -x deploy/tianjin/deploy-tianjin-media.sh
+
+                echo "##teamcity[progressStart '同步媒体服务源码']"
+                ssh -o BatchMode=yes "${'$'}REMOTE" "mkdir -p '${'$'}RDIR'"
+                # 天津只需要 edge-media 与部署脚本；整仓库归档经慢速隧道要传 ~34MB，
+                # 只发这两个目录（<0.1MB）即可。
+                git archive "${'$'}SHA" edge-media deploy | ssh -o BatchMode=yes "${'$'}REMOTE" "tar -x -C '${'$'}RDIR'"
+                ssh -o BatchMode=yes "${'$'}REMOTE" "chmod +x '${'$'}RDIR/deploy/tianjin/deploy-tianjin-media.sh'"
+                echo "##teamcity[progressFinish '同步媒体服务源码']"
+
+                echo "##teamcity[progressStart '部署 GPU 媒体服务']"
+                ssh -o BatchMode=yes "${'$'}REMOTE" \
+                  "REPO_DIR='${'$'}RDIR' \
+                   GPT_SOVITS_MODELS_DIR='%env.GPT_SOVITS_MODELS_DIR%' \
+                   GPT_SOVITS_IMAGE='%env.GPT_SOVITS_IMAGE%' \
+                   EDGE_DUB_IMAGE='%env.EDGE_DUB_IMAGE%' \
+                   EDGE_MEDIA_IMAGE='%env.EDGE_MEDIA_IMAGE%' \
+                   EDGE_MEDIA_DATA_DIR='%env.EDGE_MEDIA_DATA_DIR%' \
+                   EDGE_DUB_DATA_DIR='%env.EDGE_DUB_DATA_DIR%' \
+                   SUB2API_NETWORK='%env.SUB2API_NETWORK%' \
+                   MEDIA_TIANJIN_BIND='%env.MEDIA_TIANJIN_BIND%' \
+                   MEDIA_VIDEO_GENERATION_ENABLED='%env.MEDIA_VIDEO_GENERATION_ENABLED%' \
+                   MEDIA_VIDEO_GENERATION_UPSTREAM_URL='%env.MEDIA_VIDEO_GENERATION_UPSTREAM_URL%' \
+                   '${'$'}RDIR/deploy/tianjin/deploy-tianjin-media.sh'"
+                echo "##teamcity[progressFinish '部署 GPU 媒体服务']"
+
+                echo "##teamcity[progressStart '验证天津媒体服务']"
+                ssh -o BatchMode=yes "${'$'}REMOTE" "docker exec edge-media curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18083/health >/dev/null && \
+                  docker exec edge-media curl --fail --silent --show-error --max-time 90 \
+                    -X POST http://127.0.0.1:18083/tts \
+                    -H 'Content-Type: application/json' \
+                    -d '{\"text\":\"你好，我是曼波。\",\"language\":\"zh\",\"response_format\":\"wav\"}' \
+                    -o /dev/null"
+                echo "##teamcity[progressFinish '验证天津媒体服务']"
+                echo "DEPLOYED tianjin edge-media=${'$'}SHORT_SHA"
+            """.trimIndent())
+        }
+    }
+})
+}(docker ps --filter name=sub2api-canary --filter status=running -q | wc -l | tr -d ' ')" = "0"
                 echo "##teamcity[progressFinish '验证 252 入口']"
                 echo "DEPLOYED ${'$'}IMAGE EDGE_VISION=%env.EDGE_VISION_IMAGE_REPOSITORY%:${'$'}SHORT_SHA EDGE_MEDIA=%env.EDGE_MEDIA_IMAGE_REPOSITORY%:${'$'}SHORT_SHA"
             """.trimIndent())
