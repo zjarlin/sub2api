@@ -6,6 +6,7 @@ test_dir="$(mktemp -d "${TMPDIR:-/tmp}/sub2api-deepseek-deploy.XXXXXX")"
 trap 'rm -rf "$test_dir"' EXIT
 mkdir -p "$test_dir/deploy/cluster" "$test_dir/bin"
 touch "$test_dir/deploy/docker-compose.yml" "$test_dir/deploy/cluster/docker-compose.yml" "$test_dir/docker-compose.override.yml"
+cp "$repo_root/deploy/cluster/nginx.conf" "$test_dir/deploy/cluster/nginx.conf"
 cp "$repo_root/deploy/docker-compose.deepseek-web.yml" "$test_dir/deploy/docker-compose.deepseek-web.yml"
 printf 'SUB2API_DEEPSEEK_WEB=1\nDEEPSEEK_WEB_ADAPTER_KEY=\n' > "$test_dir/.env"
 
@@ -28,7 +29,7 @@ exit 0
 SH
 chmod +x "$test_dir/bin/docker" "$test_dir/bin/curl"
 
-MOCK_DOCKER_LOG="$test_dir/docker.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image \
+MOCK_DOCKER_LOG="$test_dir/docker.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image CANARY_WAIT_SECONDS=1 CANARY_OBSERVE_SECONDS=0 \
   DEEPSEEK_WEB_ADAPTER_KEY='' PATH="$test_dir/bin:$PATH" \
   bash "$repo_root/deploy/cluster/deploy-252.sh" > /dev/null
 

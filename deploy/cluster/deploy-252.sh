@@ -5,8 +5,10 @@ set -euo pipefail
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/sub2api}"
 PROJECT_NAME="${PROJECT_NAME:-sub2api}"
 IMAGE="${SUB2API_IMAGE:?SUB2API_IMAGE is required}"
-REPLICAS="${SUB2API_REPLICAS:-2}"
-CANARY_REPLICAS="${CANARY_REPLICAS:-1}"
+REPLICAS="${SUB2API_REPLICAS:-1}"
+CANARY_PORT="${CANARY_PORT:-18090}"
+CANARY_WAIT_SECONDS="${CANARY_WAIT_SECONDS:-180}"
+CANARY_OBSERVE_SECONDS="${CANARY_OBSERVE_SECONDS:-20}"
 COMPOSE=(docker compose --project-name "$PROJECT_NAME" --project-directory "$DEPLOY_DIR" --env-file "$DEPLOY_DIR/.env" -f "$DEPLOY_DIR/deploy/docker-compose.yml" -f "$DEPLOY_DIR/docker-compose.override.yml" -f "$DEPLOY_DIR/deploy/cluster/docker-compose.yml")
 
 # 只读取编排开关，不执行 .env 中的 shell 内容；显式环境变量优先。
@@ -128,6 +130,13 @@ mkdir -p releases
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 RELEASE_DIR="$DEPLOY_DIR/releases/$STAMP"
 mkdir -p "$RELEASE_DIR"
+CANARY_COMPOSE=("${COMPOSE[@]}" --profile canary)
+NGINX_CONFIG="$DEPLOY_DIR/deploy/cluster/nginx.conf"
+
+if [ ! -f "$NGINX_CONFIG" ]; then
+  echo "Missing gateway config: $NGINX_CONFIG" >&2
+  exit 1
+fi
 
 if [ -f docker-compose.override.yml ]; then
   cp docker-compose.override.yml "$RELEASE_DIR/docker-compose.override.yml"
@@ -177,31 +186,121 @@ if [ -n "$CURRENT_IMAGE" ]; then
   printf '%s\n' "$CURRENT_IMAGE" > "$RELEASE_DIR/previous-image"
 fi
 
+CURRENT_PRIMARY_CONTAINER="$(docker ps --filter 'label=com.docker.compose.service=sub2api' --format '{{.Names}}' | head -n1)"
+LEGACY_PRIMARY_CONTAINER=""
+if [ -z "$CURRENT_PRIMARY_CONTAINER" ] && docker ps --format '{{.Names}}' | grep -qx 'sub2api'; then
+  LEGACY_PRIMARY_CONTAINER="sub2api"
+fi
+BASE_CONTAINER="${CURRENT_PRIMARY_CONTAINER:-$LEGACY_PRIMARY_CONTAINER}"
+if [ -z "$CURRENT_IMAGE" ] && [ -n "$BASE_CONTAINER" ]; then
+  CURRENT_IMAGE="$(docker inspect --format '{{.Config.Image}}' "$BASE_CONTAINER")"
+  printf '%s\n' "$CURRENT_IMAGE" > "$RELEASE_DIR/previous-image"
+fi
+
+CUTOVER_STARTED=0
+CANDIDATE_SERVING=0
+PRIMARY_SERVING=0
+
+gateway_running() {
+  docker inspect --format '{{.State.Running}}' sub2api-gateway 2>/dev/null | grep -qx true
+}
+
+route_to() {
+  local target="$1"
+  case "$target" in
+    sub2api|sub2api-canary) ;;
+    *) echo "Unsupported gateway target: $target" >&2; return 1 ;;
+  esac
+  local tmp backup
+  tmp="$(mktemp "$NGINX_CONFIG.tmp.XXXXXX")"
+  backup="$RELEASE_DIR/nginx.conf.before-route"
+  if [ ! -f "$backup" ]; then
+    cp "$NGINX_CONFIG" "$backup"
+  fi
+  sed -E "s#http://(sub2api|sub2api-canary):8080#http://$target:8080#g" "$NGINX_CONFIG" > "$tmp"
+  if ! grep -Fq "http://$target:8080" "$tmp"; then
+    rm -f "$tmp"
+    echo "Gateway config has no matching backend target" >&2
+    return 1
+  fi
+  # Preserve the bind-mounted inode so an already-running gateway sees the update.
+  cat "$tmp" > "$NGINX_CONFIG"
+  rm -f "$tmp"
+  if ! docker exec sub2api-gateway nginx -t >/dev/null; then
+    cat "$backup" > "$NGINX_CONFIG"
+    echo "Gateway config validation failed" >&2
+    return 1
+  fi
+  if ! docker exec sub2api-gateway nginx -s reload >/dev/null; then
+    cat "$backup" > "$NGINX_CONFIG"
+    docker exec sub2api-gateway nginx -s reload >/dev/null 2>&1 || true
+    echo "Gateway reload failed" >&2
+    return 1
+  fi
+}
+
+wait_for_url() {
+  local url="$1"
+  local attempts="$2"
+  local i
+  for ((i=1; i<=attempts; i++)); do
+    if curl --fail --silent --show-error --max-time 5 "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+wait_for_gateway_backend() {
+  local target="$1"
+  local attempts="$2"
+  local i
+  for ((i=1; i<=attempts; i++)); do
+    if docker exec sub2api-gateway wget -q -T 5 -O /dev/null "http://$target:8080/ready" >/dev/null 2>&1; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+stop_canary() {
+  docker rm -sf sub2api-canary >/dev/null 2>&1 || true
+}
+
+start_canary() {
+  stop_canary
+  echo "Starting isolated candidate on 127.0.0.1:$CANARY_PORT"
+  SUB2API_IMAGE="$IMAGE" LOG_OUTPUT_FILE_PATH="$CANARY_LOG_PATH" \
+    "${COMPOSE[@]}" run -d --no-deps --name sub2api-canary \
+      --publish "127.0.0.1:$CANARY_PORT:8080" \
+      --label "sub2api.role=release-candidate" sub2api
+}
 rollback() {
   local exit_status=$?
   trap - ERR
-  # 回滚会重建失败容器，先保留启动日志和状态供 TeamCity 与现场诊断。
   "${COMPOSE[@]}" ps -a > "$RELEASE_DIR/failed-containers" 2>&1 || true
+  docker logs --tail 200 sub2api-canary > "$RELEASE_DIR/canary.log" 2>&1 || true
   "${COMPOSE[@]}" logs --no-color --tail 200 sub2api gateway > "$RELEASE_DIR/failed-startup.log" 2>&1 || true
   echo "Deployment diagnostics: $RELEASE_DIR/failed-startup.log"
-  cat "$RELEASE_DIR/failed-containers" "$RELEASE_DIR/failed-startup.log" || true
-  if [ -n "$CURRENT_IMAGE" ] && docker image inspect "$CURRENT_IMAGE" >/dev/null 2>&1; then
-    echo "Deployment failed; restoring $CURRENT_IMAGE"
-    if SUB2API_IMAGE="$CURRENT_IMAGE" "${COMPOSE[@]}" up -d --wait --wait-timeout 180 --no-deps --scale "sub2api=$REPLICAS" sub2api gateway; then
-      echo "Rollback healthy: $CURRENT_IMAGE"
-    else
-      echo "Rollback failed: $CURRENT_IMAGE" >&2
+  cat "$RELEASE_DIR/failed-containers" "$RELEASE_DIR/canary.log" "$RELEASE_DIR/failed-startup.log" || true
+  if gateway_running; then
+    if [ "$PRIMARY_SERVING" = "1" ]; then
+      route_to sub2api || true
+    elif [ "$CANDIDATE_SERVING" = "1" ]; then
+      echo "Deployment failed after cutover; keeping the verified candidate serving"
+      route_to sub2api-canary || true
+    elif [ -n "$BASE_CONTAINER" ] && docker inspect "$BASE_CONTAINER" >/dev/null 2>&1; then
+      route_to sub2api || true
     fi
+  fi
+  if [ "$CANDIDATE_SERVING" != "1" ] || [ "$PRIMARY_SERVING" = "1" ]; then
+    stop_canary
   fi
   return "$exit_status"
 }
 trap rollback ERR
-
-if docker ps --format '{{.Names}}' | grep -qx sub2api; then
-  echo "Migrating the existing single-container listener to the stable gateway"
-  "${COMPOSE[@]}" stop sub2api || true
-  "${COMPOSE[@]}" rm -f sub2api || true
-fi
 
 export SUB2API_IMAGE="$IMAGE"
 "${COMPOSE[@]}" config >/dev/null
@@ -226,15 +325,82 @@ if [ "$ARENA_ENABLED" = "1" ]; then
   echo "Building and starting Arena adapter"
   "${COMPOSE[@]}" up -d --build sub2api-arena
 fi
-echo "Starting canary with replicas=$CANARY_REPLICAS"
-"${COMPOSE[@]}" up -d --wait --wait-timeout 180 --no-deps --scale "sub2api=$CANARY_REPLICAS" sub2api gateway
 
-curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18080/health >/dev/null
-echo "Canary healthy; scaling to replicas=$REPLICAS"
-"${COMPOSE[@]}" up -d --wait --wait-timeout 180 --no-deps --scale "sub2api=$REPLICAS" sub2api gateway
-curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18080/health >/dev/null
+# The existing gateway process stays alive. If it is already serving, pin it to
+# the current primary while the candidate starts behind a loopback-only port.
+if [ -n "$CURRENT_PRIMARY_CONTAINER" ] && gateway_running; then
+  route_to sub2api
+  wait_for_url "http://127.0.0.1:18080/ready" 30
+fi
+
+CANARY_LOG_PATH="/app/data/logs/sub2api-canary.log"
+mkdir -p "$DEPLOY_DIR/logs"
+start_canary
+wait_for_url "http://127.0.0.1:$CANARY_PORT/ready" "$CANARY_WAIT_SECONDS"
+if ! curl --fail --silent --show-error --max-time 20 "http://127.0.0.1:$CANARY_PORT/health" >/dev/null; then
+  echo "Candidate health endpoint failed" >&2
+  false
+fi
+if ! curl --fail --silent --show-error --max-time 20 "http://127.0.0.1:$CANARY_PORT/" >/dev/null; then
+  echo "Candidate frontend endpoint failed" >&2
+  false
+fi
+
+# First migration from the old direct listener has an unavoidable short handoff,
+# but it happens only after the new candidate is already healthy.
+if [ -n "$LEGACY_PRIMARY_CONTAINER" ]; then
+  echo "Migrating legacy direct listener after candidate verification"
+  docker stop "$LEGACY_PRIMARY_CONTAINER" >/dev/null || true
+  docker rm "$LEGACY_PRIMARY_CONTAINER" >/dev/null || true
+fi
+if ! gateway_running; then
+  "${COMPOSE[@]}" up -d --wait --wait-timeout 180 --no-deps gateway
+fi
+
+# Point 18080 at the verified candidate.
+CUTOVER_STARTED=1
+route_to sub2api-canary
+if ! wait_for_url "http://127.0.0.1:18080/ready" 60; then
+  echo "Gateway cutover probe failed" >&2
+  false
+fi
+if ! curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18080/health >/dev/null; then
+  echo "Gateway cutover health probe failed" >&2
+  false
+fi
+CANDIDATE_SERVING=1
+
+# Keep the candidate on 18080 while the replacement primary starts. The old
+# primary remains available during the observe window for a fast rollback.
+sleep "$CANARY_OBSERVE_SECONDS"
+wait_for_url "http://127.0.0.1:18080/ready" 30
+if [ -n "$CURRENT_PRIMARY_CONTAINER" ]; then
+  "${COMPOSE[@]}" stop sub2api >/dev/null 2>&1 || true
+  "${COMPOSE[@]}" rm -f sub2api >/dev/null 2>&1 || true
+fi
+SUB2API_IMAGE="$IMAGE" "${COMPOSE[@]}" up -d --wait --wait-timeout "$CANARY_WAIT_SECONDS" --no-deps sub2api
+
+# Verify the replacement primary through the stable gateway container before
+# moving traffic back from the candidate.
+wait_for_gateway_backend sub2api 60
+route_to sub2api
+if ! wait_for_url "http://127.0.0.1:18080/ready" 60; then
+  echo "Promoted primary readiness probe failed" >&2
+  false
+fi
+if ! curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18080/health >/dev/null; then
+  echo "Promoted primary health probe failed" >&2
+  false
+fi
+PRIMARY_SERVING=1
+stop_canary
+if docker ps --filter name=^sub2api-canary$ --filter status=running --format '{{.ID}}' | grep -q .; then
+  echo "Candidate cleanup failed" >&2
+  false
+fi
+
 docker ps --filter "label=com.docker.compose.project=$PROJECT_NAME" --format '{{.Names}} {{.Status}}' > "$RELEASE_DIR/containers"
 printf '%s\n' "$IMAGE" > "$DEPLOY_DIR/DEPLOYED_IMAGE"
 printf '%s\n' "$STAMP" > "$DEPLOY_DIR/DEPLOYED_RELEASE"
 trap - ERR
-echo "DEPLOYED $IMAGE replicas=$REPLICAS release=$STAMP"
+echo "DEPLOYED $IMAGE replicas=1 release=$STAMP"

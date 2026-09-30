@@ -9,6 +9,7 @@ test_dir="$(mktemp -d "${TMPDIR:-/tmp}/sub2api-arena-deploy.XXXXXX")"
 trap 'rm -rf "$test_dir"' EXIT
 mkdir -p "$test_dir/deploy/cluster" "$test_dir/bin"
 touch "$test_dir/deploy/docker-compose.yml" "$test_dir/deploy/cluster/docker-compose.yml" "$test_dir/docker-compose.override.yml"
+cp "$repo_root/deploy/cluster/nginx.conf" "$test_dir/deploy/cluster/nginx.conf"
 cp "$repo_root/deploy/docker-compose.arena.yml" "$test_dir/deploy/docker-compose.arena.yml"
 cp "$repo_root/deploy/docker-compose.arena-proxy.yml" "$test_dir/deploy/docker-compose.arena-proxy.yml"
 printf 'SUB2API_ARENA=1\nARENA_AGENT_BRIDGE_KEY=\n' > "$test_dir/.env"
@@ -63,7 +64,7 @@ assert_proxy_enabled() {
   fi
 }
 
-MOCK_DOCKER_LOG="$test_dir/docker.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image \
+MOCK_DOCKER_LOG="$test_dir/docker.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image CANARY_WAIT_SECONDS=1 CANARY_OBSERVE_SECONDS=0 \
   ARENA_AGENT_BRIDGE_KEY='' PATH="$test_dir/bin:$PATH" \
   bash "$repo_root/deploy/cluster/deploy-252.sh" > "$test_dir/output.log"
 
@@ -85,22 +86,22 @@ if rg -Fq -- "$key" "$test_dir/output.log"; then
   printf 'Arena key appeared in deployment output\n' >&2
   exit 1
 fi
-MOCK_DOCKER_LOG="$test_dir/docker-second.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image \
+MOCK_DOCKER_LOG="$test_dir/docker-second.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image CANARY_WAIT_SECONDS=1 CANARY_OBSERVE_SECONDS=0 \
   PATH="$test_dir/bin:$PATH" bash "$repo_root/deploy/cluster/deploy-252.sh" > /dev/null
 persisted_key="$(awk -F= '$1 == "ARENA_AGENT_BRIDGE_KEY" && $2 != "" { key=$2 } END { print key }' "$test_dir/.env")"
 test "$key" = "$persisted_key"
 
-MOCK_DOCKER_LOG="$test_dir/docker-proxy-env.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image \
+MOCK_DOCKER_LOG="$test_dir/docker-proxy-env.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image CANARY_WAIT_SECONDS=1 CANARY_OBSERVE_SECONDS=0 \
   SUB2API_ARENA_PROXY=1 PATH="$test_dir/bin:$PATH" \
   bash "$repo_root/deploy/cluster/deploy-252.sh" > /dev/null
 assert_proxy_enabled "$test_dir/docker-proxy-env.log"
 
 printf '\nSUB2API_ARENA_PROXY=1\n' >> "$test_dir/.env"
-MOCK_DOCKER_LOG="$test_dir/docker-proxy-dotenv.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image \
+MOCK_DOCKER_LOG="$test_dir/docker-proxy-dotenv.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image CANARY_WAIT_SECONDS=1 CANARY_OBSERVE_SECONDS=0 \
   PATH="$test_dir/bin:$PATH" bash "$repo_root/deploy/cluster/deploy-252.sh" > /dev/null
 assert_proxy_enabled "$test_dir/docker-proxy-dotenv.log"
 
-MOCK_DOCKER_LOG="$test_dir/docker-proxy-disabled.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image \
+MOCK_DOCKER_LOG="$test_dir/docker-proxy-disabled.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image CANARY_WAIT_SECONDS=1 CANARY_OBSERVE_SECONDS=0 \
   SUB2API_ARENA_PROXY=0 PATH="$test_dir/bin:$PATH" \
   bash "$repo_root/deploy/cluster/deploy-252.sh" > /dev/null
 assert_proxy_disabled "$test_dir/docker-proxy-disabled.log"
@@ -110,12 +111,12 @@ if ! rg -Fq -- 'up -d --build sub2api-arena' "$test_dir/docker-proxy-disabled.lo
 fi
 
 # 只有精确的 1 才启用代理，其他显式值不能回退到 .env 的 1。
-MOCK_DOCKER_LOG="$test_dir/docker-proxy-other-value.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image \
+MOCK_DOCKER_LOG="$test_dir/docker-proxy-other-value.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image CANARY_WAIT_SECONDS=1 CANARY_OBSERVE_SECONDS=0 \
   SUB2API_ARENA_PROXY=2 PATH="$test_dir/bin:$PATH" \
   bash "$repo_root/deploy/cluster/deploy-252.sh" > /dev/null
 assert_proxy_disabled "$test_dir/docker-proxy-other-value.log"
 
-MOCK_DOCKER_LOG="$test_dir/docker-disabled.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image \
+MOCK_DOCKER_LOG="$test_dir/docker-disabled.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image CANARY_WAIT_SECONDS=1 CANARY_OBSERVE_SECONDS=0 \
   SUB2API_ARENA=0 SUB2API_ARENA_PROXY=1 PATH="$test_dir/bin:$PATH" \
   bash "$repo_root/deploy/cluster/deploy-252.sh" > /dev/null
 if rg -Fq -- 'docker-compose.arena.yml' "$test_dir/docker-disabled.log" || rg -Fq -- 'up -d --build sub2api-arena' "$test_dir/docker-disabled.log"; then
@@ -124,7 +125,7 @@ if rg -Fq -- 'docker-compose.arena.yml' "$test_dir/docker-disabled.log" || rg -F
 fi
 assert_proxy_disabled "$test_dir/docker-disabled.log"
 
-if MOCK_DOCKER_LOG="$test_dir/docker-proxy-failed.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image \
+if MOCK_DOCKER_LOG="$test_dir/docker-proxy-failed.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image CANARY_WAIT_SECONDS=1 CANARY_OBSERVE_SECONDS=0 \
   SUB2API_ARENA_PROXY=1 MOCK_ARENA_PROXY_FAIL=1 PATH="$test_dir/bin:$PATH" \
   bash "$repo_root/deploy/cluster/deploy-252.sh" > "$test_dir/proxy-failed-output.log" 2>&1; then
   printf 'Deployment succeeded despite the Arena proxy health failure\n' >&2

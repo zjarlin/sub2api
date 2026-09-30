@@ -8,6 +8,7 @@ test_dir="$(mktemp -d "${TMPDIR:-/tmp}/sub2api-cursor-deploy.XXXXXX")"
 trap 'rm -rf "$test_dir"' EXIT
 mkdir -p "$test_dir/deploy/cluster" "$test_dir/bin"
 touch "$test_dir/deploy/docker-compose.yml" "$test_dir/deploy/cluster/docker-compose.yml" "$test_dir/docker-compose.override.yml"
+cp "$repo_root/deploy/cluster/nginx.conf" "$test_dir/deploy/cluster/nginx.conf"
 cp "$repo_root/deploy/docker-compose.cursor.yml" "$test_dir/deploy/docker-compose.cursor.yml"
 printf 'SUB2API_CURSOR=1\nCURSOR_ADAPTER_KEY=\n' > "$test_dir/.env"
 
@@ -36,7 +37,7 @@ exit 0
 SH
 chmod +x "$test_dir/bin/docker" "$test_dir/bin/curl"
 
-MOCK_DOCKER_LOG="$test_dir/docker.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image \
+MOCK_DOCKER_LOG="$test_dir/docker.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image CANARY_WAIT_SECONDS=1 CANARY_OBSERVE_SECONDS=0 \
   CURSOR_ADAPTER_KEY='' PATH="$test_dir/bin:$PATH" \
   bash "$repo_root/deploy/cluster/deploy-252.sh" > "$test_dir/output.log"
 
@@ -51,7 +52,7 @@ if ! grep -Fq -- "-f $test_dir/deploy/docker-compose.cursor.yml" "$test_dir/dock
 fi
 if ! awk '
   / up -d --build --wait --wait-timeout 180 sub2api-cursor$/ { adapter_line=NR }
-  / up -d --wait --wait-timeout 180 --no-deps --scale sub2api=1 sub2api gateway$/ { canary_line=NR }
+  / run -d --no-deps --name sub2api-canary/ { canary_line=NR }
   END { exit !(adapter_line > 0 && canary_line > adapter_line) }
 ' "$test_dir/docker.log"; then
   printf 'Cursor adapter was not healthy before the canary\n' >&2
@@ -62,12 +63,12 @@ if grep -Fq -- "$key" "$test_dir/output.log"; then
   exit 1
 fi
 
-MOCK_DOCKER_LOG="$test_dir/docker-second.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image \
+MOCK_DOCKER_LOG="$test_dir/docker-second.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image CANARY_WAIT_SECONDS=1 CANARY_OBSERVE_SECONDS=0 \
   PATH="$test_dir/bin:$PATH" bash "$repo_root/deploy/cluster/deploy-252.sh" > /dev/null
 persisted_key="$(awk -F= '$1 == "CURSOR_ADAPTER_KEY" && $2 != "" { key=$2 } END { print key }' "$test_dir/.env")"
 test "$key" = "$persisted_key"
 
-MOCK_DOCKER_LOG="$test_dir/docker-disabled.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image \
+MOCK_DOCKER_LOG="$test_dir/docker-disabled.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image CANARY_WAIT_SECONDS=1 CANARY_OBSERVE_SECONDS=0 \
   SUB2API_CURSOR=0 PATH="$test_dir/bin:$PATH" \
   bash "$repo_root/deploy/cluster/deploy-252.sh" > /dev/null
 if grep -Fq -- 'docker-compose.cursor.yml' "$test_dir/docker-disabled.log" ||
@@ -76,13 +77,13 @@ if grep -Fq -- 'docker-compose.cursor.yml' "$test_dir/docker-disabled.log" ||
   exit 1
 fi
 
-if MOCK_DOCKER_LOG="$test_dir/docker-failed.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image \
+if MOCK_DOCKER_LOG="$test_dir/docker-failed.log" DEPLOY_DIR="$test_dir" SUB2API_IMAGE=test-image CANARY_WAIT_SECONDS=1 CANARY_OBSERVE_SECONDS=0 \
   MOCK_CURSOR_FAIL=1 PATH="$test_dir/bin:$PATH" \
   bash "$repo_root/deploy/cluster/deploy-252.sh" > "$test_dir/failed-output.log" 2>&1; then
   printf 'Deployment succeeded despite Cursor adapter health failure\n' >&2
   exit 1
 fi
-if grep -Fq -- 'up -d --wait --wait-timeout 180 --no-deps --scale sub2api=1 sub2api gateway' "$test_dir/docker-failed.log"; then
+if grep -Fq -- 'run -d --no-deps --name sub2api-canary' "$test_dir/docker-failed.log"; then
   printf 'Canary started after Cursor adapter health failure\n' >&2
   exit 1
 fi

@@ -10,7 +10,7 @@ project {
 
 object Deploy252Cluster : BuildType({
     name = "Deploy 252 Cluster"
-    description = "在 252 Docker Agent 上构建镜像并部署两个 Sub2API 副本，18080 由稳定 Nginx 入口承载；边缘视觉服务作为内部上游由 /vision 路径反代。"
+    description = "在 252 Docker Agent 上构建镜像并以单节点蓝绿方式部署 Sub2API，18080 由稳定 Nginx 入口承载；候选先在备用端口验证，失败不影响现有实例。"
 
     vcs {
         root(DslContext.settingsRoot)
@@ -23,8 +23,9 @@ object Deploy252Cluster : BuildType({
 
     params {
         param("env.DEPLOY_DIR", "/opt/sub2api")
-        param("env.CANARY_REPLICAS", "1")
-        param("env.SUB2API_REPLICAS", "2")
+        param("env.SUB2API_REPLICAS", "1")
+        param("env.CANARY_PORT", "18090")
+        param("env.CANARY_OBSERVE_SECONDS", "20")
         param("env.IMAGE_REPOSITORY", "zjarlin/sub2api")
         param("env.EDGE_VISION_IMAGE_REPOSITORY", "zjarlin/edge-vision")
         param("env.EDGE_LAYA_IMAGE_REPOSITORY", "zjarlin/edge-laya")
@@ -106,15 +107,16 @@ object Deploy252Cluster : BuildType({
                 chmod +x "${'$'}DEPLOY_DIR/deploy/cluster/deploy-laya.sh"
                 echo "##teamcity[progressFinish '同步部署文件']"
 
-                echo "##teamcity[progressStart '部署双副本']"
+                echo "##teamcity[progressStart '部署单节点蓝绿候选']"
                 cd "${'$'}DEPLOY_DIR"
                 SUB2API_IMAGE="${'$'}IMAGE" \
                   DEPLOY_DIR="${'$'}DEPLOY_DIR" \
-                  CANARY_REPLICAS="%env.CANARY_REPLICAS%" \
+                  CANARY_PORT="%env.CANARY_PORT%" \
+                  CANARY_OBSERVE_SECONDS="%env.CANARY_OBSERVE_SECONDS%" \
                   SUB2API_REPLICAS="%env.SUB2API_REPLICAS%" \
                   SUB2API_EDGE_MEDIA="%env.SUB2API_EDGE_MEDIA%" \
                   "${'$'}DEPLOY_DIR/deploy/cluster/deploy-252.sh"
-                echo "##teamcity[progressFinish '部署双副本']"
+                echo "##teamcity[progressFinish '部署单节点蓝绿候选']"
 
                 echo "##teamcity[progressStart '部署边缘视觉服务']"
                 EDGE_VISION_IMAGE="%env.EDGE_VISION_IMAGE_REPOSITORY%:${'$'}SHORT_SHA" \
@@ -159,7 +161,8 @@ object Deploy252Cluster : BuildType({
                 if [ "%env.EDGE_MEDIA_ENABLED%" = "1" ]; then
                   test "${'$'}(docker ps --filter name=edge-media --filter health=healthy -q | wc -l | tr -d ' ')" = "1"
                 fi
-                test "${'$'}(docker ps --filter label=com.docker.compose.service=sub2api --filter status=running -q | wc -l | tr -d ' ')" -ge "%env.SUB2API_REPLICAS%"
+                test "${'$'}(docker ps --filter label=com.docker.compose.service=sub2api --filter status=running -q | wc -l | tr -d ' ')" = "1"
+                test "${$}(docker ps --filter name=sub2api-canary --filter status=running -q | wc -l | tr -d ' ')" = "0"
                 echo "##teamcity[progressFinish '验证 252 入口']"
                 echo "DEPLOYED ${'$'}IMAGE EDGE_VISION=%env.EDGE_VISION_IMAGE_REPOSITORY%:${'$'}SHORT_SHA EDGE_MEDIA=%env.EDGE_MEDIA_IMAGE_REPOSITORY%:${'$'}SHORT_SHA"
             """.trimIndent())
