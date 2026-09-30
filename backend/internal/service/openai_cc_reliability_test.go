@@ -29,7 +29,7 @@ func forwardCCReliabilityTest(t *testing.T, path string, stream bool, reader io.
 	var err error
 	switch {
 	case stream && path == "/v1/responses":
-		result, err = svc.streamChatCompletionsAsResponses(c, resp, account, "glm-5", nil, nil, false, nil, "glm-5", "glm-5", nil, nil, time.Now())
+		result, err = svc.streamChatCompletionsAsResponses(c, resp, account, "glm-5", nil, nil, false, nil, "glm-5", "glm-5", nil, nil, time.Now(), nil, "", "", nil)
 	case stream && path == "/v1/messages":
 		result, err = svc.streamChatCompletionsAsAnthropic(c, resp, account, "glm-5", "glm-5", "glm-5", nil, nil, time.Now())
 	case stream:

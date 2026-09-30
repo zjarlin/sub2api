@@ -2526,6 +2526,7 @@ const upstreamModelNotFoundReason = "upstream_404_model_not_found"
 const upstreamUnsupportedModelCooldown = 30 * time.Minute
 const upstreamCodexPlanGatedModelCooldown = 30 * time.Minute
 const upstreamCodexPlanGatedModelReason = "upstream_400_codex_plan_gated_model"
+const openRouterAgenticHarnessModelReason = "upstream_openrouter_agentic_harness_only"
 const tempUnschedBodyMaxBytes = 64 << 10
 const tempUnschedMessageMaxBytes = 2048
 
@@ -2547,6 +2548,8 @@ func (s *RateLimitService) HandleUpstreamModelNotFound(ctx context.Context, acco
 			return false
 		}
 		cooldown, reason = upstreamCodexPlanGatedModelCooldown, upstreamCodexPlanGatedModelReason
+	case isOpenRouterAgenticHarnessModelError(account, statusCode, responseBody):
+		cooldown, reason = upstreamUnsupportedModelCooldown, openRouterAgenticHarnessModelReason
 	case isDeterministicUnsupportedModelError(statusCode, responseBody):
 		if isUpstreamModelNotFoundError(statusCode, responseBody) {
 			cooldown, reason = upstreamModelNotFoundCooldown, upstreamModelNotFoundReason

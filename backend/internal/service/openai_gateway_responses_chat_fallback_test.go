@@ -597,6 +597,114 @@ func TestForwardResponses_ChatFallbackEnforcesAgentLoopWhenToolsDeclared(t *test
 	require.Equal(t, "continue", gjson.GetBytes(upstream.lastBody, "messages.1.content").String())
 }
 
+func TestForwardResponses_ChatFallbackAutoContinuesProgressOnlyStop(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"deepseek-v4.1-flash","instructions":"You are Codex.","input":"finish the task","stream":true,"tools":[{"type":"function","name":"exec_command","parameters":{"type":"object"}}]}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	first := strings.Join([]string{
+		`data: {"id":"chatcmpl_first","object":"chat.completion.chunk","model":"deepseek-v4.1-flash","choices":[{"index":0,"delta":{"content":"我会先检查文件。"},"finish_reason":null}]}`,
+		`data: {"id":"chatcmpl_first","object":"chat.completion.chunk","model":"deepseek-v4.1-flash","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}`,
+		"data: [DONE]",
+		"",
+	}, "\n")
+	second := strings.Join([]string{
+		`data: {"id":"chatcmpl_second","object":"chat.completion.chunk","model":"deepseek-v4.1-flash","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_next","type":"function","function":{"name":"exec_command","arguments":"{\"cmd\":\"pwd\"}"}}]},"finish_reason":null}]}`,
+		`data: {"id":"chatcmpl_second","object":"chat.completion.chunk","model":"deepseek-v4.1-flash","choices":[{"index":0,"delta":{},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":20,"completion_tokens":7,"total_tokens":27}}`,
+		"data: [DONE]",
+		"",
+	}, "\n")
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(first))},
+		{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(second))},
+	}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+
+	result, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, upstream.bodies, 2)
+	continuedMessages := gjson.GetBytes(upstream.bodies[1], "messages").Array()
+	require.GreaterOrEqual(t, len(continuedMessages), 2)
+	require.Equal(t, "assistant", continuedMessages[len(continuedMessages)-2].Get("role").String())
+	require.Equal(t, "我会先检查文件。", continuedMessages[len(continuedMessages)-2].Get("content").String())
+	require.Equal(t, "user", continuedMessages[len(continuedMessages)-1].Get("role").String())
+	require.Contains(t, continuedMessages[len(continuedMessages)-1].Get("content").String(), "Continue the task now")
+	require.Contains(t, rec.Body.String(), `"call_id":"call_next"`)
+	require.Contains(t, rec.Body.String(), `"name":"exec_command"`)
+	streamBody := rec.Body.String()
+	require.Equal(t, 1, strings.Count(streamBody, "event: response.completed"))
+	firstTextDone := strings.Index(streamBody, "event: response.output_text.done")
+	firstItemDone := strings.Index(streamBody, "event: response.output_item.done")
+	secondToolAdded := strings.Index(streamBody, `"call_id":"call_next"`)
+	require.GreaterOrEqual(t, firstTextDone, 0)
+	require.Greater(t, firstItemDone, firstTextDone)
+	require.Greater(t, secondToolAdded, firstItemDone)
+	completedMarker := "event: response.completed"
+	completedStart := strings.LastIndex(streamBody, completedMarker)
+	require.GreaterOrEqual(t, completedStart, 0)
+	completedPayload := streamBody[completedStart:]
+	require.Contains(t, completedPayload, `"text":"我会先检查文件。"`)
+	require.Contains(t, completedPayload, `"call_id":"call_next"`)
+	require.Equal(t, 30, result.Usage.InputTokens)
+	require.Equal(t, 12, result.Usage.OutputTokens)
+}
+
+func TestForwardResponses_ChatFallbackAgentLoopContinuationIsBounded(t *testing.T) {
+	progress := func(id string) string {
+		return strings.Join([]string{
+			`data: {"id":"` + id + `","object":"chat.completion.chunk","model":"deepseek-v4.1-flash","choices":[{"index":0,"delta":{"content":"我会先检查文件。"},"finish_reason":null}]}`,
+			`data: {"id":"` + id + `","object":"chat.completion.chunk","model":"deepseek-v4.1-flash","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`,
+			"data: [DONE]",
+			"",
+		}, "\n")
+	}
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(progress("one")))},
+		{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(progress("two")))},
+		{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(progress("three")))},
+	}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"deepseek-v4.1-flash","instructions":"You are Codex.","input":"finish","stream":true,"tools":[{"type":"function","name":"exec_command","parameters":{"type":"object"}}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+
+	result, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, upstream.bodies, 3)
+	require.Equal(t, 1, strings.Count(rec.Body.String(), "event: response.completed"))
+}
+
+func TestForwardResponses_ChatFallbackAgentLoopContinuationFailureIsExplicit(t *testing.T) {
+	first := strings.Join([]string{
+		`data: {"id":"chatcmpl_first","object":"chat.completion.chunk","model":"deepseek-v4.1-flash","choices":[{"index":0,"delta":{"content":"我会先检查文件。"},"finish_reason":null}]}`,
+		`data: {"id":"chatcmpl_first","object":"chat.completion.chunk","model":"deepseek-v4.1-flash","choices":[{"index":0,"delta":{},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`,
+		"data: [DONE]",
+		"",
+	}, "\n")
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(first))},
+		{StatusCode: http.StatusInternalServerError, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"error":{"message":"continue failed"}}`))},
+	}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	body := []byte(`{"model":"deepseek-v4.1-flash","instructions":"You are Codex.","input":"finish","stream":true,"tools":[{"type":"function","name":"exec_command","parameters":{"type":"object"}}]}`)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+
+	_, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
+	require.ErrorContains(t, err, "automatic continuation failed")
+	require.Contains(t, rec.Body.String(), "event: response.failed")
+	require.Contains(t, rec.Body.String(), "upstream_agent_loop_continuation_failed")
+	require.NotContains(t, rec.Body.String(), "event: response.completed")
+}
+
 func TestForwardResponses_GenericUpstream400RetriesViaChatCompletions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

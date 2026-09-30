@@ -153,7 +153,7 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	}
 
 	if clientStream {
-		return s.streamChatCompletionsAsResponses(c, resp, account, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+		return s.streamChatCompletionsAsResponses(c, resp, account, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime, chatBody, targetURL, apiKey, chatToolsFromBody(chatBody))
 	}
 	return s.bufferChatCompletionsAsResponses(c, resp, account, originalModel, customTools, functionTools, toolSearch, namespaceTools, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 }
@@ -237,6 +237,10 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	reasoningEffort *string,
 	serviceTier *string,
 	startTime time.Time,
+	chatBody []byte,
+	targetURL string,
+	apiKey string,
+	tools []apicompat.ChatTool,
 ) (*OpenAIForwardResult, error) {
 	requestID := resp.Header.Get("x-request-id")
 	writeStreamHeaders := s.newStreamHeaderWriter(c, resp.Header)
@@ -248,6 +252,10 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	state.NamespaceTools = namespaceTools
 	clientDisconnected := false
 	eventWriter, _ := c.Writer.(responsesStreamEventWriter)
+	var totalUsage OpenAIUsage
+	var firstTokenMs *int
+	currentResp := resp
+	currentChatBody := append([]byte(nil), chatBody...)
 
 	writeEvents := func(events []apicompat.ResponsesStreamEvent) {
 		if clientDisconnected || len(events) == 0 {
@@ -282,79 +290,137 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		c.Writer.Flush()
 	}
 
-	scan := s.scanCCStream(c, resp, "openai responses chat fallback", requestID, startTime, func(chunk *apicompat.ChatCompletionsChunk) {
-		events := apicompat.ChatCompletionsChunkToResponsesEvents(chunk, state)
-		s.cacheReasoningItemsFromEvents(events)
-		writeEvents(events)
-	})
-	// 首次输出前的传输中断仍可透明换号；已提交响应后保留原失败与部分用量。
-	if scan.Err != nil && !state.CreatedSent {
-		scan.Err = s.newOpenAICompatBufferedReadFailoverError(c, account, resp, requestID, scan.Err)
-		var failover *UpstreamFailoverError
-		if errors.As(scan.Err, &failover) {
-			return nil, scan.Err
-		}
-	}
-
-	var streamErr *ccStreamError
-	if errors.As(scan.Err, &streamErr) {
-		scan.Err = s.handleCCStreamError(c, account, resp, upstreamModel, streamErr, state.CreatedSent, func(status int, code, errType, message string) {
-			if clientDisconnected {
-				return
-			}
-			if !state.CreatedSent && !c.Writer.Written() && eventWriter == nil {
-				c.JSON(status, gin.H{"error": gin.H{"code": code, "type": errType, "message": message}})
-				return
-			}
-			writeEvents([]apicompat.ResponsesStreamEvent{{
-				Type: "response.failed", SequenceNumber: state.SequenceNumber,
-				Response: &apicompat.ResponsesResponse{
-					ID: state.ResponseID, Object: "response", CreatedAt: state.Created,
-					Model: originalModel, Status: "failed", Output: []apicompat.ResponsesOutput{},
-					Error: &apicompat.ResponsesError{Code: code, Message: message},
-				},
-			}})
+	var scan ccStreamScanState
+	scanSawDone := false
+	for continuation := 0; ; continuation++ {
+		scan = s.scanCCStream(c, currentResp, "openai responses chat fallback", requestID, startTime, func(chunk *apicompat.ChatCompletionsChunk) {
+			events := apicompat.ChatCompletionsChunkToResponsesEvents(chunk, state)
+			s.cacheReasoningItemsFromEvents(events)
+			writeEvents(events)
 		})
-		// 额度拒绝等零用量失败不产生成功用量行；有真实用量时沿用部分计费路径。
-		var failoverErr *UpstreamFailoverError
-		if errors.As(scan.Err, &failoverErr) || !openAIUsageHasTokens(&scan.Usage) {
-			return nil, scan.Err
+		scanSawDone = scanSawDone || scan.SawDone
+		addOpenAIUsage(&totalUsage, scan.Usage)
+		if firstTokenMs == nil {
+			firstTokenMs = scan.FirstTokenMs
 		}
-	}
-	if scan.Err != nil {
-		if streamErr == nil {
-			scan.Err = fmt.Errorf("stream usage incomplete: %w", scan.Err)
+		// 首次输出前的传输中断仍可透明换号；已提交响应后保留原失败与部分用量。
+		if scan.Err != nil && !state.CreatedSent {
+			scan.Err = s.newOpenAICompatBufferedReadFailoverError(c, account, currentResp, requestID, scan.Err)
+			var failover *UpstreamFailoverError
+			if errors.As(scan.Err, &failover) {
+				return nil, scan.Err
+			}
 		}
-		return &OpenAIForwardResult{
-			RequestID:                   requestID,
-			UpstreamHeaders:             resp.Header,
-			Usage:                       scan.Usage,
-			Model:                       originalModel,
-			BillingModel:                billingModel,
-			UpstreamModel:               upstreamModel,
-			ReasoningEffort:             reasoningEffort,
-			UpstreamResponseServiceTier: observedUpstreamResponseServiceTier(c),
-			ServiceTier:                 resolvedOpenAIUpstreamServiceTier(c, serviceTier),
-			Stream:                      true,
-			Duration:                    time.Since(startTime),
-			FirstTokenMs:                scan.FirstTokenMs,
-		}, scan.Err
-	}
-	if err := state.ValidateToolCallArguments(); err != nil {
-		return &OpenAIForwardResult{
-			RequestID:                   requestID,
-			UpstreamHeaders:             resp.Header,
-			Usage:                       scan.Usage,
-			Model:                       originalModel,
-			BillingModel:                billingModel,
-			UpstreamModel:               upstreamModel,
-			ReasoningEffort:             reasoningEffort,
-			UpstreamResponseServiceTier: observedUpstreamResponseServiceTier(c),
-			ServiceTier:                 resolvedOpenAIUpstreamServiceTier(c, serviceTier),
-			Stream:                      true,
-			Duration:                    time.Since(startTime),
-			FirstTokenMs:                scan.FirstTokenMs,
-		}, fmt.Errorf("invalid tool call arguments from upstream: %w", err)
+
+		var streamErr *ccStreamError
+		if errors.As(scan.Err, &streamErr) {
+			scan.Err = s.handleCCStreamError(c, account, currentResp, upstreamModel, streamErr, state.CreatedSent, func(status int, code, errType, message string) {
+				if clientDisconnected {
+					return
+				}
+				if !state.CreatedSent && !c.Writer.Written() && eventWriter == nil {
+					c.JSON(status, gin.H{"error": gin.H{"code": code, "type": errType, "message": message}})
+					return
+				}
+				writeEvents([]apicompat.ResponsesStreamEvent{{
+					Type: "response.failed", SequenceNumber: state.SequenceNumber,
+					Response: &apicompat.ResponsesResponse{
+						ID: state.ResponseID, Object: "response", CreatedAt: state.Created,
+						Model: originalModel, Status: "failed", Output: []apicompat.ResponsesOutput{},
+						Error: &apicompat.ResponsesError{Code: code, Message: message},
+					},
+				}})
+			})
+			// 额度拒绝等零用量失败不产生成功用量行；有真实用量时沿用部分计费路径。
+			var failoverErr *UpstreamFailoverError
+			if errors.As(scan.Err, &failoverErr) || !openAIUsageHasTokens(&scan.Usage) {
+				return nil, scan.Err
+			}
+		}
+		if scan.Err != nil {
+			if streamErr == nil {
+				scan.Err = fmt.Errorf("stream usage incomplete: %w", scan.Err)
+			}
+			return &OpenAIForwardResult{
+				RequestID:                   requestID,
+				UpstreamHeaders:             currentResp.Header,
+				Usage:                       totalUsage,
+				Model:                       originalModel,
+				BillingModel:                billingModel,
+				UpstreamModel:               upstreamModel,
+				ReasoningEffort:             reasoningEffort,
+				UpstreamResponseServiceTier: observedUpstreamResponseServiceTier(c),
+				ServiceTier:                 resolvedOpenAIUpstreamServiceTier(c, serviceTier),
+				Stream:                      true,
+				Duration:                    time.Since(startTime),
+				FirstTokenMs:                firstTokenMs,
+			}, scan.Err
+		}
+		if err := state.ValidateToolCallArguments(); err != nil {
+			return &OpenAIForwardResult{
+				RequestID:                   requestID,
+				UpstreamHeaders:             currentResp.Header,
+				Usage:                       totalUsage,
+				Model:                       originalModel,
+				BillingModel:                billingModel,
+				UpstreamModel:               upstreamModel,
+				ReasoningEffort:             reasoningEffort,
+				UpstreamResponseServiceTier: observedUpstreamResponseServiceTier(c),
+				ServiceTier:                 resolvedOpenAIUpstreamServiceTier(c, serviceTier),
+				Stream:                      true,
+				Duration:                    time.Since(startTime),
+				FirstTokenMs:                firstTokenMs,
+			}, fmt.Errorf("invalid tool call arguments from upstream: %w", err)
+		}
+
+		if continuation < 2 && shouldRetryChatAgentLoop(state, tools) {
+			nextBody, nextErr := buildChatAgentLoopContinuationBody(currentChatBody, state.Text.String())
+			if nextErr != nil {
+				logger.L().Warn("openai responses chat fallback: build agent-loop continuation failed",
+					zap.Error(nextErr),
+					zap.String("request_id", requestID),
+				)
+				break
+			}
+			if currentResp.Body != nil {
+				_ = currentResp.Body.Close()
+			}
+			nextResp, sendErr := s.sendCCUpstreamRequest(c.Request.Context(), c, account, targetURL, nextBody, true, apiKey, account.GetOpenAIUserAgent(), "")
+			if sendErr != nil || nextResp == nil || nextResp.StatusCode >= 400 {
+				if nextResp != nil && nextResp.Body != nil {
+					_ = nextResp.Body.Close()
+				}
+				logger.L().Warn("openai responses chat fallback: agent-loop continuation failed",
+					zap.Error(sendErr),
+					zap.String("request_id", requestID),
+				)
+				message := "Upstream stopped after a progress update and automatic continuation failed; please retry"
+				writeEvents([]apicompat.ResponsesStreamEvent{{
+					Type: "response.failed", SequenceNumber: state.SequenceNumber,
+					Response: &apicompat.ResponsesResponse{
+						ID: state.ResponseID, Object: "response", CreatedAt: state.Created,
+						Model: originalModel, Status: "failed", Output: []apicompat.ResponsesOutput{},
+						Error: &apicompat.ResponsesError{Code: "upstream_agent_loop_continuation_failed", Message: message},
+					},
+				}})
+				return &OpenAIForwardResult{
+					RequestID: requestID, UpstreamHeaders: currentResp.Header, Usage: totalUsage,
+					Model: originalModel, BillingModel: billingModel, UpstreamModel: upstreamModel,
+					ReasoningEffort: reasoningEffort, ServiceTier: resolvedOpenAIUpstreamServiceTier(c, serviceTier),
+					Stream: true, Duration: time.Since(startTime), FirstTokenMs: firstTokenMs,
+				}, errors.New(message)
+			}
+			segmentEvents := apicompat.CloseChatMessageItem(state)
+			s.cacheReasoningItemsFromEvents(segmentEvents)
+			writeEvents(segmentEvents)
+			currentResp = nextResp
+			currentChatBody = nextBody
+			// 续跑 segment 新建 message/tool item；清理只属于上一段的 finish 状态。
+			state.FinishReason = ""
+			state.CompletedSent = false
+			continue
+		}
+		break
 	}
 
 	finalEvents := apicompat.FinalizeChatCompletionsResponsesStream(state)
@@ -369,14 +435,14 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 			c.Writer.Flush()
 		}
 	}
-	if !scan.SawDone {
+	if !scanSawDone {
 		logCCStreamMissingDoneSentinel("openai responses chat fallback", requestID)
 	}
 
 	return &OpenAIForwardResult{
 		RequestID:                   requestID,
-		UpstreamHeaders:             resp.Header,
-		Usage:                       scan.Usage,
+		UpstreamHeaders:             currentResp.Header,
+		Usage:                       totalUsage,
 		Model:                       originalModel,
 		BillingModel:                billingModel,
 		UpstreamModel:               upstreamModel,
@@ -385,8 +451,57 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		ServiceTier:                 resolvedOpenAIUpstreamServiceTier(c, serviceTier),
 		Stream:                      true,
 		Duration:                    time.Since(startTime),
-		FirstTokenMs:                scan.FirstTokenMs,
+		FirstTokenMs:                firstTokenMs,
 	}, nil
+}
+
+func chatToolsFromBody(body []byte) []apicompat.ChatTool {
+	var req apicompat.ChatCompletionsRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		return nil
+	}
+	return req.Tools
+}
+
+func shouldRetryChatAgentLoop(state *apicompat.ChatCompletionsToResponsesStreamState, tools []apicompat.ChatTool) bool {
+	if state == nil || len(tools) == 0 || len(state.ToolCalls) > 0 || state.FinishReason != "stop" {
+		return false
+	}
+	text := strings.TrimSpace(state.Text.String())
+	if text == "" || len(text) > 600 {
+		return false
+	}
+	lower := strings.ToLower(text)
+	for _, marker := range []string{"已完成", "已经完成", "修改完成", "测试通过", "implemented", "completed"} {
+		if strings.Contains(lower, marker) {
+			return false
+		}
+	}
+	for _, marker := range []string{
+		"我会", "我准备", "我将", "接下来", "下一步", "然后我会",
+		"i will", "i'll", "next,", "next i", "now i", "let me", "i'm going to",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+func buildChatAgentLoopContinuationBody(body []byte, progress string) ([]byte, error) {
+	progress = strings.TrimSpace(progress)
+	if progress == "" {
+		return nil, fmt.Errorf("empty progress text")
+	}
+	assistant, err := json.Marshal(progress)
+	if err != nil {
+		return nil, err
+	}
+	next, err := sjson.SetRawBytes(body, "messages.-1", []byte(`{"role":"assistant","content":`+string(assistant)+`}`))
+	if err != nil {
+		return nil, err
+	}
+	return sjson.SetRawBytes(next, "messages.-1", []byte(`{"role":"user","content":"Continue the task now. Do not repeat a progress update. Perform the next required tool call in this response if work remains; otherwise provide the complete final answer."}`))
 }
 
 func chatChunkStartsResponsesOutput(chunk *apicompat.ChatCompletionsChunk) bool {

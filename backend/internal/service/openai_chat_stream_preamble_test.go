@@ -211,7 +211,7 @@ func TestCCStreamPreambleFlushesRealOutputBeforeEOF(t *testing.T) {
 					var err error
 					switch path {
 					case "/v1/responses":
-						_, err = svc.streamChatCompletionsAsResponses(c, resp, account, "glm-5", nil, nil, false, nil, "glm-5", "glm-5", nil, nil, time.Now())
+						_, err = svc.streamChatCompletionsAsResponses(c, resp, account, "glm-5", nil, nil, false, nil, "glm-5", "glm-5", nil, nil, time.Now(), nil, "", "", nil)
 					case "/v1/messages":
 						_, err = svc.streamChatCompletionsAsAnthropic(c, resp, account, "glm-5", "glm-5", "glm-5", nil, nil, time.Now())
 					case "/v1/chat/completions":

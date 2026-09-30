@@ -30,6 +30,20 @@ func isModelNotFoundError(statusCode int, body []byte) bool {
 // error.message-style payloads.
 const openAICodexPlanGatedModelPhrase = "model is not supported when using codex"
 
+const openRouterAgenticHarnessPhrase = "only available on agentic harnesses"
+
+// isOpenRouterAgenticHarnessModelError reports the OpenRouter entitlement
+// rejection for models that are restricted to registered agentic harnesses.
+// The restriction is specific to the requested model, so it must cool down the
+// account/model pair instead of accumulating account-level 403 failures.
+func isOpenRouterAgenticHarnessModelError(account *Account, statusCode int, body []byte) bool {
+	if statusCode != http.StatusForbidden || !accountUsesOpenRouter(account) {
+		return false
+	}
+	normalized := normalizeModelNotFoundBody(body)
+	return strings.Contains(normalized, openRouterAgenticHarnessPhrase)
+}
+
 // isOpenAICodexPlanGatedModelError reports whether the upstream response is the
 // deterministic Codex rejection of a plan-gated model on a ChatGPT account.
 // Unlike transient failures, retrying the same account cannot succeed until the

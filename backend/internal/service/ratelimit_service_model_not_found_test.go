@@ -93,6 +93,56 @@ func TestRateLimitService_HandleUpstreamError_ModelNotFoundUsesModelRateLimit(t 
 	require.Equal(t, http.StatusNotFound, repo.unsupportedCalls[0].observation.StatusCode)
 }
 
+func TestRateLimitService_HandleUpstreamError_OpenRouterAgenticHarness403UsesModelRateLimit(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := openAIModelNotFoundTempAccount()
+	account.ID = 253
+	account.Type = AccountTypeAPIKey
+	account.Credentials["base_url"] = "https://openrouter.ai/api"
+
+	body := []byte(`{"error":{"code":403,"message":"thinkingmachines/inkling-small:free is only available on agentic harnesses. Try plugging it into a coding agent or productivity app listed on https://openrouter.ai/apps"},"user_id":"user_3EeXpyKlIzumLaKr3fnnxzhaxrU"}`)
+	handled := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusForbidden,
+		http.Header{},
+		body,
+		"thinkingmachines/inkling-small:free",
+	)
+
+	require.True(t, handled)
+	require.Zero(t, repo.tempCalls, "model entitlement 403 must not block the whole account")
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	call := repo.modelRateLimitCalls[0]
+	require.Equal(t, account.ID, call.accountID)
+	require.Equal(t, "thinkingmachines/inkling-small:free", call.scope)
+	require.Equal(t, openRouterAgenticHarnessModelReason, call.reason)
+	require.WithinDuration(t, time.Now().Add(upstreamUnsupportedModelCooldown), call.resetAt, 5*time.Second)
+	require.Len(t, repo.unsupportedCalls, 1)
+	require.Equal(t, "thinkingmachines/inkling-small:free", repo.unsupportedCalls[0].model)
+}
+
+func TestRateLimitService_HandleUpstreamError_OpenRouterOther403StillUsesAccountCooldown(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := openAIModelNotFoundTempAccount()
+	account.Type = AccountTypeAPIKey
+	account.Credentials["temp_unschedulable_enabled"] = false
+
+	handled := svc.HandleUpstreamError(
+		context.Background(),
+		account,
+		http.StatusForbidden,
+		http.Header{},
+		[]byte(`{"error":{"message":"workspace forbidden by policy"}}`),
+		"thinkingmachines/inkling-small:free",
+	)
+
+	require.True(t, handled)
+	require.Empty(t, repo.modelRateLimitCalls)
+}
+
 func TestRateLimitService_HandleUpstreamError_UnsupportedModelPersistsMappedNegativeCapability(t *testing.T) {
 	repo := &modelNotFoundAccountRepoStub{}
 	svc := &RateLimitService{accountRepo: repo}

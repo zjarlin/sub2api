@@ -1675,9 +1675,10 @@ type ChatCompletionsToResponsesStreamState struct {
 	ReasoningDone   bool
 
 	// Message item + output_text content-part lifecycle.
-	MessageItemID string
-	MessageIndex  int
-	TextPartOpen  bool
+	MessageItemID  string
+	MessageIndex   int
+	TextPartOpen   bool
+	closedMessages []ResponsesOutput
 
 	Text      strings.Builder
 	Reasoning strings.Builder
@@ -1781,7 +1782,7 @@ func ChatCompletionsChunkToResponsesEvents(
 	if chunk == nil || state == nil {
 		return nil
 	}
-	if chunk.ID != "" {
+	if chunk.ID != "" && !state.CreatedSent {
 		state.ResponseID = chunk.ID
 	}
 	if state.Model == "" && chunk.Model != "" {
@@ -1883,6 +1884,50 @@ func ChatCompletionsChunkToResponsesEvents(
 		}
 	}
 
+	return events
+}
+
+// CloseChatMessageItem closes the current assistant message item without
+// emitting a terminal Responses event. The Chat fallback uses this before an
+// agent-loop continuation so the next assistant segment starts a fresh item
+// while both segments remain part of the same downstream response.
+func CloseChatMessageItem(state *ChatCompletionsToResponsesStreamState) []ResponsesStreamEvent {
+	if state == nil || state.MessageItemID == "" {
+		return nil
+	}
+	var events []ResponsesStreamEvent
+	if state.TextPartOpen {
+		events = append(events,
+			chatToResponsesEvent(state, "response.output_text.done", &ResponsesStreamEvent{
+				OutputIndex:  state.MessageIndex,
+				ContentIndex: 0,
+				Text:         state.Text.String(),
+				ItemID:       state.MessageItemID,
+			}),
+			chatToResponsesEvent(state, "response.content_part.done", &ResponsesStreamEvent{
+				OutputIndex:  state.MessageIndex,
+				ContentIndex: 0,
+				ItemID:       state.MessageItemID,
+				Part:         &ResponsesContentPart{Type: "output_text", Text: state.Text.String()},
+			}),
+		)
+	}
+	closed := ResponsesOutput{
+		Type:    "message",
+		ID:      state.MessageItemID,
+		Role:    "assistant",
+		Content: []ResponsesContentPart{{Type: "output_text", Text: state.Text.String()}},
+		Status:  "completed",
+	}
+	events = append(events, chatToResponsesEvent(state, "response.output_item.done", &ResponsesStreamEvent{
+		OutputIndex: state.MessageIndex,
+		Item:        &closed,
+	}))
+	state.closedMessages = append(state.closedMessages, closed)
+	state.MessageItemID = ""
+	state.MessageIndex = 0
+	state.TextPartOpen = false
+	state.Text.Reset()
 	return events
 }
 
@@ -2280,6 +2325,7 @@ func (state *ChatCompletionsToResponsesStreamState) chatOutput() []ResponsesOutp
 			}},
 		})
 	}
+	outputs = append(outputs, state.closedMessages...)
 	if state.MessageItemID != "" || len(state.ToolCalls) == 0 {
 		outputs = append(outputs, ResponsesOutput{
 			Type: "message",
