@@ -6,7 +6,7 @@ DEPLOY_DIR="${DEPLOY_DIR:-/opt/sub2api}"
 PROJECT_NAME="${PROJECT_NAME:-sub2api}"
 IMAGE="${SUB2API_IMAGE:?SUB2API_IMAGE is required}"
 REPLICAS="${SUB2API_REPLICAS:-1}"
-CANARY_PORT="${CANARY_PORT:-18090}"
+CANARY_PORT="${CANARY_PORT:-auto}"
 CANARY_WAIT_SECONDS="${CANARY_WAIT_SECONDS:-180}"
 CANARY_OBSERVE_SECONDS="${CANARY_OBSERVE_SECONDS:-20}"
 COMPOSE=(docker compose --project-name "$PROJECT_NAME" --project-directory "$DEPLOY_DIR" --env-file "$DEPLOY_DIR/.env" -f "$DEPLOY_DIR/deploy/docker-compose.yml" -f "$DEPLOY_DIR/docker-compose.override.yml" -f "$DEPLOY_DIR/deploy/cluster/docker-compose.yml")
@@ -271,11 +271,22 @@ stop_canary() {
 
 start_canary() {
   stop_canary
-  echo "Starting isolated candidate on 127.0.0.1:$CANARY_PORT"
+  local publish
+  case "$CANARY_PORT" in
+    auto|"") publish="127.0.0.1::8080" ;;
+    *) publish="127.0.0.1:$CANARY_PORT:8080" ;;
+  esac
+  echo "Starting isolated candidate behind $publish"
   SUB2API_IMAGE="$IMAGE" LOG_OUTPUT_FILE_PATH="$CANARY_LOG_PATH" \
     "${COMPOSE[@]}" run -d --no-deps --name sub2api-canary \
-      --publish "127.0.0.1:$CANARY_PORT:8080" \
+      --publish "$publish" \
       --label "sub2api.role=release-candidate" sub2api
+  CANARY_PORT="$(docker inspect --format '{{(index (index .NetworkSettings.Ports "8080/tcp") 0).HostPort}}' sub2api-canary)"
+  if [ -z "$CANARY_PORT" ]; then
+    echo "Could not determine candidate host port" >&2
+    return 1
+  fi
+  echo "Candidate listening on 127.0.0.1:$CANARY_PORT"
 }
 rollback() {
   local exit_status=$?

@@ -48,6 +48,12 @@ case "$*" in
   *"run -d --no-deps --name sub2api-canary"*)
     if [ "${MOCK_CANARY_FAIL:-0}" = 1 ]; then printf 'canary failed\n'; exit 7; fi
     ;;
+  "inspect --format {{(index (index .NetworkSettings.Ports \"8080/tcp\") 0).HostPort}} sub2api-canary")
+    printf '18090\n'
+    ;;
+  "inspect --format {{(index (index .NetworkSettings.Ports \"8080/tcp\") 0).HostPort}} sub2api-canary")
+    printf '18090\n'
+    ;;
   "rm -sf sub2api-canary")
     exit 0
     ;;
@@ -84,7 +90,7 @@ run_deploy() {
 
 run_deploy "$test_dir/success.log" > "$test_dir/success.out"
 grep -Fq -- "run -d --no-deps --name sub2api-canary" "$test_dir/success.log"
-grep -Fq -- "--publish 127.0.0.1:18090:8080" "$test_dir/success.log"
+grep -Fq -- "--publish 127.0.0.1::8080" "$test_dir/success.log"
 grep -Fq -- "--label sub2api.role=release-candidate sub2api" "$test_dir/success.log"
 if ! awk '
   /run -d --no-deps --name sub2api-canary/ { candidate=NR }

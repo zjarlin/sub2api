@@ -24,7 +24,7 @@ object Deploy252Cluster : BuildType({
     params {
         param("env.DEPLOY_DIR", "/opt/sub2api")
         param("env.SUB2API_REPLICAS", "1")
-        param("env.CANARY_PORT", "18090")
+        param("env.CANARY_PORT", "auto")
         param("env.CANARY_OBSERVE_SECONDS", "20")
         param("env.IMAGE_REPOSITORY", "zjarlin/sub2api")
         param("env.EDGE_VISION_IMAGE_REPOSITORY", "zjarlin/edge-vision")
