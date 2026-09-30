@@ -246,6 +246,8 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 		}
 		ctx, err := h.settingService.BindAutoModelRoutingPolicy(c.Request.Context())
 		if err != nil {
+			finishObservation := h.observeAutoModelRoute(c, apiKey, "")
+			defer finishObservation()
 			logger.FromContext(c.Request.Context()).Warn("gateway.auto_model_policy_unavailable", zap.Error(err))
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "scheduling_error", "message": "Auto model routing policy is unavailable"}})
 			c.Abort()
@@ -260,6 +262,8 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 		}
 		ctx, models, err := h.gatewayService.BindAutoModelInventory(ctx, apiKey.Group.ID)
 		if err != nil {
+			finishObservation := h.observeAutoModelRoute(c, apiKey, "")
+			defer finishObservation()
 			logger.FromContext(ctx).Warn("gateway.auto_model_inventory_unavailable", zap.Error(err))
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "scheduling_error", "message": "Auto model inventory is unavailable"}})
 			c.Abort()
@@ -268,6 +272,8 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 		c.Request = c.Request.WithContext(ctx)
 		ctx, err = h.gatewayService.BindAutoModelVisionCapabilities(ctx, apiKey.Group)
 		if err != nil {
+			finishObservation := h.observeAutoModelRoute(c, apiKey, "")
+			defer finishObservation()
 			logger.FromContext(ctx).Warn("gateway.auto_model_vision_policy_unavailable", zap.Error(err))
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "scheduling_error", "message": "Auto model image assistance policy is unavailable"}})
 			c.Abort()
@@ -275,6 +281,8 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 		}
 		c.Request = c.Request.WithContext(ctx)
 		if !h.virtualModelAvailable(ctx, apiKey.Group, models, virtualModel) {
+			finishObservation := h.observeAutoModelRoute(c, apiKey, "")
+			defer finishObservation()
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "scheduling_error", "message": virtualModel + " model routing is unavailable for this group"}})
 			c.Abort()
 			return
@@ -288,6 +296,8 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 			models,
 		)
 		if err != nil {
+			finishObservation := h.observeAutoModelRoute(c, apiKey, "")
+			defer finishObservation()
 			logger.FromContext(c.Request.Context()).Warn("gateway.auto_model_candidates_unavailable", zap.Error(err))
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "scheduling_error", "message": "Auto model candidates are unavailable"}})
 			c.Abort()

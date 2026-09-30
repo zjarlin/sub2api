@@ -315,9 +315,8 @@ func TestForwardAsAnthropic_ForceChatCompletionsStreamingLengthMapsToMaxTokens(t
 	require.Contains(t, out, "event: message_stop")
 }
 
-// An upstream that ends immediately with [DONE] must still produce a fully
-// framed (message_start → message_delta → message_stop) Anthropic stream.
-func TestForwardAsAnthropic_ForceChatCompletionsEmptyStreamStillFramesMessage(t *testing.T) {
+// 上游直接以 [DONE] 结束时，尚未输出语义内容，可以换账号，不能伪造完整消息。
+func TestForwardAsAnthropic_ForceChatCompletionsEmptyStreamFailsOver(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	body := []byte(`{"model":"gpt-5.4","max_tokens":8,"messages":[{"role":"user","content":"hello"}],"stream":true}`)
@@ -337,13 +336,11 @@ func TestForwardAsAnthropic_ForceChatCompletionsEmptyStreamStillFramesMessage(t 
 	}
 
 	result, err := svc.ForwardAsAnthropic(context.Background(), c, forceChatMessagesFallbackAccount(), body, "", "")
-	require.NoError(t, err)
-	require.NotNil(t, result)
-
-	out := rec.Body.String()
-	require.Contains(t, out, "event: message_start")
-	require.Contains(t, out, "event: message_delta")
-	require.Contains(t, out, "event: message_stop")
+	var failover *UpstreamFailoverError
+	require.ErrorAs(t, err, &failover)
+	require.Nil(t, result)
+	require.False(t, c.Writer.Written())
+	require.Empty(t, rec.Body.String())
 }
 
 // Non-failover 4xx responses must go through the shared compat error handler:

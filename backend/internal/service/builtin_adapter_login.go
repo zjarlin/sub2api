@@ -190,6 +190,7 @@ func arenaLoginError(res *http.Response) error {
 		message string
 	}{
 		"arena_access_blocked":         {http.StatusServiceUnavailable, "ARENA_ACCESS_BLOCKED", "The server's access to Arena was blocked by Cloudflare before credentials could be verified; configure an accessible Arena proxy"},
+		"arena_verification_required": {http.StatusServiceUnavailable, "ARENA_VERIFICATION_REQUIRED", "Arena accepted sign-in but rejected security verification when sending a chat message"},
 		"login_invalid_credentials":    {http.StatusBadRequest, "ARENA_INVALID_CREDENTIALS", "Arena rejected the supplied sign-in credentials"},
 		"session_not_usable":           {http.StatusForbidden, "ARENA_SESSION_UNUSABLE", "Arena accepted the sign-in but the account cannot access Agent sessions"},
 		"session_not_ready":            {http.StatusBadGateway, "ARENA_SESSION_NOT_READY", "Arena signed in but the new Agent session did not return a completed text response"},

@@ -66,10 +66,16 @@ func (h *GatewayHandler) observeAutoModelRoute(c *gin.Context, key *service.APIK
 		turnID = metadata.Get("run_id").String()
 	}
 	parsedSession, err := uuid.Parse(sessionID)
-	if err != nil || len(turnID) == 0 || len(turnID) > 128 {
-		return func() {}
+	if err != nil {
+		parsedSession = uuid.New()
 	}
 	sessionID = parsedSession.String()
+	// 通用 API 客户端也需要可查询的路由记录；只补齐观测标识，不改变请求或调度会话。
+	if strings.TrimSpace(turnID) == "" || len(turnID) > 128 || strings.IndexFunc(turnID, func(r rune) bool {
+		return r < 0x20 || r == 0x7f
+	}) >= 0 {
+		turnID = uuid.NewString()
+	}
 	store, err := h.gatewayService.AutoModelRouteStore()
 	if err != nil {
 		return func() {}
@@ -83,6 +89,11 @@ func (h *GatewayHandler) observeAutoModelRoute(c *gin.Context, key *service.APIK
 	if requestID == "" {
 		requestID = uuid.NewString()
 	}
+	c.Header("X-Sub2API-Session-ID", sessionID)
+	c.Header("X-Sub2API-Run-ID", turnID)
+	c.Header("X-Sub2API-Request-ID", requestID)
+	// 保留现有公开响应头，让浏览器也能用生成的标识查询 /v1/auto/routes。
+	c.Writer.Header().Add("Access-Control-Expose-Headers", "X-Sub2API-Session-ID, X-Sub2API-Run-ID, X-Sub2API-Request-ID")
 	route := &service.AutoModelRouteObservation{
 		RequestID: requestID, SessionID: sessionID, TurnID: turnID, RunID: turnID,
 		RequestedModel: requestedModel, SelectedModel: selected,

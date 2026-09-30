@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"testing"
 	"time"
@@ -12,6 +13,50 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
+
+func TestHandle429GenericRetryAfterAndExpiredReset(t *testing.T) {
+	for _, platform := range []string{PlatformOpenAI, PlatformGrok, PlatformDeepseek, PlatformAnthropic} {
+		for _, tc := range []struct {
+			name    string
+			headers http.Header
+			body    []byte
+			wait    time.Duration
+		}{
+			{name: "retry seconds", headers: http.Header{"Retry-After": {"120"}}, wait: 120 * time.Second},
+			{name: "retry date", headers: http.Header{"Retry-After": {time.Now().Add(120 * time.Second).UTC().Format(http.TimeFormat)}}, wait: 120 * time.Second},
+			{name: "invalid retry", headers: http.Header{"Retry-After": {"invalid"}}, wait: 5 * time.Second},
+			{name: "negative retry", headers: http.Header{"Retry-After": {"-1"}}, wait: 5 * time.Second},
+			{name: "expired reset", headers: http.Header{"Anthropic-Ratelimit-Unified-Reset": {"1"}}, wait: 5 * time.Second},
+			{name: "expired reset with retry", headers: http.Header{"Anthropic-Ratelimit-Unified-Reset": {"1"}, "Retry-After": {"120"}}, wait: 120 * time.Second},
+			{name: "expired window", headers: http.Header{"Anthropic-Ratelimit-Unified-5h-Reset": {"1"}}, wait: 5 * time.Second},
+			{name: "quota reset takes precedence", headers: http.Header{"Anthropic-Ratelimit-Unified-Reset": {fmt.Sprint(time.Now().Add(time.Hour).Unix())}, "Retry-After": {"120"}}, wait: time.Hour},
+			{name: "expired body reset", body: []byte(`{"error":{"type":"usage_limit_reached","resets_at":1}}`), wait: 5 * time.Second},
+		} {
+			t.Run(fmt.Sprintf("%s/%s", platform, tc.name), func(t *testing.T) {
+				repo := &rateLimit429AccountRepoStub{}
+				svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+				account := &Account{ID: 71, Platform: platform, Type: AccountTypeAPIKey}
+				before := time.Now()
+				svc.handle429(context.Background(), account, tc.headers, tc.body)
+				require.Equal(t, 1, repo.rateLimitCalls)
+				require.WithinDuration(t, before.Add(tc.wait), repo.lastRateLimitReset, 2*time.Second)
+				require.True(t, repo.lastRateLimitReset.After(before))
+			})
+		}
+	}
+}
+
+func TestHandle429RetryAfterRemainsEffectiveWhenFallbackDisabled(t *testing.T) {
+	repo := &rateLimit429AccountRepoStub{}
+	settings := newMockSettingRepo()
+	settings.data[SettingKeyRateLimit429CooldownSettings] = `{"enabled":false,"cooldown_seconds":5}`
+	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	svc.SetSettingService(NewSettingService(settings, &config.Config{}))
+	before := time.Now()
+	svc.handle429(context.Background(), &Account{ID: 72, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}, http.Header{"Retry-After": {"120"}}, nil)
+	require.Equal(t, 1, repo.rateLimitCalls)
+	require.WithinDuration(t, before.Add(120*time.Second), repo.lastRateLimitReset, time.Second)
+}
 
 type rateLimit429AccountRepoStub struct {
 	mockAccountRepoForGemini

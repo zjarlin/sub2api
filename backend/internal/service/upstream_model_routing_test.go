@@ -144,8 +144,8 @@ func TestAutoModelPassthroughFailurePolicy(t *testing.T) {
 	}
 }
 
-func TestDeterministicUnsupportedModelAlwaysFailsOver(t *testing.T) {
-	svc := &OpenAIGatewayService{}
+func TestDeterministicUnsupportedModelManagedAccountFailsOver(t *testing.T) {
+	svc := &OpenAIGatewayService{accountRepo: &modelNotFoundManagedAccountRepo{}}
 	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(
 		newOpenAIUpstreamErrorTestAccount(),
 		http.StatusBadRequest,

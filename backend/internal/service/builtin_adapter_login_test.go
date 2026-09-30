@@ -158,6 +158,7 @@ func TestArenaLoginFailureCodesAreSanitized(t *testing.T) {
 		status int
 	}{
 		{"arena_access_blocked", "ARENA_ACCESS_BLOCKED", http.StatusServiceUnavailable},
+		{"arena_verification_required", "ARENA_VERIFICATION_REQUIRED", http.StatusServiceUnavailable},
 		{"login_invalid_credentials", "ARENA_INVALID_CREDENTIALS", http.StatusBadRequest},
 		{"session_not_usable", "ARENA_SESSION_UNUSABLE", http.StatusForbidden},
 		{"session_not_ready", "ARENA_SESSION_NOT_READY", http.StatusBadGateway},

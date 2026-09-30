@@ -2480,9 +2480,9 @@ func TestOpenAIResponses_APIKeyPassthroughSSERateLimitSkipsSameAccountPoolRetry(
 
 	h.Responses(c)
 
-	// 限流优先换账号，每个模型不重复请求已失败账号。
-	require.Equal(t, []int64{9912, 9912}, upstream.calls())
-	require.Equal(t, "gpt-5.5", rec.Header().Get("X-Sub2api-Fallback-Model"))
+	// 全局 429 立即冷却该账号，换模型也不能重复请求同一个密钥。
+	require.Equal(t, []int64{9912}, upstream.calls())
+	require.Empty(t, rec.Header().Get("X-Sub2api-Fallback-Model"))
 	require.Equal(t, http.StatusTooManyRequests, rec.Code)
 	require.Equal(t, "1", rec.Header().Get("Retry-After"))
 	require.Equal(t, "rate_limit_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())

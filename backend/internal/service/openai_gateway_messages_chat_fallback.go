@@ -235,6 +235,13 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsAnthropic(
 
 	scan := s.scanCCStream(c, resp, "openai messages chat fallback", requestID, startTime, emitChunk)
 	usage := scan.Usage
+	if scan.Err != nil && !clientOutputStarted {
+		scan.Err = s.newOpenAICompatBufferedReadFailoverError(c, account, resp, requestID, scan.Err)
+		var failover *UpstreamFailoverError
+		if errors.As(scan.Err, &failover) {
+			return nil, scan.Err
+		}
+	}
 
 	var streamErr *ccStreamError
 	if errors.As(scan.Err, &streamErr) {

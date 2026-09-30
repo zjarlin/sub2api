@@ -232,6 +232,8 @@ func RegisterGatewayRoutes(
 		gateway.GET("/models/:model", h.Gateway.Models)
 		gateway.GET("/usage", h.Gateway.Usage)
 		gateway.GET("/auto/routes", h.Gateway.AutoModelRoutes)
+		gateway.GET("/turn/actions", h.Gateway.TurnActions)
+		gateway.POST("/turn/actions/recommend", h.Gateway.RecommendTurnActions)
 		gateway.POST("/live", h.OpenAIGateway.Live)
 		gateway.GET("/live/:call_id", h.OpenAIGateway.LiveSideband)
 		// OpenAI Responses API: auto-route based on group platform

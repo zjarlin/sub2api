@@ -49,22 +49,38 @@ type modelNotFoundManagedAccountRepo struct{ AccountRepository }
 
 func TestOpenAICompatibleModelNotFound400FailoverScope(t *testing.T) {
 	svc := &OpenAIGatewayService{accountRepo: &modelNotFoundManagedAccountRepo{}}
-	body := []byte(`{"error":{"code":"model_not_found","message":"model not found"}}`)
-
-	for _, tc := range []struct {
-		name    string
-		account *Account
-		want    bool
+	for _, body := range []struct {
+		name string
+		json string
 	}{
-		{name: "openai api key", account: &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}, want: true},
-		{name: "compatible provider", account: &Account{Platform: PlatformDeepseek, Type: AccountTypeAPIKey}, want: true},
-		{name: "anthropic account", account: &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey}, want: false},
-		{name: "missing account", account: nil, want: false},
+		{name: "model not found code", json: `{"error":{"code":"model_not_found","message":"model not found"}}`},
+		{name: "unsupported model code", json: `{"error":{"code":"unsupported_model","message":"The model gpt-missing is not supported"}}`},
+		{name: "model unavailable type", json: `{"error":{"type":"model_not_available"}}`},
+		{name: "nested invalid model code", json: `{"response":{"error":{"code":"invalid_model"}}}`},
+		{name: "explicit model message", json: `{"error":{"message":"The model gpt-missing is not supported"}}`},
+		{name: "unknown provider message", json: `{"error":{"message":"Unknown provider for model claude-x"}}`},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			require.Equal(t, tc.want, svc.shouldFailoverOpenAIUpstreamResponse(
-				tc.account, http.StatusBadRequest, "model not found", body,
-			))
+		t.Run(body.name, func(t *testing.T) {
+			for _, tc := range []struct {
+				name    string
+				account *Account
+				want    bool
+			}{
+				{name: "openai api key", account: &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}, want: true},
+				{name: "compatible provider", account: &Account{Platform: PlatformDeepseek, Type: AccountTypeAPIKey}, want: true},
+				{name: "anthropic account", account: &Account{Platform: PlatformAnthropic, Type: AccountTypeAPIKey}, want: false},
+				{name: "gemini account", account: &Account{Platform: PlatformGemini, Type: AccountTypeAPIKey}, want: false},
+				{name: "missing account", account: nil, want: false},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					require.Equal(t, tc.want, svc.shouldFailoverOpenAIUpstreamResponse(
+						tc.account, http.StatusBadRequest, "", []byte(body.json),
+					))
+					require.False(t, (&OpenAIGatewayService{}).shouldFailoverOpenAIUpstreamResponse(
+						tc.account, http.StatusBadRequest, "", []byte(body.json),
+					), "没有调度仓库的直接转发服务必须返回原始 400")
+				})
+			}
 		})
 	}
 

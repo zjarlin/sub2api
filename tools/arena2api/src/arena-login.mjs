@@ -2,6 +2,7 @@ import { ArenaError } from "./request.mjs";
 
 const failures = new Map([
   ["arena_access_blocked", [503, "Arena blocked access from the server browser. Check the server network or proxy before retrying."]],
+  ["arena_verification_required", [503, "Arena rejected security verification during chat. Confirm that the account can send messages on the Arena website."]],
   ["login_invalid_credentials", [401, "Arena rejected the email or password."]],
   ["session_not_usable", [403, "Arena accepted sign-in but the account session is unavailable."]],
   ["session_not_ready", [502, "Arena signed in but did not return a usable text session."]],
@@ -13,6 +14,41 @@ const failures = new Map([
 ]);
 const stages = new Set(["login", "browser_launch", "arena_home", "email_sign_in", "agent_session", "session_probe", "save_session"]);
 
+export function arenaRecaptchaRejected(value) {
+  return /recaptcha validation failed/i.test(String(value || ""));
+}
+
+export function arenaOutputRecaptchaRejected(raw) {
+  for (const line of String(raw || "").split(/\r?\n/)) {
+    if (!line.startsWith("data: ")) {
+      continue;
+    }
+    let event;
+    try {
+      event = JSON.parse(line.slice(6));
+    } catch {
+      continue;
+    }
+    for (const record of Array.isArray(event?.records) ? event.records : []) {
+      let body;
+      try {
+        body = JSON.parse(record.body);
+      } catch {
+        continue;
+      }
+      const data = body?.data;
+      if (data?.type !== "error") {
+        continue;
+      }
+      const message = data.errorText || data.message || data.error;
+      if (arenaRecaptchaRejected(typeof message === "string" ? message : JSON.stringify(message))) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
 // 仅保留静态分类、阶段和 HTTP 状态，原始错误可能包含密码、Cookie 或邮箱。
 export function loginFailure(error, fallbackStage = "login") {
   const stage = stages.has(error?.stage) ? error.stage : stages.has(fallbackStage) ? fallbackStage : "login";
@@ -23,7 +59,9 @@ export function loginFailure(error, fallbackStage = "login") {
   const upstreamStatus = Number.isInteger(status) && status >= 100 && status <= 599 ? status : undefined;
   let code = failures.has(error?.code) ? error.code : "login_failed";
   if (code === "login_failed") {
-    if (/just a moment|attention required|cloudflare|cf-chl-|recaptcha validation failed/i.test(message) || (stage === "arena_home" && (upstreamStatus === 403 || upstreamStatus === 429))) {
+    if (arenaRecaptchaRejected(message) && (stage === "agent_session" || stage === "session_probe")) {
+      code = "arena_verification_required";
+    } else if (/just a moment|attention required|cloudflare|cf-chl-|recaptcha validation failed/i.test(message) || (stage === "arena_home" && (upstreamStatus === 403 || upstreamStatus === 429))) {
       code = "arena_access_blocked";
     } else if (stage === "email_sign_in" && (upstreamStatus === 401 || (upstreamStatus === 400 && /invalid.*(?:email|password|credential)|incorrect.*password/i.test(message)))) {
       code = "login_invalid_credentials";

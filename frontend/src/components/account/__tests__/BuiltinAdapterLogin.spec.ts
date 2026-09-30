@@ -62,6 +62,7 @@ describe('BuiltinAdapterLogin', () => {
 
   it.each([
     ['ARENA_ACCESS_BLOCKED', 'accessBlocked'],
+    ['ARENA_VERIFICATION_REQUIRED', 'verificationRequired'],
     ['ARENA_INVALID_CREDENTIALS', 'invalidCredentials'],
     ['ARENA_SESSION_UNUSABLE', 'sessionUnusable'],
     ['ARENA_SESSION_NOT_READY', 'sessionNotReady'],

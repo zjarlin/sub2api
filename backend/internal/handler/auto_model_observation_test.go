@@ -2,9 +2,12 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -12,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
 
@@ -113,20 +117,124 @@ func TestAutoModelObservationTerminalStates(t *testing.T) {
 	}
 }
 
-func TestAutoModelObservationBoundsAndOptionalMetadata(t *testing.T) {
+func TestAutoModelObservationBounds(t *testing.T) {
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
-	cache := &observationCache{}
 	original := c.Writer
-	observationHandler(cache).observeAutoModelRoute(c, &service.APIKey{ID: 81}, "first")()
-	require.Same(t, original, c.Writer)
-	require.Empty(t, cache.routes)
 	w := &autoRouteObserverWriter{ResponseWriter: original, route: &service.AutoModelRouteObservation{State: "selected"}}
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.capture([]byte("data: " + strings.Repeat("x", autoRouteObservationBodyLimit+1)))
 	require.Empty(t, w.pending)
 	w.capture([]byte("\n\ndata: {\"type\":\"response.completed\",\"response\":{\"model\":\"actual\"}}\n\n"))
 	require.Equal(t, "completed", w.route.State)
+}
+
+func TestAutoModelObservationSuppliesQueryableIDsWithoutMetadata(t *testing.T) {
+	for _, tc := range []struct {
+		name, selected, contentType, body, want string
+		status                                  int
+	}{
+		{"success", "first", "application/json", `{"model":"actual","status":"completed"}`, "completed", http.StatusOK},
+		{"http failure", "first", "application/json", `{"error":{"message":"fixture failure"}}`, "failed", http.StatusBadGateway},
+		{"stream failure", "first", "text/event-stream", "data: {\"type\":\"response.failed\",\"response\":{\"error\":{\"message\":\"fixture failure\"}}}\n\n", "failed", http.StatusOK},
+		{"preflight failure", "", "application/json", `{"error":{"message":"no eligible model"}}`, "failed", http.StatusServiceUnavailable},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cache := &observationCache{}
+			h := observationHandler(cache)
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			requestBody := `{"model":"auto","input":"sensitive fixture input"}`
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(requestBody))
+			c.Request.Header.Set("Authorization", "Bearer private-fixture-key")
+			headers := c.Request.Header.Clone()
+			c.Header("Access-Control-Expose-Headers", "ETag, Server-Timing")
+			finish := h.observeAutoModelRoute(c, &service.APIKey{ID: 81}, tc.selected)
+			c.Header("Content-Type", tc.contentType)
+			c.Status(tc.status)
+			_, err := c.Writer.WriteString(tc.body)
+			require.NoError(t, err)
+			finish()
+
+			responseHeaders := recorder.Result().Header
+			sessionID := responseHeaders.Get("X-Sub2API-Session-ID")
+			runID := responseHeaders.Get("X-Sub2API-Run-ID")
+			requestID := responseHeaders.Get("X-Sub2API-Request-ID")
+			for _, id := range []string{sessionID, runID, requestID} {
+				_, err = uuid.Parse(id)
+				require.NoError(t, err)
+			}
+			exposed := strings.Join(responseHeaders.Values("Access-Control-Expose-Headers"), ", ")
+			require.Contains(t, exposed, "ETag")
+			require.Contains(t, exposed, "X-Sub2API-Session-ID")
+			require.Contains(t, exposed, "X-Sub2API-Run-ID")
+			require.Contains(t, exposed, "X-Sub2API-Request-ID")
+			require.Equal(t, tc.status, recorder.Code)
+			require.Equal(t, tc.body, recorder.Body.String())
+			require.Equal(t, headers, c.Request.Header)
+			body, err := io.ReadAll(c.Request.Body)
+			require.NoError(t, err)
+			require.Equal(t, requestBody, string(body))
+			stored, err := json.Marshal(cache.routes)
+			require.NoError(t, err)
+			require.NotContains(t, string(stored), "sensitive fixture input")
+			require.NotContains(t, string(stored), "private-fixture-key")
+
+			query := url.Values{"session_id": {sessionID}, "run_id": {runID}}
+			lookup := httptest.NewRecorder()
+			queryContext, _ := gin.CreateTestContext(lookup)
+			queryContext.Request = httptest.NewRequest(http.MethodGet, "/v1/auto/routes?"+query.Encode(), nil)
+			queryContext.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{ID: 81})
+			h.AutoModelRoutes(queryContext)
+			require.Equal(t, http.StatusOK, lookup.Code)
+			var response struct {
+				Data []service.AutoModelRouteObservation `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(lookup.Body.Bytes(), &response))
+			require.NotEmpty(t, response.Data)
+			last := response.Data[len(response.Data)-1]
+			require.Equal(t, tc.want, last.State)
+			require.Equal(t, requestID, last.RequestID)
+			require.Equal(t, runID, last.TurnID)
+		})
+	}
+}
+
+func TestAutoModelObservationPreservesValidIDsAndReplacesInvalidMetadata(t *testing.T) {
+	for _, tc := range []struct {
+		name, sessionHeader, metadata, wantSession, wantRun string
+	}{
+		{name: "malformed metadata", metadata: `not-json`},
+		{name: "session only", sessionHeader: observationSession, wantSession: observationSession},
+		{name: "run only", metadata: `{"run_id":"run-a"}`, wantRun: "run-a"},
+		{name: "invalid session", metadata: `{"thread_id":"not-a-uuid","turn_id":"turn-a"}`, wantRun: "turn-a"},
+		{name: "native thread", sessionHeader: "019ccb31-9520-7120-bc17-556e9a92d861", metadata: `{"thread_id":"` + observationSession + `","turn_id":"turn-a"}`, wantSession: observationSession, wantRun: "turn-a"},
+		{name: "metadata session and run", metadata: `{"session_id":"` + observationSession + `","run_id":"run-a"}`, wantSession: observationSession, wantRun: "run-a"},
+		{name: "overlong run", sessionHeader: observationSession, metadata: `{"turn_id":"` + strings.Repeat("x", 129) + `"}`, wantSession: observationSession},
+		{name: "control character run", sessionHeader: observationSession, metadata: `{"turn_id":"run\r\ninjected"}`, wantSession: observationSession},
+		{name: "blank run", sessionHeader: observationSession, metadata: `{"turn_id":"  "}`, wantSession: observationSession},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cache := &observationCache{}
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+			c.Request.Header.Set("session_id", tc.sessionHeader)
+			c.Request.Header.Set("X-Codex-Turn-Metadata", tc.metadata)
+			observationHandler(cache).observeAutoModelRoute(c, &service.APIKey{ID: 81}, "first")()
+			require.NotEmpty(t, cache.routes)
+			route := cache.routes[0]
+			for _, id := range []struct{ got, want string }{{route.SessionID, tc.wantSession}, {route.RunID, tc.wantRun}} {
+				if id.want != "" {
+					require.Equal(t, id.want, id.got)
+					continue
+				}
+				_, err := uuid.Parse(id.got)
+				require.NoError(t, err)
+			}
+			require.Equal(t, route.SessionID, c.Writer.Header().Get("X-Sub2API-Session-ID"))
+			require.Equal(t, route.RunID, c.Writer.Header().Get("X-Sub2API-Run-ID"))
+		})
+	}
 }
 
 func TestAutoModelObservationRecordsPreflightFailure(t *testing.T) {
@@ -150,6 +258,53 @@ func TestAutoModelObservationRecordsPreflightFailure(t *testing.T) {
 	require.Empty(t, route.SelectedModel)
 	require.Empty(t, route.AttemptedModels)
 	require.Equal(t, []service.AutoModelCandidate{{Model: "gpt-5.5", Platform: service.PlatformOpenAI, Reason: "no_compatible_account"}}, route.Candidates)
+}
+
+func TestAutoModelObservationMiddlewarePolicyFailureWithoutMetadata(t *testing.T) {
+	cache := &observationCache{}
+	h := observationHandler(cache)
+	h.settingService = service.NewSettingService(&contentModerationHandlerSettingRepo{values: map[string]string{
+		service.SettingKeyAutoModelPolicy: `{invalid`,
+	}}, nil)
+	key := &service.APIKey{ID: 81, Group: &service.Group{ID: 71, Platform: service.PlatformOpenAI}}
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.ContextKeyAPIKey), key)
+	}, h.AutoModelMiddleware(nil))
+	forwarded := false
+	router.POST("/v1/responses", func(c *gin.Context) {
+		forwarded = true
+		c.Status(http.StatusOK)
+	})
+	router.GET("/v1/auto/routes", h.AutoModelRoutes)
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"auto","input":"fixture"}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	require.Contains(t, recorder.Body.String(), "Auto model routing policy is unavailable")
+	require.False(t, forwarded)
+	require.NotEmpty(t, cache.routes)
+	last := cache.routes[len(cache.routes)-1]
+	require.Equal(t, "failed", last.State)
+	require.Empty(t, last.SelectedModel)
+	require.Empty(t, last.AttemptedModels)
+	require.Equal(t, "auto", last.RequestedModel)
+	responseHeaders := recorder.Result().Header
+	require.Equal(t, last.SessionID, responseHeaders.Get("X-Sub2API-Session-ID"))
+	require.Equal(t, last.RunID, responseHeaders.Get("X-Sub2API-Run-ID"))
+	require.Equal(t, last.RequestID, responseHeaders.Get("X-Sub2API-Request-ID"))
+
+	query := url.Values{"session_id": {last.SessionID}, "run_id": {last.RunID}}
+	lookup := httptest.NewRecorder()
+	router.ServeHTTP(lookup, httptest.NewRequest(http.MethodGet, "/v1/auto/routes?"+query.Encode(), nil))
+	require.Equal(t, http.StatusOK, lookup.Code)
+	var response struct {
+		Data []service.AutoModelRouteObservation `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(lookup.Body.Bytes(), &response))
+	require.NotEmpty(t, response.Data)
+	require.Equal(t, "failed", response.Data[len(response.Data)-1].State)
 }
 
 func TestAutoModelObservationPrefersNativeThreadOverRootSession(t *testing.T) {

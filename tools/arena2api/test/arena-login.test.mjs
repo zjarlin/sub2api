@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { loginArena, loginFailure } from "../src/arena-login.mjs";
+import { arenaOutputRecaptchaRejected, loginArena, loginFailure } from "../src/arena-login.mjs";
 import { ArenaError } from "../src/request.mjs";
 
 const email = "owner@example.com";
@@ -81,6 +81,20 @@ test("credential rejection retains only a safe category and HTTP status", async 
 test("sign-in blocking is distinguished from a wrong password", async (t) => {
   const f = fixture(t, { signInError: new Error(`Arena login failed (403): Cloudflare ${email} ${password}`) });
   await assert.rejects(loginArena(f.browser, email, password), { code: "arena_access_blocked", stage: "email_sign_in", upstreamStatus: 403 });
+});
+
+test("chat reCAPTCHA rejection is distinguished from sign-in failure", () => {
+  const failure = loginFailure(new Error(`recaptcha validation failed ${email} ${password}`), "session_probe");
+  assert.equal(failure.code, "arena_verification_required");
+  assert.equal(failure.stage, "session_probe");
+  assert.ok(!failure.message.includes(email) && !failure.message.includes(password));
+});
+
+test("only an SSE error event can report chat reCAPTCHA rejection", () => {
+  const text = { records: [{ body: JSON.stringify({ data: { type: "text-delta", delta: "recaptcha validation failed" } }) }] };
+  const error = { records: [{ body: JSON.stringify({ data: { type: "error", errorText: "recaptcha validation failed" } }) }] };
+  assert.equal(arenaOutputRecaptchaRejected(`data: ${JSON.stringify(text)}\n\n`), false);
+  assert.equal(arenaOutputRecaptchaRejected(`data: ${JSON.stringify(error)}\n\n`), true);
 });
 
 test("network and timeout errors during homepage loading release the context", async (t) => {

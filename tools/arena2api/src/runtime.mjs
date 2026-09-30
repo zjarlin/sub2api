@@ -9,7 +9,7 @@ import { requireSecret } from "arena-local-bridge/src/secret.mjs";
 import { readEntries, sessionIdFromUrl } from "arena-local-bridge/src/archive.mjs";
 import { ArenaError } from "./request.mjs";
 import { parseAgentOutput } from "arena-local-bridge/src/parser.mjs";
-import { loginArena, loginFailure } from "./arena-login.mjs";
+import { arenaOutputRecaptchaRejected, arenaRecaptchaRejected, loginArena, loginFailure } from "./arena-login.mjs";
 import { createArenaSession } from "./arena-session.mjs";
 import { readJSON, saveJSON } from "./state.mjs";
 
@@ -108,6 +108,9 @@ export function createRuntime(config) {
     }
     activeSignal?.throwIfAborted();
     if (result.errorText) {
+      if (arenaRecaptchaRejected(result.errorText)) {
+        throw new ArenaError(503, "arena_verification_required", "Arena rejected security verification during chat.");
+      }
       throw new ArenaError(502, "arena_stream_error", "Arena reported a generation error.");
     }
     if (result.timing?.breakReason === "budget") {
@@ -189,6 +192,9 @@ export function createRuntime(config) {
         stage = "session_probe";
         const raw = await bridge.readAgentOutput(page, state);
         signal.throwIfAborted();
+        if (arenaOutputRecaptchaRejected(raw)) {
+          throw new ArenaError(503, "arena_verification_required", "Arena rejected security verification during chat.");
+        }
         const reply = parseAgentOutput(raw);
         if (!reply.text.trim() || !reply.lastNodeId || reply.requiresReview || reply.nativeCalls.length > 0) {
           throw new ArenaError(502, "session_not_ready", "Arena could not prepare a text session.");

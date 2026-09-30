@@ -188,8 +188,10 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	// same-account retry budget. Recording the generic account+model transient
 	// cooldown here would block the next approved retry before that budget is used.
 	poolModeRetryable := account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode)
-	if !shouldDisable && account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey &&
-		shouldCooldownOpenAITransientUpstreamError(statusCode, responseBody) && !poolModeRetryable {
+	// 兼容供应商复用同一账号模型熔断，不能因平台名称不同反复撞已失败的上游。
+	if !shouldDisable && account.IsOpenAICompatible() && account.Type == AccountTypeAPIKey &&
+		shouldCooldownOpenAITransientUpstreamError(statusCode, responseBody) && !poolModeRetryable &&
+		!isOpenAIRequestScopedCapacityShed("", responseBody) {
 		model := ""
 		if len(canonicalModel) > 0 {
 			model = canonicalModel[0]

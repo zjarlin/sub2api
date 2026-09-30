@@ -386,10 +386,10 @@ func (s *OpenAIGatewayService) scanCCStream(
 				zap.String("request_id", requestID),
 			)
 		}
-		st.Err = err
+		st.Err = &openAICompatBufferedReadError{cause: err}
 	}
-	if st.Err == nil && !outputStarted && !st.SawDone && !sawFinish {
-		st.Err = parseCCStreamError(`{"error":{"code":"upstream_stream_incomplete","type":"upstream_error","message":"Upstream Chat Completions stream ended before output without a finish reason or [DONE]; please retry"}}`, "error")
+	if st.Err == nil && !st.SawDone && !sawFinish {
+		st.Err = parseCCStreamError(`{"error":{"code":"upstream_stream_incomplete","type":"upstream_error","message":"Upstream Chat Completions stream ended without a finish reason or [DONE]; please retry"}}`, "error")
 	}
 	if st.Err == nil && !outputStarted && !openAIUsageHasTokens(&st.Usage) && (st.SawDone || sawFinish) {
 		st.Err = parseCCStreamError(`{"error":{"code":"openai_silent_refusal","type":"upstream_error","message":"Upstream returned an empty completion without usage; please retry"}}`, "error")
@@ -418,6 +418,11 @@ func (s *OpenAIGatewayService) readCCUpstreamJSONResponse(
 ) (*apicompat.ChatCompletionsResponse, OpenAIUsage, error) {
 	respBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
+		forwardErr := s.newOpenAICompatBufferedReadFailoverError(c, account, resp, resp.Header.Get("x-request-id"), &openAICompatBufferedReadError{cause: err})
+		var failover *UpstreamFailoverError
+		if errors.As(forwardErr, &failover) {
+			return nil, OpenAIUsage{}, failover
+		}
 		if !errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
 			writeError(c, http.StatusBadGateway, "api_error", "Failed to read upstream response")
 		}
@@ -426,12 +431,11 @@ func (s *OpenAIGatewayService) readCCUpstreamJSONResponse(
 
 	var ccResp apicompat.ChatCompletionsResponse
 	respBody = unwrapOpenAIChatCompletionEnvelope(respBody)
-	if gjson.ValidBytes(respBody) && !gjson.GetBytes(respBody, "choices").IsArray() {
+	if !gjson.ValidBytes(respBody) || !gjson.GetBytes(respBody, "choices").IsArray() {
 		return nil, OpenAIUsage{}, newOpenAIInvalidChatCompletionFailoverError(c, account, resp.Header.Get("x-request-id"), respBody)
 	}
 	if err := json.Unmarshal(respBody, &ccResp); err != nil {
-		writeError(c, http.StatusBadGateway, "api_error", "Failed to parse upstream response")
-		return nil, OpenAIUsage{}, fmt.Errorf("parse chat completions response: %w", err)
+		return nil, OpenAIUsage{}, newOpenAIInvalidChatCompletionFailoverError(c, account, resp.Header.Get("x-request-id"), respBody)
 	}
 	// 观察上游 CC JSON 回显的 model / service_tier（计费以回显为准）。
 	// CC JSON 无 type 字段，按 untyped payload 观察（上游约束）。
@@ -465,7 +469,7 @@ func unwrapOpenAIChatCompletionEnvelope(body []byte) []byte {
 
 // HTTP 200 的错误对象或非 CC 对象不能转换成伪成功的空消息。
 func newOpenAIInvalidChatCompletionFailoverError(c *gin.Context, account *Account, requestID string, body []byte) *UpstreamFailoverError {
-	message := "OpenAI upstream returned JSON without Chat Completions choices"
+	message := "OpenAI upstream returned an invalid Chat Completions response"
 	setOpsUpstreamError(c, http.StatusBadGateway, message, string(body))
 	event := OpsUpstreamErrorEvent{
 		Platform: PlatformOpenAI, ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),

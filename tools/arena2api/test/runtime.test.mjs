@@ -101,6 +101,37 @@ test("failed session probe does not publish a model or credentials", async (t) =
   assert.equal(close.mock.callCount(), 1);
 });
 
+test("session probe reCAPTCHA rejection publishes no model or credentials", async (t) => {
+  const config = fixture(t);
+  t.mock.method(ArenaBrowser.prototype, "login", async () => ({ email: model.accountEmail, cookieHeader: "private-cookie", password: "private-password" }));
+  t.mock.method(ArenaBrowser.prototype, "close", async () => {});
+  const error = { records: [{ body: JSON.stringify({ data: { type: "error", errorText: "recaptcha validation failed private-cookie" } }) }] };
+  t.mock.method(Bridge.prototype, "readAgentOutput", async () => `data: ${JSON.stringify(error)}\n\n`);
+  const runtime = createRuntime(config);
+  await assert.rejects(runtime.loginAndPrepare(model.accountEmail, "private-password", new AbortController().signal), (error) => {
+    assert.equal(error.code, "arena_verification_required");
+    assert.ok(!error.message.includes("private"));
+    return true;
+  });
+  assert.deepEqual(runtime.models(), []);
+  assert.equal(fs.existsSync(config.core.credentialsFile), false);
+});
+
+test("generation surfaces reCAPTCHA rejection without upstream text", async (t) => {
+  const config = fixture(t);
+  t.mock.method(ArenaBrowser.prototype, "close", async () => {});
+  t.mock.method(Bridge.prototype, "converse", async function () {
+    return this.readLatestTurn(null, {});
+  });
+  t.mock.method(Bridge.prototype, "readLatestTurn", async () => ({ errorText: "recaptcha validation failed private-cookie" }));
+  const runtime = createRuntime(config);
+  await assert.rejects(runtime.generate(model, { prompt: "hello" }, { signal: new AbortController().signal }), (error) => {
+    assert.equal(error.code, "arena_verification_required");
+    assert.ok(!error.message.includes("private"));
+    return true;
+  });
+});
+
 test("Cloudflare stops web login before sign-in and cannot publish credentials or models", async (t) => {
   const config = fixture(t);
   t.mock.method(ArenaBrowser.prototype, "launch", async () => ({

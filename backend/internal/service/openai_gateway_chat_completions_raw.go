@@ -578,6 +578,11 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 
 	respBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)
 	if err != nil {
+		forwardErr := s.newOpenAICompatBufferedReadFailoverError(c, account, resp, requestID, &openAICompatBufferedReadError{cause: err})
+		var failover *UpstreamFailoverError
+		if errors.As(forwardErr, &failover) {
+			return nil, failover
+		}
 		if !errors.Is(err, ErrUpstreamResponseBodyTooLarge) {
 			writeChatCompletionsError(c, http.StatusBadGateway, "api_error", "Failed to read upstream response")
 		}
@@ -588,7 +593,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		observer = beginUpstreamResponseModelObservation(c)
 	}
 	respBody = unwrapOpenAIChatCompletionEnvelope(respBody)
-	if gjson.ValidBytes(respBody) && !gjson.GetBytes(respBody, "choices").IsArray() {
+	if !gjson.ValidBytes(respBody) || !gjson.GetBytes(respBody, "choices").IsArray() {
 		return nil, newOpenAIInvalidChatCompletionFailoverError(c, account, requestID, respBody)
 	}
 	observer.ObserveOpenAI(respBody, strings.TrimSpace(gjson.GetBytes(respBody, "type").String()))

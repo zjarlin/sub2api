@@ -98,6 +98,7 @@ const error = ref('')
 const arenaErrorKeys = new Map<string, string>([
   ['BUILTIN_ADAPTER_DISABLED', 'admin.accounts.arena.unavailable'],
   ['ARENA_ACCESS_BLOCKED', 'admin.accounts.arena.accessBlocked'],
+  ['ARENA_VERIFICATION_REQUIRED', 'admin.accounts.arena.verificationRequired'],
   ['ARENA_INVALID_CREDENTIALS', 'admin.accounts.arena.invalidCredentials'],
   ['ARENA_SESSION_UNUSABLE', 'admin.accounts.arena.sessionUnusable'],
   ['ARENA_SESSION_NOT_READY', 'admin.accounts.arena.sessionNotReady'],

@@ -63,6 +63,56 @@ func TestHandleOpenAITransientError_529RemainsOverloadOnly(t *testing.T) {
 	require.False(t, shouldCooldownOpenAITransientUpstreamError(529, []byte(`{"error":{"message":"overloaded"}}`)))
 }
 
+func TestCompatibleProviderTransientErrorsUseExistingModelCircuit(t *testing.T) {
+	for _, platform := range []string{PlatformOpenAI, PlatformDeepseek, PlatformZhipu, PlatformKimi, PlatformOpenCodeGo, PlatformGrok, PlatformCursor} {
+		t.Run(platform, func(t *testing.T) {
+			svc := &OpenAIGatewayService{}
+			svc.rateLimitService = NewRateLimitService(transientCooldownAccountRepo{}, nil, &config.Config{}, nil, nil)
+			account := &Account{ID: 5200, Platform: platform, Type: AccountTypeAPIKey}
+			account.Credentials = map[string]any{"model_mapping": map[string]any{"public": "upstream", "upstream": "other"}}
+			for range 2 {
+				require.False(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusServiceUnavailable, nil,
+					[]byte(`{"error":{"message":"temporary upstream failure"}}`), "upstream"))
+			}
+			require.True(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "public"))
+			require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "upstream"), "模型映射只应用一次，不隔离其他模型")
+			other := *account
+			other.ID++
+			require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(&other, "public"))
+			svc.ReportOpenAIAccountScheduleResult(account, "upstream", true, nil)
+			require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "public"), "真实成功清除同一模型的熔断")
+		})
+	}
+}
+
+func TestCompatibleProviderModelCircuitPreservesRetryPolicies(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		platform    string
+		accountType string
+		status      int
+		body        string
+		pool        bool
+	}{
+		{"pool retry", PlatformOpenCodeGo, AccountTypeAPIKey, http.StatusServiceUnavailable, "temporary upstream failure", true},
+		{"request capacity", PlatformOpenCodeGo, AccountTypeAPIKey, http.StatusServiceUnavailable, "server is overloaded", false},
+		{"parameter error", PlatformOpenCodeGo, AccountTypeAPIKey, http.StatusBadRequest, "invalid parameter", false},
+		{"oauth", PlatformGrok, AccountTypeOAuth, http.StatusServiceUnavailable, "temporary upstream failure", false},
+		{"other protocol", PlatformAnthropic, AccountTypeAPIKey, http.StatusServiceUnavailable, "temporary upstream failure", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := &OpenAIGatewayService{}
+			svc.rateLimitService = NewRateLimitService(transientCooldownAccountRepo{}, nil, &config.Config{}, nil, nil)
+			account := &Account{ID: 5300, Platform: tc.platform, Type: tc.accountType,
+				Credentials: map[string]any{"pool_mode": tc.pool, "pool_mode_retry_status_codes": []any{float64(tc.status)}}}
+			for range 2 {
+				svc.handleOpenAIAccountUpstreamError(context.Background(), account, tc.status, nil, []byte(tc.body), "model")
+			}
+			require.False(t, svc.isOpenAIAccountRequestRuntimeBlocked(account, "model"))
+		})
+	}
+}
+
 func TestHandleOpenAITransientError_CanonicalModelIsNotMappedTwice(t *testing.T) {
 	svc := &OpenAIGatewayService{}
 	svc.rateLimitService = NewRateLimitService(transientCooldownAccountRepo{}, nil, &config.Config{}, nil, nil)

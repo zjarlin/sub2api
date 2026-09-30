@@ -286,9 +286,13 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		s.cacheReasoningItemsFromEvents(events)
 		writeEvents(events)
 	})
-	// EOF 本身不代表生成完成；兼容省略 [DONE] 但仍发送 finish_reason 的上游。
-	if scan.Err == nil && !scan.SawDone && state.FinishReason == "" {
-		scan.Err = parseCCStreamError(`{"error":{"code":"upstream_stream_incomplete","type":"upstream_error","message":"Upstream Chat Completions stream ended without a finish reason or [DONE]"}}`, "error")
+	// 首次输出前的传输中断仍可透明换号；已提交响应后保留原失败与部分用量。
+	if scan.Err != nil && !state.CreatedSent {
+		scan.Err = s.newOpenAICompatBufferedReadFailoverError(c, account, resp, requestID, scan.Err)
+		var failover *UpstreamFailoverError
+		if errors.As(scan.Err, &failover) {
+			return nil, scan.Err
+		}
 	}
 
 	var streamErr *ccStreamError

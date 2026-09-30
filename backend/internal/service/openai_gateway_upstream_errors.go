@@ -303,11 +303,8 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(account *Acc
 	if isOpenAIToolCallContinuationError(upstreamMsg, upstreamBody) {
 		return true
 	}
-	// A deterministic account+model capability miss is retryable on another
-	// account even when the broad failover_on_400 switch is disabled. The
-	// side-effect path persists the negative capability before the handler
-	// excludes this account and re-enters scheduling.
-	if isDeterministicUnsupportedModelError(statusCode, upstreamBody) {
+	// 明确的 404/422 模型能力错误仍允许换账号；400 必须经过下方的托管兼容账号检查。
+	if statusCode != http.StatusBadRequest && isDeterministicUnsupportedModelError(statusCode, upstreamBody) {
 		return true
 	}
 	if isOpenAIHTTPUpstreamAccessStateError(statusCode, upstreamMsg, upstreamBody) {
@@ -326,7 +323,7 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(account *Acc
 	// retry signal. Managed gateway instances always have an account repository;
 	// their handler can exclude this account and actually select another one.
 	if s != nil && s.accountRepo != nil && account != nil && account.IsOpenAICompatible() && statusCode == http.StatusBadRequest &&
-		isOpenAICompatibleModelNotFound400(upstreamBody) {
+		(isDeterministicUnsupportedModelError(statusCode, upstreamBody) || isOpenAICompatibleModelNotFound400(upstreamBody)) {
 		return true
 	}
 	if isOpenAIOpaqueUpstreamFailure(statusCode, upstreamBody) {

@@ -14,6 +14,7 @@ export default {
         loggingIn: '正在登录 Arena 并准备可用会话，请稍候…',
         loginFailed: 'Arena 登录或会话准备失败，暂时无法确定具体原因。请重试，或联系部署管理员查看登录服务状态。',
         accessBlocked: 'Arena 的 Cloudflare 防护拦截了服务器出口，无法完成网页登录。请为 Arena 服务配置可正常访问 Arena 的代理后重试。',
+        verificationRequired: 'Arena 已接受登录，但发送消息时验证码校验失败，当前没有可用模型。请先在 Arena 网站确认能正常连续对话；若验证反复出现，请联系 Arena 处理账号或出口限制。',
         invalidCredentials: 'Arena 拒绝了此邮箱或密码。请确认使用 Arena 网站的登录凭据后重试。',
         sessionUnusable: 'Arena 已登录，但会话测试失败，暂时没有可用模型。请在 Arena 网站确认账号可正常发送消息后重试。',
         sessionNotReady: 'Arena 会话尚未就绪。请稍后重新登录并准备会话。',

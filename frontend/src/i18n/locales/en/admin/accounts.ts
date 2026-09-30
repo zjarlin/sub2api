@@ -14,6 +14,7 @@ export default {
         loggingIn: 'Logging in to Arena and preparing a session…',
         loginFailed: 'Arena login or session preparation failed, and the cause could not be determined. Retry or ask your deployment administrator to check the login service.',
         accessBlocked: 'Arena Cloudflare protection blocked access from the server, so web login could not complete. Configure the Arena service with a proxy that can access Arena, then retry.',
+        verificationRequired: 'Arena accepted sign-in, but reCAPTCHA rejected the chat message, so no model is available yet. Confirm that consecutive messages work on the Arena website; contact Arena if verification keeps repeating.',
         invalidCredentials: 'Arena rejected this email or password. Confirm that you are using your Arena website credentials, then retry.',
         sessionUnusable: 'Arena login succeeded, but the session test failed and no model is available yet. Confirm that your account can send messages on the Arena website, then retry.',
         sessionNotReady: 'The Arena session is not ready. Wait a moment, then log in again to prepare a session.',

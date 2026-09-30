@@ -116,10 +116,22 @@ test("failed creation response retains a safe status without parsing or retrying
     assert.ok(!error.message.includes("private"));
     return true;
   });
-  assert.equal(f.response.text.mock.callCount(), 0);
+  assert.equal(f.response.text.mock.callCount(), 1);
   assert.equal(f.page.reload.mock.callCount(), 0);
   assert.equal(f.send.click.mock.callCount(), 1);
   assert.equal(f.page.evaluate.mock.callCount(), 0);
+});
+
+test("creation reCAPTCHA rejection is classified without leaking the response", async (t) => {
+  const f = fixture(t, { status: 403 });
+  f.response.text = t.mock.fn(async () => "recaptcha validation failed private-cookie");
+  await assert.rejects(createArenaSession(f.page, prompt), (error) => {
+    assert.equal(error.code, "arena_verification_required");
+    assert.ok(!error.message.includes("private"));
+    return true;
+  });
+  assert.equal(f.send.click.mock.callCount(), 1);
+  assert.equal(f.page.reload.mock.callCount(), 0);
 });
 
 test("invalid session UUID is rejected before fetching a token even with a valid model UUID", async (t) => {

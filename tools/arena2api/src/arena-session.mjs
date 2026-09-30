@@ -1,6 +1,6 @@
 import { setTimeout } from "node:timers/promises";
 import { parsePublicToken } from "arena-local-bridge/src/parser.mjs";
-import { loginFailure } from "./arena-login.mjs";
+import { arenaRecaptchaRejected, loginFailure } from "./arena-login.mjs";
 import { ArenaError } from "./request.mjs";
 
 const sessionIdPattern = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
@@ -66,6 +66,9 @@ export async function createArenaSession(page, prompt, signal) {
     const response = await createResponse;
     signal?.throwIfAborted();
     if (response.status() !== 200) {
+      if (arenaRecaptchaRejected(await response.text())) {
+        throw new ArenaError(503, "arena_verification_required", "Arena rejected security verification during chat.");
+      }
       throw preparationFailure("Arena Agent session creation failed.", response.status());
     }
     const created = JSON.parse(await response.text());
