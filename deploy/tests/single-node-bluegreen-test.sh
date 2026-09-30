@@ -45,16 +45,13 @@ case "$*" in
   "exec sub2api-gateway nginx -t"|"exec sub2api-gateway nginx -s reload")
     exit 0
     ;;
-  *"run -d --no-deps --name sub2api-canary"*)
+  *"run -d --name sub2api-canary-"*)
     if [ "${MOCK_CANARY_FAIL:-0}" = 1 ]; then printf 'canary failed\n'; exit 7; fi
     ;;
-  "inspect --format {{(index (index .NetworkSettings.Ports \"8080/tcp\") 0).HostPort}} sub2api-canary")
+  "inspect --format {{(index (index .NetworkSettings.Ports \"8080/tcp\") 0).HostPort}} sub2api-canary-"*)
     printf '18090\n'
     ;;
-  "inspect --format {{(index (index .NetworkSettings.Ports \"8080/tcp\") 0).HostPort}} sub2api-canary")
-    printf '18090\n'
-    ;;
-  "rm -sf sub2api-canary")
+  "stop sub2api-canary-"*|"rm -f sub2api-canary-"*)
     exit 0
     ;;
   "logs "*)
@@ -89,11 +86,11 @@ run_deploy() {
 }
 
 run_deploy "$test_dir/success.log" > "$test_dir/success.out"
-grep -Fq -- "run -d --no-deps --name sub2api-canary" "$test_dir/success.log"
+grep -Eq -- "run -d --name sub2api-canary-[0-9]{8}T[0-9]{6}Z" "$test_dir/success.log"
 grep -Fq -- "--publish 127.0.0.1::8080" "$test_dir/success.log"
-grep -Fq -- "--label sub2api.role=release-candidate sub2api" "$test_dir/success.log"
+grep -Fq -- "--label sub2api.role=release-candidate" "$test_dir/success.log"
 if ! awk '
-  /run -d --no-deps --name sub2api-canary/ { candidate=NR }
+  /run -d --name sub2api-canary-/ { candidate=NR }
   /exec sub2api-gateway nginx -s reload/ { reload=NR }
   END { exit !(candidate > 0 && reload > candidate) }
 ' "$test_dir/success.log"; then
@@ -101,7 +98,7 @@ if ! awk '
   exit 1
 fi
 grep -Fq -- "up -d --wait --wait-timeout 1 --no-deps sub2api" "$test_dir/success.log"
-grep -Fq -- "rm -sf sub2api-canary" "$test_dir/success.log"
+grep -Eq -- "(stop|rm -f) sub2api-canary-" "$test_dir/success.log"
 
 if MOCK_CANARY_FAIL=1 run_deploy "$test_dir/canary-failed.log" > "$test_dir/canary-failed.out" 2>&1; then
   printf 'deployment succeeded although candidate startup failed\n' >&2

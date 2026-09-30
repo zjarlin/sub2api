@@ -200,6 +200,7 @@ fi
 CUTOVER_STARTED=0
 CANDIDATE_SERVING=0
 PRIMARY_SERVING=0
+CANARY_CONTAINER=""
 
 gateway_running() {
   docker inspect --format '{{.State.Running}}' sub2api-gateway 2>/dev/null | grep -qx true
@@ -266,33 +267,59 @@ wait_for_gateway_backend() {
 }
 
 stop_canary() {
-  docker rm -sf sub2api-canary >/dev/null 2>&1 || true
+  local ids id
+  if [ -n "$CANARY_CONTAINER" ]; then
+    docker stop "$CANARY_CONTAINER" >/dev/null 2>&1 || true
+    docker rm -f "$CANARY_CONTAINER" >/dev/null 2>&1 || true
+  fi
+  ids="$(docker ps -aq --filter 'label=sub2api.role=release-candidate')"
+  for id in $ids; do
+    docker stop "$id" >/dev/null 2>&1 || true
+    docker rm -f "$id" >/dev/null 2>&1 || true
+  done
 }
 
 start_canary() {
-  stop_canary
-  local publish
+  local env_file network publish
   case "$CANARY_PORT" in
     auto|"") publish="127.0.0.1::8080" ;;
     *) publish="127.0.0.1:$CANARY_PORT:8080" ;;
   esac
-  echo "Starting isolated candidate behind $publish"
-  SUB2API_IMAGE="$IMAGE" LOG_OUTPUT_FILE_PATH="$CANARY_LOG_PATH" \
-    "${COMPOSE[@]}" run -d --no-deps --name sub2api-canary \
-      --publish "$publish" \
-      --label "sub2api.role=release-candidate" sub2api
-  CANARY_PORT="$(docker inspect --format '{{(index (index .NetworkSettings.Ports "8080/tcp") 0).HostPort}}' sub2api-canary)"
-  if [ -z "$CANARY_PORT" ]; then
-    echo "Could not determine candidate host port" >&2
-    return 1
+  CANARY_CONTAINER="sub2api-canary-$STAMP"
+  stop_canary
+  if [ -n "$BASE_CONTAINER" ]; then
+    env_file="$(mktemp "$RELEASE_DIR/canary.env.XXXXXX")"
+    chmod 0600 "$env_file"
+    docker inspect --format '{{range .Config.Env}}{{println .}}{{end}}' "$BASE_CONTAINER" > "$env_file"
+    network="$(docker inspect --format '{{range $name,$network := .NetworkSettings.Networks}}{{println $name}}{{end}}' "$BASE_CONTAINER" | head -n1)"
+    test -n "$network"
+  else
+    env_file="$DEPLOY_DIR/.env"
+    network="${PROJECT_NAME}_sub2api-network"
   fi
+  echo "Starting isolated candidate $CANARY_CONTAINER behind $publish"
+  docker run -d --name "$CANARY_CONTAINER" \
+    --network "$network" \
+    --network-alias sub2api-canary \
+    --env-file "$env_file" \
+    --volumes-from "$BASE_CONTAINER" \
+    --publish "$publish" \
+    --env SERVER_HOST=0.0.0.0 \
+    --env SERVER_PORT=8080 \
+    --env LOG_OUTPUT_FILE_PATH="$CANARY_LOG_PATH" \
+    --restart no \
+    --label "sub2api.role=release-candidate" \
+    "$IMAGE"
+  [ "$env_file" = "$DEPLOY_DIR/.env" ] || rm -f "$env_file"
+  CANARY_PORT="$(docker inspect --format '{{(index (index .NetworkSettings.Ports "8080/tcp") 0).HostPort}}' "$CANARY_CONTAINER")"
+  test -n "$CANARY_PORT"
   echo "Candidate listening on 127.0.0.1:$CANARY_PORT"
 }
 rollback() {
   local exit_status=$?
   trap - ERR
   "${COMPOSE[@]}" ps -a > "$RELEASE_DIR/failed-containers" 2>&1 || true
-  docker logs --tail 200 sub2api-canary > "$RELEASE_DIR/canary.log" 2>&1 || true
+  if [ -n "$CANARY_CONTAINER" ]; then docker logs --tail 200 "$CANARY_CONTAINER" > "$RELEASE_DIR/canary.log" 2>&1 || true; fi
   "${COMPOSE[@]}" logs --no-color --tail 200 sub2api gateway > "$RELEASE_DIR/failed-startup.log" 2>&1 || true
   echo "Deployment diagnostics: $RELEASE_DIR/failed-startup.log"
   cat "$RELEASE_DIR/failed-containers" "$RELEASE_DIR/canary.log" "$RELEASE_DIR/failed-startup.log" || true
@@ -405,9 +432,8 @@ if ! curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18080/heal
 fi
 PRIMARY_SERVING=1
 stop_canary
-if docker ps --filter name=^sub2api-canary$ --filter status=running --format '{{.ID}}' | grep -q .; then
-  echo "Candidate cleanup failed" >&2
-  false
+if docker ps --filter "label=sub2api.role=release-candidate" --filter status=running --format '{{.ID}}' | grep -q .; then
+  echo "Warning: a release candidate is still running; next deployment will clean it" >&2
 fi
 
 docker ps --filter "label=com.docker.compose.project=$PROJECT_NAME" --format '{{.Names}} {{.Status}}' > "$RELEASE_DIR/containers"
