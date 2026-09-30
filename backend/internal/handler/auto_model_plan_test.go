@@ -81,6 +81,34 @@ func (r *autoInventoryRepo) ListModelAvailabilityCandidates(ctx context.Context,
 	return r.autoModelAccountRepoStub.ListModelAvailabilityCandidates(ctx, groupID, platforms, includeGrouped)
 }
 
+func TestAutoModelPlanRoutesUIDesignToDesignCapableModels(t *testing.T) {
+	accounts := []service.Account{{
+		ID: 1, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+		Status: service.StatusActive, Schedulable: true,
+		Credentials: map[string]any{"model_mapping": map[string]any{
+			"deepseek-v4.1-flash": "deepseek-v4.1-flash",
+			"claude-opus-4-7":     "claude-opus-4-7",
+			"kimi-k3":             "kimi-k3",
+		}},
+	}}
+	h := newAutoModelTestHandler(accounts)
+	ctx, err := h.settingService.BindAutoModelRoutingPolicy(context.Background())
+	require.NoError(t, err)
+	ctx, models, err := h.gatewayService.BindAutoModelInventory(ctx, 71)
+	require.NoError(t, err)
+	group := &service.Group{ID: 71, Platform: service.PlatformOpenAI}
+
+	routes, _, err := h.autoModelPlan(ctx, group, nil, "/v1/responses", []byte(`{"model":"auto","input":"帮我做 UI 设计，降低卡片感的 AI 味"}`), models)
+	require.NoError(t, err)
+	require.NotEmpty(t, routes)
+	require.Equal(t, "claude-opus-4-7", routes[0].model)
+
+	routes, _, err = h.autoModelPlan(ctx, group, nil, "/v1/responses", []byte(`{"model":"auto","input":"修复这个空指针"}`), models)
+	require.NoError(t, err)
+	require.NotEmpty(t, routes)
+	require.Equal(t, "deepseek-v4.1-flash", routes[0].model)
+}
+
 func TestAutoModelPlanIncludesEveryConfiguredCandidateWithoutHealthHistory(t *testing.T) {
 	mapping := map[string]any{}
 	for i := 0; i < 700; i++ {

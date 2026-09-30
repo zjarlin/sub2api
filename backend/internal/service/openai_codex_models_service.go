@@ -453,10 +453,12 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 		InputModalities:                   []string{"text"},
 	}
 
-	// Auto 是网关能力，图片会按原生视觉或已配置的视觉助手路由。
+	// Auto 是网关能力，图片会按原生视觉或已配置的视觉助手路由；
+	// v2 让顶层 Auto 回合也能使用客户端原生子 Agent。
 	if modelID == "auto" {
 		descriptor.DisplayName = "Auto"
 		descriptor.InputModalities = []string{"text", "image"}
+		descriptor.MultiAgentVersion = "v2"
 	}
 
 	if isDeepSeekCodexModel(modelID) {

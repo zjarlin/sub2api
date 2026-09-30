@@ -10,13 +10,13 @@ import (
 
 const autoModelPlanKey = "auto_model_plan"
 
-// 所有已配置模型都进入计划，能执行的模型按性价比和能力排序；账号名和凭据不对客户端公开。
+// All configured models enter the plan; eligible models are ordered by cost and capability.
 func (h *GatewayHandler) autoModelPlan(ctx context.Context, group *service.Group, resolver *service.CompositeRouteResolver, path string, body []byte, models []string) ([]autoModelRouteCandidate, []service.AutoModelCandidate, error) {
 	explicit, err := resolver.AutoModelRoutes(ctx, group.ID)
 	if err != nil {
 		return nil, nil, err
 	}
-	// 展示目录与实际来源一起进入元数据；没有来源的默认模型只解释排除原因。
+	// The display catalog and real sources enter metadata together; defaults without a source explain exclusion only.
 	var discovered []string
 	if group.Platform == service.PlatformComposite {
 		discovered = h.compositeAvailableModels(ctx, &group.ID)
@@ -43,7 +43,16 @@ func (h *GatewayHandler) autoModelPlan(ctx context.Context, group *service.Group
 		}
 	}
 	canonical := aliases.CanonicalIDs(models)
+	domain := autoModelRequestDomain(body)
 	sort.SliceStable(canonical, func(i, j int) bool {
+		di, domainI := autoModelDomainPriority(domain, canonical[i])
+		dj, domainJ := autoModelDomainPriority(domain, canonical[j])
+		if domainI != domainJ {
+			return domainI
+		}
+		if domainI && di != dj {
+			return di < dj
+		}
 		pi, ti := service.AutoModelPriority(ctx, canonical[i])
 		pj, tj := service.AutoModelPriority(ctx, canonical[j])
 		if pi != pj {
@@ -66,14 +75,14 @@ func (h *GatewayHandler) autoModelPlan(ctx context.Context, group *service.Group
 			}
 		}
 		if len(platforms) == 0 {
-			// 目录里的决策平台模型不能通过展示补全变成无来源文本候选。
+			// A decision-platform model in the display catalog must not become a text candidate without a source.
 			if service.AutoModelInventoryDecisionOnlyModel(ctx, model) {
 				continue
 			}
 			platforms = []string{""}
 		}
 		for _, platform := range platforms {
-			// 显式合成规则同样不能把文本模型指向仅提供决策协议的平台。
+			// An explicit composite rule also cannot point a text model at a decision-only platform.
 			if service.IsSystemOneDecisionPlatform(platform) && !service.AutoModelInventoryDecisionSource(platform, model) {
 				continue
 			}

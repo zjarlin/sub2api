@@ -62,6 +62,28 @@ func TestVibexChatOmitsUnsupportedReasoningEffort(t *testing.T) {
 	require.Equal(t, "ok", gjson.Get(recorder.Body.String(), "choices.0.message.content").String())
 }
 
+func TestVibexChatOmitsUnsupportedCompletionBudget(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"vibex-alias","messages":[{"role":"user","content":"hello"}],"max_tokens":64,"max_completion_tokens":64}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"chatcmpl-vibex","object":"chat.completion","model":"free-qwen-3.8-max","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`,
+		)),
+	}}
+	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
+
+	result, err := svc.forwardAsRawChatCompletions(context.Background(), c, vibexBridgeTestAccount(), body, "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.False(t, gjson.GetBytes(upstream.lastBody, "max_completion_tokens").Exists())
+	require.EqualValues(t, 64, gjson.GetBytes(upstream.lastBody, "max_tokens").Int())
+}
+
 func TestVibexResponsesOmitsUnsupportedReasoningEffort(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := []byte(`{"model":"vibex-alias","input":"hello","reasoning":{"effort":"high"}}`)

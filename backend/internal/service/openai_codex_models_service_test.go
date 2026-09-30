@@ -503,6 +503,18 @@ func TestBuildCodexModelsManifestUsesSingleNoneReasoningChoiceForCustomModel(t *
 }
 
 // Scenario: 已知推理模型保留真实档位。
+func TestBuildCodexModelsManifestAdvertisesAutoMultiAgentV2(t *testing.T) {
+	t.Parallel()
+
+	body, err := BuildCodexModelsManifest([]string{"auto"})
+	require.NoError(t, err)
+	models := decodeCodexManifestModels(t, body)
+	require.Len(t, models, 1)
+	require.Equal(t, "auto", models[0]["slug"])
+	require.Equal(t, "v2", models[0]["multi_agent_version"])
+	require.Equal(t, []any{"text", "image"}, models[0]["input_modalities"])
+}
+
 func TestBuildCodexModelsManifestKeepsKnownReasoningChoices(t *testing.T) {
 	t.Parallel()
 
