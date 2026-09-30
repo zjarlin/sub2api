@@ -221,6 +221,47 @@ func TestResponsesToChatCompletionsRequest_ParallelToolCalls(t *testing.T) {
 	assert.Contains(t, string(payload), `"parallel_tool_calls":false`)
 }
 
+func TestResponsesToChatCompletionsRequest_EnforceAgentLoopWithTools(t *testing.T) {
+	req := &ResponsesRequest{
+		Model:        "deepseek-chat",
+		Instructions: "You are Codex.",
+		Input:        json.RawMessage(`[{"role":"user","content":"finish the task"}]`),
+		Tools:        []ResponsesTool{{Type: "function", Name: "exec_command", Parameters: json.RawMessage(`{"type":"object"}`)}},
+	}
+
+	out, err := ResponsesToChatCompletionsRequestWithOptions(req, &ResponsesToChatOptions{EnforceAgentLoop: true})
+	require.NoError(t, err)
+	require.Len(t, out.Messages, 2)
+	require.Equal(t, "system", out.Messages[0].Role)
+	require.Contains(t, chatMessageContentText(out.Messages[0].Content), "progress update")
+	require.Contains(t, chatMessageContentText(out.Messages[0].Content), "emit the next tool call in the same assistant response")
+}
+
+func TestResponsesToChatCompletionsRequest_EnforceAgentLoopLeavesPlainTextRequestUnchanged(t *testing.T) {
+	req := &ResponsesRequest{
+		Model:        "deepseek-chat",
+		Instructions: "You are Codex.",
+		Input:        json.RawMessage(`[{"role":"user","content":"say hello"}]`),
+	}
+
+	out, err := ResponsesToChatCompletionsRequestWithOptions(req, &ResponsesToChatOptions{EnforceAgentLoop: true})
+	require.NoError(t, err)
+	require.Equal(t, "You are Codex.", chatMessageContentText(out.Messages[0].Content))
+}
+
+func TestResponsesToChatCompletionsRequest_AgentLoopInstructionIsOptIn(t *testing.T) {
+	req := &ResponsesRequest{
+		Model:        "deepseek-chat",
+		Instructions: "You are Codex.",
+		Input:        json.RawMessage(`[{"role":"user","content":"finish the task"}]`),
+		Tools:        []ResponsesTool{{Type: "function", Name: "exec_command", Parameters: json.RawMessage(`{"type":"object"}`)}},
+	}
+
+	out, err := ResponsesToChatCompletionsRequest(req)
+	require.NoError(t, err)
+	require.Equal(t, "You are Codex.", chatMessageContentText(out.Messages[0].Content))
+}
+
 func chatMessageRoles(messages []ChatMessage) []string {
 	roles := make([]string, 0, len(messages))
 	for _, message := range messages {

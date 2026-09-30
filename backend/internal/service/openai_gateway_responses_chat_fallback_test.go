@@ -567,6 +567,36 @@ func TestForwardResponses_ChatFallbackRestoresReasoningFromCache(t *testing.T) {
 	require.Equal(t, "plain thinking", cache.snapshotSets()["item_plain"])
 }
 
+func TestForwardResponses_ChatFallbackEnforcesAgentLoopWhenToolsDeclared(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"deepseek-v4.1-flash","instructions":"You are Codex.","input":"continue","stream":false,"tools":[{"type":"function","name":"exec_command","parameters":{"type":"object"}}]}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"chatcmpl_agent_loop","object":"chat.completion","model":"deepseek-v4.1-flash","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}`,
+		)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+
+	result, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	system := gjson.GetBytes(upstream.lastBody, "messages.0.content").String()
+	require.Contains(t, system, "progress update")
+	require.Contains(t, system, "emit the next tool call in the same assistant response")
+	require.Equal(t, "continue", gjson.GetBytes(upstream.lastBody, "messages.1.content").String())
+}
+
 func TestForwardResponses_GenericUpstream400RetriesViaChatCompletions(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

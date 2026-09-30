@@ -32,7 +32,18 @@ type ResponsesToChatOptions struct {
 	// longer provide. Return "" on a miss. A nil lookup keeps the original
 	// behavior.
 	ReasoningContentByID func(itemID string) string
+
+	// EnforceAgentLoop adds a provider-side instruction for coding-agent
+	// requests that have client-executable tools. Some Chat Completions models
+	// otherwise return a short progress message (for example, "I'll inspect the
+	// files now") with finish_reason=stop and no tool call. Codex treats that as
+	// a normal completed turn, so the task stops even though no work was done.
+	// The instruction keeps ordinary final answers valid while requiring the
+	// same assistant response to continue with a tool call whenever work remains.
+	EnforceAgentLoop bool
 }
+
+const chatAgentLoopInstruction = `When client tools are available, keep the coding task moving until the requested work is actually complete. A progress update such as "I will inspect...", "Next I will...", or "I'll update..." is not a final answer. If any action or verification remains, emit the next tool call in the same assistant response instead of ending with prose. Only finish with a final answer once the requested work is complete.`
 
 // ResponsesToChatCompletionsRequest converts a Responses API request into a
 // Chat Completions request for upstreams that only implement
@@ -52,7 +63,6 @@ func ResponsesToChatCompletionsRequestWithOptions(req *ResponsesRequest, opts *R
 	if err != nil {
 		return nil, err
 	}
-
 	out := &ChatCompletionsRequest{
 		Model:               req.Model,
 		Messages:            messages,
@@ -77,6 +87,9 @@ func ResponsesToChatCompletionsRequestWithOptions(req *ResponsesRequest, opts *R
 		}
 		out.Tools = tools
 	}
+	if len(out.Tools) > 0 && opts != nil && opts.EnforceAgentLoop {
+		out.Messages = ensureChatAgentLoopInstruction(out.Messages)
+	}
 	// tools 全部被丢弃（如仅含 web_search/image_generation 等服务端工具）时不再转发
 	// tool_choice：上游会拒绝 "'tool_choice' is only allowed when 'tools' are specified"。
 	// 指向被丢弃工具的选择项同理（见 responsesToolChoiceToChatToolChoice）。
@@ -99,6 +112,29 @@ func ResponsesToChatCompletionsRequestWithOptions(req *ResponsesRequest, opts *R
 	}
 
 	return out, nil
+}
+
+func ensureChatAgentLoopInstruction(messages []ChatMessage) []ChatMessage {
+	for index := range messages {
+		if messages[index].Role == "system" {
+			messages[index] = appendChatSystemInstruction(messages[index], chatAgentLoopInstruction)
+			return messages
+		}
+	}
+	return messages
+}
+
+func appendChatSystemInstruction(message ChatMessage, instruction string) ChatMessage {
+	current := chatMessageContentText(message.Content)
+	next := current
+	if strings.TrimSpace(next) == "" {
+		next = instruction
+	} else {
+		next = strings.TrimSpace(next) + "\n\n" + instruction
+	}
+	content, _ := json.Marshal(next)
+	message.Content = content
+	return message
 }
 
 // EffectiveResponsesTools returns every client-executable tool declared by a
