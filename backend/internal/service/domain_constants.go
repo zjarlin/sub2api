@@ -58,6 +58,7 @@ const (
 	PlatformVibex       = domain.PlatformVibex
 	PlatformZcode       = domain.PlatformZcode
 	PlatformQoder       = domain.PlatformQoder
+	PlatformSystemOne   = domain.PlatformSystemOne
 	PlatformLaya        = domain.PlatformLaya
 	PlatformJev         = domain.PlatformJev
 	PlatformOpenCodeGo  = domain.PlatformOpenCodeGo

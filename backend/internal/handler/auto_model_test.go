@@ -200,7 +200,7 @@ func TestAppendAutoModelUpdatesExistingVisionCapability(t *testing.T) {
 	}
 }
 
-func TestAskModelRejectsTools(t *testing.T) {
+func TestAskModelStripsToolDeclarations(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := newAutoModelTestHandler(autoModelTestAccounts())
 	group := &service.Group{ID: 71, Platform: service.PlatformOpenAI}
@@ -208,14 +208,36 @@ func TestAskModelRejectsTools(t *testing.T) {
 	router.Use(func(c *gin.Context) {
 		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{Group: group})
 	}, h.AutoModelMiddleware(nil))
-	router.POST("/v1/chat/completions", func(c *gin.Context) { c.Status(http.StatusOK) })
-	for _, body := range []string{
-		`{"model":"ask","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"lookup"}}]}`,
+	for _, tc := range []struct {
+		name string
+		path string
+		body string
+	}{
+		{
+			name: "chat completions",
+			path: "/v1/chat/completions",
+			body: `{"model":"ask","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"lookup"}}],"tool_choice":"auto","parallel_tool_calls":true}`,
+		},
+		{
+			name: "responses",
+			path: "/v1/responses",
+			body: `{"model":"ask","input":"hi","tools":[{"type":"function","name":"lookup","parameters":{"type":"object"}}],"tool_choice":"auto","parallel_tool_calls":true}`,
+		},
 	} {
-		recorder := httptest.NewRecorder()
-		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body)))
-		require.Equal(t, http.StatusBadRequest, recorder.Code, recorder.Body.String())
-		require.Contains(t, recorder.Body.String(), "without tools")
+		router.POST(tc.path, func(c *gin.Context) {
+			body, err := io.ReadAll(c.Request.Body)
+			require.NoError(t, err)
+			c.Data(http.StatusOK, "application/json", body)
+		})
+		t.Run(tc.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, tc.path, strings.NewReader(tc.body)))
+			require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+			require.Equal(t, "deepseek-v4-flash", gjson.Get(recorder.Body.String(), "model").String())
+			require.False(t, gjson.Get(recorder.Body.String(), "tools").Exists())
+			require.False(t, gjson.Get(recorder.Body.String(), "tool_choice").Exists())
+			require.False(t, gjson.Get(recorder.Body.String(), "parallel_tool_calls").Exists())
+		})
 	}
 }
 

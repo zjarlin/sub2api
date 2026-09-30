@@ -69,6 +69,19 @@ func isVirtualModelID(model string) bool {
 	return model == autoModelID || model == askModelID
 }
 
+// ask 只调度文本/视觉对话适配器。Codex 会在每个 Responses 请求中注册本地工具，
+// 即使当前回合没有工具意图；移除这些声明后可按 Ask 的对话能力正常路由。
+func stripAskToolDeclarations(body []byte) ([]byte, error) {
+	for _, field := range []string{"tools", "tool_choice", "parallel_tool_calls"} {
+		var err error
+		body, err = sjson.DeleteBytes(body, field)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return body, nil
+}
+
 // 模型名称不决定协议平台；这里只排除决策模型和专用模型。
 func autoModelCandidates(models []string) []string {
 	candidates := make([]string, 0, len(models))
@@ -256,9 +269,14 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 		ctx = service.WithAutoModelRequestCapabilities(ctx, body)
 		c.Request = c.Request.WithContext(ctx)
 		if virtualModel == askModelID && service.AutoModelRequestNeedsTools(ctx) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "unsupported_request", "message": "ask supports conversation requests without tools"}})
-			c.Abort()
-			return
+			body, err = stripAskToolDeclarations(body)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "api_error", "message": "Failed to normalize ask request"}})
+				c.Abort()
+				return
+			}
+			ctx = service.WithAutoModelRequestCapabilities(ctx, body)
+			c.Request = c.Request.WithContext(ctx)
 		}
 		ctx, models, err := h.gatewayService.BindAutoModelInventory(ctx, apiKey.Group.ID)
 		if err != nil {

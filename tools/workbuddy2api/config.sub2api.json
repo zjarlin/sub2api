@@ -3,12 +3,13 @@
   "auth_dir": "/app/auths",
   "state_file": "/app/data/state.json",
   "schedule": {
-    "checkin_enabled": false,
-    "travel_enabled": false,
-    "activity_enabled": false,
+    "checkin_enabled": true,
+    "travel_enabled": true,
+    "activity_enabled": true,
     "keepalive_enabled": true,
-    "school_enabled": false,
-    "cat_enabled": false
+    "school_enabled": true,
+    "cat_enabled": true,
+    "activity_report_count": 5
   },
   "prompt": {
     "mode": "passthrough"

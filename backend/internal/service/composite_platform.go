@@ -97,7 +97,7 @@ func DetectModelPlatform(model string) (string, bool) {
 	// System One 决策模型的公开名带命名空间（typesafe/jev），必须在下面的
 	// provider 前缀切分之前按完整名字识别，否则会被切成 provider=typesafe。
 	if normalized == "typesafe/jev" {
-		return PlatformJev, true
+		return PlatformSystemOne, true
 	}
 	if slash := strings.IndexByte(normalized, '/'); slash > 0 {
 		provider := strings.TrimSpace(normalized[:slash])
@@ -132,9 +132,9 @@ func DetectModelPlatform(model string) (string, bool) {
 		case "zcode":
 			return PlatformZcode, true
 		case "laya":
-			return PlatformLaya, true
+			return PlatformSystemOne, true
 		case "jev":
-			return PlatformJev, true
+			return PlatformSystemOne, true
 		case "traework":
 			return PlatformTraework, true
 		case "minimax":
@@ -188,11 +188,11 @@ func DetectModelPlatform(model string) (string, bool) {
 	case strings.HasPrefix(normalized, "zcode-"):
 		return PlatformZcode, true
 	case normalized == "laya":
-		return PlatformLaya, true
+		return PlatformSystemOne, true
 	case strings.HasPrefix(normalized, "laya-"):
-		return PlatformLaya, true
+		return PlatformSystemOne, true
 	case strings.HasPrefix(normalized, "jev-"):
-		return PlatformJev, true
+		return PlatformSystemOne, true
 	case strings.HasPrefix(normalized, "traework-"):
 		return PlatformTraework, true
 	case strings.HasPrefix(normalized, "minimax-"),

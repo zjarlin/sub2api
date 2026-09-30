@@ -13,12 +13,17 @@ COPY workbuddy2api/internal ./internal
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/adapter ./cmd/server
 
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata wget \
+RUN apk add --no-cache ca-certificates tzdata wget python3 \
  && adduser -D -u 10001 app \
  && mkdir -p /app/auths /app/data && chown -R app:app /app
 WORKDIR /app
 COPY --from=build /out/adapter /app/adapter
+COPY workbuddy2api/scripts/school_open_day_2026.py /app/scripts/school_open_day_2026.py
+COPY workbuddy2api/scripts/task_common.py /app/scripts/task_common.py
+COPY workbuddy2api/scripts/task_runner.py /app/scripts/task_runner.py
+RUN chmod 755 /app/scripts/*.py
 COPY workbuddy2api/config.sub2api.json /app/config.json
+ENV PYTHONDONTWRITEBYTECODE=1
 USER app
 EXPOSE 7863
 ENTRYPOINT ["/app/adapter"]

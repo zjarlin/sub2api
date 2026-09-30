@@ -25,16 +25,16 @@ import (
 // System One 的 model 名本身就是平台选择器（与 /v1/systemone 的既有约定一致）：
 // `laya*` 走本地 Laya 决策模型，`typesafe/jev` 走 JEV。两者共用 wire protocol，
 // 只是上游账号不同。
-func systemOnePlatformForModel(model string) string {
+func systemOneProviderForModel(model string) string {
 	if strings.HasPrefix(model, jev_api.LayaModelID) {
-		return service.PlatformLaya
+		return service.SystemOneProviderLaya
 	}
-	return service.PlatformJev
+	return service.SystemOneProviderJev
 }
 
 // systemOneSchedulingContext 为调度器指定模型所属平台。
-func systemOneSchedulingContext(ctx context.Context, platform string) context.Context {
-	return context.WithValue(ctx, ctxkey.ForcePlatform, platform)
+func systemOneSchedulingContext(ctx context.Context) context.Context {
+	return context.WithValue(ctx, ctxkey.ForcePlatform, service.PlatformSystemOne)
 }
 
 // selectSystemOneAccount 按模型所属平台调度账号，并拒绝跨平台命中。
@@ -42,9 +42,9 @@ func systemOneSchedulingContext(ctx context.Context, platform string) context.Co
 // 返回的选择结果由调用方负责释放；platform 是模型要求的真实平台，
 // 不能沿用分组默认平台，否则混合分组可能把 JEV 请求打到 Laya 账号。
 func (h *GatewayHandler) selectSystemOneAccount(
-	ctx context.Context, groupID *int64, model, platform string, sub2apiUserID int64,
+	ctx context.Context, groupID *int64, model, provider string, sub2apiUserID int64,
 ) (*service.AccountSelectionResult, error) {
-	selectionCtx := systemOneSchedulingContext(ctx, platform)
+	selectionCtx := systemOneSchedulingContext(ctx)
 	selection, err := h.gatewayService.SelectAccountWithLoadAwareness(
 		selectionCtx, groupID, "", model, nil, "", sub2apiUserID,
 	)
@@ -54,7 +54,7 @@ func (h *GatewayHandler) selectSystemOneAccount(
 	if selection == nil || selection.Account == nil {
 		return nil, service.ErrNoAvailableAccounts
 	}
-	if selection.Account.Platform != platform {
+	if selection.Account.Platform != service.PlatformSystemOne || selection.Account.SystemOneProvider() != provider {
 		if selection.ReleaseFunc != nil {
 			selection.ReleaseFunc()
 		}
@@ -65,9 +65,9 @@ func (h *GatewayHandler) selectSystemOneAccount(
 
 // systemOneFallbackPlatform 报告请求平台失败时是否应隐式回退，以及回退到哪个平台。
 // 只有 JEV 会回退到 Laya；Laya 永远不会反向回退，避免语义反转与无限回退。
-func systemOneFallbackPlatform(requestedPlatform string) (string, bool) {
-	if requestedPlatform == service.PlatformJev {
-		return service.PlatformLaya, true
+func systemOneFallbackProvider(requestedProvider string) (string, bool) {
+	if requestedProvider == service.SystemOneProviderJev {
+		return service.SystemOneProviderLaya, true
 	}
 	return "", false
 }
@@ -75,8 +75,8 @@ func systemOneFallbackPlatform(requestedPlatform string) (string, bool) {
 // systemOneRelayFailureShouldFallback 判断一次上游失败是否值得改用 Laya。
 // 只有可用性故障（网络错误、超时、5xx/429/408）才回退；4xx 请求错误直接透传，
 // 避免把「请求体不合法」误判成「JEV 不可用」并掩盖真实原因。
-func systemOneRelayFailureShouldFallback(requestedPlatform string, status int, relayErr error) bool {
-	if requestedPlatform != service.PlatformJev {
+func systemOneRelayFailureShouldFallback(requestedProvider string, status int, relayErr error) bool {
+	if requestedProvider != service.SystemOneProviderJev {
 		return false
 	}
 	if relayErr != nil {
@@ -124,7 +124,7 @@ func (h *GatewayHandler) SystemOneRelay(c *gin.Context) {
 		return
 	}
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
-	quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
+	quotaPlatform := service.PlatformSystemOne
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, quotaPlatform); err != nil {
 		status, code, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
@@ -144,16 +144,16 @@ func (h *GatewayHandler) SystemOneRelay(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": "unsupported System One model or invalid request"}})
 		return
 	}
-	platform := systemOnePlatformForModel(model)
-	requestedPlatform := platform
+	provider := systemOneProviderForModel(model)
+	requestedProvider := provider
 	fallbackUsed := false
 
-	selection, err := h.selectSystemOneAccount(c.Request.Context(), apiKey.GroupID, model, requestedPlatform, apiKey.UserID)
+	selection, err := h.selectSystemOneAccount(c.Request.Context(), apiKey.GroupID, model, requestedProvider, apiKey.UserID)
 	if err != nil || selection == nil || selection.Account == nil {
-		fallbackPlatform, canFallback := systemOneFallbackPlatform(requestedPlatform)
+		fallbackPlatform, canFallback := systemOneFallbackProvider(requestedProvider)
 		if !canFallback {
 			c.JSON(http.StatusServiceUnavailable, gin.H{
-				"error": gin.H{"type": "scheduling_error", "message": "No available " + requestedPlatform + " account for System One model " + model},
+				"error": gin.H{"type": "scheduling_error", "message": "No available " + requestedProvider + " account for System One model " + model},
 			})
 			return
 		}
@@ -167,12 +167,12 @@ func (h *GatewayHandler) SystemOneRelay(c *gin.Context) {
 			})
 			return
 		}
-		platform = fallbackPlatform
+		provider = fallbackPlatform
 		fallbackUsed = true
 		// 回退后用量归属实际服务平台，避免把 Laya 用量记到 JEV 名下。
-		quotaPlatform = fallbackPlatform
+		quotaPlatform = service.PlatformSystemOne
 	} else {
-		platform = requestedPlatform
+		provider = requestedProvider
 	}
 	var releaseSelection = func() {}
 	if selection.ReleaseFunc != nil {
@@ -192,10 +192,10 @@ func (h *GatewayHandler) SystemOneRelay(c *gin.Context) {
 		return
 	}
 	account := selection.Account
-	relay := func(selection *service.AccountSelectionResult, selectedPlatform string) (int, []byte, error, error) {
+	relay := func(selection *service.AccountSelectionResult, selectedProvider string) (int, []byte, error, error) {
 		account := selection.Account
 		upstreamModel := model
-		if selectedPlatform == service.PlatformLaya {
+		if selectedProvider == service.SystemOneProviderLaya {
 			// Laya 的公开模型名可能带检查点后缀，回退时统一使用自动选检查点的 laya。
 			upstreamModel = jev_api.LayaModelID
 		}
@@ -219,7 +219,7 @@ func (h *GatewayHandler) SystemOneRelay(c *gin.Context) {
 		return status, payload, err, nil
 	}
 
-	status, payload, relayErr, setupErr := relay(selection, platform)
+	status, payload, relayErr, setupErr := relay(selection, provider)
 	if setupErr != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error": gin.H{"type": "service_unavailable", "message": setupErr.Error()},
@@ -228,12 +228,12 @@ func (h *GatewayHandler) SystemOneRelay(c *gin.Context) {
 	}
 	upstreamFailed := relayErr != nil || status < http.StatusOK || status >= http.StatusMultipleChoices
 	// 只有 JEV 请求才回退，且必须是因为可用性故障；4xx 属于请求问题，回退会掩盖真实错误。
-	if upstreamFailed && !fallbackUsed && systemOneRelayFailureShouldFallback(requestedPlatform, status, relayErr) {
+	if upstreamFailed && !fallbackUsed && systemOneRelayFailureShouldFallback(requestedProvider, status, relayErr) {
 		logger.L().With(zap.String("component", "handler.systemone")).Warn("systemone_relay_failed_fallback_laya",
 			zap.Int64("account_id", account.ID), zap.Int("upstream_status", status), zap.Error(relayErr))
 		// 释放 JEV 槽位后再尝试 Laya；releaseSelection 保证不会重复释放。
 		releaseSelection()
-		fallback, fallbackErr := h.selectSystemOneAccount(c.Request.Context(), apiKey.GroupID, jev_api.LayaModelID, service.PlatformLaya, apiKey.UserID)
+		fallback, fallbackErr := h.selectSystemOneAccount(c.Request.Context(), apiKey.GroupID, jev_api.LayaModelID, service.SystemOneProviderLaya, apiKey.UserID)
 		if fallbackErr == nil && fallback != nil && fallback.Account != nil {
 			if fallback.ReleaseFunc != nil {
 				fallbackRelease := fallback.ReleaseFunc
@@ -251,10 +251,10 @@ func (h *GatewayHandler) SystemOneRelay(c *gin.Context) {
 				return
 			}
 			selection = fallback
-			platform = service.PlatformLaya
+			provider = service.SystemOneProviderLaya
 			fallbackUsed = true
 			// 回退后用量归属实际服务平台，避免把 Laya 用量记到 JEV 名下。
-			quotaPlatform = service.PlatformLaya
+			quotaPlatform = service.PlatformSystemOne
 			status, payload, relayErr, setupErr = relay(fallback, platform)
 			if setupErr != nil {
 				c.JSON(http.StatusServiceUnavailable, gin.H{

@@ -100,6 +100,29 @@ func builtinAdapterAPIKey(platform string) string {
 	}
 }
 
+// builtinSystemOneAdapterBaseURL 按账号保存的 System One 上游选择适配器地址。
+func builtinSystemOneAdapterBaseURL(credentials map[string]any) string {
+	provider, _ := credentials["systemone_provider"].(string)
+	if provider == SystemOneProviderLaya {
+		return builtinAdapterBaseURL(PlatformLaya)
+	}
+	if provider == SystemOneProviderJev {
+		return builtinAdapterBaseURL(PlatformJev)
+	}
+	return ""
+}
+
+func builtinSystemOneAdapterAPIKey(credentials map[string]any) string {
+	provider, _ := credentials["systemone_provider"].(string)
+	if provider == SystemOneProviderLaya {
+		return builtinAdapterAPIKey(PlatformLaya)
+	}
+	if provider == SystemOneProviderJev {
+		return builtinAdapterAPIKey(PlatformJev)
+	}
+	return ""
+}
+
 // applyBuiltinAdapterCredentials 在内置模式下补齐适配器地址与密钥。
 // 显式填写的值优先，仅补齐缺失项，避免覆盖用户自定义中转地址。
 func applyBuiltinAdapterCredentials(platform string, credentials map[string]any) {
@@ -107,6 +130,9 @@ func applyBuiltinAdapterCredentials(platform string, credentials map[string]any)
 		return
 	}
 	baseURL := builtinAdapterBaseURL(platform)
+	if platform == PlatformSystemOne {
+		baseURL = builtinSystemOneAdapterBaseURL(credentials)
+	}
 	if baseURL == "" {
 		return
 	}
@@ -125,7 +151,11 @@ func applyBuiltinAdapterCredentials(platform string, credentials map[string]any)
 		return
 	}
 	if existing, _ := credentials["api_key"].(string); strings.TrimSpace(existing) == "" {
-		if key := builtinAdapterAPIKey(platform); key != "" {
+		key := builtinAdapterAPIKey(platform)
+		if platform == PlatformSystemOne {
+			key = builtinSystemOneAdapterAPIKey(credentials)
+		}
+		if key != "" {
 			credentials["api_key"] = key
 		}
 	}

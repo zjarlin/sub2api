@@ -33,10 +33,11 @@ const (
 	PlatformZcode = "zcode"
 	// Qoder 官方 Model Server（OpenAI 兼容 Chat Completions）。
 	PlatformQoder = "qoder"
-	// Laya 离线决策模型（本地 edge-laya 适配器，System One 协议）。
+	// System One 决策协议的统一账号平台。具体上游由 credentials.systemone_provider 区分。
+	PlatformSystemOne = "systemone"
+	// 保留旧值用于读取尚未迁移的历史账号。
 	PlatformLaya = "laya"
-	// JEV / TypeSafe System One 决策模型（远端或内网适配器）。
-	PlatformJev = "jev"
+	PlatformJev  = "jev"
 	// 国产 OpenAI 兼容供应商（经 OpenAI 网关转发，按 Chat Completions 协议）。
 	PlatformKimi     = "kimi"     // Kimi (月之暗面 / Moonshot)
 	PlatformZhipu    = "zhipu"    // 智谱 GLM (bigmodel)
