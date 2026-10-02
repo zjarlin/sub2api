@@ -1,0 +1,13 @@
+{
+  "name": "Windsurf",
+  "platform": "windsurf",
+  "type": "apikey",
+  "concurrency": 1,
+  "credentials": {
+    "api_key": "YOUR_WINDSURF_SESSION_TOKEN",
+    "api_protocol": "chat_completions"
+  },
+  "extra": {
+    "model_health_probe_enabled": false
+  }
+}

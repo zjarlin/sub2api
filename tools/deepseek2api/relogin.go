@@ -198,6 +198,13 @@ func (a *adapter) loginAndReplaceCredential(ctx context.Context, stale webCreden
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
 	for {
+		message, restricted, err := sessionAccountRestriction(ctx, session)
+		if err != nil {
+			return webCredential{}, failed
+		}
+		if restricted {
+			return webCredential{}, reloginFailed(message)
+		}
 		credential, ready, err := session.Credential(ctx)
 		if ctx.Err() == context.Canceled {
 			return webCredential{}, ctx.Err()

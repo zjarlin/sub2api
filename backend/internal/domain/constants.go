@@ -49,6 +49,8 @@ const (
 	PlatformMiniMax = "minimax" // MiniMax (M 系列)
 	// Cursor 官方 SDK 文本会话适配器。
 	PlatformCursor = "cursor"
+	// Windsurf（Devin / Codeium 云）文本会话适配器。
+	PlatformWindsurf = "windsurf"
 	// PlatformOpenCodeGo 是 OpenCode 平台（账号类型 Zen 按量 / Go 订阅）。
 	// 值保持 opencode_go 以兼容已落库的分组、配额与 Composite 路由 CHECK。
 	PlatformOpenCodeGo = "opencode_go"

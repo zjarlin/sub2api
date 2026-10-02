@@ -45,6 +45,8 @@
             :placeholder="
               account.platform === 'cursor'
                 ? t('admin.accounts.cursor.baseUrlPlaceholder')
+                : account.platform === 'windsurf'
+                ? t('admin.accounts.windsurf.baseUrlPlaceholder')
                 : ['doubao', 'arena'].includes(account.platform)
                 ? 'http://sub2api-desktop:8080/v1'
                 : account.platform === 'traework'
@@ -221,7 +223,7 @@
           <p class="input-hint mt-2">{{ t('admin.accounts.cnProviders.zhipuTeam.hint') }}</p>
         </div>
         <div v-if="!isBuiltinAdapterAccount">
-          <label class="input-label">{{ t(account.platform === 'cursor' ? 'admin.accounts.cursor.apiKey' : 'admin.accounts.apiKey') }}</label>
+          <label class="input-label">{{ t(account.platform === 'cursor' ? 'admin.accounts.cursor.apiKey' : account.platform === 'windsurf' ? 'admin.accounts.windsurf.apiKey' : 'admin.accounts.apiKey') }}</label>
           <input
             v-model="editApiKey"
             type="password"
@@ -234,6 +236,8 @@
             :placeholder="
               account.platform === 'cursor'
                 ? t('admin.accounts.cursor.apiKeyPlaceholder')
+                : account.platform === 'windsurf'
+                ? t('admin.accounts.windsurf.apiKeyPlaceholder')
                 : account.platform === 'doubao'
                 ? 'adapter-api-key'
                 : account.platform === 'zcode'
@@ -252,6 +256,7 @@
             "
           />
           <p v-if="account.platform === 'cursor'" class="input-hint">{{ t('admin.accounts.cursor.apiKeyHint') }}</p>
+          <p v-if="account.platform === 'windsurf'" class="input-hint">{{ t('admin.accounts.windsurf.apiKeyHint') }}</p>
           <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
           <p v-if="account.platform === 'cursor' && cursorLinkedEmail" class="input-hint" data-testid="cursor-linked-email">
             {{ t('admin.accounts.cursor.linkedAccount', { email: cursorLinkedEmail }) }}
@@ -3246,6 +3251,7 @@ const handleOllamaCloudUsageUpdated = (state: OllamaCloudUsageState) => {
 // Platform-specific hint for Base URL
 const baseUrlHint = computed(() => {
   if (props.account?.platform === 'cursor') return t('admin.accounts.cursor.baseUrlHint')
+  if (props.account?.platform === 'windsurf') return t('admin.accounts.windsurf.baseUrlHint')
   if (props.account?.platform === 'doubao') return t('admin.accounts.doubao.baseUrlHint')
   if (props.account?.platform === 'traework') return t('admin.accounts.traework.baseUrlHint')
   if (props.account?.platform === 'zcode') return t('admin.accounts.zcode.baseUrlHint')
@@ -3925,6 +3931,7 @@ const tempUnschedPresets = computed(() => [
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
   if (props.account?.platform === 'cursor') return ''
+  if (props.account?.platform === 'windsurf') return ''
   if (props.account?.platform === 'arena') return ''
   if (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web'].includes(props.account?.platform ?? '')) return ''
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
@@ -4368,7 +4375,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       }
     }
     const platformDefaultUrl =
-      (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'cursor'].includes(newAccount.platform))
+      (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'cursor', 'windsurf'].includes(newAccount.platform))
         ? ''
         : newAccount.platform === 'openai'
         ? 'https://api.openai.com'
@@ -4448,7 +4455,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
   } else {
     const platformDefaultUrl =
-      (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'cursor'].includes(newAccount.platform))
+      (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'cursor', 'windsurf'].includes(newAccount.platform))
         ? ''
         : newAccount.platform === 'openai'
         ? 'https://api.openai.com'
@@ -5148,12 +5155,12 @@ const handleSubmit = async () => {
       } else {
         delete newCredentials.base_url
       }
-      if (props.account.platform === 'cursor') {
+      if (props.account.platform === 'cursor' || props.account.platform === 'windsurf') {
         newCredentials.api_protocol = 'chat_completions'
         newCredentials.openai_capabilities = ['chat_completions']
       }
 
-      if (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'arena'].includes(props.account.platform)) {
+      if (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'arena', 'windsurf'].includes(props.account.platform)) {
         newCredentials.api_protocol = props.account.platform === 'doubao' ? 'responses' : 'chat_completions'
         newCredentials.openai_capabilities = props.account.platform === 'doubao' ? ['responses', 'chat_completions'] : ['chat_completions']
         if (props.account.platform !== 'traework') {

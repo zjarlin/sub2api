@@ -43,13 +43,15 @@
       <template v-if="usesApiKey">
         <div>
           <label class="input-label">{{ t('myAccounts.baseUrl') }}</label>
-          <input v-model="form.baseUrl" type="url" :required="form.platform !== 'cursor'" class="input" data-testid="owned-account-base-url" :placeholder="form.platform === 'cursor' ? t('admin.accounts.cursor.baseUrlPlaceholder') : undefined" />
+          <input v-model="form.baseUrl" type="url" :required="!['cursor', 'windsurf'].includes(form.platform)" class="input" data-testid="owned-account-base-url" :placeholder="form.platform === 'cursor' ? t('admin.accounts.cursor.baseUrlPlaceholder') : form.platform === 'windsurf' ? t('admin.accounts.windsurf.baseUrlPlaceholder') : undefined" />
           <p v-if="form.platform === 'cursor'" class="input-hint">{{ t('admin.accounts.cursor.baseUrlHint') }}</p>
+          <p v-if="form.platform === 'windsurf'" class="input-hint">{{ t('admin.accounts.windsurf.baseUrlHint') }}</p>
         </div>
         <div>
-          <label class="input-label">{{ t(form.platform === 'cursor' ? 'admin.accounts.cursor.apiKey' : 'myAccounts.apiKey') }}</label>
+          <label class="input-label">{{ t(form.platform === 'cursor' ? 'admin.accounts.cursor.apiKey' : form.platform === 'windsurf' ? 'admin.accounts.windsurf.apiKey' : 'myAccounts.apiKey') }}</label>
           <input v-model="form.apiKey" type="password" autocomplete="new-password" :required="!account" class="input" data-testid="owned-account-api-key" />
           <p v-if="form.platform === 'cursor'" class="input-hint">{{ t('admin.accounts.cursor.apiKeyHint') }}</p>
+          <p v-if="form.platform === 'windsurf'" class="input-hint">{{ t('admin.accounts.windsurf.apiKeyHint') }}</p>
           <p v-if="account" class="input-hint">{{ t('myAccounts.redactedNotice') }}</p>
         </div>
       </template>
@@ -273,11 +275,11 @@ const accountTypes = [
   { value: 'bedrock' as AccountType, label: t('admin.accounts.bedrockLabel'), hint: t('myAccounts.typeAdvancedJsonHint') },
   { value: 'service_account' as AccountType, label: 'Service Account', hint: t('myAccounts.typeAdvancedJsonHint') },
 ]
-const types = computed(() => form.platform === 'cursor'
+const types = computed(() => (form.platform === 'cursor' || form.platform === 'windsurf')
   ? accountTypes.filter(option => option.value === 'apikey')
   : accountTypes)
 watch(() => form.platform, platform => {
-  if (platform === 'cursor') {
+  if (platform === 'cursor' || platform === 'windsurf') {
     form.type = 'apikey'
     if (!props.account) {
       form.baseUrl = ''
@@ -322,7 +324,7 @@ async function save() {
       if (form.apiKey.trim()) {
         nextCredentials.api_key = form.apiKey.trim()
       }
-      if (form.platform === 'cursor') {
+      if (form.platform === 'cursor' || form.platform === 'windsurf') {
         const hasStoredKey = props.account?.credentials_status?.has_api_key ?? Boolean(credentials.api_key)
         if (!nextCredentials.api_key && !hasStoredKey) {
           throw new Error(t('admin.accounts.apiKeyIsRequired'))

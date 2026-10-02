@@ -14,7 +14,7 @@ Windows CMD / PowerShell 使用：
 npx.cmd -y sub2api-codex-setup --base-url https://your-sub2api.example.com --api-key sk-xxxx
 ```
 
-`npx.cmd` 避免 PowerShell 因执行策略阻止 `npx.ps1`。工具按 Node.js 的运行平台选择安装器，Windows 使用 `winget` 安装官方桌面应用；缺少 `winget` 或安装失败时，自动下载并运行官方 Windows EXE。安装失败会退出，不写配置。客户端下载仅需安装应用时也可直接使用官方命令 `winget install --id 9PLM9XGG6VKS -s msstore`，无需下载 macOS DMG。
+`npx.cmd` 避免 PowerShell 因执行策略阻止 `npx.ps1`。工具会优先使用 Sub2API 网关缓存的桌面安装包；Windows 的 Microsoft Store 引导器有 90 秒硬上限，失败后自动改用 npmmirror 安装官方 Codex CLI。网关每 12 小时刷新 Windows 引导器和 macOS Codex DMG，下载失败保留旧缓存。
 
 ## 安装到其他磁盘
 

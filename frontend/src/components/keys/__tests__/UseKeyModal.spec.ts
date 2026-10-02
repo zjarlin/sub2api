@@ -458,7 +458,7 @@ describe('UseKeyModal', () => {
     expect(codeBlocks).toContain('{\n  "OPENAI_API_KEY": "sk-test"\n}')
     expect(wrapper.text()).toContain('auth.json')
     expect(wrapper.text()).toContain('One-command setup')
-    expect(codeBlocks.join('\n')).toContain('npx -y sub2api-codex-setup --base-url https://example.com/v1 --api-key sk-test --auth-mode legacy')
+    expect(codeBlocks.join('\n')).toContain('npx --registry=https://registry.npmmirror.com -y sub2api-codex-setup --base-url https://example.com/v1 --api-key sk-test --auth-mode legacy')
     const setupScript = codeBlocks.find((content) => content.includes('Codex CLI configuration written'))
     expect(wrapper.text()).toContain('setup-codex.sh')
     expect(setupScript).toContain('#!/usr/bin/env bash')
@@ -510,7 +510,7 @@ describe('UseKeyModal', () => {
     expect(setupScript).toContain('#!/usr/bin/env bash')
     expect(setupScript).toContain('chmod 600 "$config_dir/config.toml"')
     expect(setupScript).not.toContain('auth.json')
-    expect(codeBlocks.join('\n')).toContain('npx -y sub2api-codex-setup --base-url https://example.com/v1 --api-key sk-test')
+    expect(codeBlocks.join('\n')).toContain('npx --registry=https://registry.npmmirror.com -y sub2api-codex-setup --base-url https://example.com/v1 --api-key sk-test')
 
     const restartNotice = wrapper.get('[data-testid="codex-api-key-restart-notice"]')
     expect(restartNotice.text()).toContain(
@@ -525,7 +525,7 @@ describe('UseKeyModal', () => {
     expect(legacyCode).not.toContain(
       'x-openai-actor-authorization'
     )
-    expect(legacyCode).toContain('npx -y sub2api-codex-setup --base-url https://example.com/v1 --api-key sk-test --auth-mode legacy')
+    expect(legacyCode).toContain('npx --registry=https://registry.npmmirror.com -y sub2api-codex-setup --base-url https://example.com/v1 --api-key sk-test --auth-mode legacy')
   })
 
   it('keeps legacy OpenAI Codex WebSocket config as the default', async () => {
@@ -904,7 +904,8 @@ describe('UseKeyModal', () => {
     expect(windowsSetupScript).toContain('WriteAllText((Join-Path $configDir "config.toml")')
     expect(windowsSetupScript).not.toContain('auth.json')
     expect(wrapper.text()).toContain('One-command setup')
-    expect(wrapper.text()).toContain('npx.cmd -y sub2api-codex-setup')
+    expect(wrapper.text()).toContain('powershell.exe -NoProfile -ExecutionPolicy Bypass')
+    expect(wrapper.text()).toContain('/downloads/codex-setup.ps1')
   })
 
   it.each(['anthropic', 'gemini', 'antigravity', 'kimi', 'zhipu', 'minimax'] as const)(

@@ -245,6 +245,27 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
   })
 
+  it('creates a Windsurf account with a pasted session token', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="platform-windsurf"]').trigger('click')
+    // Windsurf 使用会话 Token：地址由内置适配器注入，但 API Key 需要手填。
+    expect(wrapper.find('[data-testid="account-api-key"]').exists()).toBe(true)
+    await wrapper.get('[data-tour="account-form-name"]').setValue('Windsurf account')
+    await wrapper.get('[data-testid="account-api-key"]').setValue('devin-session-token$test')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({
+      platform: 'windsurf', type: 'apikey', concurrency: 1,
+      credentials: {
+        api_key: 'devin-session-token$test', api_protocol: 'chat_completions',
+        openai_capabilities: ['chat_completions'],
+      },
+    })
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials).not.toHaveProperty('base_url')
+  })
+
   it('requires Arena web login before creating an account', async () => {
     const wrapper = mountModal()
     await wrapper.get('[data-testid="platform-arena"]').trigger('click')

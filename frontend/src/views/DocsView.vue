@@ -45,7 +45,10 @@
               <Icon :name="copied === download.id ? 'check' : 'document'" size="sm" />
             </button>
           </div>
-          <p class="mb-2 text-xs leading-5 text-gray-500 dark:text-dark-300">{{ download.description }}</p>
+          <p class="mb-2 text-xs leading-5 text-gray-500 dark:text-dark-300">
+            {{ download.description }}
+            <a href="https://chatgpt.com/download" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:underline dark:text-primary-300">{{ t('docs.downloads.official') }}</a>
+          </p>
           <pre class="max-w-full overflow-x-auto rounded-lg bg-gray-950 p-4 text-sm text-gray-100"><code>{{ download.code }}</code></pre>
         </div>
       </section>
@@ -118,13 +121,13 @@ const downloads = computed(() => [
     id: 'macos',
     title: 'macOS',
     description: t('docs.downloads.macos'),
-    code: 'curl -fL "https://persistent.oaistatic.com/codex-app-prod/Codex.dmg" -o Codex.dmg\nopen Codex.dmg'
+    code: 'curl -fL "' + window.location.origin.replace(/\/+$/, '') + '/downloads/Codex.dmg" -o Codex.dmg\nopen Codex.dmg'
   },
   {
     id: 'windows',
     title: 'Windows (CMD / PowerShell)',
     description: t('docs.downloads.windows'),
-    code: 'powershell.exe -NoProfile -Command "try { Invoke-WebRequest -UseBasicParsing -Uri \'https://get.microsoft.com/installer/download/9PLM9XGG6VKS\' -OutFile \'ChatGPT-Setup.exe\' -ErrorAction Stop; exit (Start-Process -FilePath \'./ChatGPT-Setup.exe\' -Wait -PassThru -ErrorAction Stop).ExitCode } catch { exit 1 }"'
+    code: 'powershell.exe -NoProfile -Command "Invoke-WebRequest -UseBasicParsing -Uri \'' + window.location.origin.replace(/\/+$/, '') + '/downloads/codex-setup.ps1\' -OutFile codex-setup.ps1; & .\\codex-setup.ps1 -BaseUrl \'' + window.location.origin.replace(/\/+$/, '') + '\' -ApiKey \'sk-xxxx\'"'
   },
   {
     id: 'linux',

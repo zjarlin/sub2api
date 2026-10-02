@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -64,6 +65,26 @@ func writeOpenAIModelsResponse(c *gin.Context, manifest *service.OpenAIModelsRes
 		clone.ETag = service.CodexModelsManifestETag(body)
 		clone.NotModified = c.Param("model") == "" && service.CodexModelsManifestETagMatches(c.GetString(autoModelListingETagKey), clone.ETag)
 		manifest = &clone
+	}
+	if c.GetBool(modelTierListingKey) && !manifest.NotModified {
+		modelIDs := []string{}
+		if value, ok := c.Get(modelTierListingModelsKey); ok {
+			if listed, ok := value.([]string); ok {
+				modelIDs = listed
+			}
+		}
+		if len(modelIDs) > 0 {
+			body, err := buildVirtualModelsCatalog(manifest.Body, modelIDs)
+			if err != nil {
+				writeOpenAIModelsError(c, http.StatusBadGateway, "upstream_error", "Invalid model catalogue")
+				return
+			}
+			clone := *manifest
+			clone.Body = body
+			clone.ETag = service.CodexModelsManifestETag(body)
+			clone.NotModified = false
+			manifest = &clone
+		}
 	}
 	if policy := service.ModelAliasesFromContext(c.Request.Context()); policy != nil && len(policy.Groups) > 0 && !manifest.NotModified {
 		body, err := policy.CanonicalizeCatalog(manifest.Body)
@@ -155,6 +176,9 @@ func appendVirtualModelsToCatalog(body []byte, modelIDs []string) ([]byte, error
 		}
 		if modelID == askModelID {
 			item["display_name"] = json.RawMessage(`"Ask"`)
+		} else if displayName := modelTierCatalogDisplayName(modelID); displayName != "" {
+			item["display_name"] = json.RawMessage(strconv.Quote(displayName))
+			item["description"] = json.RawMessage(`"Capability tier routed by the gateway."`)
 		} else {
 			item["display_name"] = json.RawMessage(`"Auto"`)
 		}
@@ -177,6 +201,39 @@ func appendVirtualModelsToCatalog(body []byte, modelIDs []string) ([]byte, error
 	}
 	envelope[field] = encoded
 	return json.Marshal(envelope)
+}
+
+func buildVirtualModelsCatalog(shape []byte, modelIDs []string) ([]byte, error) {
+	base := []byte(`{"object":"list","data":[]}`)
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal(shape, &envelope) == nil {
+		if _, ok := envelope["models"]; ok {
+			base = []byte(`{"models":[]}`)
+		}
+	}
+	return appendVirtualModelsToCatalog(base, modelIDs)
+}
+
+func writeVirtualModelsCatalogListing(c *gin.Context) bool {
+	if c == nil || !c.GetBool(modelTierListingKey) {
+		return false
+	}
+	value, ok := c.Get(modelTierListingModelsKey)
+	modelIDs, valid := value.([]string)
+	if !ok || !valid || len(modelIDs) == 0 {
+		return false
+	}
+	body, err := buildVirtualModelsCatalog(nil, modelIDs)
+	if err != nil {
+		writeOpenAIModelsError(c, http.StatusBadGateway, "upstream_error", "Invalid model catalogue")
+		return true
+	}
+	if c.Param("model") != "" {
+		writeRetrievedModel(c, body)
+		return true
+	}
+	c.Data(http.StatusOK, "application/json", body)
+	return true
 }
 
 // Both discovery endpoints consume the same final catalogue, after group/platform

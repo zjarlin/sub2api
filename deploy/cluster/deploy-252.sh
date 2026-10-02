@@ -67,6 +67,24 @@ if [ "$CURSOR_ENABLED" = "1" ]; then
   COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.cursor.yml")
 fi
 
+# Windsurf 独立启用，真实账号 Token 在管理页面保存，部署仅生成内部共享密钥。
+WINDSURF_ENABLED="${SUB2API_WINDSURF:-}"
+if [ -z "$WINDSURF_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
+  WINDSURF_ENABLED="$(awk -F= '
+    $1 ~ /^[[:space:]]*(export[[:space:]]+)?SUB2API_WINDSURF[[:space:]]*$/ {
+      value=$2
+      sub(/#.*/, "", value)
+      gsub(/[[:space:]"\047]/, "", value)
+      result=value
+    }
+    END { if (result == "1") print "1"; else print "0" }
+  ' "$DEPLOY_DIR/.env")"
+fi
+if [ "$WINDSURF_ENABLED" = "1" ]; then
+  test -f "$DEPLOY_DIR/deploy/docker-compose.windsurf.yml"
+  COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.windsurf.yml")
+fi
+
 # Arena 独立启用，只启动私网文本适配器；真实登录与专属会话另行配置。
 ARENA_ENABLED="${SUB2API_ARENA:-}"
 if [ -z "$ARENA_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
@@ -175,6 +193,9 @@ if [ "$DEEPSEEK_WEB_ENABLED" = "1" ]; then
 fi
 if [ "$CURSOR_ENABLED" = "1" ]; then
   ensure_adapter_key CURSOR_ADAPTER_KEY
+fi
+if [ "$WINDSURF_ENABLED" = "1" ]; then
+  ensure_adapter_key WINDSURF_ADAPTER_KEY
 fi
 if [ "$ARENA_ENABLED" = "1" ]; then
   ensure_adapter_key ARENA_AGENT_BRIDGE_KEY
@@ -354,6 +375,10 @@ fi
 if [ "$CURSOR_ENABLED" = "1" ]; then
   echo "Building and starting Cursor SDK adapter"
   "${COMPOSE[@]}" up -d --build --wait --wait-timeout 180 sub2api-cursor
+fi
+if [ "$WINDSURF_ENABLED" = "1" ]; then
+  echo "Building and starting Windsurf adapter"
+  "${COMPOSE[@]}" up -d --build --wait --wait-timeout 180 sub2api-windsurf
 fi
 if [ "$ARENA_ENABLED" = "1" ]; then
   if [ "$ARENA_PROXY_ENABLED" = "1" ]; then

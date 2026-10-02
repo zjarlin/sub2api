@@ -37,6 +37,15 @@ export default {
         linkedAccount: '已授权账号：{email}',
         planHint: 'Cursor 的文本能力走 Cloud Agent，只有 Pro 订阅可用；免费账号授权成功也同步不到模型。',
       },
+      windsurf: {
+        title: 'Windsurf',
+        connectionHint: '使用 Windsurf（Devin / Codeium 云）文本适配器。填写 Windsurf 会话 Token，地址留空时由后端注入内置适配器地址。',
+        baseUrlHint: '可选。留空时使用内置 Windsurf 适配器地址。',
+        baseUrlPlaceholder: 'https://your-windsurf-adapter.example/v1（可选）',
+        apiKey: 'Windsurf 会话 Token',
+        apiKeyHint: '填写 Windsurf 客户端 / Devin 会话中的 Token，形如 devin-session-token$… 或 auth1_…。',
+        apiKeyPlaceholder: 'devin-session-token$...',
+      },
       vibex: {
         title: 'VibeX',
         usage: 'RunningHub 余额与额度',
@@ -481,6 +490,7 @@ export default {
         claude: 'Claude',
         openai: 'OpenAI',
         cursor: 'Cursor',
+        windsurf: 'Windsurf',
         anthropic: 'Anthropic',
         gemini: 'Gemini',
         antigravity: 'Antigravity',

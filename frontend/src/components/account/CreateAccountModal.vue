@@ -320,6 +320,11 @@
             <PlatformIcon platform="cursor" size="sm" />
             {{ t('admin.accounts.cursor.title') }}
           </button>
+          <button type="button" data-testid="platform-windsurf" @click="selectWindsurfPlatform"
+            :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'windsurf' ? 'bg-white text-sky-600 shadow-sm dark:bg-dark-600 dark:text-sky-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
+            <PlatformIcon platform="windsurf" size="sm" />
+            {{ t('admin.accounts.windsurf.title') }}
+          </button>
           <button type="button" data-testid="platform-arena" @click="selectArenaPlatform"
             :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'arena' ? 'bg-white text-emerald-600 shadow-sm dark:bg-dark-600 dark:text-emerald-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
             <PlatformIcon platform="arena" size="sm" />
@@ -4254,6 +4259,7 @@ const withUpstreamRequestIdHeader = <T extends Record<string, unknown> | undefin
 
 const baseUrlHint = computed(() => {
   if (form.platform === 'cursor') return t('admin.accounts.cursor.baseUrlHint')
+  if (form.platform === 'windsurf') return t('admin.accounts.windsurf.baseUrlHint')
   if (form.platform === 'doubao') return t('admin.accounts.doubao.baseUrlHint')
   if (form.platform === 'traework') return t('admin.accounts.traework.baseUrlHint')
   if (form.platform === 'workbuddy') return t('admin.accounts.workbuddy.baseUrlHint')
@@ -4270,6 +4276,7 @@ const baseUrlHint = computed(() => {
 
 const apiKeyHint = computed(() => {
   if (form.platform === 'cursor') return t('admin.accounts.cursor.apiKeyHint')
+  if (form.platform === 'windsurf') return t('admin.accounts.windsurf.apiKeyHint')
   if (form.platform === 'doubao') return t('admin.accounts.doubao.apiKeyHint')
   if (form.platform === 'traework') return t('admin.accounts.traework.apiKeyHint')
   if (form.platform === 'workbuddy') return t('admin.accounts.workbuddy.apiKeyHint')
@@ -4287,6 +4294,7 @@ const apiKeyHint = computed(() => {
 // Base URL / API Key 占位符：国产供应商随账号类型变化。
 const apiKeyBaseUrlPlaceholder = computed(() => {
   if (form.platform === 'cursor') return t('admin.accounts.cursor.baseUrlPlaceholder')
+  if (form.platform === 'windsurf') return t('admin.accounts.windsurf.baseUrlPlaceholder')
   if (form.platform === 'arena') return 'http://sub2api-arena:7867/v1'
   if (form.platform === 'doubao') return 'http://sub2api-doubao-desktop:8080/v1'
   if (isMultiProtocolPlatform.value) {
@@ -4309,6 +4317,8 @@ const apiKeyValuePlaceholder = computed(() => {
   switch (form.platform) {
     case 'cursor':
       return t('admin.accounts.cursor.apiKeyPlaceholder')
+    case 'windsurf':
+      return t('admin.accounts.windsurf.apiKeyPlaceholder')
     case 'openai':
       return 'sk-proj-...'
     case 'gemini':
@@ -4628,6 +4638,18 @@ function selectCursorPlatform() {
   apiKeyValue.value = ''
   cursorAuthorizedKey.value = ''
   cursorAuthorizedEmail.value = ''
+  form.concurrency = 1
+}
+
+// Windsurf 使用会话 Token，地址留空时由后端选择内置适配器。
+function selectWindsurfPlatform() {
+  upstreamBillingAutoProbeEnabled.value = false
+  form.platform = 'windsurf'
+  accountCategory.value = 'apikey'
+  form.type = 'apikey'
+  apiProtocol.value = 'chat_completions'
+  apiKeyBaseUrl.value = ''
+  apiKeyValue.value = ''
   form.concurrency = 1
 }
 
@@ -5329,7 +5351,7 @@ watch(
     // Reset base URL based on platform.
     // 内置适配器平台（豆包 / TRAE / WorkBuddy / ZCode / Laya / JEV）地址由后端注入，
     // 必须清空 base_url，否则会保留上一个平台的默认值（例如 Anthropic）而打到错误上游。
-    if (newPlatform === 'cursor') {
+    if (newPlatform === 'cursor' || newPlatform === 'windsurf') {
       apiKeyBaseUrl.value = ''
       accountCategory.value = 'apikey'
       apiProtocol.value = 'chat_completions'
@@ -6366,7 +6388,7 @@ const handleSubmit = async () => {
   // Determine default base URL based on platform.
   // 内置适配器平台（含 Laya / JEV）地址由后端按平台注入，不能落到 Anthropic 默认值，
   // 否则会把决策请求发到错误的上游。
-  const defaultBaseUrl = isBuiltinAdapterPlatform.value
+  const defaultBaseUrl = isBuiltinAdapterPlatform.value || form.platform === 'windsurf'
     ? ''
     : form.platform === 'openai'
       ? 'https://api.openai.com'
@@ -6397,6 +6419,11 @@ const handleSubmit = async () => {
   }
   if (form.platform === 'gemini') {
     credentials.tier_id = geminiTierAIStudio.value
+  }
+  if (form.platform === 'windsurf') {
+    if (!apiKeyBaseUrl.value.trim()) delete credentials.base_url
+    credentials.api_protocol = 'chat_completions'
+    credentials.openai_capabilities = ['chat_completions']
   }
   if (form.platform === 'doubao' || form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'vibex' || form.platform === 'zcode' || form.platform === 'deepseek_web' || form.platform === 'arena' || form.platform === 'qoder') {
     credentials.api_protocol = form.platform === 'doubao' ? 'responses' : 'chat_completions'

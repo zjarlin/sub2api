@@ -52,6 +52,7 @@ const (
 	PlatformArena       = domain.PlatformArena
 	PlatformMiniMax     = domain.PlatformMiniMax
 	PlatformCursor      = domain.PlatformCursor
+	PlatformWindsurf    = domain.PlatformWindsurf
 	PlatformDoubao      = domain.PlatformDoubao
 	PlatformTraework    = domain.PlatformTraework
 	PlatformWorkbuddy   = domain.PlatformWorkbuddy
@@ -132,7 +133,7 @@ func IsOpenCodeGo(platform string) bool {
 // IsMultiProtocolAPIKeyProvider 报告 platform 是否为多协议 API Key 网关
 // （国产供应商 + OpenCode）：共用 OpenAI 网关；豆包固定 Chat Completions，其余按配置分流。
 func IsMultiProtocolAPIKeyProvider(platform string) bool {
-	return IsCNProvider(platform) || platform == PlatformOpenCodeGo || platform == PlatformCursor
+	return IsCNProvider(platform) || platform == PlatformOpenCodeGo || platform == PlatformCursor || platform == PlatformWindsurf
 }
 
 // AllowedQuotaPlatforms 是允许设置 user × platform quota 的平台列表（单一权威来源）。
@@ -149,6 +150,7 @@ var AllowedQuotaPlatforms = []string{
 	PlatformArena,
 	PlatformMiniMax,
 	PlatformCursor,
+	PlatformWindsurf,
 	PlatformOpenCodeGo,
 	PlatformDoubao,
 	PlatformTraework,
@@ -798,6 +800,7 @@ var MixedSchedulingCompatibleTargets = map[string][]string{
 	PlatformLaya:        {PlatformOpenAI},
 	PlatformJev:         {PlatformOpenAI},
 	PlatformCursor:      {PlatformOpenAI},
+	PlatformWindsurf:    {PlatformOpenAI},
 }
 
 // MixedSchedulingSourcePlatforms 返回可加入某目标平台分组的来源平台列表。

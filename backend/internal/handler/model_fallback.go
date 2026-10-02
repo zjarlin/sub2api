@@ -139,6 +139,24 @@ func seedAutoModelFallback(c *gin.Context, selected string, routes []autoModelRo
 	c.Set(modelFallbackStateKey, state)
 }
 
+// 档位虚拟模型先选定档位内首个真实模型，失败后仍使用同一档及更低档的真实候选。
+func seedModelTierFallback(c *gin.Context, selected string, routes []autoModelRouteCandidate) {
+	if c == nil {
+		return
+	}
+	state := &modelFallbackState{}
+	skippedSelected := false
+	for _, route := range routes {
+		if route.model == selected && !skippedSelected {
+			skippedSelected = true
+			continue
+		}
+		state.candidates = append(state.candidates, service.ModelFallbackCandidate{Model: route.model, Tier: "tier"})
+		state.targets = append(state.targets, modelFallbackTarget{platform: route.targetPlatform, upstreamModel: route.upstreamModel})
+	}
+	c.Set(modelFallbackStateKey, state)
+}
+
 type autoModelFallbackSimilarity struct {
 	exactModel          bool
 	sameFamily          bool

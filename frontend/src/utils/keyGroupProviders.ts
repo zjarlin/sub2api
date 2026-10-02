@@ -14,6 +14,7 @@ const PROVIDER_BY_PLATFORM: Record<GroupPlatform, KeyGroupProvider> = {
   deepseek_web: 'domestic',
   arena: 'other',
   cursor: 'other',
+  windsurf: 'other',
   doubao: 'domestic',
   traework: 'domestic',
   workbuddy: 'domestic',

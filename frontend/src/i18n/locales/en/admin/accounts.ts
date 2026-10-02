@@ -37,6 +37,15 @@ export default {
         linkedAccount: 'Authorized account: {email}',
         planHint: 'Cursor text generation runs on Cloud Agent, which requires a Pro subscription; a free account syncs no models even after a successful sign-in.',
       },
+      windsurf: {
+        title: 'Windsurf',
+        connectionHint: 'Uses the Windsurf (Devin / Codeium cloud) text adapter. Paste a Windsurf session token; leave the URL blank to use the built-in adapter.',
+        baseUrlHint: 'Optional. Leave blank to use the built-in Windsurf adapter URL.',
+        baseUrlPlaceholder: 'https://your-windsurf-adapter.example/v1 (optional)',
+        apiKey: 'Windsurf session token',
+        apiKeyHint: 'Paste the token from the Windsurf client / Devin session, e.g. devin-session-token$... or auth1_...',
+        apiKeyPlaceholder: 'devin-session-token$...',
+      },
       vibex: {
         title: 'VibeX',
         usage: 'RunningHub balance and quota',
@@ -279,6 +288,7 @@ export default {
         claude: 'Claude',
         openai: 'OpenAI',
         cursor: 'Cursor',
+        windsurf: 'Windsurf',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
         grok: 'Grok',

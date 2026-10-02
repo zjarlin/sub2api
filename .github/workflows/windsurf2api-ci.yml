@@ -1,0 +1,36 @@
+name: Windsurf Adapter
+
+on:
+  push:
+    paths:
+      - 'tools/windsurf2api/**'
+      - 'deploy/docker-compose.windsurf.yml'
+      - 'deploy/cluster/deploy-252.sh'
+      - 'deploy/tests/windsurf-deploy-test.sh'
+      - '.github/workflows/windsurf2api-ci.yml'
+  pull_request:
+    paths:
+      - 'tools/windsurf2api/**'
+      - 'deploy/docker-compose.windsurf.yml'
+      - 'deploy/cluster/deploy-252.sh'
+      - 'deploy/tests/windsurf-deploy-test.sh'
+      - '.github/workflows/windsurf2api-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+      - name: Adapter tests
+        working-directory: tools/windsurf2api
+        run: npm test
+      - name: Deployment tests
+        run: |
+          bash -n deploy/cluster/deploy-252.sh deploy/tests/windsurf-deploy-test.sh
+          bash deploy/tests/windsurf-deploy-test.sh

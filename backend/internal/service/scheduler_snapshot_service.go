@@ -610,7 +610,7 @@ func (s *SchedulerSnapshotService) handleBulkAccountEvent(ctx context.Context, p
 		accountGroupIDs := s.normalizeGroupIDs(account.GroupIDs)
 		switch account.Platform {
 		case PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok,
-			PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformArena, PlatformMiniMax, PlatformCursor, PlatformOpenCodeGo,
+			PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformArena, PlatformMiniMax, PlatformCursor, PlatformWindsurf, PlatformOpenCodeGo,
 			PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformSystemOne, PlatformLaya, PlatformJev:
 			// 按兼容关系刷新目标分组；即使刚关闭可选混合调度，也要清理旧快照。
 			addPlatformGroups(account.Platform, accountGroupIDs)
@@ -828,8 +828,8 @@ func (s *SchedulerSnapshotService) rebuildByAccount(ctx context.Context, account
 	return s.rebuildBuckets(ctx, buckets, reason)
 }
 
-func schedulerSnapshotPlatforms() [22]string {
-	return [22]string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformArena, PlatformMiniMax, PlatformCursor, PlatformOpenCodeGo, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformSystemOne, PlatformLaya, PlatformJev}
+func schedulerSnapshotPlatforms() [23]string {
+	return [23]string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformArena, PlatformMiniMax, PlatformCursor, PlatformWindsurf, PlatformOpenCodeGo, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformSystemOne, PlatformLaya, PlatformJev}
 }
 
 // 生命周期辅助函数有意排除 group0；full rebuild 构造 group0 canonical 集时必须显式调用 canonical helper。

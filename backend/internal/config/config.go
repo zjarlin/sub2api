@@ -114,6 +114,8 @@ type BuiltinAdapterConfig struct {
 	ArenaKey       string `mapstructure:"arena_key"`
 	CursorURL      string `mapstructure:"cursor_url"`
 	CursorKey      string `mapstructure:"cursor_key"`
+	WindsurfURL    string `mapstructure:"windsurf_url"`
+	WindsurfKey    string `mapstructure:"windsurf_key"`
 	Enabled        bool   `mapstructure:"enabled"`
 	DesktopURL     string `mapstructure:"desktop_url"`
 	DesktopKey     string `mapstructure:"desktop_key"`
@@ -188,6 +190,14 @@ func (c BuiltinAdapterConfig) CursorBaseURL() string {
 		return "http://sub2api-cursor:7868"
 	}
 	return strings.TrimSpace(c.CursorURL)
+}
+
+// WindsurfBaseURL 返回内置 Windsurf（Devin Connect）适配器地址。
+func (c BuiltinAdapterConfig) WindsurfBaseURL() string {
+	if strings.TrimSpace(c.WindsurfURL) == "" {
+		return "http://sub2api-windsurf:7869"
+	}
+	return strings.TrimSpace(c.WindsurfURL)
 }
 
 // DeepseekWebBaseURL 返回仓库内 DeepSeek 网页适配器地址。
@@ -2182,6 +2192,8 @@ func setDefaults() {
 	viper.SetDefault("builtin_adapter.arena_key", "")
 	viper.SetDefault("builtin_adapter.cursor_url", "")
 	viper.SetDefault("builtin_adapter.cursor_key", "")
+	viper.SetDefault("builtin_adapter.windsurf_url", "")
+	viper.SetDefault("builtin_adapter.windsurf_key", "")
 	viper.SetDefault("builtin_adapter.zcode_url", "")
 	viper.SetDefault("builtin_adapter.zcode_key", "")
 	viper.SetDefault("builtin_adapter.deepseek_web_url", "")

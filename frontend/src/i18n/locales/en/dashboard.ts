@@ -215,6 +215,14 @@ export default {
         note:
           'Cursor groups expose text-only Chat Completions. Call /v1/models to get a current model ID before sending a request. Tool calling, Anthropic Messages, Claude Code, Codex, and OpenCode configurations are not supported.',
       },
+      windsurf: {
+        description:
+          'Use this API key with Windsurf (Devin Connect) through the OpenAI-compatible Chat Completions API. Fetch available model IDs first, then send text-only requests.',
+        modelsRequest: 'GET /v1/models',
+        completionRequest: 'POST /v1/chat/completions',
+        note:
+          'Windsurf groups expose text-only Chat Completions. Call /v1/models to get a current model ID before sending a request. Tool calling, Anthropic Messages, Claude Code, Codex, and OpenCode configurations are not supported.',
+      },
       cliTabs: {
         claudeCode: 'Claude Code',
         geminiCli: 'Gemini CLI',

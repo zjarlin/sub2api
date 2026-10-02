@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -24,6 +25,10 @@ type browserLoginSession interface {
 	Screenshot(context.Context) ([]byte, error)
 	Credential(context.Context) (webCredential, bool, error)
 	Close()
+}
+
+type browserLoginSessionRestriction interface {
+	AccountRestriction(context.Context) (string, bool, error)
 }
 
 type loginBrowser interface {
@@ -227,6 +232,50 @@ func (s *chromiumLoginSession) Credential(ctx context.Context) (webCredential, b
 	credential.Token = strings.TrimSpace(strings.TrimPrefix(credential.Token, "Bearer "))
 	credential.DeviceID = strings.TrimSpace(credential.DeviceID)
 	return credential, credential.Token != "" && credential.DeviceID != "", nil
+}
+
+var suspendedUntilPattern = regexp.MustCompile(`(?i)account has been suspended until\s+([A-Za-z]{3,9}\s+\d{1,2},\s+\d{4}\s+\d{1,2}:\d{2})`)
+
+func deepseekAccountRestriction(text string) (string, bool) {
+	if len(text) > 256<<10 {
+		text = text[:256<<10]
+	}
+	if match := suspendedUntilPattern.FindStringSubmatch(text); len(match) == 2 {
+		return "DeepSeek account is suspended until " + strings.TrimSpace(match[1]) + "; wait for the restriction to end, then try again", true
+	}
+	lower := strings.ToLower(text)
+	if strings.Contains(lower, "account has been suspended") || strings.Contains(lower, "account is suspended") {
+		return "DeepSeek account is suspended; wait for the restriction to end, then try again", true
+	}
+	return "", false
+}
+
+func (s *chromiumLoginSession) AccountRestriction(ctx context.Context) (string, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var text string
+	evaluateContext, cancel := context.WithTimeout(s.context, 10*time.Second)
+	defer cancel()
+	stop := context.AfterFunc(ctx, cancel)
+	defer stop()
+	if err := chromedp.Run(evaluateContext, chromedp.Evaluate(`document.body ? document.body.innerText : ''`, &text)); err != nil {
+		return "", false, err
+	}
+	select {
+	case <-ctx.Done():
+		return "", false, ctx.Err()
+	default:
+	}
+	message, restricted := deepseekAccountRestriction(text)
+	return message, restricted, nil
+}
+
+func sessionAccountRestriction(ctx context.Context, session browserLoginSession) (string, bool, error) {
+	reporter, ok := session.(browserLoginSessionRestriction)
+	if !ok {
+		return "", false, nil
+	}
+	return reporter.AccountRestriction(ctx)
 }
 
 func (s *chromiumLoginSession) Close() {

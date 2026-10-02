@@ -227,7 +227,7 @@ func WithAutoModelRequestCapabilities(ctx context.Context, body []byte) context.
 
 // 文本适配器的提示词模拟工具不视为原生工具能力，只参与 Ask 调度。
 func AutoModelPlatformAllowed(ctx context.Context, platform string) bool {
-	if platform != PlatformDoubao && platform != PlatformDeepseekWeb && platform != PlatformCursor {
+	if platform != PlatformDoubao && platform != PlatformDeepseekWeb && platform != PlatformCursor && platform != PlatformWindsurf {
 		return true
 	}
 	if ctx == nil {
@@ -470,7 +470,7 @@ func modelAccountCompatible(account *Account, model string, body []byte, assiste
 	if account == nil || !modelAccountPreservesSearchTools(account, model, body) {
 		return false
 	}
-	if account.IsCursor() {
+	if account.IsCursor() || account.IsWindsurf() {
 		if gjson.GetBytes(body, "tools.#").Int() > 0 {
 			return false
 		}

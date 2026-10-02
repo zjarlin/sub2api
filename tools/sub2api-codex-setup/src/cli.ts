@@ -107,6 +107,7 @@ async function main(): Promise<void> {
   }
   const installPlan = values['no-install'] ? undefined : planClientInstall({
     source: installSource,
+    baseUrl: normalizedBaseUrl,
     client,
     installDir,
     modifiedInstallerUrl: values['modified-installer-url']

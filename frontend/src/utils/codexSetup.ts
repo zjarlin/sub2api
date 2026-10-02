@@ -22,7 +22,17 @@ export function buildCodexSetupCommand(
     }
     return windows ? `'${value.replace(/'/g, "''")}'` : `'${value.replace(/'/g, "'\\''")}'`
   }
-  const args = [windows ? 'npx.cmd' : 'npx', '-y', 'sub2api-codex-setup', '--base-url', quote(baseUrl), '--api-key', quote(apiKey)]
+  if (windows) {
+    const root = baseUrl.replace(/\/+$/, '')
+    const downloadRoot = root.replace(/\/v1$/i, '')
+    const commandParts = [`Invoke-WebRequest -UseBasicParsing -Uri '${downloadRoot}/downloads/codex-setup.ps1' -OutFile codex-setup.ps1;`, '& .\\codex-setup.ps1', '-BaseUrl', quote(root), '-ApiKey', quote(apiKey)]
+    if (authMode === 'legacy') commandParts.push('-AuthMode', 'legacy')
+    if (options.client === 'cli') commandParts.push('-Client', 'cli')
+    if (options.client === 'cli' && options.installDir.trim()) commandParts.push('-InstallDir', quote(options.installDir.trim()))
+    if (options.codexHome.trim()) commandParts.push('-CodexHome', quote(options.codexHome.trim()), '-PersistHome')
+    return ['powershell.exe', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', commandParts.join(' ')].join(' ')
+  }
+  const args = ['npx', '--registry=https://registry.npmmirror.com', '-y', 'sub2api-codex-setup', '--base-url', quote(baseUrl), '--api-key', quote(apiKey)]
   if (authMode === 'legacy') args.push('--auth-mode', 'legacy')
   if (options.client === 'cli') args.push('--client', 'cli')
   if (options.client === 'cli' && options.installDir.trim()) {
@@ -30,7 +40,6 @@ export function buildCodexSetupCommand(
   }
   if (options.codexHome.trim()) {
     args.push('--codex-home', quote(options.codexHome.trim()))
-    if (windows) args.push('--persist-home')
   }
   return args.join(' ')
 }

@@ -323,7 +323,7 @@ let codexModelManifestRequestID = 0
 
 const showCodexModelCatalog = computed(() =>
   props.show &&
-  props.platform !== 'cursor' &&
+  props.platform !== 'cursor' && props.platform !== 'windsurf' &&
   (activeClientTab.value === 'codex' ||
     (props.platform === 'openai' && activeClientTab.value === 'codex-ws'))
 )
@@ -511,7 +511,7 @@ const openaiTabs: TabConfig[] = [
   { id: 'windows', label: 'Windows', icon: WindowsIcon }
 ]
 
-const showShellTabs = computed(() => props.platform !== 'cursor' && activeClientTab.value !== 'opencode')
+const showShellTabs = computed(() => props.platform !== 'cursor' && props.platform !== 'windsurf' && activeClientTab.value !== 'opencode')
 
 const showCodexAuthMode = computed(() =>
   props.platform === 'openai' &&
@@ -529,6 +529,9 @@ const currentTabs = computed(() => {
 const platformDescription = computed(() => {
   if (props.platform === 'cursor') {
     return t('keys.useKeyModal.cursor.description')
+  }
+  if (props.platform === 'windsurf') {
+    return t('keys.useKeyModal.windsurf.description')
   }
   if (activeClientTab.value === 'codex' &&
     props.platform !== 'openai' &&
@@ -576,6 +579,9 @@ const platformDescription = computed(() => {
 const platformNote = computed(() => {
   if (props.platform === 'cursor') {
     return t('keys.useKeyModal.cursor.note')
+  }
+  if (props.platform === 'windsurf') {
+    return t('keys.useKeyModal.windsurf.note')
   }
   if (activeClientTab.value === 'codex' &&
     props.platform !== 'openai' &&
@@ -736,18 +742,19 @@ const currentFiles = computed((): FileConfig[] => {
     return trimmed.endsWith('/v1beta') ? trimmed : `${trimmed}/v1beta`
   })()
 
-  if (props.platform === 'cursor') {
+  if (props.platform === 'cursor' || props.platform === 'windsurf') {
+    const prefix = props.platform === 'cursor' ? 'cursor' : 'windsurf'
     const authorization = shellQuote(`Authorization: Bearer ${apiKey}`)
     return [
       {
-        path: t('keys.useKeyModal.cursor.modelsRequest'),
+        path: t(`keys.useKeyModal.${prefix}.modelsRequest`),
         content: [
           `curl -sS ${shellQuote(`${apiBase}/models`)} \\`,
           `  -H ${authorization}`
         ].join('\n')
       },
       {
-        path: t('keys.useKeyModal.cursor.completionRequest'),
+        path: t(`keys.useKeyModal.${prefix}.completionRequest`),
         content: [
           `curl -sS ${shellQuote(`${apiBase}/chat/completions`)} \\`,
           `  -H ${authorization} \\`,
@@ -1376,6 +1383,7 @@ function generateRoutedCodexFiles(
    zcode: 'glm-5.3',
    qoder: 'auto',
     cursor: '',
+    windsurf: '',
     systemone: 'laya',
     laya: 'laya',
     jev: 'typesafe/jev',
@@ -1403,6 +1411,7 @@ function generateRoutedCodexFiles(
    zcode: 'ZCode',
    qoder: 'Qoder',
     cursor: 'Cursor',
+    windsurf: 'Windsurf',
     systemone: 'System One',
     laya: 'Laya',
     jev: 'JEV',

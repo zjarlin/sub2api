@@ -321,6 +321,11 @@ func (a *Account) IsCursor() bool {
 	return a != nil && a.Platform == PlatformCursor
 }
 
+// IsWindsurf 标识 Windsurf（Devin Connect）文本适配器账号。
+func (a *Account) IsWindsurf() bool {
+	return a != nil && a.Platform == PlatformWindsurf
+}
+
 // IsCNProvider 报告是否为国产 OpenAI 兼容供应商（含豆包桌面会话适配器）。
 func (a *Account) IsCNProvider() bool {
 	return a != nil && IsCNProvider(a.Platform)
@@ -330,7 +335,7 @@ func (a *Account) IsCNProvider() bool {
 // openai/grok 原生走 OpenAI 网关；国产供应商同为 OpenAI Chat Completions
 // 兼容上游，也经 OpenAI 网关转发。OpenCode 同样经 OpenAI 网关按模型分流。
 func (a *Account) IsOpenAICompatible() bool {
-	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok || a.IsCNProvider() || a.IsOpenCodeGo() || a.IsCursor())
+	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok || a.IsCNProvider() || a.IsOpenCodeGo() || a.IsCursor() || a.IsWindsurf())
 }
 
 func (a *Account) GeminiOAuthType() string {
@@ -932,7 +937,7 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 		if a.Platform == PlatformDeepseek {
 			return isDeepseekServableModel(requestedModel)
 		}
-		if a.IsCursor() {
+		if a.IsCursor() || a.IsWindsurf() {
 			return false
 		}
 		// 混合调度来源必须有模型支持依据，避免空目录的兼容账号抢占其他厂商请求。
@@ -1426,7 +1431,7 @@ func (a *Account) SupportsHTTPResponsesContinuation() bool {
 // 适用 openai、国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）与 OpenCode Go；
 // grok 走 GetGrokBaseURL，此处对 grok 返回 "" 以保持原有行为。
 func (a *Account) GetOpenAIBaseURL() string {
-	if !a.IsOpenAI() && !a.IsCNProvider() && !a.IsOpenCodeGo() && !a.IsCursor() && !a.IsLaya() && !a.IsJev() {
+	if !a.IsOpenAI() && !a.IsCNProvider() && !a.IsOpenCodeGo() && !a.IsCursor() && !a.IsWindsurf() && !a.IsLaya() && !a.IsJev() {
 		return ""
 	}
 	if a.IsMultiProtocolAPIKey() && a.IsAdaptiveAPIProtocol() {
@@ -1446,7 +1451,7 @@ func (a *Account) GetOpenAIBaseURL() string {
 	case PlatformQoder:
 		// Qoder 直连官方 Model Server，不依赖内置适配器配置。
 		return QoderModelServerURL()
-	case PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformDeepseekWeb, PlatformArena, PlatformLaya, PlatformJev, PlatformCursor:
+	case PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformDeepseekWeb, PlatformArena, PlatformLaya, PlatformJev, PlatformCursor, PlatformWindsurf:
 		// 内置适配器模式下由部署注入地址，账号本身不存默认公网端点。
 		return builtinAdapterBaseURL(a.Platform)
 	case PlatformKimi:
@@ -1473,7 +1478,7 @@ func (a *Account) GetOpenAIBaseURL() string {
 // GetAccountMode 返回国产供应商账号的接入模式（payg / coding）；非国产供应商或未设置时
 // 返回空串。存储于 credentials["account_mode"]。
 func (a *Account) GetAccountMode() string {
-	if a == nil || a.IsDoubao() || a.IsTraework() || a.IsWorkbuddy() || a.IsVibex() || a.IsZcode() || a.IsDeepseekWeb() || a.IsArena() || a.IsLaya() || a.IsJev() || a.IsCursor() {
+	if a == nil || a.IsDoubao() || a.IsTraework() || a.IsWorkbuddy() || a.IsVibex() || a.IsZcode() || a.IsDeepseekWeb() || a.IsArena() || a.IsLaya() || a.IsJev() || a.IsCursor() || a.IsWindsurf() {
 		return ""
 	}
 	mode := strings.TrimSpace(a.GetCredential("account_mode"))
@@ -1507,7 +1512,7 @@ func (a *Account) GetAPIProtocol() string {
 		// pinned to Chat before it exposed Responses; preserve the inbound shape.
 		return APIProtocolResponses
 	}
-	if a.IsCursor() {
+	if a.IsCursor() || a.IsWindsurf() {
 		return APIProtocolChatCompletions
 	}
 	if a.IsTraework() || a.IsWorkbuddy() || a.IsVibex() || a.IsZcode() || a.IsDeepseekWeb() || a.IsArena() || a.IsQoder() || !a.IsMultiProtocolAPIKey() {

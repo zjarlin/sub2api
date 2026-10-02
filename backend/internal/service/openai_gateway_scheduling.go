@@ -292,7 +292,7 @@ func (s *OpenAIGatewayService) SelectAccountForTokenCount(
 // handler 调度入口仍需导出，保持导出名。）
 func NormalizeOpenAICompatiblePlatform(platform string) string {
 	switch platform {
-	case PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformCursor, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformSystemOne, PlatformLaya, PlatformJev:
+	case PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformCursor, PlatformWindsurf, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformSystemOne, PlatformLaya, PlatformJev:
 		return platform
 	default:
 		return PlatformOpenAI
@@ -407,7 +407,7 @@ func openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx context.Con
 	if !openAIAccountMatchesPlatform(account, platform) || !account.IsOpenAICompatible() {
 		return "platform_mismatch"
 	}
-	if account.IsCursor() && openAIRequestProtocol(ctx, requiredCapability) == OpenAIRequestProtocolMessages {
+	if (account.IsCursor() || account.IsWindsurf()) && openAIRequestProtocol(ctx, requiredCapability) == OpenAIRequestProtocolMessages {
 		return "capability_mismatch"
 	}
 	if !account.IsSchedulableForModelWithContext(ctx, requestedModel) {

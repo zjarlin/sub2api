@@ -295,7 +295,7 @@ func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, accou
 	liveListAvailable := err == nil
 	if err != nil {
 		configuredModels := configuredUpstreamModelsForCapabilitySync(account)
-		if account != nil && account.IsCursor() || !upstreamModelListEndpointUnsupported(err) || len(configuredModels) == 0 {
+		if account != nil && (account.IsCursor() || account.IsWindsurf()) || !upstreamModelListEndpointUnsupported(err) || len(configuredModels) == 0 {
 			return nil, err
 		}
 		models = configuredModels
@@ -736,7 +736,7 @@ func upstreamModelRegistryBaseURL(account *Account) string {
 		return ""
 	}
 	switch {
-	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo() || account.IsCursor():
+	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo() || account.IsCursor() || account.IsWindsurf():
 		return account.GetOpenAIFormatBaseURL()
 	case account.IsGrok():
 		return account.GetGrokBaseURL()
@@ -882,6 +882,11 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 				message = mapped
 			}
 		}
+		if account.IsWindsurf() {
+			if mapped := windsurfModelSyncErrorMessage(body); mapped != "" {
+				message = mapped
+			}
+		}
 		return nil, nil, &UpstreamModelSyncError{
 			Kind:       UpstreamModelSyncErrorUpstream,
 			Message:    message,
@@ -926,13 +931,35 @@ func cursorModelSyncErrorMessage(body []byte) string {
 	}
 }
 
+// windsurfModelSyncErrorMessage 把内置 Windsurf 适配器自定义的错误码翻译成固定提示。
+func windsurfModelSyncErrorMessage(body []byte) string {
+	var payload struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return ""
+	}
+	switch payload.Error.Code {
+	case "windsurf_authentication_failed", "missing_windsurf_key":
+		return "Windsurf rejected the saved session token; update the account credential"
+	case "windsurf_rate_limited":
+		return "Windsurf account is rate limited; retry later"
+	case "empty_model_catalog":
+		return "Windsurf returned no available models for this account"
+	default:
+		return ""
+	}
+}
+
 func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
 	switch {
 	case account.Platform == PlatformAntigravity:
 		return s.buildAntigravityAPIKeyModelsRequest(ctx, account)
 	case account.IsGrok():
 		return s.buildGrokUpstreamModelsRequest(ctx, account)
-	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo() || account.IsArena() || account.IsCursor():
+	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo() || account.IsArena() || account.IsCursor() || account.IsWindsurf():
 		// 国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）与 OpenCode Go
 		// 复用 OpenAI /v1/models 探测。
 		return s.buildOpenAIUpstreamModelsRequest(ctx, account)
@@ -1177,7 +1204,7 @@ func buildOpenAIAPIKeyModelsRequest(ctx context.Context, account *Account, valid
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
-	if account.IsCursor() {
+	if account.IsCursor() || account.IsWindsurf() {
 		if adapterKey := builtinAdapterSharedKeyForTarget(account.Platform, normalizedBaseURL); adapterKey != "" {
 			req.Header.Set("X-Sub2API-Adapter-Key", adapterKey)
 		}

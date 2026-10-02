@@ -131,6 +131,13 @@ func (a *adapter) beginLogin(ctx context.Context, rawOptions json.RawMessage) (*
 			return &builtinlogin.View{ContentType: "image/png", Body: screenshot}, nil
 		},
 		Complete: func(ctx context.Context, _ string) (*builtinlogin.Account, error) {
+			message, restricted, err := sessionAccountRestriction(ctx, session)
+			if err != nil {
+				return nil, err
+			}
+			if restricted {
+				return nil, &builtinlogin.PublicError{Status: http.StatusLocked, Message: message}
+			}
 			credential, ready, err := session.Credential(ctx)
 			if err != nil {
 				return nil, err

@@ -150,6 +150,9 @@ func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action
 				message = "Arena login expired; start a new login"
 			}
 		}
+		if platform == PlatformDeepseekWeb && status == http.StatusLocked {
+			return nil, deepseekLoginRestrictedError(res)
+		}
 		if platform == PlatformDeepseekWeb {
 			message = "DeepSeek login failed; check the account and password, then try again"
 			if status == http.StatusTooManyRequests {
@@ -184,6 +187,22 @@ func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action
 		return nil, fmt.Errorf("invalid adapter login status")
 	}
 	return &result, nil
+}
+
+var deepseekLoginRestrictedMessagePattern = regexp.MustCompile(`^DeepSeek account is suspended(?: until [A-Za-z]{3,9} \d{1,2}, \d{4} \d{1,2}:\d{2})?; wait for the restriction to end, then try again$`)
+
+func deepseekLoginRestrictedError(res *http.Response) error {
+	message := "DeepSeek account is suspended; wait for the restriction to end, then try again"
+	var body struct {
+		Message string `json:"message"`
+	}
+	if err := json.NewDecoder(io.LimitReader(res.Body, 4<<10)).Decode(&body); err == nil {
+		message = strings.TrimSpace(body.Message)
+	}
+	if !deepseekLoginRestrictedMessagePattern.MatchString(message) {
+		message = "DeepSeek account is suspended; wait for the restriction to end, then try again"
+	}
+	return infraerrors.New(http.StatusLocked, "DEEPSEEK_ACCOUNT_RESTRICTED", message)
 }
 
 func arenaLoginError(res *http.Response) error {

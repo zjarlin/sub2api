@@ -254,6 +254,7 @@ const platformFilterOptions = computed(() => [
   { value: 'anthropic', label: 'Anthropic' },
   { value: 'openai', label: t('myAccounts.openaiCompatible') },
   { value: 'cursor', label: 'Cursor' },
+  { value: 'windsurf', label: 'Windsurf' },
   { value: 'gemini', label: 'Gemini' },
   { value: 'antigravity', label: 'Antigravity' },
   { value: 'kiro', label: 'Kiro' },

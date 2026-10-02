@@ -2,11 +2,24 @@ package routes
 
 import (
 	"context"
+	_ "embed"
+	"fmt"
+	"io"
 	"net/http"
+	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/downloads"
+	"github.com/Wei-Shaw/sub2api/internal/setup"
 
 	"github.com/gin-gonic/gin"
 )
+
+const codexDesktopInstallerURL = "https://get.microsoft.com/installer/download/9PLM9XGG6VKS"
+const codexMacOSInstallerURL = "https://persistent.oaistatic.com/codex-app-prod/Codex.dmg"
+
+var codexDownloadClient = &http.Client{Timeout: 20 * time.Minute}
+var codexDownloadCache = downloads.NewCache("")
 
 // RegisterCommonRoutes 注册通用路由（健康检查、状态等）
 func RegisterCommonRoutes(r *gin.Engine, checkReady func(context.Context) error) {
@@ -44,4 +57,73 @@ func RegisterCommonRoutes(r *gin.Engine, checkReady func(context.Context) error)
 			},
 		})
 	})
+
+	registerCodexDownloadRoutes(r)
 }
+
+func registerCodexDownloadRoutes(r *gin.Engine) {
+	r.GET("/downloads/codex-setup.ps1", func(c *gin.Context) {
+		c.Header("Cache-Control", "no-store")
+		c.Header("Content-Disposition", `attachment; filename="codex-setup.ps1"`)
+		c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte(codexWindowsSetupScript))
+	})
+
+	// Keep the Microsoft Store bootstrap downloadable through the same origin.
+	// The installer still uses Microsoft services, so the setup script applies a
+	// hard timeout and offers an independent CLI path.
+	r.GET("/downloads/ChatGPT-Installer.exe", func(c *gin.Context) {
+		serveCodexInstaller(c, downloads.WindowsInstallerFile, codexDesktopInstallerURL, "ChatGPT-Installer.exe")
+	})
+	r.GET("/downloads/Codex.dmg", func(c *gin.Context) {
+		serveCodexInstaller(c, downloads.MacOSInstallerFile, codexMacOSInstallerURL, "Codex.dmg")
+	})
+}
+
+func serveCodexInstaller(c *gin.Context, cacheFilename, upstreamURL, downloadFilename string) {
+	if file, info, err := codexDownloadCache.Open(cacheFilename); err == nil {
+		defer file.Close()
+		c.Header("Cache-Control", "public, max-age=3600")
+		c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, downloadFilename))
+		c.Header("Content-Type", "application/octet-stream")
+		http.ServeContent(c.Writer, c.Request, downloadFilename, info.ModTime(), file)
+		return
+	}
+
+	req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodGet, upstreamURL, nil)
+	if err != nil {
+		c.String(http.StatusInternalServerError, "create installer request: %v", err)
+		return
+	}
+	resp, err := codexDownloadClient.Do(req)
+	if err != nil {
+		c.String(http.StatusBadGateway, "download installer: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		c.String(http.StatusBadGateway, "download installer: upstream HTTP %d", resp.StatusCode)
+		return
+	}
+	c.Header("Cache-Control", "public, max-age=900")
+	c.Header("Content-Disposition", fmt.Sprintf(`attachment; filename=%q`, downloadFilename))
+	if contentType := strings.TrimSpace(resp.Header.Get("Content-Type")); contentType != "" {
+		c.Header("Content-Type", contentType)
+	} else {
+		c.Header("Content-Type", "application/octet-stream")
+	}
+	if contentLength := strings.TrimSpace(resp.Header.Get("Content-Length")); contentLength != "" {
+		c.Header("Content-Length", contentLength)
+	}
+	c.Status(resp.StatusCode)
+	if _, err := io.Copy(c.Writer, resp.Body); err != nil {
+		_ = c.Error(fmt.Errorf("copy installer response: %w", err))
+	}
+}
+
+func StartCodexDownloadCache(ctx context.Context) {
+	codexDownloadCache = downloads.NewCache(downloads.CacheDir(setup.GetDataDir()))
+	codexDownloadCache.Start(ctx)
+}
+
+//go:embed codex_setup.ps1
+var codexWindowsSetupScript string

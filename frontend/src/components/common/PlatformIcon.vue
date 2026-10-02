@@ -15,6 +15,11 @@
   <svg v-else-if="platform === 'cursor'" :class="sizeClass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round">
     <path d="M5 3l14 9-6.3 2.1L10.6 20 5 3z" />
   </svg>
+  <!-- Windsurf logo (stylized wave) -->
+  <svg v-else-if="platform === 'windsurf'" :class="sizeClass" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M3 15.5c2.6 0 2.6-2.2 5.2-2.2s2.6 2.2 5.2 2.2 2.6-2.2 5.2-2.2" />
+    <path d="M3 10c2.6 0 2.6-2.2 5.2-2.2S10.8 10 13.4 10s2.6-2.2 5.2-2.2" />
+  </svg>
   <!-- Gemini logo (simple star) -->
   <svg v-else-if="platform === 'gemini'" :class="sizeClass" viewBox="0 0 24 24" fill="currentColor">
     <path d="M12 2l1.89 7.2L21 12l-7.11 2.8L12 22l-1.89-7.2L3 12l7.11-2.8L12 2z" />

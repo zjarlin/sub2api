@@ -1,0 +1,37 @@
+# Windsurf（Devin Connect）文本适配器；账号会话 Token 由主服务按请求发送，不保存在容器中。
+services:
+  sub2api:
+    environment:
+      - BUILTIN_ADAPTER_ENABLED=true
+      - BUILTIN_ADAPTER_WINDSURF_URL=http://sub2api-windsurf:7869
+      - BUILTIN_ADAPTER_WINDSURF_KEY=${WINDSURF_ADAPTER_KEY:?Set WINDSURF_ADAPTER_KEY to a shared adapter key}
+    depends_on:
+      sub2api-windsurf:
+        condition: service_healthy
+
+  sub2api-windsurf:
+    build:
+      context: ./tools/windsurf2api
+      dockerfile: Dockerfile
+    image: ${WINDSURF_IMAGE:-sub2api-windsurf:local}
+    restart: unless-stopped
+    environment:
+      WINDSURF_ADAPTER_KEY: ${WINDSURF_ADAPTER_KEY:?Set WINDSURF_ADAPTER_KEY to a shared adapter key}
+      WINDSURF_REQUEST_TIMEOUT_MS: ${WINDSURF_REQUEST_TIMEOUT_MS:-600000}
+      WINDSURF_MAX_CONCURRENT: ${WINDSURF_MAX_CONCURRENT:-4}
+      WINDSURF_MAX_BODY_BYTES: ${WINDSURF_MAX_BODY_BYTES:-4194304}
+    networks: [sub2api-network]
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=0700,size=64m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 512m
+    stop_grace_period: 30s
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:7869/livez').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

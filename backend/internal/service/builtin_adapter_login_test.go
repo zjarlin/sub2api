@@ -237,3 +237,21 @@ func TestDeepseekWebLoginAutoReloginOptionsAndSanitizedStatus(t *testing.T) {
 		})
 	}
 }
+
+func TestDeepseekWebRestrictedLoginIsNotReportedAsInvalidCredentials(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusLocked)
+		_ = json.NewEncoder(w).Encode(map[string]string{"message": "DeepSeek account is suspended until October 2, 2026 21:18; wait for the restriction to end, then try again"})
+	}))
+	defer server.Close()
+	SetBuiltinAdapterConfig(&config.BuiltinAdapterConfig{Enabled: true, DeepseekWebURL: server.URL, DeepseekWebKey: "private-key"})
+	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
+
+	_, err := BuiltinAdapterLogin(context.Background(), PlatformDeepseekWeb, "admin:1", strings.Repeat("a", 64), "poll", "")
+	require.Error(t, err)
+	require.Equal(t, "DEEPSEEK_ACCOUNT_RESTRICTED", infraerrors.Reason(err))
+	require.Equal(t, "DeepSeek account is suspended until October 2, 2026 21:18; wait for the restriction to end, then try again", infraerrors.Message(err))
+	require.Equal(t, http.StatusLocked, infraerrors.Code(err))
+	require.Contains(t, err.Error(), "suspended")
+	require.NotContains(t, err.Error(), "account and password")
+}

@@ -54,16 +54,13 @@ test('Windows desktop selects a Windows installer and never downloads a DMG', (c
 });
 
 for (const scenario of [
-  { name: 'winget succeeds', winget: true, wingetExit: 0, fallback: false, exit: 0 },
-  { name: 'winget is missing', winget: false, fallback: true, exit: 0 },
-  { name: 'winget fails', winget: true, wingetExit: 7, fallback: true, exit: 0 },
-  { name: 'download fails', winget: false, downloadError: true, fallback: true, exit: 1 },
-  { name: 'installer fails', winget: false, installerExit: 8, fallback: true, exit: 1 }
+  { name: 'desktop installer succeeds', installerExit: 0, downloadError: false, exit: 0, fallback: false },
+  { name: 'download fails and CLI fallback succeeds', downloadError: true, npmExit: 0, exit: 0, fallback: true },
+  { name: 'desktop installer fails and CLI fallback succeeds', installerExit: 8, npmExit: 0, exit: 0, fallback: true },
+  { name: 'CLI fallback also fails', downloadError: true, npmExit: 9, exit: 1, fallback: true }
 ]) {
   test('Windows desktop execution when ' + scenario.name, { skip: process.platform !== 'win32' }, () => {
     const mocks = `
-function Get-Command { param($Name, $ErrorAction) ${scenario.winget ? "[PSCustomObject]@{ Source = 'winget.exe' }" : '$null'} }
-function winget.exe { $global:LASTEXITCODE = ${scenario.wingetExit || 0}; Write-Host 'WINGET' }
 function Invoke-WebRequest {
   param([switch]$UseBasicParsing, $Uri, $OutFile)
   Write-Host ('DOWNLOAD:' + $OutFile)
@@ -71,18 +68,20 @@ function Invoke-WebRequest {
   ${scenario.downloadError ? "throw 'Download failed'" : "[IO.File]::WriteAllText($OutFile, 'mock installer')"}
 }
 function Start-Process {
-  param($FilePath, [switch]$Wait, [switch]$PassThru)
-  if (-not $Wait -or -not $PassThru -or -not (Test-Path -LiteralPath $FilePath)) { throw 'Invalid installer execution' }
+  param($FilePath, [switch]$PassThru)
+  if (-not $PassThru -or -not (Test-Path -LiteralPath $FilePath)) { throw 'Invalid installer execution' }
   Write-Host 'INSTALLER'
-  [PSCustomObject]@{ ExitCode = ${scenario.installerExit || 0} }
+  [PSCustomObject]@{ ExitCode = ${scenario.installerExit || 0}; WaitForExit = { param($ms) $true } }
 }
+function Get-Command { param($Name, $ErrorAction) [PSCustomObject]@{ Source = 'npm.cmd' } }
+function npm.cmd { $global:LASTEXITCODE = ${scenario.npmExit || 0}; Write-Host 'NPM' }
 `;
     const result = spawnSync('powershell.exe', ['-NoProfile', '-Command', mocks + windowsInstallScript()], { encoding: 'utf8' });
     assert.ifError(result.error);
     assert.equal(result.status, scenario.exit, result.stdout + result.stderr);
-    assert.equal(result.stdout.includes('WINGET'), scenario.winget);
-    assert.equal(result.stdout.includes('DOWNLOAD:'), scenario.fallback);
-    assert.equal(result.stdout.includes('INSTALLER'), scenario.fallback && !scenario.downloadError);
+    assert.equal(result.stdout.includes('DOWNLOAD:'), true);
+    assert.equal(result.stdout.includes('INSTALLER'), !scenario.downloadError);
+    assert.equal(result.stdout.includes('NPM'), scenario.fallback);
     const download = result.stdout.match(/DOWNLOAD:([^\r\n]+)/)?.[1];
     if (download) {
       assert.equal(existsSync(dirname(download)), false, 'temporary installer directory must be removed');
@@ -106,13 +105,23 @@ test('Store desktop installation rejects an unsupported custom directory', () =>
 test('Linux CLI installation is supported and keeps spaces in a single argument', () => {
   const plan = planClientInstall({ platform: 'linux', client: 'cli', installDir: '/mnt/AI tools' });
   assert.equal(plan.supported, true);
-  assert.deepEqual(plan.install, [{ command: 'npm', args: ['install', '--global', '@openai/codex', '--prefix', '/mnt/AI tools', '--cache', '/mnt/AI tools/npm-cache'] }]);
+  assert.deepEqual(plan.install, [{ command: 'npm', args: ['install', '--global', '@openai/codex', '--registry=https://registry.npmmirror.com', '--prefix', '/mnt/AI tools', '--cache', '/mnt/AI tools/npm-cache'] }]);
 });
 
 test('macOS desktop honors a requested app directory instead of skipping another installation', () => {
   const plan = planClientInstall({ platform: 'darwin', installDir: '/Volumes/Data/AI apps' });
   assert.equal(plan.installed, false);
   assert.ok(plan.install[0].args[1].includes("target_dir='/Volumes/Data/AI apps'"));
+});
+
+test('desktop installers prefer the gateway cache when baseUrl is supplied', () => {
+  const mac = planClientInstall({ platform: 'darwin', baseUrl: 'https://gateway.example/v1' });
+  assert.match(mac.install[0].args[1], /gateway\.example\/downloads\/Codex\.dmg/);
+  assert.match(mac.install[0].args[1], /persistent\.oaistatic\.com\/codex-app-prod\/Codex\.dmg/);
+
+  const win = planClientInstall({ platform: 'win32', baseUrl: 'https://gateway.example/v1' });
+  assert.match(win.install[0].args.at(-1), /gateway\.example\/downloads\/ChatGPT-Installer\.exe/);
+  assert.match(win.install[0].args.at(-1), /get\.microsoft\.com\/installer\/download\/9PLM9XGG6VKS/);
 });
 
 test('ambiguous Windows drive-relative paths fail validation', () => {

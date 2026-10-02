@@ -23,6 +23,8 @@ const (
 	autoModelListingKey       = "auto_model_listing"
 	autoModelListingModelsKey = "auto_model_listing_models"
 	autoModelListingETagKey   = "auto_model_listing_etag"
+	modelTierListingKey       = "model_tier_listing"
+	modelTierListingModelsKey = "model_tier_listing_models"
 )
 
 type autoModelRouteCandidate struct {
@@ -47,12 +49,16 @@ func prependVirtualModels(models []string, virtualModels ...string) []string {
 }
 
 func (h *GatewayHandler) availableVirtualModelIDs(ctx context.Context, group *service.Group, models []string) []string {
-	virtualModels := make([]string, 0, 2)
+	virtualModels := make([]string, 0, 6)
 	if h.autoModelAvailable(ctx, group, models) {
 		virtualModels = append(virtualModels, autoModelID)
 	}
 	if h.askModelAvailable(ctx, group, models) {
 		virtualModels = append(virtualModels, askModelID)
+	}
+	tiers, _ := h.modelTierVirtualModels(ctx, models)
+	for _, tier := range tiers {
+		virtualModels = append(virtualModels, tier.ID)
 	}
 	return virtualModels
 }
@@ -66,7 +72,7 @@ func (h *GatewayHandler) prependAvailableVirtualModels(ctx context.Context, grou
 }
 
 func isVirtualModelID(model string) bool {
-	return model == autoModelID || model == askModelID
+	return model == autoModelID || model == askModelID || isModelTierVirtualModel(model)
 }
 
 // ask 只调度文本/视觉对话适配器。Codex 会在每个 Responses 请求中注册本地工具，
@@ -139,7 +145,7 @@ func autoModelTextPlatform(platform string) bool {
 	switch platform {
 	case service.PlatformOpenAI, service.PlatformGrok, service.PlatformKimi,
 		service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax,
-		service.PlatformOpenCodeGo, service.PlatformDoubao, service.PlatformDeepseekWeb, service.PlatformCursor, service.PlatformTraework,
+		service.PlatformOpenCodeGo, service.PlatformDoubao, service.PlatformDeepseekWeb, service.PlatformCursor, service.PlatformWindsurf, service.PlatformTraework,
 		service.PlatformWorkbuddy, service.PlatformVibex, service.PlatformZcode,
 		service.PlatformQoder:
 		return true
@@ -321,6 +327,22 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 			c.Abort()
 			return
 		}
+		routes, tierSelected, err := h.filterModelTierRoutes(ctx, virtualModel, routes)
+		if err != nil {
+			finishObservation := h.observeAutoModelRoute(c, apiKey, "")
+			defer finishObservation()
+			logger.FromContext(c.Request.Context()).Warn("gateway.model_tier_candidates_unavailable", zap.Error(err))
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "scheduling_error", "message": "Model tier candidates are unavailable"}})
+			c.Abort()
+			return
+		}
+		if tierSelected && len(routes) == 0 {
+			finishObservation := h.observeAutoModelRoute(c, apiKey, "")
+			defer finishObservation()
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "scheduling_error", "message": "Model tier has no eligible model"}})
+			c.Abort()
+			return
+		}
 		if len(routes) == 0 {
 			// Keep the rejected plan observable too: no model is selected yet, but
 			// the per-candidate reasons are needed to diagnose request capabilities.
@@ -351,7 +373,11 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 			TargetPlatform: selected.targetPlatform, UpstreamModel: selected.upstreamModel,
 			Endpoint: autoModelEndpoint(c.FullPath()), Source: service.CompositeRouteSourceAccount,
 		}))
-		seedAutoModelFallback(c, model, routes)
+		if isModelTierVirtualModel(virtualModel) {
+			seedModelTierFallback(c, model, routes)
+		} else {
+			seedAutoModelFallback(c, model, routes)
+		}
 		rewritten, err := sjson.SetBytes(body, "model", selected.upstreamModel)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "api_error", "message": "Failed to route auto model"}})

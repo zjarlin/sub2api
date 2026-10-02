@@ -32,6 +32,24 @@ func validateBuiltinChatCredentials(platform, accountType string, credentials ma
 		}
 		return nil
 	}
+	if platform == PlatformWindsurf {
+		if accountType != AccountTypeAPIKey {
+			return infraerrors.BadRequest("INVALID_WINDSURF_CREDENTIALS", "windsurf requires an API key account")
+		}
+		key, _ := credentials["api_key"].(string)
+		if strings.TrimSpace(key) == "" {
+			return infraerrors.BadRequest("INVALID_WINDSURF_CREDENTIALS", "windsurf requires a Windsurf session token")
+		}
+		protocol, _ := credentials["api_protocol"].(string)
+		if protocol != "" && protocol != APIProtocolChatCompletions {
+			return infraerrors.BadRequest("INVALID_WINDSURF_CREDENTIALS", "windsurf only supports chat_completions")
+		}
+		baseURL, _ := credentials["base_url"].(string)
+		if strings.TrimSpace(baseURL) == "" && !BuiltinAdapterEnabled() {
+			return infraerrors.BadRequest("INVALID_WINDSURF_CREDENTIALS", "windsurf requires a base_url when the built-in adapter is disabled")
+		}
+		return nil
+	}
 	if platform == PlatformArena {
 		return validateArenaCredentials(accountType, credentials)
 	}

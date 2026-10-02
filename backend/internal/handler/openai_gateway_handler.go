@@ -324,7 +324,7 @@ func openAICompatibleTextTargetAllowed(c *gin.Context, apiKey *service.APIKey, m
 		service.PlatformOpenAI, service.PlatformGrok,
 		service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformArena,
 		service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformDoubao, service.PlatformTraework, service.PlatformWorkbuddy, service.PlatformVibex, service.PlatformZcode, service.PlatformQoder,
-		service.PlatformLaya, service.PlatformJev, service.PlatformCursor)
+		service.PlatformLaya, service.PlatformJev, service.PlatformCursor, service.PlatformWindsurf)
 }
 
 // Responses WebSocket 仅放行已接入原生协议或 HTTP 转换桥的平台。
@@ -1304,9 +1304,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")
 		return
 	}
-	if openAICompatibleRequestPlatform(c.Request.Context(), apiKey) == service.PlatformCursor {
+	if platform := openAICompatibleRequestPlatform(c.Request.Context(), apiKey); platform == service.PlatformCursor || platform == service.PlatformWindsurf {
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
-		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Cursor does not support Anthropic Messages because max_tokens has no SDK mapping")
+		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "This text adapter does not support Anthropic Messages")
 		return
 	}
 	bindOpenAIReasoningEffortPolicyForMessagesRequest(c, apiKey, body)

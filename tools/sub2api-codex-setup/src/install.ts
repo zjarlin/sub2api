@@ -34,6 +34,7 @@ export interface InstallOptions {
   platform?: NodeJS.Platform;
   source?: CodexInstallSource;
   modifiedInstallerUrl?: string;
+  baseUrl?: string;
   client?: CodexClient;
   installDir?: string;
 }
@@ -133,6 +134,7 @@ export function planClientInstall(options: InstallOptions = {}): InstallPlan {
   const detected = detectPlatform(platform);
   const client = options.client || 'desktop';
   const installDir = options.installDir === undefined ? undefined : resolveDirectory(options.installDir, platform);
+  const gatewayRoot = (options.baseUrl || '').replace(/\/+$/, '').replace(/\/v1$/i, '');
 
   if (options.source === 'modified' && (client === 'cli' || installDir)) {
     throw new Error('--client cli and --install-dir require --install-source official');
@@ -142,7 +144,7 @@ export function planClientInstall(options: InstallOptions = {}): InstallPlan {
   }
 
   if (client === 'cli') {
-    const args = ['install', '--global', '@openai/codex'];
+    const args = ['install', '--global', '@openai/codex', '--registry=https://registry.npmmirror.com'];
     if (installDir) {
       const cacheDir = (platform === 'win32' ? win32 : posix).join(installDir, 'npm-cache');
       args.push('--prefix', installDir, '--cache', cacheDir);
@@ -180,7 +182,7 @@ export function planClientInstall(options: InstallOptions = {}): InstallPlan {
       install: [
         {
           command: 'bash',
-          args: ['-lc', macosInstallScript(installDir)]
+          args: ['-lc', macosInstallScript(installDir, gatewayRoot ? `${gatewayRoot}/downloads/Codex.dmg` : undefined)]
         }
       ]
     };
@@ -195,7 +197,7 @@ export function planClientInstall(options: InstallOptions = {}): InstallPlan {
       install: [
         {
           command: 'powershell.exe',
-          args: ['-NoProfile', '-Command', windowsInstallScript()]
+          args: ['-NoProfile', '-Command', windowsInstallScript(gatewayRoot ? `${gatewayRoot}/downloads/ChatGPT-Installer.exe` : undefined)]
         }
       ]
     };
@@ -263,28 +265,44 @@ export function runCommand(plan: CommandPlan): Promise<void> {
   });
 }
 
-export function windowsInstallScript(): string {
+export function windowsInstallScript(cachedInstallerUrl?: string): string {
+  const cachedUrl = cachedInstallerUrl ? `  $cachedInstallerUrl = ${powerShellLiteral(cachedInstallerUrl)}
+` : '';
   return `$ErrorActionPreference = 'Stop'
-$winget = Get-Command winget.exe -ErrorAction SilentlyContinue
-if ($winget) {
-  & $winget.Source install --id 9PLM9XGG6VKS --exact -s msstore --accept-package-agreements --accept-source-agreements
-  if ($LASTEXITCODE -eq 0) { exit 0 }
-  Write-Warning "winget failed (exit $LASTEXITCODE); using the official Windows installer."
-}
-$tempDir = Join-Path ([IO.Path]::GetTempPath()) ('sub2api-codex-' + [Guid]::NewGuid().ToString('N'))
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+${cachedUrl}$tempDir = Join-Path ([IO.Path]::GetTempPath()) ('sub2api-codex-' + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tempDir | Out-Null
 try {
-  [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
   $installer = Join-Path $tempDir 'ChatGPT-Setup.exe'
-  Invoke-WebRequest -UseBasicParsing -Uri 'https://get.microsoft.com/installer/download/9PLM9XGG6VKS' -OutFile $installer
-  $process = Start-Process -FilePath $installer -Wait -PassThru
+  try {
+    if ($cachedInstallerUrl) { Invoke-WebRequest -UseBasicParsing -Uri $cachedInstallerUrl -OutFile $installer -TimeoutSec 120 }
+    else { throw 'No gateway cache URL configured' }
+  } catch {
+    Write-Warning 'Gateway cache unavailable; downloading from Microsoft.'
+    Invoke-WebRequest -UseBasicParsing -Uri 'https://get.microsoft.com/installer/download/9PLM9XGG6VKS' -OutFile $installer -TimeoutSec 120
+  }
+  $process = Start-Process -FilePath $installer -PassThru
+  if (-not $process.WaitForExit(90000)) {
+    try { $process.Kill() } catch { }
+    throw 'The Microsoft Store installer did not finish within 90 seconds.'
+  }
   if ($process.ExitCode -ne 0) { throw "Windows installer exited with $($process.ExitCode)" }
+} catch {
+  Write-Warning $_.Exception.Message
+  Write-Warning 'Falling back to the official Codex CLI from the npm mirror.'
+  $npm = Get-Command npm.cmd -ErrorAction SilentlyContinue
+  if (-not $npm) { $npm = Get-Command npm -ErrorAction SilentlyContinue }
+  if (-not $npm) { throw 'Node.js 22.14 or newer with npm is required for the CLI fallback.' }
+  & $npm.Source install --global '@openai/codex' '--registry=https://registry.npmmirror.com'
+  if ($LASTEXITCODE -ne 0) { throw "npm install failed with exit code $LASTEXITCODE" }
 } finally {
-  Remove-Item -LiteralPath $tempDir -Recurse -Force
+  Remove-Item -LiteralPath $tempDir -Recurse -Force -ErrorAction SilentlyContinue
 }`;
 }
 
-function macosInstallScript(installDir?: string): string {
+function macosInstallScript(installDir?: string, cachedDMGURL?: string): string {
+  const cachedURL = cachedDMGURL ? `cached_url=${shellLiteral(cachedDMGURL)}
+` : '';
   return `set -euo pipefail
 tmpdir="$(mktemp -d)"
 cleanup() {
@@ -293,7 +311,11 @@ cleanup() {
 }
 trap cleanup EXIT
 dmg="$tmpdir/Codex.dmg"
-curl -fL "https://persistent.oaistatic.com/codex-app-prod/Codex.dmg" -o "$dmg"
+${cachedURL}if [ -n "\${cached_url:-}" ] && curl -fL "$cached_url" -o "$dmg"; then
+  :
+else
+  curl -fL "https://persistent.oaistatic.com/codex-app-prod/Codex.dmg" -o "$dmg"
+fi
 mount_dir="$tmpdir/mount"
 mkdir -p "$mount_dir"
 hdiutil attach "$dmg" -nobrowse -quiet -mountpoint "$mount_dir"

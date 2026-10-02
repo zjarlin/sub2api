@@ -910,6 +910,7 @@ export default {
         anthropic: 'Anthropic',
         openai: 'OpenAI',
         cursor: 'Cursor',
+        windsurf: 'Windsurf',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
         grok: 'Grok',
