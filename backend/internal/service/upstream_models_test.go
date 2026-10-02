@@ -843,6 +843,31 @@ func TestSyncUpstreamModelCatalogClassifiesSnapshotPersistenceFailureAsInternal(
 	require.Equal(t, UpstreamModelSyncErrorInternal, syncErr.Kind)
 }
 
+// Cursor 免费账号会被 Cloud Agent 拒绝（plan_required）；同步失败必须给出可操作提示，
+// 而不是只显示一个 HTTP 状态码。
+func TestSyncUpstreamModelCatalogExplainsCursorPlanRequirement(t *testing.T) {
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusForbidden,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"error":{"type":"invalid_request_error","code":"cursor_plan_required","message":"Cursor Cloud Agent requires Pro."}}`)),
+	}}
+	cfg := upstreamModelSyncTestConfig()
+	// 内置 Cursor 适配器走容器内 http 地址，与部署配置保持一致。
+	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	svc := &AccountTestService{httpUpstream: upstream, cfg: cfg}
+
+	_, err := svc.SyncUpstreamModelCatalog(context.Background(), &Account{
+		ID: 868, Platform: PlatformCursor, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "crsr_x", "base_url": "http://sub2api-cursor:7868/v1"},
+	})
+	require.Error(t, err)
+	var syncErr *UpstreamModelSyncError
+	require.ErrorAs(t, err, &syncErr)
+	require.Equal(t, UpstreamModelSyncErrorUpstream, syncErr.Kind)
+	require.Contains(t, syncErr.SafeMessage(), "Pro")
+	require.NotContains(t, syncErr.SafeMessage(), "HTTP 403")
+}
+
 // Scenario: 元数据源失败时保留已有快照。
 func TestSyncUpstreamModelCatalogDoesNotOverwriteSnapshotWhenRegistryFails(t *testing.T) {
 	upstream := &httpUpstreamRecorder{responses: []*http.Response{
