@@ -125,6 +125,10 @@ export function publicError(error) {
   if (name === "RateLimitError" || status === 429 || ["resource_exhausted", "rate_limit_exceeded", "usage_limit_exceeded", "free_user_usage_limit", "pro_user_usage_limit", "free_user_rate_limit_exceeded", "pro_user_rate_limit_exceeded", "openai_rate_limit_exceeded", "generic_rate_limit_exceeded", "gpt_4_vision_preview_rate_limit", "rate_limited", "rate_limited_changeable", "api_key_rate_limit"].includes(code)) {
     return new CursorError(429, "rate_limit_exceeded", "Cursor account rate or usage limit reached.");
   }
+  // Cloud Agent（SDK 的全部文本能力）只对 Cursor Pro 开放；免费账号必须在授权后就能看出这一点。
+  if (["plan_required", "upgrade_required", "subscription_required"].includes(code)) {
+    return new CursorError(403, "cursor_plan_required", "The linked Cursor account is on the free plan, but Cursor Cloud Agent requires Pro.");
+  }
   if (status === 403 || ["permission_denied", "model_access_denied", "model_blocked", "not_high_enough_permissions"].includes(code)) {
     return new CursorError(403, "cursor_permission_denied", "Cursor account is not permitted to use this model.");
   }

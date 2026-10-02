@@ -4627,6 +4627,7 @@ function selectCursorPlatform() {
   apiKeyBaseUrl.value = ''
   apiKeyValue.value = ''
   cursorAuthorizedKey.value = ''
+  cursorAuthorizedEmail.value = ''
   form.concurrency = 1
 }
 
@@ -4740,10 +4741,12 @@ const modelMappingMode = computed(() => preserveModelWhitelist.value ? 'combined
 const allowedModels = ref<string[]>([])
 const arenaLoginReady = ref(false)
 const cursorAuthorizedKey = ref('')
+const cursorAuthorizedEmail = ref('')
 function handleBuiltinAuthorized(session: BuiltinLoginSession) {
   if (form.platform === 'cursor') {
     // SDK 浏览器授权成功后返回铸造出的账号凭据，直接作为账号 api_key 保存。
     if (session.api_key) cursorAuthorizedKey.value = session.api_key
+    cursorAuthorizedEmail.value = session.account?.nickname || session.account?.uid || ''
     return
   }
   handleArenaAuthorized(session)
@@ -6389,6 +6392,8 @@ const handleSubmit = async () => {
     credentials.api_key = cursorAuthorizedKey.value
     credentials.api_protocol = 'chat_completions'
     credentials.openai_capabilities = ['chat_completions']
+    // 记录授权的 Cursor 账号，便于管理员区分同名账号与排查套餐问题。
+    if (cursorAuthorizedEmail.value) credentials.cursor_email = cursorAuthorizedEmail.value
   }
   if (form.platform === 'gemini') {
     credentials.tier_id = geminiTierAIStudio.value

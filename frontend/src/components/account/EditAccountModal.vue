@@ -253,6 +253,10 @@
           />
           <p v-if="account.platform === 'cursor'" class="input-hint">{{ t('admin.accounts.cursor.apiKeyHint') }}</p>
           <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
+          <p v-if="account.platform === 'cursor' && cursorLinkedEmail" class="input-hint" data-testid="cursor-linked-email">
+            {{ t('admin.accounts.cursor.linkedAccount', { email: cursorLinkedEmail }) }}
+          </p>
+          <p v-if="account.platform === 'cursor'" class="input-hint" data-testid="cursor-plan-hint">{{ t('admin.accounts.cursor.planHint') }}</p>
         </div>
 
         <!-- Model Restriction Section (不适用于 Antigravity) -->
@@ -3192,6 +3196,11 @@ interface Props {
 
 const props = defineProps<Props>()
 const isBuiltinAdapterAccount = computed(() => ['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'arena'].includes(props.account?.platform ?? ''))
+const cursorLinkedEmail = computed(() => {
+  const credentials = props.account?.credentials as Record<string, unknown> | undefined
+  const email = credentials?.cursor_email
+  return typeof email === 'string' ? email : ''
+})
 function handleArenaAuthorized(session: BuiltinLoginSession) {
   if (props.account?.platform !== 'arena' || !session.account?.model_id) return
   modelRestrictionMode.value = 'whitelist'

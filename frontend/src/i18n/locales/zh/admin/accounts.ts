@@ -34,6 +34,8 @@ export default {
         apiKeyHint: '通过上方浏览器授权获取，无需手填。',
         apiKeyPlaceholder: 'cursor-oauth',
         loginRequired: '请先完成 Cursor 浏览器登录，再创建账号。',
+        linkedAccount: '已授权账号：{email}',
+        planHint: 'Cursor 的文本能力走 Cloud Agent，只有 Pro 订阅可用；免费账号授权成功也同步不到模型。',
       },
       vibex: {
         title: 'VibeX',

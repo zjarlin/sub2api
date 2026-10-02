@@ -34,6 +34,8 @@ export default {
         apiKeyHint: 'Obtained through the browser authorization above; no manual entry needed.',
         apiKeyPlaceholder: 'cursor-oauth',
         loginRequired: 'Sign in to Cursor in the browser before creating the account.',
+        linkedAccount: 'Authorized account: {email}',
+        planHint: 'Cursor text generation runs on Cloud Agent, which requires a Pro subscription; a free account syncs no models even after a successful sign-in.',
       },
       vibex: {
         title: 'VibeX',

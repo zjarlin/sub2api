@@ -874,9 +874,17 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		message := fmt.Sprintf("Upstream model list request failed with HTTP %d", resp.StatusCode)
+		// 内置 Cursor 适配器会区分“免费账号不能用 Cloud Agent”这类可操作原因；
+		// 只按已知错误码翻译成固定文案，不透传上游响应原文。
+		if account.IsCursor() {
+			if mapped := cursorModelSyncErrorMessage(body); mapped != "" {
+				message = mapped
+			}
+		}
 		return nil, nil, &UpstreamModelSyncError{
 			Kind:       UpstreamModelSyncErrorUpstream,
-			Message:    fmt.Sprintf("Upstream model list request failed with HTTP %d", resp.StatusCode),
+			Message:    message,
 			StatusCode: resp.StatusCode,
 			Err:        fmt.Errorf("upstream model list returned HTTP %d", resp.StatusCode),
 		}
@@ -895,6 +903,27 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 	}
 
 	return models, body, nil
+}
+
+// cursorModelSyncErrorMessage 把内置 Cursor 适配器自定义的错误码翻译成固定提示。
+// 只识别部署内定义的错误码，避免把上游响应原文透传给管理页面。
+func cursorModelSyncErrorMessage(body []byte) string {
+	var payload struct {
+		Error struct {
+			Code string `json:"code"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return ""
+	}
+	switch payload.Error.Code {
+	case "cursor_plan_required":
+		return "The linked Cursor account is on the free plan; Cursor Cloud Agent requires Pro. Sign in again with a Pro account"
+	case "cursor_authentication_failed", "missing_cursor_key":
+		return "Cursor rejected the saved credential; sign in to Cursor again"
+	default:
+		return ""
+	}
 }
 
 func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
