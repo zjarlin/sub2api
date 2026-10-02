@@ -19,16 +19,22 @@ export class LoginSessions {
     this.timeoutMs = timeoutMs;
     this.sessionTTLms = sessionTTLms;
     this.sessions = new Map();
-    this.active = null;
+    // 每个管理员同时只保留一个进行中的登录会话；新会话直接替换旧会话，
+    // 避免上一次未完成的授权把后续登录永久挡在 login_busy 上。
+    this.activeByOwner = new Map();
   }
 
   start(owner) {
-    if (this.active) {
-      throw new WindSurfError(429, "login_busy", "A Windsurf login is already running.");
-    }
+    const now = Date.now();
     for (const [id, session] of this.sessions) {
-      if (session.expiresAt <= Date.now()) this.sessions.delete(id);
+      if (session.expiresAt <= now) {
+        this.sessions.delete(id);
+        if (this.activeByOwner.get(session.owner) === session) this.activeByOwner.delete(session.owner);
+      }
     }
+    // 替换同一管理员尚未完成的旧会话。
+    const existing = this.activeByOwner.get(owner);
+    if (existing && this.sessions.get(existing.id) === existing) this.sessions.delete(existing.id);
     if (this.sessions.size >= MAX_SESSIONS) {
       throw new WindSurfError(429, "login_limit", "Too many Windsurf login attempts. Try again later.");
     }
@@ -39,11 +45,11 @@ export class LoginSessions {
       mode: "callback",
       status: "pending",
       state,
-      expiresAt: Date.now() + this.sessionTTLms,
+      expiresAt: now + this.sessionTTLms,
     };
     session.authUrl = buildAuthURL(state);
     this.sessions.set(session.id, session);
-    this.active = session;
+    this.activeByOwner.set(owner, session);
     return session;
   }
 
@@ -54,7 +60,7 @@ export class LoginSessions {
     }
     if (session.expiresAt <= Date.now() || session.status === "expired") {
       this.sessions.delete(id);
-      if (this.active === session) this.active = null;
+      if (this.activeByOwner.get(session.owner) === session) this.activeByOwner.delete(session.owner);
       throw new WindSurfError(410, "login_expired", "Windsurf login expired; start a new login.");
     }
     return session;
@@ -86,14 +92,14 @@ export class LoginSessions {
       nickname: email || "windsurf",
       ...(status.plan ? { plan: status.plan } : {}),
     };
-    this.active = null;
+    if (this.activeByOwner.get(owner) === session) this.activeByOwner.delete(owner);
     return this.result(session);
   }
 
   cancel(owner, id) {
     const session = this.get(owner, id);
     this.sessions.delete(id);
-    if (this.active === session) this.active = null;
+    if (this.activeByOwner.get(owner) === session) this.activeByOwner.delete(owner);
   }
 
   result(session) {
@@ -110,7 +116,7 @@ export class LoginSessions {
   }
 
   close() {
-    this.active = null;
+    this.activeByOwner.clear();
     this.sessions.clear();
   }
 }

@@ -60,8 +60,28 @@ test("sessions are isolated by owner", () => {
   assert.throws(() => logins.get("owner-2", session.id), (error) => error.status === 404);
 });
 
-test("only one Windsurf login may run at a time", () => {
+test("starting a new login replaces the same owner's unfinished session", () => {
   const logins = new LoginSessions({ runtime: { userStatus: async () => ({}) } });
-  logins.start("owner-1");
-  assert.throws(() => logins.start("owner-2"), (error) => error.status === 429);
+  const first = logins.start("owner-1");
+  // 上一次授权未完成也不能把同一管理员永久挡在 login_busy 上。
+  const second = logins.start("owner-1");
+  assert.notEqual(first.id, second.id);
+  assert.throws(() => logins.get("owner-1", first.id), (error) => error.status === 404);
+  assert.equal(logins.get("owner-1", second.id).status, "pending");
+});
+
+test("different owners can start logins concurrently", () => {
+  const logins = new LoginSessions({ runtime: { userStatus: async () => ({}) } });
+  const a = logins.start("owner-1");
+  const b = logins.start("owner-2");
+  assert.equal(logins.get("owner-1", a.id).status, "pending");
+  assert.equal(logins.get("owner-2", b.id).status, "pending");
+});
+
+test("a completed session frees the owner to start another", async () => {
+  const logins = new LoginSessions({ runtime: { userStatus: async () => ({ plan: "Pro" }) } });
+  const first = logins.start("owner-1");
+  await logins.complete("owner-1", first.id, token({ email: "user@example.com" }));
+  const second = logins.start("owner-1");
+  assert.equal(logins.get("owner-1", second.id).status, "pending");
 });
