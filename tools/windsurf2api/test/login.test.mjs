@@ -12,8 +12,12 @@ test("extractToken pulls the token from a redirect URL, hash, or bare value", ()
   assert.equal(extractToken("https://windsurf.com/show-auth-token?token=abc.def"), "abc.def");
   assert.equal(extractToken("https://windsurf.com/show-auth-token#access_token=abc.def"), "abc.def");
   assert.equal(extractToken(token({ email: "a@b.com" })), token({ email: "a@b.com" }));
+  // show-auth-token 页把 Token 显示在正文：裸 Token（如 ott$）必须被接受。
+  assert.equal(extractToken("ott$tI2r6QqxPKvi4U3Ywtd-Lqew5PWAnK9xMlAnRkKkgvU"), "ott$tI2r6QqxPKvi4U3Ywtd-Lqew5PWAnK9xMlAnRkKkgvU");
+  assert.equal(extractToken("  auth1_abcdefghijklmnopqrstuvwxyz  "), "auth1_abcdefghijklmnopqrstuvwxyz");
   assert.equal(extractToken("https://windsurf.com/show-auth-token?state=x"), "");
-  assert.equal(extractToken("nonsense"), "");
+  assert.equal(extractToken("user@example.com"), "");
+  assert.equal(extractToken("two words"), "");
 });
 
 test("emailFromToken reads the email out of the JWT payload", () => {
@@ -43,6 +47,40 @@ test("completing with a valid callback returns the account credential once", asy
   assert.equal(result.account.uid, "user@example.com");
   assert.equal(result.api_key, token({ email: "user@example.com" }));
   assert.equal(calls.length, 1);
+});
+
+test("completing with a bare show-auth-token value works", async () => {
+  const logins = new LoginSessions({ runtime: { userStatus: async () => ({ plan: "Pro" }) } });
+  const session = logins.start("owner-1");
+  const result = await logins.complete("owner-1", session.id, "ott$tI2r6QqxPKvi4U3Ywtd-Lqew5PWAnK9xMlAnRkKkgvU");
+  assert.equal(result.status, "completed");
+  assert.equal(result.api_key, "ott$tI2r6QqxPKvi4U3Ywtd-Lqew5PWAnK9xMlAnRkKkgvU");
+});
+
+test("exchanges an intermediate ott$ token through RegisterUser", async () => {
+  const seen = [];
+  const logins = new LoginSessions({ runtime: {
+    userStatus: async (t) => {
+      seen.push(t);
+      if (t.startsWith("ott$")) throw new WindSurfError(401, "windsurf_authentication_failed", "rejected");
+      return { plan: "Pro", email: "user@example.com" };
+    },
+    registerToken: async (t) => ({ apiKey: `devin-session-token$minted-from-${t}` }),
+  } });
+  const session = logins.start("owner-1");
+  const result = await logins.complete("owner-1", session.id, "ott$intermediate-token");
+  assert.equal(result.status, "completed");
+  assert.equal(result.api_key, "devin-session-token$minted-from-ott$intermediate-token");
+  assert.deepEqual(seen, ["ott$intermediate-token", "devin-session-token$minted-from-ott$intermediate-token"]);
+});
+
+test("reports a clear error when the pasted value is not a token", async () => {
+  const logins = new LoginSessions({ runtime: { userStatus: async () => ({}) } });
+  const session = logins.start("owner-1");
+  await assert.rejects(
+    logins.complete("owner-1", session.id, "https://windsurf.com/editor/show-auth-token?workflow="),
+    (error) => error.code === "windsurf_invalid_callback",
+  );
 });
 
 test("a callback without a token is rejected", async () => {

@@ -72,21 +72,15 @@ export class LoginSessions {
     if (session.status === "completed") return this.result(session);
     const token = extractToken(callbackUrl);
     if (!token) {
-      throw new WindSurfError(400, "windsurf_invalid_callback", "Paste the full Windsurf redirect URL, or the session token it contains.");
+      throw new WindSurfError(400, "windsurf_invalid_callback", "Paste the token shown on the Provide Authentication Token page, or the full redirect URL.");
     }
     if (typeof this.runtime.userStatus !== "function") {
       throw new WindSurfError(503, "windsurf_login_unavailable", "Windsurf sign-in is unavailable in this adapter build.");
     }
-    let status;
-    try {
-      status = await this.runtime.userStatus(token);
-    } catch (error) {
-      if (error instanceof WindSurfError) throw error;
-      throw new WindSurfError(502, "windsurf_login_failed", "Windsurf sign-in did not complete; restart the sign-in.");
-    }
-    const email = status.email || emailFromToken(token);
+    const { apiKey, status } = await this.resolveCredential(token);
+    const email = status.email || emailFromToken(apiKey);
     session.status = "completed";
-    session.apiKey = token;
+    session.apiKey = apiKey;
     session.account = {
       uid: email || "windsurf",
       nickname: email || "windsurf",
@@ -94,6 +88,30 @@ export class LoginSessions {
     };
     if (this.activeByOwner.get(owner) === session) this.activeByOwner.delete(owner);
     return this.result(session);
+  }
+
+  // 页面展示的 Token 有两种：直接可用的会话 Key（devin-session-token$…），
+  // 以及 show-auth-token 页的中间令牌（ott$…）。后者先用 RegisterUser 换成账号 Key 再校验。
+  async resolveCredential(token) {
+    let directError;
+    try {
+      return { apiKey: token, status: await this.runtime.userStatus(token) };
+    } catch (error) {
+      directError = error;
+    }
+    if (typeof this.runtime.registerToken === "function") {
+      let registered = null;
+      try {
+        registered = await this.runtime.registerToken(token);
+      } catch {
+        registered = null;
+      }
+      if (registered?.apiKey) {
+        return { apiKey: registered.apiKey, status: await this.runtime.userStatus(registered.apiKey) };
+      }
+    }
+    if (directError instanceof WindSurfError) throw directError;
+    throw new WindSurfError(502, "windsurf_login_failed", "Windsurf sign-in did not complete; restart the sign-in.");
   }
 
   cancel(owner, id) {
@@ -135,15 +153,20 @@ function buildAuthURL(state) {
 }
 
 // 从回调 URL（query 或 hash）里取 token；也接受直接粘贴的裸 Token。
+// show-auth-token 页面把 Token 显示在正文而不是地址栏，所以裸
+// Token（例如 ott$... / devin-session-token$... / auth1_...）必须直接接受。
 export function extractToken(input) {
   const raw = String(input ?? "").trim();
   if (!raw || raw.length > 8192) return "";
-  if (!raw.includes("://")) {
-    return /^(devin-session-token\$|auth1_|eyJ[A-Za-z0-9_-]+\.)/i.test(raw) ? raw : "";
+  if (/\s/.test(raw)) return "";
+  if (!/^https?:\/\//i.test(raw)) {
+    // 仅排除明显不是 Token 也不是 URL 的输入（含 @ 的邮箱等）。
+    if (raw.includes("@")) return "";
+    return raw;
   }
   try {
     const url = new URL(raw);
-    const pick = (params) => params.get("token") || params.get("api_key") || params.get("access_token") || "";
+    const pick = (params) => params.get("token") || params.get("api_key") || params.get("access_token") || params.get("auth_token") || "";
     const fromQuery = pick(url.searchParams);
     if (fromQuery) return fromQuery.trim();
     if (url.hash) {

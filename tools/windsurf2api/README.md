@@ -23,8 +23,9 @@ SDK，本适配器实现了同一套 HTTP + protobuf 线上协议，把 Windsurf
 Windsurf 提供官方 OAuth2 隐式流授权（编辑器 "Provide Authentication
 Token" 备份登录用的同一入口）。管理页点击“登录 Windsurf”后，浏览器
 打开 `windsurf.com/windsurf/signin` 完成授权，回调会附带
-`devin-session-token$<JWT>`；把整段回调 URL 粘回页面即可换取账号凭据。
-不需要手动创建或拷贝 Token。
+`devin-session-token$<JWT>`，页面标题为 “Provide Authentication Token”。
+把该页显示的 Token（例如 `ott$…`）粘回页面即可：适配器会先用
+`RegisterUser` 把它换成账号 Key，再校验并写入账号凭据。不需要手动创建或拷贝会话 Key。
 
 | 密钥 | 保存位置 | HTTP 请求头 |
 | --- | --- | --- |

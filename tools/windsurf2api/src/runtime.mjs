@@ -12,6 +12,11 @@ const HOST = "server.codeium.com";
 const CHAT_PATH = "/exa.api_server_pb.ApiServerService/GetChatMessage";
 const CATALOG_PATH = "/exa.api_server_pb.ApiServerService/GetCliModelConfigs";
 const STATUS_PATH = "/exa.seat_management_pb.SeatManagementService/GetUserStatus";
+// show-auth-token 页面给出的是中间令牌（ott$…），需要用 RegisterUser 换成账号 Key。
+const REGISTER_ENDPOINTS = [
+  ["register.windsurf.com", "/exa.seat_management_pb.SeatManagementService/RegisterUser"],
+  ["api.codeium.com", "/register_user/"],
+];
 
 function authHeader(token) {
   // The upstream requires the session token doubled, dash-joined.
@@ -60,6 +65,68 @@ export class WindSurfRuntime {
 
   async models(apiKey, signal) {
     return this.catalog(apiKey, signal);
+  }
+
+  // 把 show-auth-token 页面展示的中间令牌换成真正的账号 Key。
+  // 依次尝试 register.windsurf.com 的 Connect-RPC 与 api.codeium.com 的传统 REST 路径。
+  async registerToken(token, { signal } = {}) {
+    const body = JSON.stringify({ firebase_id_token: String(token) });
+    let lastError = null;
+    for (const [hostname, path] of REGISTER_ENDPOINTS) {
+      try {
+        const data = await this.postJSON(hostname, path, body, signal);
+        const apiKey = data?.api_key || data?.apiKey;
+        if (apiKey) {
+          return {
+            apiKey: String(apiKey),
+            name: data?.name || "",
+            apiServerUrl: data?.api_server_url || data?.apiServerUrl || "",
+          };
+        }
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    if (lastError) throw lastError;
+    return null;
+  }
+
+  postJSON(hostname, path, body, signal) {
+    return new Promise((resolve, reject) => {
+      const payload = Buffer.from(body, "utf8");
+      const req = this.requestImpl({
+        hostname,
+        port: 443,
+        path,
+        method: "POST",
+        signal,
+        headers: {
+          "Content-Type": "application/json",
+          "Content-Length": payload.length,
+          "Connect-Protocol-Version": "1",
+          Accept: "application/json",
+          "User-Agent": "windsurf/1.9600.41",
+        },
+      }, (res) => {
+        const chunks = [];
+        res.on("data", (c) => chunks.push(c));
+        res.on("end", () => {
+          const raw = Buffer.concat(chunks).toString("utf8");
+          if (res.statusCode < 200 || res.statusCode >= 300) {
+            reject(classifyUpstreamError(res.statusCode, raw));
+            return;
+          }
+          try {
+            resolve(JSON.parse(raw));
+          } catch {
+            reject(new WindSurfError(502, "windsurf_register_failed", "Windsurf registration returned an invalid response."));
+          }
+        });
+        res.on("error", reject);
+      });
+      req.on("error", reject);
+      req.end(payload);
+    });
   }
 
   // 只读的账号存活/套餐探测（GetUserStatus），不产生计费；用于登录回调校验 Token。
