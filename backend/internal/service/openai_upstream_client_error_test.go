@@ -59,6 +59,7 @@ func TestOpenAICompatibleModelNotFound400FailoverScope(t *testing.T) {
 		{name: "nested invalid model code", json: `{"response":{"error":{"code":"invalid_model"}}}`},
 		{name: "explicit model message", json: `{"error":{"message":"The model gpt-missing is not supported"}}`},
 		{name: "unknown provider message", json: `{"error":{"message":"Unknown provider for model claude-x"}}`},
+		{name: "unknown model with invalid request code", json: `{"error":{"code":"invalid_request","message":"unknown model \"deepseek-v4.1-flash\"","type":"api_error"}}`},
 	} {
 		t.Run(body.name, func(t *testing.T) {
 			for _, tc := range []struct {

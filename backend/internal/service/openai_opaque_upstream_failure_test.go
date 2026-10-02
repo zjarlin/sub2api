@@ -40,6 +40,19 @@ func TestOpaqueUpstreamFailurePreservesSpecificClientErrors(t *testing.T) {
 	require.True(t, failover.ShouldRetryNextAccount())
 }
 
+func TestEmptyUpstream400IsOpaqueAndEligibleForNextAccount(t *testing.T) {
+	svc := &OpenAIGatewayService{accountRepo: &modelNotFoundManagedAccountRepo{}}
+	account := &Account{Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey}
+	for _, body := range [][]byte{nil, {}, []byte(" \n\t")} {
+		require.True(t, isOpenAIOpaqueUpstreamFailure(http.StatusBadRequest, body))
+		require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(account, http.StatusBadRequest, "", body))
+		failover := newOpenAIUpstreamFailoverError(http.StatusBadRequest, nil, body, "", true)
+		require.False(t, failover.RetryableOnSameAccount)
+		require.True(t, failover.ShouldRetryNextAccount())
+	}
+	require.False(t, isOpenAIOpaqueUpstreamFailure(http.StatusUnprocessableEntity, nil))
+}
+
 func TestOpaqueUpstream400AllowsSameModelNextAccount(t *testing.T) {
 	for _, passthrough := range []bool{false, true} {
 		t.Run(map[bool]string{false: "native", true: "passthrough"}[passthrough], func(t *testing.T) {

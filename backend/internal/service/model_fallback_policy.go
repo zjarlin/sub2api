@@ -564,10 +564,13 @@ func modelInputCompatible(value gjson.Result, account *Account, model string, as
 			return false
 		}
 	case "reasoning":
-		// 原生 Responses 可以接收完整推理项；跨模型重放和 Chat 转换不能推定密文可移植。
+		// 原生 Responses 可以接收完整推理项；已确认走 Responses→Chat 桥接的
+		// OpenAI 账号会在转换时回注缓存/占位 reasoning_content，因此同样可用。
+		// 未知协议与其它平台仍保持严格限制；通用跨模型 fallback 另有
+		// ModelFallbackRequestPortable 作为可移植性门槛。
 		if value.Get("encrypted_content").String() != "" &&
 			(account == nil || !account.IsOpenAI() ||
-				(!account.UsesOpenAICodexProtocol() && openai_compat.ResolveResponsesSupport(account.Extra) != openai_compat.ResponsesSupportYes)) {
+				(!account.UsesOpenAICodexProtocol() && openai_compat.ResolveResponsesSupport(account.Extra) == openai_compat.ResponsesSupportUnknown)) {
 			return false
 		}
 	}

@@ -346,6 +346,20 @@ describe('ModelWhitelistSelector', () => {
     expect(wrapper.emitted('update:modelValue')).toEqual([[['x-preview-f-free']]])
   })
 
+  it('shows the upstream sync button for new platforms like Windsurf and Cursor', () => {
+    for (const platform of ['windsurf', 'cursor', 'qoder', 'deepseek_web']) {
+      const wrapper = mountSelector({
+        platform,
+        syncCredentials: { platform, type: 'apikey', api_key: 'test-key' },
+      })
+      const syncButton = wrapper
+        .findAll('button')
+        .find(button => button.text() === 'admin.accounts.syncUpstreamModels')
+      expect(syncButton?.exists(), platform).toBe(true)
+      wrapper.unmount()
+    }
+  })
+
   it('shows the upstream sync button for OpenCode Go create-account credentials', () => {
     const wrapper = mountSelector({
       platform: 'opencode_go',

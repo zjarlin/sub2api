@@ -371,14 +371,14 @@ func TestAutoModelContinuesAfterEncryptedReasoningToolCall(t *testing.T) {
 		forwarded = append(forwarded, body)
 		if len(forwarded) == 2 {
 			require.False(t, modelFallbackReplayableRequest(c, key, model, body))
-			// 调度取得仅支持聊天补全的账号时仍须拒绝，并释放已经获取的并发槽位。
+			// 已确认的 Responses→Chat 桥接账号可以继续承接 Auto 请求。
 			chatAccount := accounts[0]
 			chatAccount.Extra = map[string]any{"openai_responses_supported": false}
 			released := false
-			require.True(t, rejectIncompatibleModelFallbackAccount(c, &service.AccountSelectionResult{
+			require.False(t, rejectIncompatibleModelFallbackAccount(c, &service.AccountSelectionResult{
 				Account: &chatAccount, ReleaseFunc: func() { released = true },
 			}, model, body, true))
-			require.True(t, released)
+			require.False(t, released)
 		}
 		c.JSON(http.StatusOK, gin.H{"model": model})
 	})

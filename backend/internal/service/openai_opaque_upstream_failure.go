@@ -10,7 +10,17 @@ import (
 // 部分中转把内部失败包装成 400，且抹掉具体原因。仅识别已知的通用错误封装，
 // 允许同模型换账号，不猜测或删除请求字段，也不把该账号标记为失效。
 func isOpenAIOpaqueUpstreamFailure(statusCode int, body []byte) bool {
-	if statusCode != http.StatusBadRequest || !gjson.ValidBytes(body) {
+	if statusCode != http.StatusBadRequest {
+		return false
+	}
+	// Some compatible gateways return an empty 400 when an internal routing or
+	// capacity failure happens before they can render an error payload. There is
+	// no field-level client diagnostic to preserve, so retry the same model on a
+	// different account instead of treating the request as deterministically bad.
+	if strings.TrimSpace(string(body)) == "" {
+		return true
+	}
+	if !gjson.ValidBytes(body) {
 		return false
 	}
 	err := gjson.GetBytes(body, "error")

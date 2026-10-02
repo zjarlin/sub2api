@@ -127,6 +127,7 @@ func isExplicitOpenAIModelAvailabilityMessage(value string) bool {
 		"model is unsupported",
 		"model is not supported",
 		"unsupported model",
+		"unknown model",
 	} {
 		if strings.Contains(value, phrase) {
 			return true

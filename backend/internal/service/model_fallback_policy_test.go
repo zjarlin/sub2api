@@ -88,8 +88,8 @@ func TestModelFallbackChecksAccountCapabilities(t *testing.T) {
 	}
 }
 
-func TestModelAccountEncryptedReasoningRequiresNativeResponses(t *testing.T) {
-	body := []byte(`{"model":"auto","input":[{"type":"reasoning","summary":[],"encrypted_content":"opaque"},{"type":"function_call","call_id":"call_1","name":"shell","arguments":"{}"},{"type":"function_call_output","call_id":"call_1","output":"ok"}]}`)
+func TestModelAccountEncryptedReasoningAllowsNativeResponsesOrKnownChatBridge(t *testing.T) {
+	body := []byte(`{"model":"auto","input":[{"type":"reasoning","summary":[],"encrypted_content":"opaque"},{"type":"function_call","call_id":"call_1","name":"shell","arguments":"{}"},{"type":"function_call_output","call_id":"call_1","output":"ok"}],"tools":[{"type":"function","name":"shell","parameters":{"type":"object"}}]}`)
 	for _, tc := range []struct {
 		name     string
 		account  Account
@@ -98,12 +98,13 @@ func TestModelAccountEncryptedReasoningRequiresNativeResponses(t *testing.T) {
 		{"native", Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Extra: map[string]any{openai_compat.ExtraKeyResponsesSupported: true}}, true},
 		{"oauth", Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}, true},
 		{"unknown", Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}, false},
-		{"chat_only", Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Extra: map[string]any{openai_compat.ExtraKeyResponsesSupported: false}}, false},
-		{"forced_chat", Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Extra: map[string]any{openai_compat.ExtraKeyResponsesSupported: true, openai_compat.ExtraKeyResponsesMode: "force_chat_completions"}}, false},
+		{"chat_only", Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Extra: map[string]any{openai_compat.ExtraKeyResponsesSupported: false}}, true},
+		{"forced_chat", Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Extra: map[string]any{openai_compat.ExtraKeyResponsesSupported: true, openai_compat.ExtraKeyResponsesMode: "force_chat_completions"}}, true},
 		{"other_provider", Account{Platform: PlatformDeepseek, Type: AccountTypeAPIKey, Extra: map[string]any{openai_compat.ExtraKeyResponsesSupported: true}}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.accepted, ModelAccountCompatible(&tc.account, "gpt-5.5", body))
+			require.Equal(t, tc.accepted, AutoModelRequestAccountCompatible(context.Background(), &tc.account, "deepseek-v4.1-flash", body))
 			require.False(t, ModelFallbackAccountCompatible(&tc.account, "gpt-5.5", body))
 		})
 	}

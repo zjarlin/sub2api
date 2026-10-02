@@ -51,6 +51,7 @@ func TestAccountUnsupportedModelIgnoresStaleMappingInPassthroughMode(t *testing.
 func TestDeterministicUnsupportedModelError(t *testing.T) {
 	require.True(t, isDeterministicUnsupportedModelError(404, []byte(`{"error":{"code":"model_not_found","message":"missing"}}`)))
 	require.True(t, isDeterministicUnsupportedModelError(400, []byte(`{"error":{"message":"The model x is not supported"}}`)))
+	require.True(t, isDeterministicUnsupportedModelError(400, []byte(`{"error":{"code":"invalid_request","message":"unknown model \"deepseek-v4.1-flash\"","type":"api_error"}}`)))
 	require.False(t, isDeterministicUnsupportedModelError(400, []byte(`{"error":{"message":"Parameter tools is not supported for this model"}}`)))
 	require.False(t, isDeterministicUnsupportedModelError(503, []byte(`{"error":{"message":"Service temporarily unavailable"}}`)))
 }

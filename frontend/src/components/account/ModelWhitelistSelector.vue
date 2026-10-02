@@ -236,30 +236,18 @@ watch(() => [props.accountId, props.platform, props.platforms, props.syncCredent
   syncedModels.value = []
 }, { deep: true, flush: 'sync' })
 
-const upstreamSyncPlatforms = new Set([
-  'anthropic',
-  'openai',
-  'gemini',
-  'antigravity',
-  'grok',
-  'kimi',
-  'zhipu',
-  'deepseek',
-  'minimax',
-  'opencode_go',
-  'doubao',
-  'traework',
-  'workbuddy', 'vibex',
-  'zcode',
-  'arena'
-])
+// 除了没有文本模型目录的决策/聚合平台，其余平台都支持同步上游模型。
+// 默认放行（而非维护一份白名单），避免每新增一个平台都要回来补这里，
+// 否则 cursor / windsurf / qoder / deepseek_web 这类新平台会静默地没有同步入口。
+const upstreamSyncUnsupportedPlatforms = new Set(['systemone', 'laya', 'jev'])
+const platformSupportsUpstreamSync = (platform: string) => !upstreamSyncUnsupportedPlatforms.has(platform.toLowerCase())
 const canSyncUpstream = computed(() => {
   if (props.accountId) {
     if (normalizedPlatforms.value.length === 0) return true
-    return normalizedPlatforms.value.some(platform => upstreamSyncPlatforms.has(platform.toLowerCase()))
+    return normalizedPlatforms.value.some(platformSupportsUpstreamSync)
   }
   if (props.syncCredentials) {
-    return upstreamSyncPlatforms.has(props.syncCredentials.platform.toLowerCase())
+    return platformSupportsUpstreamSync(props.syncCredentials.platform)
   }
   return false
 })
