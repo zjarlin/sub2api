@@ -48,7 +48,7 @@ type BuiltinLoginOptions struct {
 // BuiltinAdapterLogin 只连接部署配置指定的内部服务，不接受浏览器提供的目标地址或密钥。
 func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action, callback string, options ...BuiltinLoginOptions) (*BuiltinLoginResult, error) {
 	switch platform {
-	case PlatformArena, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformDeepseekWeb, PlatformQoder, PlatformCursor, PlatformLaya, PlatformJev:
+	case PlatformArena, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformDeepseekWeb, PlatformQoder, PlatformCursor, PlatformWindsurf, PlatformLaya, PlatformJev:
 	default:
 		return nil, infraerrors.BadRequest("INVALID_LOGIN_PLATFORM", "Unsupported login platform")
 	}
@@ -175,6 +175,18 @@ func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action
 			}
 			if status == http.StatusTooManyRequests {
 				message = "Cursor login is busy; wait for the current sign-in to finish"
+			}
+		}
+		if platform == PlatformWindsurf {
+			message = "Windsurf sign-in did not complete; restart the sign-in"
+			if status == http.StatusGone {
+				message = "Windsurf login expired; start a new login"
+			}
+			if status == http.StatusTooManyRequests {
+				message = "Windsurf login is busy; wait for the current sign-in to finish"
+			}
+			if status == http.StatusBadRequest {
+				message = "Windsurf rejected the redirect URL; paste the full callback URL from the browser"
 			}
 		}
 		return nil, infraerrors.New(status, "ADAPTER_LOGIN_FAILED", message)

@@ -70,6 +70,35 @@ test("SSE business failure emits an error without a success terminator", async (
   });
 });
 
+test("exposes Windsurf OAuth2 login sessions behind the adapter key", async () => {
+  const token = "devin-session-token$eyJhbGciOiJIUzI1NiJ9."
+    + Buffer.from(JSON.stringify({ email: "user@example.com" })).toString("base64url") + ".sig";
+  const runtime = {
+    models: async () => [{ selector: "m", label: "M" }],
+    userStatus: async () => ({ plan: "Pro", email: "user@example.com" }),
+  };
+  await withServer(runtime, async (url) => {
+    const start = await fetch(`${url}/internal/login/sessions`, {
+      method: "POST",
+      headers: { "x-sub2api-adapter-key": "internal-key", "x-login-owner": "owner-1" },
+    });
+    assert.equal(start.status, 200);
+    const session = await start.json();
+    assert.equal(session.mode, "callback");
+    assert.match(session.auth_url, /windsurf\.com\/windsurf\/signin/);
+
+    const done = await fetch(`${url}/internal/login/sessions/${session.session_id}/callback`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-sub2api-adapter-key": "internal-key", "x-login-owner": "owner-1" },
+      body: JSON.stringify({ callback_url: `https://windsurf.com/show-auth-token?token=${encodeURIComponent(token)}` }),
+    });
+    assert.equal(done.status, 200);
+    const result = await done.json();
+    assert.equal(result.status, "completed");
+    assert.equal(result.api_key, token);
+  });
+});
+
 test("rejects tools with an invalid-request response", async () => {
   const runtime = { models: async () => [{ selector: "m", label: "M" }] };
   await withServer(runtime, async (url) => {

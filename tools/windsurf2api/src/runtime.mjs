@@ -5,12 +5,13 @@ import { writeStringField, writeMessageField } from "./proto.mjs";
 import { FrameParser, connectHeaders, wrapEnvelope } from "./connect.mjs";
 import {
   WindSurfError, buildChatRequest, decodeCatalog, decodeFrame, classifyUpstreamError,
-  modelFingerprint,
+  decodeUserStatus, modelFingerprint,
 } from "./protocol.mjs";
 
 const HOST = "server.codeium.com";
 const CHAT_PATH = "/exa.api_server_pb.ApiServerService/GetChatMessage";
 const CATALOG_PATH = "/exa.api_server_pb.ApiServerService/GetCliModelConfigs";
+const STATUS_PATH = "/exa.seat_management_pb.SeatManagementService/GetUserStatus";
 
 function authHeader(token) {
   // The upstream requires the session token doubled, dash-joined.
@@ -59,6 +60,14 @@ export class WindSurfRuntime {
 
   async models(apiKey, signal) {
     return this.catalog(apiKey, signal);
+  }
+
+  // 只读的账号存活/套餐探测（GetUserStatus），不产生计费；用于登录回调校验 Token。
+  async userStatus(apiKey, signal) {
+    const token = String(apiKey ?? "").trim();
+    if (!token) throw new WindSurfError(401, "missing_windsurf_key", "A Windsurf session token is required.");
+    const raw = await this.callUnary(STATUS_PATH, token, { signal });
+    return decodeUserStatus(raw);
   }
 
   generate(apiKey, request, options = {}) {

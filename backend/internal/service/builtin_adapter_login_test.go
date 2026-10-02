@@ -255,3 +255,27 @@ func TestDeepseekWebRestrictedLoginIsNotReportedAsInvalidCredentials(t *testing.
 	require.Contains(t, err.Error(), "suspended")
 	require.NotContains(t, err.Error(), "account and password")
 }
+
+// Windsurf 通过内置适配器完成 OAuth2 网页授权：会话接口必须可达，
+// 回调 URL 只经适配器校验，账号凭据不回显到主服务日志。
+func TestWindsurfBuiltinAdapterLoginReachable(t *testing.T) {
+	id := strings.Repeat("d", 64)
+	var gotAuth, gotOwner string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = r.Header.Get("Authorization")
+		gotOwner = r.Header.Get("X-Login-Owner")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"session_id": id, "status": "pending", "mode": "callback",
+			"auth_url": "https://windsurf.com/windsurf/signin?response_type=token", "expires_at": 1,
+		})
+	}))
+	defer server.Close()
+	SetBuiltinAdapterConfig(&config.BuiltinAdapterConfig{Enabled: true, WindsurfURL: server.URL + "/v1", WindsurfKey: "windsurf-internal-key"})
+	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
+	result, err := BuiltinAdapterLogin(context.Background(), PlatformWindsurf, "admin:9", "", "start", "")
+	require.NoError(t, err)
+	require.Equal(t, "Bearer windsurf-internal-key", gotAuth)
+	require.Equal(t, "admin:9", gotOwner)
+	require.Equal(t, "callback", result.Mode)
+	require.Contains(t, result.AuthURL, "windsurf.com/windsurf/signin")
+}

@@ -220,6 +220,45 @@ export function decodeCatalog(raw) {
   return out;
 }
 
+// GetUserStatusResponse: 简单解出计划名与账号邮箱。
+// 位置按参考实现校准的描述：#2.#2 = plan name，邮箱在计划节点内最后一个含 @ 的短字符串。
+// 字段不存在时返回空值，不报错（登录校验只需要 200 即可证明 Token 有效）。
+export function decodeUserStatus(raw) {
+  const out = { plan: "", email: "" };
+  let top;
+  try {
+    top = parseFields(raw);
+  } catch {
+    return out;
+  }
+  const account = getField(top, 1, 2) || getField(top, 2, 2);
+  if (account) {
+    let fields;
+    try {
+      fields = parseFields(account.value);
+    } catch {
+      fields = [];
+    }
+    const planField = getField(fields, 2, 2);
+    if (planField) out.plan = planField.value.toString("utf8").trim();
+    for (const f of fields) {
+      if (f.wireType !== 2) continue;
+      const text = f.value.toString("utf8");
+      if (text.length <= 320 && /@/.test(text) && !/[\x00-\x1f]/.test(text)) out.email = text.trim();
+    }
+  }
+  const lvl2 = top.find((f) => f.field === 2 && f.wireType === 2);
+  if (!out.plan && lvl2) {
+    try {
+      const name = getField(parseFields(lvl2.value), 2, 2);
+      if (name) out.plan = name.value.toString("utf8").trim();
+    } catch {
+      // keep empty
+    }
+  }
+  return out;
+}
+
 export function modelFingerprint(apiKey) {
   return createHash("sha256").update(String(apiKey)).digest("hex");
 }

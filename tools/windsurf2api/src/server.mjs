@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import { once } from "node:events";
 import { normalizeRequest, publicError } from "./request.mjs";
 import { WindSurfError } from "./protocol.mjs";
+import { LoginSessions } from "./login.mjs";
 
 function sameSecret(left, right) {
   if (typeof left !== "string" || !left || !right) return false;
@@ -52,6 +53,7 @@ function abortable(promise, signal) {
 
 export function createServer({ runtime, adapterKey, timeoutMs = 300_000, maxConcurrent = 4, maxBodyBytes = 4 << 20 }) {
   if (!adapterKey) throw new Error("WINDSURF_ADAPTER_KEY is required.");
+  const logins = new LoginSessions({ runtime });
   const active = new Set();
   let stopping = false;
   const server = http.createServer(async (req, res) => {
@@ -75,6 +77,27 @@ export function createServer({ runtime, adapterKey, timeoutMs = 300_000, maxConc
       if (stopping) throw new WindSurfError(503, "adapter_shutdown", "Windsurf adapter is shutting down.");
       if (req.method === "GET" && path === "/healthz") {
         return json(res, 200, { status: "ok", runtime: "windsurf-connect", upstream_verified: false });
+      }
+      if (path.startsWith("/internal/login/sessions")) {
+        res.setHeader("Cache-Control", "no-store");
+        const owner = req.headers["x-login-owner"];
+        if (typeof owner !== "string" || !owner.trim() || owner.length > 256) {
+          throw new WindSurfError(400, "login_owner_required", "Login owner is required.");
+        }
+        if (req.method === "POST" && path === "/internal/login/sessions") {
+          return json(res, 200, logins.result(logins.start(owner)));
+        }
+        const match = /^\/internal\/login\/sessions\/([a-f0-9]{64})(\/callback)?$/.exec(path);
+        if (match && req.method === "POST" && match[2]) {
+          const body = await readJSON(req, 64 << 10);
+          return json(res, 200, await logins.complete(owner, match[1], body?.callback_url));
+        }
+        if (match && req.method === "DELETE" && !match[2]) {
+          logins.cancel(owner, match[1]);
+          res.writeHead(204);
+          return res.end();
+        }
+        throw new WindSurfError(404, "not_found", "Unknown login endpoint.");
       }
       if (!((req.method === "GET" && path === "/v1/models") || (req.method === "POST" && path === "/v1/chat/completions"))) {
         throw new WindSurfError(404, "not_found", "Endpoint not found.");
@@ -198,7 +221,7 @@ export function createServer({ runtime, adapterKey, timeoutMs = 300_000, maxConc
     const closed = new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     const forceClose = setTimeout(() => server.closeAllConnections?.(), 1000);
     forceClose.unref?.();
-    return Promise.all([closed, runtime.stop?.()]).finally(() => clearTimeout(forceClose));
+    return Promise.all([closed, runtime.stop?.(), Promise.resolve(logins.close())]).finally(() => clearTimeout(forceClose));
   };
   return server;
 }

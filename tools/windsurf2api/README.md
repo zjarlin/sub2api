@@ -18,15 +18,21 @@ SDK，本适配器实现了同一套 HTTP + protobuf 线上协议，把 Windsurf
   缺失时省略 `usage`，不进行估算。
 - 失败保持错误状态；流内失败发送 `error`，不追加成功结束帧或 `[DONE]`。
 
-## 密钥
+## 登录与密钥
+
+Windsurf 提供官方 OAuth2 隐式流授权（编辑器 "Provide Authentication
+Token" 备份登录用的同一入口）。管理页点击“登录 Windsurf”后，浏览器
+打开 `windsurf.com/windsurf/signin` 完成授权，回调会附带
+`devin-session-token$<JWT>`；把整段回调 URL 粘回页面即可换取账号凭据。
+不需要手动创建或拷贝 Token。
 
 | 密钥 | 保存位置 | HTTP 请求头 |
 | --- | --- | --- |
 | Windsurf 会话 Token | 账号 `credentials.api_key` | `Authorization: Bearer ...` |
 | 部署内部共享密钥 | `WINDSURF_ADAPTER_KEY` / `builtin_adapter.windsurf_key` | `X-Sub2API-Adapter-Key` |
 
-会话 Token 形如 `devin-session-token$<JWT>` 或 `auth1_...`，从 Windsurf
-客户端 / Devin 会话中获取。共享密钥不能替代账号 Token；主服务只向配置的内置
+会话 Token 形如 `devin-session-token$<JWT>`，也可用其他方式获取后手动填入。
+共享密钥不能替代账号 Token；主服务只向配置的内置
 Windsurf 地址发送共享密钥，自定义外部 `base_url` 不会收到它。
 
 ## 本地运行
@@ -59,9 +65,10 @@ npm test
 
 ## 添加账号
 
-在管理页面或用户账号页面选择 **Windsurf**，填写 Windsurf 会话 Token。
-内置模式下 Base URL 可留空，协议固定为 Chat Completions。同步模型并选择白名单，
-再绑定 Windsurf 分组或开启兼容 OpenAI 分组的混合调度。
+在管理页面或用户账号页面选择 **Windsurf**，完成上方官方浏览器
+授权（OAuth2）后创建账号。内置模式下 Base URL 可留空，协议固定为
+Chat Completions。同步模型并选择白名单，再绑定 Windsurf 分组或开启兼容 OpenAI
+分组的混合调度。
 
 API 创建请求示例见 `sub2api-account.example.json`。独立部署主服务时配置
 `BUILTIN_ADAPTER_ENABLED=true`、`BUILTIN_ADAPTER_WINDSURF_URL` 和

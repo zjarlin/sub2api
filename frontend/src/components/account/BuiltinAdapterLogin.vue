@@ -1,7 +1,7 @@
 <template>
   <div class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-dark-600" data-testid="builtin-adapter-login">
     <p class="text-sm text-gray-600 dark:text-gray-300">{{ t(hintKey) }}</p>
-    <p class="input-hint">{{ t(platform === 'arena' ? 'admin.accounts.arena.loginSessionHint' : platform === 'deepseek_web' ? 'admin.accounts.builtinLogin.deepseekWebPoolHint' : platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexPoolHint' : platform === 'zcode' ? 'admin.accounts.builtinLogin.zcodePoolHint' : platform === 'cursor' ? 'admin.accounts.builtinLogin.cursorPoolHint' : 'admin.accounts.builtinLogin.poolHint') }}</p>
+    <p class="input-hint">{{ t(platform === 'arena' ? 'admin.accounts.arena.loginSessionHint' : platform === 'deepseek_web' ? 'admin.accounts.builtinLogin.deepseekWebPoolHint' : platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexPoolHint' : platform === 'zcode' ? 'admin.accounts.builtinLogin.zcodePoolHint' : platform === 'cursor' ? 'admin.accounts.builtinLogin.cursorPoolHint' : platform === 'windsurf' ? 'admin.accounts.builtinLogin.windsurfPoolHint' : 'admin.accounts.builtinLogin.poolHint') }}</p>
     <div v-if="platform === 'zcode'" class="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <div>
         <label for="zcode-login-plan" class="input-label">{{ t('admin.accounts.builtinLogin.zcodePlan') }}</label>
@@ -50,20 +50,20 @@
     </button>
     <template v-if="session?.status === 'pending'">
       <a v-if="session.auth_url && platform !== 'deepseek_web'" :href="session.auth_url" target="_blank" rel="noopener noreferrer" class="block text-sm text-primary-600 underline dark:text-primary-400">
-        {{ t(platform === 'cursor' ? 'admin.accounts.builtinLogin.cursorOpen' : 'admin.accounts.builtinLogin.open') }}
+        {{ t(platform === 'cursor' ? 'admin.accounts.builtinLogin.cursorOpen' : platform === 'windsurf' ? 'admin.accounts.builtinLogin.windsurfOpen' : 'admin.accounts.builtinLogin.open') }}
       </a>
       <div v-if="platform === 'deepseek_web'" class="space-y-2">
         <img v-if="loginViewURL" :src="loginViewURL" data-testid="deepseek-login-view" :alt="t('admin.accounts.builtinLogin.deepseekWebQRCodeAlt')" class="mx-auto max-h-[520px] w-full rounded-lg border border-gray-200 object-contain dark:border-dark-600" />
         <p class="input-hint" role="status">{{ t(loginViewURL ? 'admin.accounts.builtinLogin.deepseekWebWaiting' : 'admin.accounts.builtinLogin.deepseekWebLoading') }}</p>
       </div>
       <template v-else-if="session.mode === 'callback'">
-        <label :for="`builtin-callback-${platform}`" class="input-label">{{ t(platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexToken' : 'admin.accounts.builtinLogin.callback') }}</label>
-        <input :id="`builtin-callback-${platform}`" v-model="callback" type="password" autocomplete="off" class="input" :placeholder="t(platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexTokenPlaceholder' : 'admin.accounts.builtinLogin.callbackPlaceholder')" />
+        <label :for="`builtin-callback-${platform}`" class="input-label">{{ t(platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexToken' : platform === 'windsurf' ? 'admin.accounts.builtinLogin.windsurfCallback' : 'admin.accounts.builtinLogin.callback') }}</label>
+        <input :id="`builtin-callback-${platform}`" v-model="callback" type="password" autocomplete="off" class="input" :placeholder="t(platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexTokenPlaceholder' : platform === 'windsurf' ? 'admin.accounts.builtinLogin.windsurfCallbackPlaceholder' : 'admin.accounts.builtinLogin.callbackPlaceholder')" />
         <button type="button" class="btn btn-primary" :disabled="busy || !callback.trim()" @click="complete">
           {{ t('admin.accounts.builtinLogin.complete') }}
         </button>
       </template>
-      <p v-else class="input-hint" role="status">{{ t(platform === 'arena' ? 'admin.accounts.arena.loggingIn' : platform === 'cursor' ? 'admin.accounts.builtinLogin.cursorWaiting' : 'admin.accounts.builtinLogin.waiting') }}</p>
+      <p v-else class="input-hint" role="status">{{ t(platform === 'arena' ? 'admin.accounts.arena.loggingIn' : platform === 'cursor' ? 'admin.accounts.builtinLogin.cursorWaiting' : platform === 'windsurf' ? 'admin.accounts.builtinLogin.windsurfWaiting' : 'admin.accounts.builtinLogin.waiting') }}</p>
       <button type="button" class="btn btn-secondary ml-2" @click="cancel">{{ t('common.cancel') }}</button>
     </template>
     <p v-if="session?.status === 'completed'" role="status" class="text-sm text-green-700 dark:text-green-400">
@@ -116,10 +116,13 @@ const hintKey = computed(() => props.platform === 'arena'
   ? 'admin.accounts.builtinLogin.deepseekWebHint'
   : props.platform === 'cursor'
   ? 'admin.accounts.builtinLogin.cursorHint'
+  : props.platform === 'windsurf'
+  ? 'admin.accounts.builtinLogin.windsurfHint'
   : `admin.accounts.builtinLogin.${props.platform}Hint`)
 const startKey = computed(() => {
   if (props.platform === 'arena') return 'admin.accounts.arena.login'
   if (props.platform === 'cursor') return session.value ? 'admin.accounts.builtinLogin.cursorRestart' : 'admin.accounts.builtinLogin.cursorStart'
+  if (props.platform === 'windsurf') return session.value ? 'admin.accounts.builtinLogin.windsurfRestart' : 'admin.accounts.builtinLogin.windsurfStart'
   if (props.platform === 'deepseek_web') {
     return session.value ? 'admin.accounts.builtinLogin.deepseekWebRestart' : 'admin.accounts.builtinLogin.deepseekWebStart'
   }
@@ -272,7 +275,7 @@ async function complete() {
 // 关闭表单立即中止轮询；服务端未完成会话会在十分钟后过期。
 onBeforeUnmount(() => {
   disposed = true
-  if (props.platform === 'arena' || props.platform === 'deepseek_web' || props.platform === 'cursor') {
+  if (props.platform === 'arena' || props.platform === 'deepseek_web' || props.platform === 'cursor' || props.platform === 'windsurf') {
     void cancel()
   } else {
     stop()

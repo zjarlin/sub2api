@@ -245,13 +245,25 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
   })
 
-  it('creates a Windsurf account with a pasted session token', async () => {
+  it('requires a Windsurf browser login before creating an account', async () => {
     const wrapper = mountModal()
     await wrapper.get('[data-testid="platform-windsurf"]').trigger('click')
-    // Windsurf 使用会话 Token：地址由内置适配器注入，但 API Key 需要手填。
-    expect(wrapper.find('[data-testid="account-api-key"]').exists()).toBe(true)
+    // Windsurf 也走 OAuth2：地址与连接密钥由内置适配器注入，凭据由官方授权换取。
+    expect(wrapper.findComponent({ name: 'BuiltinAdapterLogin' }).exists()).toBe(true)
+    expect(wrapper.find('[data-testid="account-api-key"]').exists()).toBe(false)
     await wrapper.get('[data-tour="account-form-name"]').setValue('Windsurf account')
-    await wrapper.get('[data-testid="account-api-key"]').setValue('devin-session-token$test')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).not.toHaveBeenCalled()
+  })
+
+  it('creates a Windsurf account after browser login without adapter credentials', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="platform-windsurf"]').trigger('click')
+    const login = wrapper.findComponent({ name: 'BuiltinAdapterLogin' })
+    login.vm.$emit('authorized', { api_key: 'devin-session-token$minted' })
+    await flushPromises()
+    await wrapper.get('[data-tour="account-form-name"]').setValue('Windsurf account')
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
     await flushPromises()
 
@@ -259,7 +271,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({
       platform: 'windsurf', type: 'apikey', concurrency: 1,
       credentials: {
-        api_key: 'devin-session-token$test', api_protocol: 'chat_completions',
+        api_key: 'devin-session-token$minted', api_protocol: 'chat_completions',
         openai_capabilities: ['chat_completions'],
       },
     })
