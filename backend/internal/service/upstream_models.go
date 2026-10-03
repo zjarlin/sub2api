@@ -874,14 +874,20 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 	}
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		message := fmt.Sprintf("Upstream model list request failed with HTTP %d", resp.StatusCode)
-		// 内置 Cursor 适配器会区分“免费账号不能用 Cloud Agent”这类可操作原因；
-		// 只按已知错误码翻译成固定文案，不透传上游响应原文。
+		// Cursor 的“免费账号不能用 Cloud Agent”属于管理员可直接修复的配置问题。
+		// 若按 Upstream 归类会返回 502，而网关（Cloudflare）会把源站 502 换成自己的
+		// 错误页，提示被吞掉；因此这类原因按配置错误返回 400，保留可读文案。
 		if account.IsCursor() {
-			if mapped := cursorModelSyncErrorMessage(body); mapped != "" {
-				message = mapped
+			if message, ok := cursorModelSyncFailureMessage(body); ok {
+				return nil, nil, &UpstreamModelSyncError{
+					Kind:       UpstreamModelSyncErrorConfiguration,
+					Message:    message,
+					StatusCode: resp.StatusCode,
+					Err:        fmt.Errorf("cursor model list returned HTTP %d", resp.StatusCode),
+				}
 			}
 		}
+		message := fmt.Sprintf("Upstream model list request failed with HTTP %d", resp.StatusCode)
 		if account.IsWindsurf() {
 			if mapped := windsurfModelSyncErrorMessage(body); mapped != "" {
 				message = mapped
@@ -910,24 +916,24 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 	return models, body, nil
 }
 
-// cursorModelSyncErrorMessage 把内置 Cursor 适配器自定义的错误码翻译成固定提示。
+// cursorModelSyncFailureMessage 把内置 Cursor 适配器自定义的错误码翻译成固定提示。
 // 只识别部署内定义的错误码，避免把上游响应原文透传给管理页面。
-func cursorModelSyncErrorMessage(body []byte) string {
+func cursorModelSyncFailureMessage(body []byte) (string, bool) {
 	var payload struct {
 		Error struct {
 			Code string `json:"code"`
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(body, &payload); err != nil {
-		return ""
+		return "", false
 	}
 	switch payload.Error.Code {
 	case "cursor_plan_required":
-		return "The linked Cursor account is on the free plan; Cursor Cloud Agent requires Pro. Sign in again with a Pro account"
+		return "The linked Cursor account is on the free plan; Cursor Cloud Agent requires Pro. Sign in again with a Pro account", true
 	case "cursor_authentication_failed", "missing_cursor_key":
-		return "Cursor rejected the saved credential; sign in to Cursor again"
+		return "Cursor rejected the saved credential; sign in to Cursor again", true
 	default:
-		return ""
+		return "", false
 	}
 }
 

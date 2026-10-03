@@ -863,7 +863,8 @@ func TestSyncUpstreamModelCatalogExplainsCursorPlanRequirement(t *testing.T) {
 	require.Error(t, err)
 	var syncErr *UpstreamModelSyncError
 	require.ErrorAs(t, err, &syncErr)
-	require.Equal(t, UpstreamModelSyncErrorUpstream, syncErr.Kind)
+	// 可操作的账号/套餐问题按配置错误返回 400：网关会替换掉源站 502 的响应体。
+	require.Equal(t, UpstreamModelSyncErrorConfiguration, syncErr.Kind)
 	require.Contains(t, syncErr.SafeMessage(), "Pro")
 	require.NotContains(t, syncErr.SafeMessage(), "HTTP 403")
 }
