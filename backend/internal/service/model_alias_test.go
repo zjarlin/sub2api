@@ -146,3 +146,49 @@ func TestGlobalModelAliasRespectsConfiguredAllowlist(t *testing.T) {
 		require.True(t, routed.IsModelSupported("gpt-6-luna"))
 	}
 }
+
+func TestDeepSeekV4FamilyCatalogCanonicalizesCompatIDs(t *testing.T) {
+	policy := &ModelAliasPolicy{Groups: []ModelAliasGroup{{
+		Canonical: "deepseek-v4.1-flash",
+		Aliases:   []string{"deepseek-v4-flash", "deepseek-v4-pro"},
+	}}}
+	body, err := policy.CanonicalizeCatalog([]byte(`{"data":[{"id":"deepseek-v4-flash"},{"id":"deepseek-v4-pro"},{"id":"deepseek-v4.1-flash"},{"id":"other"}]}`))
+	require.NoError(t, err)
+	require.JSONEq(t, `{"data":[{"id":"deepseek-v4.1-flash"},{"id":"other"}]}`, string(body))
+}
+
+func TestDeepSeekV4FamilyUsesAccountSpecificFallback(t *testing.T) {
+	policy := &ModelAliasPolicy{Groups: []ModelAliasGroup{{
+		Canonical: "deepseek-v4.1-flash",
+		Aliases: []string{
+			"deepseek-v4.1-flash",
+			"deepseek-v4-flash",
+			"deepseek-v4-pro",
+		},
+	}}}
+	ctx := WithModelAliases(context.Background(), policy)
+
+	for _, test := range []struct {
+		name     string
+		models   []string
+		expected string
+	}{
+		{name: "v4.1 preferred", models: []string{"deepseek-v4.1-flash", "deepseek-v4-flash", "deepseek-v4-pro"}, expected: "deepseek-v4.1-flash"},
+		{name: "v4 flash fallback", models: []string{"deepseek-v4-flash", "deepseek-v4-pro"}, expected: "deepseek-v4-flash"},
+		{name: "v4 pro fallback", models: []string{"deepseek-v4-pro"}, expected: "deepseek-v4-pro"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			account := &Account{
+				Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+				Credentials: map[string]any{"model_mapping": testModelMapping(test.models...)},
+			}
+			account.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
+				Source: "upstream", SyncedAt: time.Now().UTC().Format(time.RFC3339), Models: test.models,
+			})
+
+			routed := accountWithModelAliases(ctx, account)
+			require.True(t, routed.IsModelSupported("deepseek-v4.1-flash"))
+			require.Equal(t, test.expected, routed.GetMappedModel("deepseek-v4.1-flash"))
+		})
+	}
+}

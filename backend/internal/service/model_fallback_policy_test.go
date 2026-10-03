@@ -45,6 +45,35 @@ func TestModelFallbackPolicyOrderAndPersistence(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestModelFallbackPolicyKeepsTerraBehindGLMAndQwen(t *testing.T) {
+	policy := &ModelFallbackPolicy{Enabled: true, Tiers: []ModelCapabilityTier{{
+		Name: "main",
+		Models: []string{
+			"deepseek-v4.1-flash",
+			"glm-5.3",
+			"glm-5.3-flash",
+			"qwen3.8-max",
+			"other-model",
+			"gpt-5.6-terra",
+		},
+	}}}
+
+	candidates := policy.Candidates("deepseek-v4.1-flash")
+	require.Equal(t, []string{
+		"glm-5.3",
+		"glm-5.3-flash",
+		"qwen3.8-max",
+		"other-model",
+		"gpt-5.6-terra",
+	}, []string{
+		candidates[0].Model,
+		candidates[1].Model,
+		candidates[2].Model,
+		candidates[3].Model,
+		candidates[4].Model,
+	})
+}
+
 func TestModelFallbackPolicyRejectsAmbiguousOrUnboundedConfig(t *testing.T) {
 	for _, policy := range []*ModelFallbackPolicy{
 		nil,

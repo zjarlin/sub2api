@@ -8,27 +8,25 @@
 
 新增渠道后需要核对上游目录里的精确 ID。独立账号测试成功只说明该账号接受传入的 ID，不代表规范 ID 已经能匹配到它。例如 `deepseek/deepseek-v4.1-flash` 必须显式归入 `deepseek-v4.1-flash` 的同义词组；转发仍保留渠道要求的 `deepseek/` 前缀。版本、`fast`、`vision-exp` 等变体不会自动合并。
 
-迁移 `246_deepseek_provider_model_aliases.sql` 为 V4 Flash、V4 Pro、V4.1 Flash 补齐上述前缀。迁移 `249_complete_model_aliases.sql` 补齐 V4.1 Flash 的新名及大小写写法、MiniMax M3 的大小写写法，并把 MiniMax M2.7 的 `cn:` 与大写写法归到 `minimax-m2.7`。迁移不改变档位、账号映射或管理员已分配的别名；空同义词策略保持为空。后续变更新增迁移，不修改已执行迁移的校验和。
+迁移 `246_deepseek_provider_model_aliases.sql` 为 V4 Flash、V4 Pro、V4.1 Flash 补齐上述前缀。迁移 `249_complete_model_aliases.sql` 补齐 V4.1 Flash 的新名及大小写写法、MiniMax M3 的大小写写法，并把 MiniMax M2.7 的 `cn:` 与大写写法归到 `minimax-m2.7`。迁移 `260_deepseek_v41_flash_hyphen_alias.sql` 补齐 `deepseek-v4-1-flash` 这种把版本点号写成短横线的写法。迁移 `261_deepseek_v4_family_prefer_v41.sql` 把 V4 Flash、V4 Pro 并入 V4.1 Flash 规范组，顺序为 V4.1、V4 Flash、V4 Pro，使账号不支持 V4.1 时自动改用其可用的兼容 ID。迁移 `262_prioritize_glm_qwen_fallback.sql` 在同时包含 V4.1 Flash 与 GPT-5.6 Terra 的档位中，把降级顺序调整为 V4.1 Flash、GLM、Qwen、其他模型、GPT-5.6 Terra。迁移不改变档位、账号映射或管理员已分配的别名；空同义词策略保持为空。后续变更新增迁移，不修改已执行迁移的校验和。
 
 默认同义词组的规范 ID 如下；`GET /v1/models` 和 Codex 模型清单在最终写出时按这些组去重，旧 ID 仍可用于请求。管理员修改过的 `model_aliases` 以实际设置为准。
 
 | 规范 ID | 默认同义词 |
 | --- | --- |
-| `deepseek-v4-flash` | `DeepSeek-V4-Flash`、`DeepSeek-V4-Flash-Official`、`cn:deepseek-v4-flash`、`deepseek/deepseek-v4-flash` |
-| `deepseek-v4-pro` | `DeepSeek-V4-Pro`、`DeepSeek-V4-Pro-Official`、`cn:deepseek-v4-pro`、`deepseek/deepseek-v4-pro` |
-| `deepseek-v4.1-flash` | `cn:deepseek-v4.1-flash`、`deepseek/deepseek-v4.1-flash`、`DeepSeek-V4.1-Flash`、`deepseek-flash` |
+| `deepseek-v4.1-flash` | `cn:deepseek-v4.1-flash`、`deepseek/deepseek-v4.1-flash`、`DeepSeek-V4.1-Flash`、`deepseek-flash`、`deepseek-v4-1-flash`；兼容层依次为 `deepseek-v4-flash`、`deepseek-v4-pro` 及其默认渠道写法 |
 | `glm-5.3`、`glm-5.2`、`glm-5.3-flash` | 各自对应的 `cn:` 前缀 ID |
 | `kimi-k3`、`kimi-k2.6` | 分别对应 `cn:kimi-k3-1`、`cn:kimi-k2.6` |
 | `minimax-m3` | `cn:minimax-m3`、`MiniMax-M3` |
 | `minimax-m2.7` | `cn:minimax-m2.7`、`MiniMax-M2.7` |
 
-`deepseek-v4-flash` 与 `deepseek-v4.1-flash` 仍是不同规范 ID；`vision-exp`、`highspeed`、`[1m]`、`latest` 等带能力、上下文或版本含义的后缀不会仅凭相似名称合并。
+`deepseek-v4-flash` 与 `deepseek-v4-pro` 是 V4.1 Flash 规范组内的账号级兼容候选，不再作为独立公开模型；`vision-exp`、`highspeed`、`[1m]`、`latest` 等带能力、上下文或版本含义的后缀不会仅凭相似名称合并。
 
 ## auto 选模的成本边界
 
 `auto` 排除已配置模型档位中的最高档（`tiers[0]`，即“夯”档），不在初选和失败降级时进入该档。未保存自定义分档时，内置最高档是 `AA 50+`，当前包含 `gpt-6-astra`。档位模型及其显式同义词按本次请求的设置快照排除，渠道、合成路由和账号的实际上游改名同样需要通过检查。Responses 转 Chat 的协议回退、compact 专用模型和重试也不能进入最高档。
 
-Auto 的执行顺序独立于手动指定模型的逐档降级：优先 `deepseek-v4.1-flash`，再 GLM 系列，再其他 DeepSeek、Kimi、MiniMax、Mimo、Qwen3、Step 系列，最后其余文本模型。每组内部按已配置能力档位和档内填写顺序排序，未评级模型放在该组末尾，以模型 ID 保证稳定顺序。这是用户指定的性价比偏好，不是逐供应商实时报价；System One 不参与该确定性选择，决策账号离线不会阻断 Auto。
+Auto 的执行顺序独立于手动指定模型的逐档降级：优先 `deepseek-v4.1-flash`，再 GLM 系列，再其他 DeepSeek、Kimi、MiniMax、Mimo、Qwen3、Step 系列，最后其余文本模型。`gpt-5.6-terra` 在手动档位降级中降到同档末尾；从 `deepseek-v4.1-flash` 降级时，同档 GLM/Qwen 先于 Terra。每组内部按已配置能力档位和档内填写顺序排序，未评级模型放在该组末尾，以模型 ID 保证稳定顺序。这是用户指定的性价比偏好，不是逐供应商实时报价；System One 不参与该确定性选择，决策账号离线不会阻断 Auto。
 
 每次 Auto 请求从当前 Key 分组的完整账号清单读取模型映射与已同步上游目录，保留所有具体模型、别名和不同供应商来源，不再受健康成功记录或手工 256 模型分档上限限制。未知品牌的文本模型可以候选，实际协议由账号和显式合成路由决定。专用翻译、向量等模型、现有黑名单和最高档、离线或能力不匹配的来源保留在候选元数据中并注明排除原因。不会越过 Key 的分组权限，也不能枚举上游尚未同步且没有配置的未知 ID；通配规则本身不是具体模型。
 
@@ -101,6 +99,9 @@ cd backend
 psql -X -v ON_ERROR_STOP=1 -f migrations/testdata/deepseek_provider_model_aliases.sql
 psql -X -v ON_ERROR_STOP=1 -f migrations/testdata/complete_model_aliases.sql
 psql -X -v ON_ERROR_STOP=1 -f migrations/testdata/provider_free_model_aliases.sql
+psql -X -v ON_ERROR_STOP=1 -f migrations/testdata/deepseek_v41_flash_hyphen_alias.sql
+psql -X -v ON_ERROR_STOP=1 -f migrations/testdata/deepseek_v4_family_prefer_v41.sql
+psql -X -v ON_ERROR_STOP=1 -f migrations/testdata/fallback_glm_qwen_priority.sql
 ```
 
 该脚本使用会话临时表并回滚，验证新环境初始化、重复执行、保留自定义配置与别名冲突，不修改实际设置或迁移历史。
