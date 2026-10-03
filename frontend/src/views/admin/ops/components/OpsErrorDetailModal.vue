@@ -58,15 +58,18 @@
 
         <div class="rounded-xl bg-gray-50 p-4 dark:bg-dark-900">
           <div class="text-xs font-bold uppercase tracking-wider text-gray-400">{{ t('admin.ops.errorDetail.model') }}</div>
-          <div class="mt-1 text-sm font-medium text-gray-900 dark:text-white">
-            <template v-if="hasModelMapping(detail)">
-              <span class="font-mono">{{ detail.requested_model }}</span>
-              <span class="mx-1 text-gray-400">→</span>
-              <span class="font-mono text-primary-600 dark:text-primary-400">{{ detail.upstream_model }}</span>
-            </template>
-            <template v-else>
-              {{ displayModel(detail) || '—' }}
-            </template>
+          <div class="mt-1 space-y-0.5 text-sm font-medium text-gray-900 dark:text-white">
+            <div class="break-all font-mono">{{ detail.requested_model || detail.model || '—' }}</div>
+            <div v-if="resolvedModel(detail)" class="break-all font-mono text-xs text-primary-600 dark:text-primary-400">
+              <span class="mr-1 text-gray-400">↳</span>{{ resolvedModel(detail) }}
+            </div>
+          </div>
+        </div>
+
+        <div v-if="detail.error_model" class="rounded-xl bg-red-50 p-4 dark:bg-red-900/10">
+          <div class="text-xs font-bold uppercase tracking-wider text-red-500">{{ t('admin.ops.errorDetail.errorModel') }}</div>
+          <div class="mt-1 break-all font-mono text-sm font-bold text-red-700 dark:text-red-300">
+            {{ detail.error_model }}
           </div>
         </div>
 
@@ -332,20 +335,9 @@ function formatRequestTypeLabel(type: number | null | undefined): string {
   }
 }
 
-function hasModelMapping(d: OpsErrorDetail | null): boolean {
-  if (!d) return false
-  const requested = String(d.requested_model || '').trim()
-  const upstream = String(d.upstream_model || '').trim()
-  return !!requested && !!upstream && requested !== upstream
-}
-
-function displayModel(d: OpsErrorDetail | null): string {
+function resolvedModel(d: OpsErrorDetail | null): string {
   if (!d) return ''
-  const upstream = String(d.upstream_model || '').trim()
-  if (upstream) return upstream
-  const requested = String(d.requested_model || '').trim()
-  if (requested) return requested
-  return String(d.model || '').trim()
+  return String(d.error_model || d.upstream_model || '').trim()
 }
 
 const correlatedUpstream = ref<OpsErrorDetail[]>([])

@@ -53,6 +53,9 @@ describe('OpsErrorDetailModal', () => {
       error_body: '{"error":"same"}',
       upstream_error_message: 'provider rate limit exhausted',
       upstream_error_detail: '{"error":"same"}',
+      requested_model: 'auto',
+      upstream_model: 'glm-5.2',
+      error_model: 'glm-5.2',
       upstream_errors: '[]',
       account_name: 'account',
       group_name: 'group',
@@ -73,6 +76,8 @@ describe('OpsErrorDetailModal', () => {
     expect(wrapper.text()).toContain('provider rate limit exhausted')
     expect(wrapper.text()).toContain('admin.ops.errorDetail.upstreamStatus')
     expect(wrapper.text()).toContain('429')
+    expect(wrapper.text()).toContain('admin.ops.errorDetail.errorModel')
+    expect(wrapper.text()).toContain('glm-5.2')
     expect(wrapper.findAll('pre')).toHaveLength(2)
     expect(wrapper.text()).not.toContain('admin.ops.errorDetail.payloads.upstream_detail')
   })

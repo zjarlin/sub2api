@@ -22,6 +22,13 @@ type OpsRequestDetail struct {
 	Platform string `json:"platform,omitempty"`
 	Model    string `json:"model,omitempty"`
 
+	// RequestedModel is the client-facing model when it differs from the
+	// concrete model that was dispatched. ErrorModel is the last attempted model
+	// known to have produced the failed upstream/routing result.
+	RequestedModel string `json:"requested_model,omitempty"`
+	UpstreamModel  string `json:"upstream_model,omitempty"`
+	ErrorModel     string `json:"error_model,omitempty"`
+
 	DurationMs   *int `json:"duration_ms,omitempty"`
 	FirstTokenMs *int `json:"first_token_ms,omitempty"`
 	StatusCode   *int `json:"status_code,omitempty"`
@@ -39,6 +46,7 @@ type OpsRequestDetail struct {
 	UserAccount string `json:"user_account,omitempty"`
 	APIKeyID    *int64 `json:"api_key_id,omitempty"`
 	AccountID   *int64 `json:"account_id,omitempty"`
+	AccountName string `json:"account_name,omitempty"`
 	GroupID     *int64 `json:"group_id,omitempty"`
 
 	Stream bool `json:"stream"`

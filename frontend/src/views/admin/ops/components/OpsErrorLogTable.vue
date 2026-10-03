@@ -47,7 +47,9 @@
         <template #cell-model="{ row }">
           <div v-if="hasModelMapping(row)" class="space-y-0.5 text-xs">
             <div class="break-all font-medium text-gray-900 dark:text-white">{{ row.requested_model }}</div>
-            <div class="break-all text-gray-500 dark:text-gray-400"><span class="mr-0.5">↳</span>{{ row.upstream_model }}</div>
+            <div class="break-all" :class="row.error_model ? 'font-mono text-red-600 dark:text-red-300' : 'text-gray-500 dark:text-gray-400'">
+              <span class="mr-0.5">↳</span>{{ row.error_model || row.upstream_model }}
+            </div>
           </div>
           <span v-else-if="displayModel(row)" class="text-sm font-medium text-gray-900 dark:text-white">{{ displayModel(row) }}</span>
           <span v-else class="text-sm text-gray-400 dark:text-gray-500">-</span>
@@ -256,13 +258,13 @@ function isUpstreamRow(log: OpsErrorLog): boolean {
 
 function hasModelMapping(log: OpsErrorLog): boolean {
   const requested = String(log.requested_model || '').trim()
-  const upstream = String(log.upstream_model || '').trim()
-  return !!requested && !!upstream && requested !== upstream
+  const resolved = String(log.error_model || log.upstream_model || '').trim()
+  return !!requested && !!resolved && requested !== resolved
 }
 
 function displayModel(log: OpsErrorLog): string {
-  const upstream = String(log.upstream_model || '').trim()
-  if (upstream) return upstream
+  const resolved = String(log.error_model || log.upstream_model || '').trim()
+  if (resolved) return resolved
   const requested = String(log.requested_model || '').trim()
   if (requested) return requested
   return String(log.model || '').trim()

@@ -44,6 +44,23 @@ function mountTable(row: Partial<OpsErrorLog>) {
   })
 }
 
+describe('OpsErrorLogTable Auto model attribution', () => {
+  it('shows the concrete failed model beneath auto', () => {
+    const wrapper = mountTable({
+      phase: 'routing',
+      error_owner: 'platform',
+      model: 'glm-5.2',
+      requested_model: 'auto',
+      upstream_model: 'glm-5.2',
+      error_model: 'glm-5.2',
+    })
+
+    expect(wrapper.text()).toContain('auto')
+    expect(wrapper.text()).toContain('glm-5.2')
+    expect(wrapper.find('.text-red-600').exists()).toBe(true)
+  })
+})
+
 describe('OpsErrorLogTable user/api-key/account columns', () => {
   it('collapses account attempts and preserves a different log account without opening the detail', async () => {
     const wrapper = mountTable({

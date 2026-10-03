@@ -169,6 +169,35 @@ function loginAccountTitle(row: OpsRequestDetail): string {
   return parts.length > 0 ? parts.join(' / ') : displayLoginAccount(row)
 }
 
+function dispatchAccount(row: OpsRequestDetail): string {
+  const name = String(row.account_name || '').trim()
+  if (name && row.account_id != null) return `${name} #${row.account_id}`
+  if (name) return name
+  if (row.account_id != null) return `#${row.account_id}`
+  return '-'
+}
+
+function dispatchAccountTitle(row: OpsRequestDetail): string {
+  const name = String(row.account_name || '').trim()
+  if (name && row.account_id != null) return `${name} / #${row.account_id}`
+  return dispatchAccount(row)
+}
+
+function requestModel(row: OpsRequestDetail): string {
+  return String(row.requested_model || row.model || '').trim()
+}
+
+function concreteModel(row: OpsRequestDetail): string {
+  return String(row.error_model || row.upstream_model || '').trim()
+}
+
+function modelTitle(row: OpsRequestDetail): string {
+  const requested = requestModel(row)
+  const concrete = concreteModel(row)
+  if (!concrete || concrete === requested) return requested
+  return `${requested || '-'} -> ${concrete}`
+}
+
 function openErrorDetail(errorId: number | null | undefined) {
   if (!errorId) return
   emit('openErrorDetail', errorId)
@@ -230,9 +259,18 @@ const kindBadgeClass = (kind: string) => {
                     <span class="text-xs font-medium text-gray-700 dark:text-gray-200">{{ (row.platform || 'unknown').toUpperCase() }}</span>
                     <span class="ml-auto text-[11px] text-gray-500 dark:text-gray-400">{{ formatDateTime(row.created_at) }}</span>
                   </div>
-                  <div class="break-all text-xs text-gray-600 dark:text-gray-300">{{ row.model || '-' }}</div>
+                  <div class="space-y-0.5 text-xs">
+                    <div class="break-all font-medium text-gray-700 dark:text-gray-200">{{ requestModel(row) || '-' }}</div>
+                    <div v-if="concreteModel(row) && concreteModel(row) !== requestModel(row)" class="break-all font-mono text-[11px]" :class="row.kind === 'error' ? 'text-red-600 dark:text-red-300' : 'text-gray-500 dark:text-gray-400'">
+                      <span class="mr-0.5">↳</span>{{ concreteModel(row) }}
+                    </div>
+                  </div>
                   <div class="truncate text-xs font-medium text-gray-700 dark:text-gray-200" :title="loginAccountTitle(row)">
                     {{ displayLoginAccount(row) }}
+                  </div>
+                  <div class="truncate text-xs text-gray-600 dark:text-gray-300" :title="dispatchAccountTitle(row)">
+                    <span class="text-gray-400">{{ t('admin.ops.requestDetails.table.dispatchAccount') }}:</span>
+                    {{ dispatchAccount(row) }}
                   </div>
                   <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600 dark:text-gray-300">
                     <span>{{ latencyLabel }}: {{ formatLatency(row) }}</span>
@@ -277,6 +315,9 @@ const kindBadgeClass = (kind: string) => {
                     {{ t('admin.ops.requestDetails.table.loginAccount') }}
                   </th>
                   <th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                    {{ t('admin.ops.requestDetails.table.dispatchAccount') }}
+                  </th>
+                  <th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
                     {{ latencyLabel }}
                   </th>
                   <th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
@@ -303,11 +344,17 @@ const kindBadgeClass = (kind: string) => {
                   <td class="whitespace-nowrap px-4 py-3 text-xs font-medium text-gray-700 dark:text-gray-200">
                     {{ (row.platform || 'unknown').toUpperCase() }}
                   </td>
-                  <td class="max-w-[240px] truncate px-4 py-3 text-xs text-gray-600 dark:text-gray-300" :title="row.model || ''">
-                    {{ row.model || '-' }}
+                  <td class="max-w-[280px] px-4 py-3 text-xs text-gray-600 dark:text-gray-300" :title="modelTitle(row)">
+                    <div class="break-all font-medium text-gray-700 dark:text-gray-200">{{ requestModel(row) || '-' }}</div>
+                    <div v-if="concreteModel(row) && concreteModel(row) !== requestModel(row)" class="break-all font-mono text-[11px]" :class="row.kind === 'error' ? 'text-red-600 dark:text-red-300' : 'text-gray-500 dark:text-gray-400'">
+                      <span class="mr-0.5">↳</span>{{ concreteModel(row) }}
+                    </div>
                   </td>
                   <td class="max-w-[220px] truncate px-4 py-3 text-xs font-medium text-gray-700 dark:text-gray-200" :title="loginAccountTitle(row)">
                     {{ displayLoginAccount(row) }}
+                  </td>
+                  <td class="max-w-[220px] truncate px-4 py-3 text-xs text-gray-600 dark:text-gray-300" :title="dispatchAccountTitle(row)">
+                    {{ dispatchAccount(row) }}
                   </td>
                   <td class="whitespace-nowrap px-4 py-3 text-xs text-gray-600 dark:text-gray-300">
                     {{ formatLatency(row) }}

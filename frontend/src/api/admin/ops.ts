@@ -117,6 +117,9 @@ export interface OpsRequestDetail {
 
   platform?: string
   model?: string
+  requested_model?: string
+  upstream_model?: string
+  error_model?: string
   duration_ms?: number | null
   first_token_ms?: number | null
   status_code?: number | null
@@ -132,6 +135,7 @@ export interface OpsRequestDetail {
   user_account?: string
   api_key_id?: number | null
   account_id?: number | null
+  account_name?: string
   group_id?: number | null
 
   stream?: boolean
@@ -939,6 +943,7 @@ export interface OpsErrorLog {
   upstream_endpoint?: string
   requested_model?: string
   upstream_model?: string
+  error_model?: string
   request_type?: number | null
   user_agent?: string
 

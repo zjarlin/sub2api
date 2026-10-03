@@ -75,6 +75,7 @@ type OpsErrorLog struct {
 	UpstreamEndpoint string `json:"upstream_endpoint"`
 	RequestedModel   string `json:"requested_model"`
 	UpstreamModel    string `json:"upstream_model"`
+	ErrorModel       string `json:"error_model,omitempty"`
 	RequestType      *int16 `json:"request_type"`
 	UserAgent        string `json:"user_agent"`
 
@@ -100,6 +101,9 @@ type OpsErrorLogDetail struct {
 	UpstreamLatencyMs  *int64 `json:"upstream_latency_ms"`
 	ResponseLatencyMs  *int64 `json:"response_latency_ms"`
 	TimeToFirstTokenMs *int64 `json:"time_to_first_token_ms"`
+
+	// ErrorModel is the last concrete model in the persisted attempt chain.
+	ErrorModel string `json:"error_model,omitempty"`
 
 	// vNext metric semantics
 	IsBusinessLimited bool `json:"is_business_limited"`

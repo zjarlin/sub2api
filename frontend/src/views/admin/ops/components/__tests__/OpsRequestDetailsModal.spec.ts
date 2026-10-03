@@ -88,7 +88,7 @@ describe('Ops request latency details', () => {
     expect(wrapper.text()).not.toContain('12000 ms')
     expect(wrapper.text()).not.toContain('9000 ms')
     expect(wrapper.text()).not.toContain('5000 ms')
-    if (desktop) expect(wrapper.findAll('tbody tr')[2].findAll('td')[4].text()).toBe('-')
+    if (desktop) expect(wrapper.findAll('tbody tr')[2].findAll('td')[5].text()).toBe('-')
     else expect(wrapper.text()).toContain('admin.ops.ttftLabel: -')
     wrapper.unmount()
   })
@@ -99,6 +99,34 @@ describe('Ops request latency details', () => {
     expect(wrapper.text()).toContain('admin.ops.requestDetails.table.duration')
     expect(wrapper.text()).toContain('12000 ms')
     expect(wrapper.text()).not.toContain('800 ms')
+    wrapper.unmount()
+  })
+
+  it('shows the concrete Auto failure model below the requested model', async () => {
+    listRequestDetails.mockResolvedValue({
+      items: [{
+        kind: 'error',
+        created_at: '2026-09-10T00:00:02Z',
+        request_id: 'req-auto',
+        platform: 'openai',
+        model: 'glm-5.2',
+        requested_model: 'auto',
+        upstream_model: 'glm-5.2',
+        error_model: 'glm-5.2',
+        account_id: 851,
+        account_name: 'zjarlin_commandcode',
+        status_code: 502,
+      }],
+      total: 1,
+    })
+
+    const wrapper = await openDetails('duration_desc')
+    const modelCell = wrapper.findAll('tbody tr')[0].findAll('td')[3]
+    expect(modelCell.text()).toContain('auto')
+    expect(modelCell.text()).toContain('glm-5.2')
+    expect(modelCell.find('.text-red-600').exists()).toBe(true)
+    expect(wrapper.text()).toContain('admin.ops.requestDetails.table.dispatchAccount')
+    expect(wrapper.text()).toContain('zjarlin_commandcode #851')
     wrapper.unmount()
   })
 })

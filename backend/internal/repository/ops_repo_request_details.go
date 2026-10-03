@@ -92,6 +92,9 @@ WITH combined AS (
     ul.request_id AS request_id,
     COALESCE(NULLIF(g.platform, ''), NULLIF(a.platform, ''), '') AS platform,
     ul.model AS model,
+    COALESCE(NULLIF(BTRIM(ul.requested_model), ''), NULLIF(BTRIM(ul.model), ''), '') AS requested_model,
+    COALESCE(NULLIF(BTRIM(ul.upstream_model), ''), NULLIF(BTRIM(ul.model), ''), '') AS upstream_model,
+    NULL::TEXT AS error_model,
     ul.duration_ms AS duration_ms,
     ul.first_token_ms AS first_token_ms,
     NULL::INT AS status_code,
@@ -105,6 +108,7 @@ WITH combined AS (
     COALESCE(NULLIF(u.username, ''), NULLIF(u.email, ''), CASE WHEN ul.user_id IS NULL THEN '' ELSE ul.user_id::TEXT END) AS user_account,
     ul.api_key_id AS api_key_id,
     ul.account_id AS account_id,
+    COALESCE(a.name, '') AS account_name,
     ul.group_id AS group_id,
     ul.stream AS stream
   FROM usage_logs ul
@@ -121,6 +125,44 @@ WITH combined AS (
     COALESCE(NULLIF(o.request_id,''), NULLIF(o.client_request_id,''), '') AS request_id,
     COALESCE(NULLIF(o.platform, ''), NULLIF(g.platform, ''), NULLIF(a.platform, ''), '') AS platform,
     o.model AS model,
+    COALESCE(
+      NULLIF(BTRIM(amr.requested_model), ''),
+      NULLIF(BTRIM(o.requested_model), ''),
+      NULLIF(BTRIM(o.model), ''),
+      ''
+    ) AS requested_model,
+    COALESCE(
+      NULLIF(BTRIM((
+        SELECT attempt.value->>'model'
+        FROM jsonb_array_elements(
+          CASE WHEN jsonb_typeof(o.upstream_errors) = 'array' THEN o.upstream_errors ELSE '[]'::jsonb END
+        ) WITH ORDINALITY AS attempt(value, seq)
+        WHERE jsonb_typeof(attempt.value) = 'object'
+          AND NULLIF(BTRIM(attempt.value->>'model'), '') IS NOT NULL
+        ORDER BY attempt.seq DESC
+        LIMIT 1
+      )), ''),
+      NULLIF(BTRIM(o.upstream_model), ''),
+      NULLIF(BTRIM(amr.resolved_model), ''),
+      NULLIF(BTRIM(amr.selected_model), ''),
+      NULLIF(BTRIM(o.model), '')
+    ) AS upstream_model,
+    COALESCE(
+      NULLIF(BTRIM((
+        SELECT attempt.value->>'model'
+        FROM jsonb_array_elements(
+          CASE WHEN jsonb_typeof(o.upstream_errors) = 'array' THEN o.upstream_errors ELSE '[]'::jsonb END
+        ) WITH ORDINALITY AS attempt(value, seq)
+        WHERE jsonb_typeof(attempt.value) = 'object'
+          AND NULLIF(BTRIM(attempt.value->>'model'), '') IS NOT NULL
+        ORDER BY attempt.seq DESC
+        LIMIT 1
+      )), ''),
+      NULLIF(BTRIM(o.upstream_model), ''),
+      NULLIF(BTRIM(amr.resolved_model), ''),
+      NULLIF(BTRIM(amr.selected_model), ''),
+      NULLIF(BTRIM(o.model), '')
+    ) AS error_model,
     o.duration_ms AS duration_ms,
     o.time_to_first_token_ms AS first_token_ms,
     o.status_code AS status_code,
@@ -133,13 +175,30 @@ WITH combined AS (
     COALESCE(u.username, '') AS username,
     COALESCE(NULLIF(u.username, ''), NULLIF(u.email, ''), CASE WHEN o.user_id IS NULL THEN '' ELSE o.user_id::TEXT END) AS user_account,
     o.api_key_id AS api_key_id,
-    o.account_id AS account_id,
+    COALESCE(o.account_id, last_account.account_id) AS account_id,
+    COALESCE(NULLIF(BTRIM(a.name), ''), NULLIF(BTRIM(last_account.account_name), ''), '') AS account_name,
     o.group_id AS group_id,
     o.stream AS stream
   FROM ops_error_logs o
   LEFT JOIN groups g ON g.id = o.group_id
-  LEFT JOIN accounts a ON a.id = o.account_id
+  LEFT JOIN LATERAL (
+    SELECT
+      NULLIF(BTRIM(attempt.value->>'account_id'), '')::BIGINT AS account_id,
+      NULLIF(BTRIM(attempt.value->>'account_name'), '') AS account_name
+    FROM jsonb_array_elements(
+      CASE WHEN jsonb_typeof(o.upstream_errors) = 'array' THEN o.upstream_errors ELSE '[]'::jsonb END
+    ) WITH ORDINALITY AS attempt(value, seq)
+    WHERE jsonb_typeof(attempt.value) = 'object'
+      AND NULLIF(BTRIM(attempt.value->>'account_id'), '') ~ '^[0-9]+$'
+      AND NULLIF(BTRIM(attempt.value->>'account_id'), '')::BIGINT > 0
+    ORDER BY attempt.seq DESC
+    LIMIT 1
+  ) last_account ON TRUE
+  LEFT JOIN accounts a ON a.id = COALESCE(o.account_id, last_account.account_id)
   LEFT JOIN users u ON u.id = o.user_id
+  LEFT JOIN auto_model_routes amr
+    ON amr.request_id::text = COALESCE(NULLIF(o.request_id,''), NULLIF(o.client_request_id,''))
+    AND amr.api_key_id = o.api_key_id
   WHERE o.created_at >= $1 AND o.created_at < $2
     AND COALESCE(o.status_code, 0) >= 400
 )
@@ -177,6 +236,9 @@ SELECT
   request_id,
   platform,
   model,
+  requested_model,
+  upstream_model,
+  error_model,
   duration_ms,
   first_token_ms,
   status_code,
@@ -190,6 +252,7 @@ SELECT
   user_account,
   api_key_id,
   account_id,
+  account_name,
   group_id,
   stream
 FROM combined
@@ -223,11 +286,14 @@ LIMIT $%d OFFSET $%d
 	out := make([]*service.OpsRequestDetail, 0, pageSize)
 	for rows.Next() {
 		var (
-			kind      string
-			createdAt time.Time
-			requestID sql.NullString
-			platform  sql.NullString
-			model     sql.NullString
+			kind           string
+			createdAt      time.Time
+			requestID      sql.NullString
+			platform       sql.NullString
+			model          sql.NullString
+			requestedModel sql.NullString
+			upstreamModel  sql.NullString
+			errorModel     sql.NullString
 
 			durationMs   sql.NullInt64
 			firstTokenMs sql.NullInt64
@@ -244,6 +310,7 @@ LIMIT $%d OFFSET $%d
 			userAccount sql.NullString
 			apiKeyID    sql.NullInt64
 			accountID   sql.NullInt64
+			accountName sql.NullString
 			groupID     sql.NullInt64
 
 			stream bool
@@ -255,6 +322,9 @@ LIMIT $%d OFFSET $%d
 			&requestID,
 			&platform,
 			&model,
+			&requestedModel,
+			&upstreamModel,
+			&errorModel,
 			&durationMs,
 			&firstTokenMs,
 			&statusCode,
@@ -268,6 +338,7 @@ LIMIT $%d OFFSET $%d
 			&userAccount,
 			&apiKeyID,
 			&accountID,
+			&accountName,
 			&groupID,
 			&stream,
 		); err != nil {
@@ -280,6 +351,10 @@ LIMIT $%d OFFSET $%d
 			RequestID: strings.TrimSpace(requestID.String),
 			Platform:  strings.TrimSpace(platform.String),
 			Model:     strings.TrimSpace(model.String),
+
+			RequestedModel: strings.TrimSpace(requestedModel.String),
+			UpstreamModel:  strings.TrimSpace(upstreamModel.String),
+			ErrorModel:     strings.TrimSpace(errorModel.String),
 
 			DurationMs:   toIntPtr(durationMs),
 			FirstTokenMs: toIntPtr(firstTokenMs),
@@ -295,6 +370,7 @@ LIMIT $%d OFFSET $%d
 			UserAccount: strings.TrimSpace(userAccount.String),
 			APIKeyID:    toInt64Ptr(apiKeyID),
 			AccountID:   toInt64Ptr(accountID),
+			AccountName: strings.TrimSpace(accountName.String),
 			GroupID:     toInt64Ptr(groupID),
 
 			Stream: stream,

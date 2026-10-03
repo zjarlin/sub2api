@@ -20,7 +20,7 @@ func TestOpsListErrorLogsPreservesAccountAttemptOrder(t *testing.T) {
 	values := []driver.Value{
 		169006, time.Now(), "routing", "rate_limit_error", "platform", "gateway", "P2", 429,
 		"openai", "deepseek-v4.1-flash", false, nil, nil, "", "", "request-id", "queue full",
-		nil, "", nil, 832, "r4", nil, "", nil, "/v1/responses", true, "/v1/responses", "", "deepseek-v4.1-flash", "", "", 2, "", nil,
+		nil, "", nil, 832, "r4", nil, "", nil, "/v1/responses", true, "/v1/responses", "", "auto", "deepseek-v4.1-flash", "deepseek-v4.1-flash", "", 2, "", nil,
 		`[{"account_id":837,"account_name":"aaawinn"},{"account_id":832,"account_name":"r4"},{"account_id":832,"account_name":"r4"}]`,
 	}
 	columns := make([]string, len(values))
@@ -32,6 +32,8 @@ func TestOpsListErrorLogsPreservesAccountAttemptOrder(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, result.Errors, 1)
 	require.Equal(t, 429, result.Errors[0].StatusCode)
+	require.Equal(t, "auto", result.Errors[0].RequestedModel)
+	require.Equal(t, "deepseek-v4.1-flash", result.Errors[0].ErrorModel)
 	require.Equal(t, []service.OpsAccountAttempt{
 		{AccountID: 837, AccountName: "aaawinn"},
 		{AccountID: 832, AccountName: "r4"},

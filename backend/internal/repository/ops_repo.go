@@ -265,8 +265,24 @@ SELECT
   e.stream,
   COALESCE(e.inbound_endpoint, ''),
   COALESCE(e.upstream_endpoint, ''),
-  COALESCE(e.requested_model, ''),
+  COALESCE(NULLIF(BTRIM(amr.requested_model), ''), NULLIF(BTRIM(e.requested_model), ''), COALESCE(e.model, '')),
   COALESCE(e.upstream_model, ''),
+  COALESCE(
+    NULLIF(BTRIM((
+      SELECT attempt.value->>'model'
+      FROM jsonb_array_elements(
+        CASE WHEN jsonb_typeof(e.upstream_errors) = 'array' THEN e.upstream_errors ELSE '[]'::jsonb END
+      ) WITH ORDINALITY AS attempt(value, seq)
+      WHERE jsonb_typeof(attempt.value) = 'object'
+        AND NULLIF(BTRIM(attempt.value->>'model'), '') IS NOT NULL
+      ORDER BY attempt.seq DESC
+      LIMIT 1
+    )), ''),
+    NULLIF(BTRIM(e.upstream_model), ''),
+    NULLIF(BTRIM(amr.resolved_model), ''),
+    NULLIF(BTRIM(amr.selected_model), ''),
+    NULLIF(BTRIM(e.model), '')
+  ),
   COALESCE(e.user_agent, ''),
   e.request_type,
   COALESCE(ak.name, ''),
@@ -287,6 +303,9 @@ LEFT JOIN groups g ON e.group_id = g.id
 LEFT JOIN users u ON e.user_id = u.id
 LEFT JOIN users u2 ON e.resolved_by_user_id = u2.id
 LEFT JOIN api_keys ak ON ak.id = e.api_key_id
+LEFT JOIN auto_model_routes amr
+  ON amr.request_id::text = COALESCE(NULLIF(e.request_id,''), NULLIF(e.client_request_id,''))
+  AND amr.api_key_id = e.api_key_id
 ` + where + `
 ORDER BY ` + opsErrorLogsOrderBy(filter) + `
 LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
@@ -348,6 +367,7 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 			&item.UpstreamEndpoint,
 			&item.RequestedModel,
 			&item.UpstreamModel,
+			&item.ErrorModel,
 			&item.UserAgent,
 			&requestType,
 			&apiKeyName,
@@ -456,7 +476,7 @@ SELECT
   e.stream,
   COALESCE(e.inbound_endpoint, ''),
   COALESCE(e.upstream_endpoint, ''),
-  COALESCE(e.requested_model, ''),
+  COALESCE(NULLIF(BTRIM(amr.requested_model), ''), NULLIF(BTRIM(e.requested_model), ''), COALESCE(e.model, '')),
   COALESCE(e.upstream_model, ''),
   e.request_type,
   COALESCE(e.user_agent, ''),
@@ -473,6 +493,9 @@ LEFT JOIN users u ON e.user_id = u.id
 LEFT JOIN accounts a ON e.account_id = a.id
 LEFT JOIN groups g ON e.group_id = g.id
 LEFT JOIN api_keys ak ON ak.id = e.api_key_id
+LEFT JOIN auto_model_routes amr
+  ON amr.request_id::text = COALESCE(NULLIF(e.request_id,''), NULLIF(e.client_request_id,''))
+  AND amr.api_key_id = e.api_key_id
 WHERE e.id = $1
 LIMIT 1`
 
@@ -606,6 +629,7 @@ LIMIT 1`
 	}
 	out.APIKeyName = detailAPIKeyName
 	out.APIKeyDeleted = detailAPIKeyDeletedAt.Valid
+	out.ErrorModel = lastOpsAttemptModel(out.UpstreamErrors)
 
 	// Normalize upstream_errors to empty string when stored as JSON null.
 	out.UpstreamErrors = strings.TrimSpace(out.UpstreamErrors)
@@ -614,6 +638,25 @@ LIMIT 1`
 	}
 
 	return &out, nil
+}
+
+func lastOpsAttemptModel(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" || raw == "null" {
+		return ""
+	}
+	var events []struct {
+		Model string `json:"model"`
+	}
+	if err := json.Unmarshal([]byte(raw), &events); err != nil {
+		return ""
+	}
+	for i := len(events) - 1; i >= 0; i-- {
+		if model := strings.TrimSpace(events[i].Model); model != "" {
+			return model
+		}
+	}
+	return ""
 }
 
 func (r *opsRepository) UpdateErrorResolution(ctx context.Context, errorID int64, resolved bool, resolvedByUserID *int64, resolvedAt *time.Time) error {
