@@ -1,7 +1,10 @@
 package handler
 
 import (
+	"os"
+
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/platform/translate"
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
 	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -199,6 +202,7 @@ func ProvideHandlers(
 	modelPlazaHandler *ModelPlazaHandler,
 	asyncImageHandler *AsyncImageHandler,
 	batchImageHandler *BatchImageHandler,
+	translateHandler *TranslateHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 	_ *service.OpenAIQuotaAutoResetService,
@@ -226,6 +230,7 @@ func ProvideHandlers(
 		ModelPlaza:       modelPlazaHandler,
 		AsyncImage:       asyncImageHandler,
 		BatchImage:       batchImageHandler,
+		Translate:        translateHandler,
 	}
 }
 
@@ -296,3 +301,35 @@ var ProviderSet = wire.NewSet(
 	ProvideAdminHandlers,
 	ProvideHandlers,
 )
+
+// ProvideTranslateAggregator 从环境变量构建翻译聚合器
+func ProvideTranslateAggregator() *translate.Aggregator {
+	cfg := &translate.Config{}
+
+	// 腾讯云
+	if sid := os.Getenv("TRANSLATE_TENCENT_SECRET_ID"); sid != "" {
+		cfg.Tencent = &translate.TencentConfig{
+			SecretID:  sid,
+			SecretKey: os.Getenv("TRANSLATE_TENCENT_SECRET_KEY"),
+			Region:    os.Getenv("TRANSLATE_TENCENT_REGION"),
+		}
+	}
+
+	// 百度
+	if appID := os.Getenv("TRANSLATE_BAIDU_APP_ID"); appID != "" {
+		cfg.Baidu = &translate.BaiduConfig{
+			AppID:  appID,
+			Secret: os.Getenv("TRANSLATE_BAIDU_SECRET"),
+		}
+	}
+
+	// 有道
+	if appKey := os.Getenv("TRANSLATE_YOUDAO_APP_KEY"); appKey != "" {
+		cfg.Youdao = &translate.YoudaoConfig{
+			AppKey:    appKey,
+			AppSecret: os.Getenv("TRANSLATE_YOUDAO_APP_SECRET"),
+		}
+	}
+
+	return translate.NewAggregator(cfg)
+}
