@@ -74,6 +74,15 @@ func TestModelFallbackPolicyKeepsTerraBehindGLMAndQwen(t *testing.T) {
 	})
 }
 
+func TestDefaultModelFallbackPolicyIncludesGLM52AndSensenova(t *testing.T) {
+	var models []string
+	for _, tier := range DefaultModelFallbackPolicy().Tiers {
+		models = append(models, tier.Models...)
+	}
+	require.Contains(t, models, "glm-5.2")
+	require.Contains(t, models, "sensenova-6.8-flash-lite")
+}
+
 func TestModelFallbackPolicyRejectsAmbiguousOrUnboundedConfig(t *testing.T) {
 	for _, policy := range []*ModelFallbackPolicy{
 		nil,

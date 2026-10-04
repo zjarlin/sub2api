@@ -99,27 +99,34 @@ func AutoModelInventoryPlatforms(ctx context.Context, model string) []string {
 	return nil
 }
 
-// 用户指定的性价比顺序优先，其余模型按既有能力档位排序，未评级模型仍保留。
+// Auto 选模先按已配置能力档位从高到低，同一档位内再按用户指定的性价比顺序：
+// deepseek-v4.1-flash 固定为全池首选，其后为 GLM 系列，再其他 DeepSeek、Kimi、
+// MiniMax、Mimo、Qwen3、Step 系列，最后其余文本模型。未评级模型排在所有已评级模型之后。
+// 品牌加成只在同一档位内生效，避免低档模型（如通用档的 glm-5.2）反超更高档的可用模型。
 func AutoModelPriority(ctx context.Context, model string) (int, int) {
 	canonical := ModelAliasesFromContext(ctx).Canonicalize(model)
 	name := strings.ToLower(canonical)
 	name = name[strings.LastIndex(name, "/")+1:]
-	priority := 3
-	switch {
-	case name == "deepseek-v4.1-flash":
-		priority = 0
-	case strings.HasPrefix(name, "glm-"):
-		priority = 1
-	case strings.HasPrefix(name, "deepseek-"), strings.HasPrefix(name, "kimi-"),
-		strings.HasPrefix(name, "minimax-"), strings.HasPrefix(name, "mimo-"),
-		strings.HasPrefix(name, "qwen3"), strings.HasPrefix(name, "step-"):
-		priority = 2
-	}
+
+	// 其余模型以能力档位为主键，未评级模型用兜底档位排在所有已评级模型之后。
 	tier := 1000000
 	if snapshot, ok := ctx.Value(autoModelRoutingPolicyContextKey{}).(*autoModelRoutingPolicy); ok {
 		if rank, found := snapshot.ranks[canonical]; found {
 			tier = rank
 		}
 	}
-	return priority, tier
+	// 首选模型无视档位固定排在最前；仍保留 tier 让规范名先于带前缀的重复项。
+	if name == "deepseek-v4.1-flash" {
+		return 0, tier
+	}
+	family := 3
+	switch {
+	case strings.HasPrefix(name, "glm-"):
+		family = 1
+	case strings.HasPrefix(name, "deepseek-"), strings.HasPrefix(name, "kimi-"),
+		strings.HasPrefix(name, "minimax-"), strings.HasPrefix(name, "mimo-"),
+		strings.HasPrefix(name, "qwen3"), strings.HasPrefix(name, "step-"):
+		family = 2
+	}
+	return tier + 1, family
 }

@@ -8,7 +8,7 @@
 
 新增渠道后需要核对上游目录里的精确 ID。独立账号测试成功只说明该账号接受传入的 ID，不代表规范 ID 已经能匹配到它。例如 `deepseek/deepseek-v4.1-flash` 必须显式归入 `deepseek-v4.1-flash` 的同义词组；转发仍保留渠道要求的 `deepseek/` 前缀。版本、`fast`、`vision-exp` 等变体不会自动合并。
 
-迁移 `246_deepseek_provider_model_aliases.sql` 为 V4 Flash、V4 Pro、V4.1 Flash 补齐上述前缀。迁移 `249_complete_model_aliases.sql` 补齐 V4.1 Flash 的新名及大小写写法、MiniMax M3 的大小写写法，并把 MiniMax M2.7 的 `cn:` 与大写写法归到 `minimax-m2.7`。迁移 `260_deepseek_v41_flash_hyphen_alias.sql` 补齐 `deepseek-v4-1-flash` 这种把版本点号写成短横线的写法。迁移 `261_deepseek_v4_family_prefer_v41.sql` 把 V4 Flash、V4 Pro 并入 V4.1 Flash 规范组，顺序为 V4.1、V4 Flash、V4 Pro，使账号不支持 V4.1 时自动改用其可用的兼容 ID。迁移 `262_prioritize_glm_qwen_fallback.sql` 在同时包含 V4.1 Flash 与 GPT-5.6 Terra 的档位中，把降级顺序调整为 V4.1 Flash、GLM、Qwen、其他模型、GPT-5.6 Terra。迁移不改变档位、账号映射或管理员已分配的别名；空同义词策略保持为空。后续变更新增迁移，不修改已执行迁移的校验和。
+迁移 `246_deepseek_provider_model_aliases.sql` 为 V4 Flash、V4 Pro、V4.1 Flash 补齐上述前缀。迁移 `249_complete_model_aliases.sql` 补齐 V4.1 Flash 的新名及大小写写法、MiniMax M3 的大小写写法，并把 MiniMax M2.7 的 `cn:` 与大写写法归到 `minimax-m2.7`。迁移 `260_deepseek_v41_flash_hyphen_alias.sql` 补齐 `deepseek-v4-1-flash` 这种把版本点号写成短横线的写法。迁移 `261_deepseek_v4_family_prefer_v41.sql` 把 V4 Flash、V4 Pro 并入 V4.1 Flash 规范组，顺序为 V4.1、V4 Flash、V4 Pro，使账号不支持 V4.1 时自动改用其可用的兼容 ID。迁移 `262_prioritize_glm_qwen_fallback.sql` 在同时包含 V4.1 Flash 与 GPT-5.6 Terra 的档位中，把降级顺序调整为 V4.1 Flash、GLM、Qwen、其他模型、GPT-5.6 Terra。迁移 `263_add_glm52_sensenova_fallback.sql` 在已有 GLM-5.2 的档位中，把 `sensenova-6.8-flash-lite` 紧跟其后纳入同一降级路线。迁移不改变档位、账号映射或管理员已分配的别名；空同义词策略保持为空。后续变更新增迁移，不修改已执行迁移的校验和。
 
 默认同义词组的规范 ID 如下；`GET /v1/models` 和 Codex 模型清单在最终写出时按这些组去重，旧 ID 仍可用于请求。管理员修改过的 `model_aliases` 以实际设置为准。
 
@@ -26,7 +26,7 @@
 
 `auto` 排除已配置模型档位中的最高档（`tiers[0]`，即“夯”档），不在初选和失败降级时进入该档。未保存自定义分档时，内置最高档是 `AA 50+`，当前包含 `gpt-6-astra`。档位模型及其显式同义词按本次请求的设置快照排除，渠道、合成路由和账号的实际上游改名同样需要通过检查。Responses 转 Chat 的协议回退、compact 专用模型和重试也不能进入最高档。
 
-Auto 的执行顺序独立于手动指定模型的逐档降级：优先 `deepseek-v4.1-flash`，再 GLM 系列，再其他 DeepSeek、Kimi、MiniMax、Mimo、Qwen3、Step 系列，最后其余文本模型。`gpt-5.6-terra` 在手动档位降级中降到同档末尾；从 `deepseek-v4.1-flash` 降级时，同档 GLM/Qwen 先于 Terra。每组内部按已配置能力档位和档内填写顺序排序，未评级模型放在该组末尾，以模型 ID 保证稳定顺序。这是用户指定的性价比偏好，不是逐供应商实时报价；System One 不参与该确定性选择，决策账号离线不会阻断 Auto。
+Auto 的执行顺序独立于手动指定模型的逐档降级，采用「能力档位优先、档内性价比次序」两级排序：先按已配置能力档位从高到低（`ranks` 为档位号乘以 1000 加档内序号），同一档位内再按用户指定的性价比顺序——GLM 系列先于其他 DeepSeek、Kimi、MiniMax、Mimo、Qwen3、Step 系列，其余文本模型最后，未评级模型排在所有已评级模型之后。因此 `gpt-5.6-terra` 在手动档位降级中降到同档末尾，从 `deepseek-v4.1-flash` 降级时同档 GLM/Qwen 先于 Terra，通用档中 `glm-5.2` 与 `sensenova-6.8-flash-lite` 相邻进入降级路线；品牌加成只在同一档位内生效，不会让低档模型（如通用档的 `glm-5.2`）反超更高档的可用模型。`deepseek-v4.1-flash` 作为用户指定的首选无视档位固定排在最前，同一规范组内规范名先于带前缀的重复项。以模型 ID 保证稳定顺序。这是用户指定的性价比偏好，不是逐供应商实时报价；System One 不参与该确定性选择，决策账号离线不会阻断 Auto。
 
 每次 Auto 请求从当前 Key 分组的完整账号清单读取模型映射与已同步上游目录，保留所有具体模型、别名和不同供应商来源，不再受健康成功记录或手工 256 模型分档上限限制。未知品牌的文本模型可以候选，实际协议由账号和显式合成路由决定。专用翻译、向量等模型、现有黑名单和最高档、离线或能力不匹配的来源保留在候选元数据中并注明排除原因。不会越过 Key 的分组权限，也不能枚举上游尚未同步且没有配置的未知 ID；通配规则本身不是具体模型。
 
@@ -102,6 +102,7 @@ psql -X -v ON_ERROR_STOP=1 -f migrations/testdata/provider_free_model_aliases.sq
 psql -X -v ON_ERROR_STOP=1 -f migrations/testdata/deepseek_v41_flash_hyphen_alias.sql
 psql -X -v ON_ERROR_STOP=1 -f migrations/testdata/deepseek_v4_family_prefer_v41.sql
 psql -X -v ON_ERROR_STOP=1 -f migrations/testdata/fallback_glm_qwen_priority.sql
+psql -X -v ON_ERROR_STOP=1 -f migrations/testdata/add_glm52_sensenova_fallback.sql
 ```
 
 该脚本使用会话临时表并回滚，验证新环境初始化、重复执行、保留自定义配置与别名冲突，不修改实际设置或迁移历史。
@@ -110,7 +111,7 @@ psql -X -v ON_ERROR_STOP=1 -f migrations/testdata/fallback_glm_qwen_priority.sql
 
 运维监控的“降级成功”统计账号重试、切换账号或切换模型后最终成功的请求，是成功请求的子集。概览字段为 `recovered_success_count`，明细使用 `GET /api/v1/admin/ops/upstream-errors?view=recovered`；计数与列表共用筛选条件。
 
-新记录使用 `recovered_upstream` 类型，保留客户端请求模型、实际模型、最终成功账号和中间尝试。列表调用链默认折叠，详情中间失败为琥珀色、最终成功为绿色。默认请求错误和上游错误列表只显示最终失败，完整遥测可在“全部”视图查询。
+新记录使用 `recovered_upstream` 类型，保留客户端请求模型、实际模型、最终成功账号和中间尝试。列表调用链直接完整展示（无需点击展开），详情中间失败为琥珀色、最终成功为绿色。默认请求错误和上游错误列表只显示最终失败，完整遥测可在“全部”视图查询。
 
 HTTP 200 不等于请求成功：SSE `response.failed` 或请求级流内错误仍属于最终失败。历史 `Recovered ...` 记录只有在存在请求 ID、且没有同请求最终失败记录时才纳入成功；无法可靠关联的历史记录不补猜终态。格式、鉴权等不能重放的请求错误仍直接展示，不强行进入模型降级。
 

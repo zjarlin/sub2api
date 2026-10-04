@@ -70,7 +70,7 @@ func DefaultModelFallbackPolicy() *ModelFallbackPolicy {
 	return &ModelFallbackPolicy{Enabled: true, Tiers: []ModelCapabilityTier{
 		{Name: "AA 50+", Models: []string{"gpt-6-astra"}},
 		{Name: "AA 40–49", Models: []string{"gpt-5.6-sol", "glm-5.3", "z-ai/glm-5.3", "kimi-k3", "moonshotai/kimi-k3", "glm-5.3-flash", "z-ai/glm-5.3-flash", "gpt-5.6-terra"}},
-		{Name: "AA 30–39", Models: []string{"deepseek-v4.1-flash", "gpt-5.6-luna", "agnes-3.0-flash", "agnes-2.5-pro-beta", "qwen3.8-27b", "gpt-5.3-codex"}},
+		{Name: "AA 30–39", Models: []string{"deepseek-v4.1-flash", "gpt-5.6-luna", "agnes-3.0-flash", "agnes-2.5-pro-beta", "qwen3.8-27b", "glm-5.2", "sensenova-6.8-flash-lite", "gpt-5.3-codex"}},
 		{Name: "AA 20–29", Models: []string{"agnes-2.5-pro-alpha"}},
 	}}
 }
