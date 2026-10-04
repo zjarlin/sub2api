@@ -843,6 +843,32 @@ func resolveOpenAIAccountUpstreamModelForRequest(account *Account, requestedMode
 		if target := account.globalModelMapping[upstreamModel]; target != "" {
 			return target
 		}
+		// 透传账号的 credentials model_mapping 记录了管理员配置的上游模型名。
+		// 当客户端发送规范名（如 deepseek-v4.1-flash）但上游只认识特定形式
+		// （如 DeepSeek-V4.1-Flash）时，globalModelMapping 可能没有对应条目，
+		// 导致原样透传后上游返回 404/429。依次回退：
+		// 1. credentials model_mapping（管理员显式配置）
+		// 2. 上游目录大小写匹配（上游同步的精确模型名）
+		// 确保调度器选中的账号能正确转发请求。
+		if mapped, matched := resolveRequestedModelInMapping(account.getNativeModelMapping(), upstreamModel); matched && mapped != "" {
+			return mapped
+		}
+		normalized := normalizeRequestedModelForLookup(account.Platform, upstreamModel)
+		if normalized != upstreamModel {
+			if mapped, matched := resolveRequestedModelInMapping(account.getNativeModelMapping(), normalized); matched && mapped != "" {
+				return mapped
+			}
+		}
+		// 上游目录回退：当没有任何显式映射时，用上游同步的模型名做大小写不敏感
+		// 匹配。例如规范名 deepseek-v4.1-flash 在上游目录中记录为
+		// DeepSeek-V4.1-Flash，直接使用上游形式避免 404/429。
+		if snapshot := account.GetUpstreamSupportedModelsSnapshot(); snapshot != nil {
+			for _, catalogModel := range snapshot.Models {
+				if strings.EqualFold(strings.TrimSpace(catalogModel), upstreamModel) {
+					return catalogModel
+				}
+			}
+		}
 		return upstreamModel
 	}
 

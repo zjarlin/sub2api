@@ -309,12 +309,12 @@ func TestCanonicalOpenAIAccountSchedulingModelMatchesForwardSemantics(t *testing
 			want:    "gpt-5.6-sol",
 		},
 		{
-			name: "OpenAI passthrough ignores ordinary account mapping",
+			name: "OpenAI passthrough falls back to credentials mapping",
 			account: &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth,
 				Credentials: map[string]any{"model_mapping": map[string]any{"public": "private"}},
 				Extra:       map[string]any{"openai_passthrough": true}},
 			model: "public",
-			want:  "public",
+			want:  "private",
 		},
 		{
 			name:    "Grok OAuth does not inherit OpenAI Codex aliases",
@@ -488,6 +488,101 @@ func TestUsageBillingModelCandidatesPreserveGPT55ProModel(t *testing.T) {
 	for i := range expected {
 		if candidates[i] != expected[i] {
 			t.Fatalf("usageBillingModelCandidates(openai/gpt-5.5-pro) = %#v, want %#v", candidates, expected)
+		}
+	}
+}
+
+// TestResolveOpenAIAccountUpstreamModel_PassthroughCredentialsMappingFallback
+// 验证透传账号在 globalModelMapping 缺失时，回退到 credentials model_mapping
+// 将规范名转换为上游认识的模型名，避免原样透传导致 404/429。
+func TestResolveOpenAIAccountUpstreamModel_PassthroughCredentialsMappingFallback(t *testing.T) {
+	tests := []struct {
+		name     string
+		account  *Account
+		model    string
+		want     string
+	}{
+		{
+			name: "passthrough uses credentials mapping when global missing",
+			account: &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{
+						"deepseek-v4.1-flash": "DeepSeek-V4.1-Flash",
+						"qwen3.8-max":         "qwen3.8-max",
+					},
+				},
+				Extra: map[string]any{"openai_passthrough": true},
+			},
+			model: "deepseek-v4.1-flash",
+			want:  "DeepSeek-V4.1-Flash",
+		},
+		{
+			name: "passthrough prefers global over credentials mapping",
+			account: &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeAPIKey,
+				Credentials: map[string]any{
+					"model_mapping": map[string]any{
+						"deepseek-v4.1-flash": "credentials-form",
+					},
+				},
+				Extra:              map[string]any{"openai_passthrough": true},
+				globalModelMapping: map[string]string{"deepseek-v4.1-flash": "global-form"},
+			},
+			model: "deepseek-v4.1-flash",
+			want:  "global-form",
+		},
+		{
+			name: "passthrough without any mapping returns original",
+			account: &Account{
+				Platform:    PlatformOpenAI,
+				Type:        AccountTypeAPIKey,
+				Credentials: map[string]any{},
+				Extra:       map[string]any{"openai_passthrough": true},
+			},
+			model: "deepseek-v4.1-flash",
+			want:  "deepseek-v4.1-flash",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := resolveOpenAIAccountUpstreamModelForRequest(tt.account, tt.model, false)
+			if got != tt.want {
+				t.Errorf("resolveOpenAIAccountUpstreamModelForRequest() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestResolveOpenAIAccountUpstreamModel_PassthroughCatalogCaseFallback 验证透传账号
+// 在没有任何显式映射时，通过上游目录的大小写不敏感匹配还原上游认识的精确模型名。
+func TestResolveOpenAIAccountUpstreamModel_PassthroughCatalogCaseFallback(t *testing.T) {
+	account := &Account{
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Credentials: map[string]any{},
+		Extra:       map[string]any{"openai_passthrough": true},
+	}
+	account.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
+		Models: []string{"DeepSeek-V4.1-Flash", "Qwen3.8-Max"},
+	})
+
+	tests := []struct {
+		model string
+		want  string
+	}{
+		{"deepseek-v4.1-flash", "DeepSeek-V4.1-Flash"},
+		{"qwen3.8-max", "Qwen3.8-Max"},
+		{"unknown-model", "unknown-model"}, // not in catalog, returned as-is
+	}
+
+	for _, tt := range tests {
+		got := resolveOpenAIAccountUpstreamModelForRequest(account, tt.model, false)
+		if got != tt.want {
+			t.Errorf("model=%q: got %q, want %q", tt.model, got, tt.want)
 		}
 	}
 }

@@ -138,6 +138,26 @@ func restoreOpenAIResponsesClientToolPayload(c *gin.Context, payload []byte) ([]
 	return restored, err
 }
 
+// matchUpstreamCatalogModel 在上游目录中做大小写不敏感匹配，返回上游记录的
+// 精确模型名。当没有任何显式映射时，用此方法确保发送上游认识的形式，避免
+// 规范名（如 deepseek-v4.1-flash）与上游实际名（如 DeepSeek-V4.1-Flash）
+// 大小写不一致导致 404/429。
+func matchUpstreamCatalogModel(account *Account, requestedModel string) string {
+	if account == nil || requestedModel == "" {
+		return ""
+	}
+	snapshot := account.GetUpstreamSupportedModelsSnapshot()
+	if snapshot == nil {
+		return ""
+	}
+	for _, catalogModel := range snapshot.Models {
+		if strings.EqualFold(strings.TrimSpace(catalogModel), strings.TrimSpace(requestedModel)) {
+			return catalogModel
+		}
+	}
+	return ""
+}
+
 func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	ctx context.Context,
 	c *gin.Context,
@@ -156,6 +176,17 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 	if target, ok := account.globalModelMapping[reqModel]; ok && target != reqModel {
 		body = ReplaceModelInBody(body, target)
 		upstreamPassthroughModel = target
+	} else if mapped, matched := resolveRequestedModelInMapping(account.getNativeModelMapping(), reqModel); matched && mapped != "" && mapped != reqModel {
+		// credentials model_mapping 回退：当 globalModelMapping 没有对应条目时，
+		// 使用管理员配置的映射将规范名转换为上游认识的模型名，避免原样透传
+		// 导致上游返回 404/429。
+		body = ReplaceModelInBody(body, mapped)
+		upstreamPassthroughModel = mapped
+	} else if catalogModel := matchUpstreamCatalogModel(account, reqModel); catalogModel != "" && catalogModel != reqModel {
+		// 上游目录回退：没有任何显式映射时，用上游同步的模型名做大小写不敏感
+		// 匹配，确保发送上游认识的精确形式。
+		body = ReplaceModelInBody(body, catalogModel)
+		upstreamPassthroughModel = catalogModel
 	}
 	if isOpenAIResponsesCompactPath(c) {
 		compactMappedModel := s.resolveOpenAICompactFallbackModel(account, reqModel)
