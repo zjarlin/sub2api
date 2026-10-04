@@ -237,6 +237,8 @@ func (p *Pool) applyAccountsLocked(accounts map[string]stateAccount) {
 				e.modelCost = nil
 			}
 		}
+		// 恢复签到历史（环形裁剪 + 零值剔除），面板「领了多少 / 还剩多少」跨重启保留。
+		e.checkins = fromStateCheckins(s.Checkins)
 		p.byUID[uid] = e
 	}
 }
@@ -432,6 +434,7 @@ func (p *Pool) stateOverviewLocked() stateFile {
 			CreditsExpiring:  e.creditsExpiring,
 			ModelCooldowns:   mcs,
 			ModelCosts:       mcosts,
+			Checkins:         toStateCheckins(e.checkins),
 		}
 	}
 	return sf

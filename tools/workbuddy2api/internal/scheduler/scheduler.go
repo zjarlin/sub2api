@@ -301,6 +301,28 @@ func (s *Scheduler) RunCheckinNow() {
 //
 // session dead 走 Pool.NoteSessionDead 的**连续计数**语义（与 keepalive 一致）：
 // 一次刷新失败不再立即杀号，连续 sessionDeadThreshold 次才禁用，刷新成功清计数。
+// recordCheckin 把单账号签到结果写入 pool 的签到历史（面板「领了多少 / 还剩多少」）。
+// creditsBefore 为签到前余额（来自 CheckinAll 的池快照）：delta = 签到后 - 签到前，
+// 表达"本次实际领取"。already（今天已签）delta 视为 0——余额可能因消耗略降，不代表领取。
+// 余额查询失败（oc.Credits==nil）时 credits/delta 均记 0，detail 已含失败原因。
+func (s *Scheduler) recordCheckin(uid string, creditsBefore int64, oc CheckinOutcome) {
+	after := creditsBefore
+	if oc.Credits != nil {
+		after = *oc.Credits
+	}
+	delta := int64(0)
+	if oc.Credits != nil && oc.Status == CheckinOK {
+		delta = after - creditsBefore
+	}
+	s.cfg.Pool.RecordCheckin(uid, pool.CheckinRecord{
+		At:      time.Now(),
+		Status:  string(oc.Status),
+		Credits: after,
+		Delta:   delta,
+		Detail:  oc.Detail,
+	})
+}
+
 func (s *Scheduler) CheckinAll() ([]CheckinOutcome, error) {
 	if !s.checkinMu.TryLock() {
 		return nil, ErrBusy
@@ -315,6 +337,7 @@ func (s *Scheduler) CheckinAll() ([]CheckinOutcome, error) {
 		if st.Disabled {
 			oc.Status, oc.Detail = CheckinSkipped, "disabled"
 			skipN++
+			s.recordCheckin(st.UID, st.Credits, oc)
 			out = append(out, oc)
 			continue
 		}
@@ -322,6 +345,7 @@ func (s *Scheduler) CheckinAll() ([]CheckinOutcome, error) {
 		if a == nil || a.RefreshTokenValue() == "" {
 			oc.Status, oc.Detail = CheckinSkipped, "no credentials"
 			skipN++
+			s.recordCheckin(st.UID, st.Credits, oc)
 			out = append(out, oc)
 			continue
 		}
@@ -331,6 +355,7 @@ func (s *Scheduler) CheckinAll() ([]CheckinOutcome, error) {
 		if a.IsGlobal() {
 			oc.Status, oc.Detail = CheckinSkipped, "global"
 			skipN++
+			s.recordCheckin(st.UID, st.Credits, oc)
 			out = append(out, oc)
 			continue
 		}
@@ -349,6 +374,7 @@ func (s *Scheduler) CheckinAll() ([]CheckinOutcome, error) {
 				if a.NeedsRefresh(0) {
 					oc.Status, oc.Detail = CheckinFail, "refresh: "+err.Error()
 					failN++
+					s.recordCheckin(st.UID, st.Credits, oc)
 					out = append(out, oc)
 					continue
 				}
@@ -382,6 +408,7 @@ func (s *Scheduler) CheckinAll() ([]CheckinOutcome, error) {
 			oc.Status = CheckinFail
 			oc.Detail = joinDetail(oc.Detail, "resource: "+err.Error())
 			failN++
+			s.recordCheckin(st.UID, st.Credits, oc)
 			out = append(out, oc)
 			continue
 		}
@@ -396,6 +423,7 @@ func (s *Scheduler) CheckinAll() ([]CheckinOutcome, error) {
 		default:
 			failN++
 		}
+		s.recordCheckin(st.UID, st.Credits, oc)
 		out = append(out, oc)
 	}
 	log.Printf("checkin done: total=%d ok=%d already=%d fail=%d skipped=%d",

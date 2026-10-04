@@ -73,6 +73,9 @@ type Status struct {
 	InFlight     int       `json:"in_flight"`
 	BreakerFails int       `json:"breaker_fails"`
 	BreakerUntil time.Time `json:"breaker_until,omitempty"`
+	// Checkin 最近一次签到记录（面板展示「本次领取 / 领完剩余」）。无历史则 nil
+	// （omitempty 省略，零值缺失表达「从没签到过」，与既有台账口径一致）。
+	Checkin *CheckinRecord `json:"checkin,omitempty"`
 }
 
 // RateLimitedModel 单个被限流模型的台账行（issue #36）。
@@ -111,6 +114,9 @@ type entry struct {
 	// 签到之间第四因子（weightOf ×8）不应失忆——签到 09:00/21:00 定期刷新，
 	// 窗口外重启会丢快过期积分偏好，可能让奖励积分到期作废。
 	creditsExpiring int64
+	// checkins 签到历史环形记录（见 checkin.go），持久化到 stateAccount.Checkins，
+	// 跨重启保留「领了多少 / 还剩多少」的签到台账。
+	checkins []CheckinRecord
 	successCount    int64     // 累计成功
 	// errTotal 累计错误（终身累计，仅状态展示用；选号权重不消费——原「成功率」
 	// 因子已删，见 pick.weightOf 注释与 success-ema-review）。
@@ -405,6 +411,9 @@ type stateAccount struct {
 	// 陈旧价格不复活）；恢复侧剔除非法值（负 per1k/零 LastSeen 的结构破损条目）。
 	// 与运行态 modelCostEntry 字段一一对应（单一表示，内存与落盘同构不搞两套）。
 	ModelCosts map[string]stateModelCost `json:"model_costs,omitempty"`
+	// Checkins 签到历史环形记录（与运行态 entry.checkins 同构，落盘往返无损）。
+	// 丢失仅影响面板回溯，不影响选号权重，故缺字段零值即可（向后兼容）。
+	Checkins []stateCheckin `json:"checkins,omitempty"`
 }
 
 // stateModelCooldown 单个 (账号, 模型) 的 6004 独立冷却持久化记录，与运行态

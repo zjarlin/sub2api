@@ -107,6 +107,9 @@ func NewHandler(cfg Config) *Handler {
 	h.mux.HandleFunc("POST /v1/chat/completions", h.withAuth(h.chatCompletions))
 	h.mux.HandleFunc("GET /v1/models", h.withAuth(h.models))
 	h.mux.HandleFunc("GET /status", h.withAuth(h.status))
+	// 签到历史：单账号维度（面板展示「领了多少 / 还剩多少」）。与 /status 分开，
+	// 避免把逐账号历史塞进高频 /status 响应。uid 走查询参数（历史是附加数据，非账号身份路由）。
+	h.mux.HandleFunc("GET /checkins", h.withAuth(h.checkins))
 	h.mux.HandleFunc("GET /v1/stats", h.withAuth(h.stats))
 	h.mux.HandleFunc("POST /v1/stats/reset", h.withAuth(h.statsReset))
 	// 运维管理端点（默认关闭，config admin.enabled 开启后生效）。
@@ -211,6 +214,27 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 			"per_model":    exploreLast,
 		},
 	})
+}
+
+// checkins 返回签到历史。无 uid 查询参数时返回全池（uid → 历史），
+// 带 uid 时只返回该账号（不存在返回空数组，不 404——历史是附加数据）。
+func (h *Handler) checkins(w http.ResponseWriter, r *http.Request) {
+	uid := strings.TrimSpace(r.URL.Query().Get("uid"))
+	if uid != "" {
+		hist := h.cfg.Pool.CheckinHistory(uid)
+		if hist == nil {
+			hist = []pool.CheckinRecord{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"uid": uid, "checkins": hist})
+		return
+	}
+	all := map[string][]pool.CheckinRecord{}
+	for _, st := range h.cfg.Pool.List() {
+		if hist := h.cfg.Pool.CheckinHistory(st.UID); len(hist) > 0 {
+			all[st.UID] = hist
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"checkins": all})
 }
 
 // countsMapFrom 把 CountsDetailed 五元组编码为 /status realm_totals 的字段对象。

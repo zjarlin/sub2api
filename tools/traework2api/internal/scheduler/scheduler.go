@@ -91,32 +91,56 @@ func contains(hours []int, h int) bool {
 func (s *Scheduler) RunCheckinNow() {
 	for _, st := range s.cfg.Pool.List() {
 		if st.Disabled {
+			s.cfg.Pool.RecordCheckin(st.UID, pool.CheckinRecord{At: time.Now(), Status: "skipped", Credits: st.Credits, Detail: "disabled"})
 			continue
 		}
 		a := s.cfg.Pool.AuthByUID(st.UID)
 		if a == nil || a.RefreshTokenValue() == "" {
+			s.cfg.Pool.RecordCheckin(st.UID, pool.CheckinRecord{At: time.Now(), Status: "skipped", Credits: st.Credits, Detail: "no credentials"})
 			continue
 		}
+
+		status := "already"
+		detail := ""
 		// 签到（status → 未签到则 claim）
 		checkedIn, _, enable, err := s.cfg.Upstream.CheckinStatus(a)
 		if err != nil {
+			status, detail = "fail", "status: "+err.Error()
 			log.Printf("checkin status %s: %v", st.UID, err)
 		} else if !checkedIn && enable {
 			if err := s.cfg.Upstream.CheckinClaim(a); err != nil {
+				status, detail = "fail", "claim: "+err.Error()
 				log.Printf("checkin claim %s: %v", st.UID, err)
 			} else {
+				status = "ok"
 				log.Printf("checkin %s: ok", st.UID)
 			}
 		} else if checkedIn {
 			log.Printf("checkin %s: already checked in", st.UID)
+		} else {
+			status, detail = "skipped", "checkin disabled upstream"
 		}
-		// 查积分 + 解冻
+
+		// 查积分 + 解冻；即使签到失败也回查余额，让面板获得尽可能新的剩余积分。
 		remain, err := s.cfg.Upstream.UserEntUsage(a)
 		if err != nil {
 			log.Printf("ent-usage %s: %v", st.UID, err)
+			if detail != "" {
+				detail += "; "
+			}
+			detail += "credit: " + err.Error()
+			status = "fail"
+			s.cfg.Pool.RecordCheckin(st.UID, pool.CheckinRecord{At: time.Now(), Status: status, Credits: st.Credits, Detail: detail})
 			continue
 		}
 		s.cfg.Pool.ReenableIfCredits(st.UID, remain)
+		delta := int64(0)
+		if status == "ok" {
+			delta = remain - st.Credits
+		}
+		s.cfg.Pool.RecordCheckin(st.UID, pool.CheckinRecord{
+			At: time.Now(), Status: status, Credits: remain, Delta: delta, Detail: detail,
+		})
 	}
 }
 

@@ -69,6 +69,8 @@ func NewHandler(cfg Config) *Handler {
 	h.mux.HandleFunc("POST /v1/chat/completions", h.withAuth(h.chatCompletions))
 	h.mux.HandleFunc("GET /v1/models", h.withAuth(h.models))
 	h.mux.HandleFunc("GET /status", h.withAuth(h.status))
+	// 签到历史：单账号维度（面板展示「领了多少 / 还剩多少」）。
+	h.mux.HandleFunc("GET /checkins", h.withAuth(h.checkins))
 	h.mux.HandleFunc("GET /healthz", h.healthz)
 	if cfg.APIKey != "" && cfg.AuthDir != "" {
 		builtinlogin.New(h.beginLogin).Register(h.mux, h.withAuth)
@@ -109,6 +111,27 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"accounts": h.cfg.Pool.List(),
 	})
+}
+
+// checkins 返回签到历史。无 uid 查询参数时返回全池（uid → 历史），
+// 带 uid 时只返回该账号（不存在返回空数组，不 404——历史是附加数据）。
+func (h *Handler) checkins(w http.ResponseWriter, r *http.Request) {
+	uid := strings.TrimSpace(r.URL.Query().Get("uid"))
+	if uid != "" {
+		hist := h.cfg.Pool.CheckinHistory(uid)
+		if hist == nil {
+			hist = []pool.CheckinRecord{}
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"uid": uid, "checkins": hist})
+		return
+	}
+	all := map[string][]pool.CheckinRecord{}
+	for _, st := range h.cfg.Pool.List() {
+		if hist := h.cfg.Pool.CheckinHistory(st.UID); len(hist) > 0 {
+			all[st.UID] = hist
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"checkins": all})
 }
 
 // ---------------------------------------------------------------------------

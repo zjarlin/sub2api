@@ -430,6 +430,13 @@
       </div>
     </template>
 
+    <!-- WorkBuddy / TRAE Work: sidecar 账号池积分与签到（内置适配器） -->
+    <template v-else-if="account.platform === 'workbuddy' || account.platform === 'traework'">
+      <div class="space-y-1">
+        <BuiltinCheckinCell :account="account" @open="emit('checkin-open', account)" />
+      </div>
+    </template>
+
     <!-- CN providers (Kimi / Zhipu / DeepSeek): coding-plan quota or payg balance -->
     <template v-else-if="account.platform === 'kimi' || account.platform === 'zhipu' || account.platform === 'deepseek' || account.platform === 'minimax' || account.platform === 'opencode_go'">
       <!-- 挂在 CN 平台下的 Ollama Cloud 账号（资格由后端下发 eligible）：用量由
@@ -658,6 +665,7 @@ import UsageProgressBar from './UsageProgressBar.vue'
 import AccountQuotaInfo from './AccountQuotaInfo.vue'
 import OpenAIQuotaResetCell from './OpenAIQuotaResetCell.vue'
 import GrokQuotaProbeCell from './GrokQuotaProbeCell.vue'
+import BuiltinCheckinCell from './BuiltinCheckinCell.vue'
 import CNProviderQuotaCell from './CNProviderQuotaCell.vue'
 import CNProviderBalanceCell from './CNProviderBalanceCell.vue'
 import OllamaCloudUsageCell from './OllamaCloudUsageCell.vue'
@@ -692,6 +700,7 @@ const props = withDefaults(
 const emit = defineEmits<{
   'account-updated': [account: Account]
   'usage-loaded': [usage: AccountUsageInfo]
+  'checkin-open': [account: Account]
 }>()
 
 const { t } = useI18n()
@@ -723,6 +732,10 @@ let visibilityObserver: IntersectionObserver | null = null
 const showUsageWindows = computed(() => {
   // Gemini: we can always compute local usage windows from DB logs (simulated quotas).
   if (props.account.platform === 'gemini') return true
+  // WorkBuddy / TRAE Work: apikey 账号积分与签到由内置 sidecar 提供（BuiltinCheckinCell）。
+  if (props.account.platform === 'workbuddy' || props.account.platform === 'traework') {
+    return true
+  }
   // CN providers: apikey 账号也有滚动用量窗口（coding plan）或余额（payg），
   // 由 CNProviderQuotaCell / CNProviderBalanceCell 自行探测与展示。
   if (

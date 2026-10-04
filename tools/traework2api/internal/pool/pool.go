@@ -44,6 +44,8 @@ type Status struct {
 	Reason   string    `json:"reason,omitempty"`
 	Disabled bool      `json:"disabled"`
 	ErrCount int       `json:"err_count,omitempty"`
+	// Checkin 最近一次签到记录（面板展示「本次领取 / 领完剩余」）。无历史则 nil。
+	Checkin *CheckinRecord `json:"checkin,omitempty"`
 }
 
 type entry struct {
@@ -53,6 +55,8 @@ type entry struct {
 	reason   string
 	until    time.Time
 	errCount int
+	// checkins 签到历史环形记录（见 checkin.go），持久化到 stateAccount.Checkins。
+	checkins []CheckinRecord
 }
 
 func (e *entry) healthy(now time.Time) bool {
@@ -67,12 +71,26 @@ func (e *entry) healthy(now time.Time) bool {
 
 // stateFile 持久化格式。
 type stateFile struct {
-	Accounts map[string]struct {
-		Credits  int64     `json:"credits"`
-		Disabled bool      `json:"disabled"`
-		Reason   string    `json:"reason,omitempty"`
-		Until    time.Time `json:"until,omitempty"`
-	} `json:"accounts"`
+	Accounts map[string]stateAccount `json:"accounts"`
+}
+
+// stateAccount 单账号持久化状态（缺字段零值，向后兼容）。
+type stateAccount struct {
+	Credits  int64     `json:"credits"`
+	Disabled bool      `json:"disabled"`
+	Reason   string    `json:"reason,omitempty"`
+	Until    time.Time `json:"until,omitempty"`
+	// Checkins 签到历史环形记录（与运行态 entry.checkins 同构，落盘往返无损）。
+	Checkins []stateCheckin `json:"checkins,omitempty"`
+}
+
+// stateCheckin 签到历史持久化镜像（字段与 CheckinRecord 一一对应）。
+type stateCheckin struct {
+	At      time.Time `json:"at"`
+	Status  string    `json:"status"`
+	Credits int64     `json:"credits"`
+	Delta   int64     `json:"delta"`
+	Detail  string    `json:"detail,omitempty"`
 }
 
 // Pool 账号池。
@@ -283,6 +301,7 @@ func (p *Pool) statusOf(uid string, e *entry) Status {
 		Reason:   e.reason,
 		Disabled: e.disabled,
 		ErrCount: e.errCount,
+		Checkin:  lastCheckinLocked(e),
 	}
 }
 
@@ -306,6 +325,7 @@ func (p *Pool) load() {
 			disabled: s.Disabled,
 			reason:   s.Reason,
 			until:    s.Until,
+			checkins: fromStateCheckins(s.Checkins),
 		}
 	}
 }
@@ -314,23 +334,14 @@ func (p *Pool) saveLocked() {
 	if p.stateFp == "" {
 		return
 	}
-	sf := stateFile{Accounts: map[string]struct {
-		Credits  int64     `json:"credits"`
-		Disabled bool      `json:"disabled"`
-		Reason   string    `json:"reason,omitempty"`
-		Until    time.Time `json:"until,omitempty"`
-	}{}}
+	sf := stateFile{Accounts: map[string]stateAccount{}}
 	for uid, e := range p.byUID {
-		sf.Accounts[uid] = struct {
-			Credits  int64     `json:"credits"`
-			Disabled bool      `json:"disabled"`
-			Reason   string    `json:"reason,omitempty"`
-			Until    time.Time `json:"until,omitempty"`
-		}{
+		sf.Accounts[uid] = stateAccount{
 			Credits:  e.credits,
 			Disabled: e.disabled,
 			Reason:   e.reason,
 			Until:    e.until,
+			Checkins: toStateCheckins(e.checkins),
 		}
 	}
 	raw, err := json.MarshalIndent(sf, "", "  ")

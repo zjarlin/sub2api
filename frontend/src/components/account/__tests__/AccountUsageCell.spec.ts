@@ -10,7 +10,13 @@ const { getUsage } = vi.hoisted(() => ({
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
-      getUsage
+      getUsage,
+      getBuiltinAdapterCheckins: vi.fn().mockResolvedValue({
+        platform: 'workbuddy',
+        fetched_at: 0,
+        total_credits: 2250,
+        accounts: []
+      })
     }
   }
 }))
@@ -1638,5 +1644,17 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).toContain('7d|56')
     expect(wrapper.text()).not.toContain('7d S')
     expect(wrapper.text()).not.toContain('7d F')
+  })
+})
+
+describe('AccountUsageCell workbuddy/traework sidecar cell', () => {
+  it('renders the BuiltinCheckinCell for workbuddy accounts', async () => {
+    const builtinStub = { props: ['account'], template: '<div data-test="builtin-checkin-stub" />' }
+    const wrapper = mount(AccountUsageCell, {
+      props: { account: makeAccount({ platform: 'workbuddy', type: 'apikey' }) },
+      global: { stubs: { BuiltinCheckinCell: builtinStub } }
+    })
+    await flushPromises()
+    expect(wrapper.find('[data-test="builtin-checkin-stub"]').exists()).toBe(true)
   })
 })

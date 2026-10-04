@@ -1081,6 +1081,43 @@ export async function refreshOllamaCloudUsage(id: number): Promise<OllamaCloudUs
   return data
 }
 
+/** 内置适配器（WorkBuddy / TRAE Work）单次签到记录，对齐后端 BuiltinAdapterCheckinRecord。 */
+export interface BuiltinAdapterCheckinRecord {
+  at: string
+  status: string
+  credits: number
+  delta: number
+  detail?: string
+}
+
+/** 内置适配器池中的单个上游账号。 */
+export interface BuiltinAdapterCheckinAccount {
+  uid: string
+  nickname?: string
+  credits: number
+  checkin?: BuiltinAdapterCheckinRecord
+  checkins: BuiltinAdapterCheckinRecord[]
+}
+
+/** 账号页消费的积分与签到汇总，对齐后端 BuiltinAdapterCheckinOverview。 */
+export interface BuiltinAdapterCheckinOverview {
+  platform: string
+  fetched_at: number
+  total_credits: number
+  accounts: BuiltinAdapterCheckinAccount[]
+}
+
+/**
+ * 查询账号对应内置适配器（WorkBuddy / TRAE Work）账号池的积分与签到历史。
+ * 目标地址与密钥由服务端注入，只读、脱敏。
+ */
+export async function getBuiltinAdapterCheckins(id: number): Promise<BuiltinAdapterCheckinOverview> {
+  const { data } = await apiClient.get<BuiltinAdapterCheckinOverview>(
+    `/admin/accounts/${id}/sidecar/checkins`
+  )
+  return data
+}
+
 export const accountsAPI = {
   list,
   listWithEtag,
@@ -1141,6 +1178,7 @@ export const accountsAPI = {
   getOllamaCloudUsageSettings,
   updateOllamaCloudUsageSettings,
   getOllamaCloudUsage,
+  getBuiltinAdapterCheckins,
   saveOllamaCloudUsageSession,
   deleteOllamaCloudUsageSession,
   setOllamaCloudUsageAutoRefresh,
