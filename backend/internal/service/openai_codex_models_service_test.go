@@ -280,6 +280,10 @@ func TestNewConfiguredCodexModelDescriptorUsesProviderMetadataAndSafeFallback(t 
 	}, deepSeek.SupportedReasoningLevels)
 	require.True(t, deepSeek.SupportsParallelToolCalls)
 	require.Equal(t, []string{"text"}, deepSeek.InputModalities)
+	require.True(t, deepSeek.IncludeSkillsUsageInstructions)
+	require.True(t, deepSeek.IncludePluginUsageInstructions)
+	require.True(t, deepSeek.IncludeAppsUsageInstructions)
+	require.Equal(t, "v2", deepSeek.MultiAgentVersion)
 
 	grok := newConfiguredCodexModelDescriptor("grok-4.6")
 	require.Equal(t, "Grok 4.6", grok.DisplayName)
@@ -341,6 +345,10 @@ func TestNewConfiguredCodexModelDescriptorUsesProviderMetadataAndSafeFallback(t 
 	require.Equal(t, []string{"low", "medium", "high", "xhigh", "max", "ultra"}, effortsFromConfiguredCodexLevels(gpt56.SupportedReasoningLevels))
 	require.True(t, gpt56.SupportsParallelToolCalls)
 	require.True(t, gpt56.SupportVerbosity)
+	require.True(t, gpt56.IncludeSkillsUsageInstructions)
+	require.True(t, gpt56.IncludePluginUsageInstructions)
+	require.True(t, gpt56.IncludeAppsUsageInstructions)
+	require.Equal(t, "v2", gpt56.MultiAgentVersion)
 	require.Equal(t, []string{"text"}, gpt56.InputModalities)
 	require.Equal(t, int64(872_000), gpt56.MaxContextWindow)
 	require.Equal(t, configuredCodexTruncationPolicy{Mode: "tokens", Limit: 10_000}, gpt56.TruncationPolicy)
@@ -513,6 +521,44 @@ func TestBuildCodexModelsManifestAdvertisesAutoMultiAgentV2(t *testing.T) {
 	require.Equal(t, "auto", models[0]["slug"])
 	require.Equal(t, "v2", models[0]["multi_agent_version"])
 	require.Equal(t, []any{"text", "image"}, models[0]["input_modalities"])
+}
+
+func TestBuildCodexModelsManifestAdvertisesExtensionInstructionsAndMultiAgentForCodingModels(t *testing.T) {
+	t.Parallel()
+
+	body, err := BuildCodexModelsManifest([]string{"deepseek-v4.1-flash", "claude-opus-4-6", "company-coding-model"})
+	require.NoError(t, err)
+	models := decodeCodexManifestModels(t, body)
+	require.Len(t, models, 3)
+	for _, model := range models {
+		require.Equal(t, true, model["include_skills_usage_instructions"])
+		require.Equal(t, true, model["include_plugin_usage_instructions"])
+		require.Equal(t, true, model["include_apps_usage_instructions"])
+		require.Equal(t, "v2", model["multi_agent_version"])
+	}
+}
+
+func TestBuildCodexModelsManifestLetsUpstreamDisableDefaultCapabilities(t *testing.T) {
+	t.Parallel()
+
+	account := newCodexModelsAPIKeyTestAccount("https://relay.example/v1")
+	account.SetUpstreamModelMetadataSnapshot(UpstreamModelMetadataSnapshot{Models: map[string]UpstreamModelMetadata{
+		"deepseek-v4.1-flash": {CodexToolCapabilities: map[string]json.RawMessage{
+			"multi_agent_version": json.RawMessage("null"),
+		}},
+	}})
+	body, err := buildCodexModelsManifestForAccounts(
+		PlatformOpenAI,
+		[]string{"deepseek-v4.1-flash"},
+		[]Account{*account},
+		nil,
+		nil,
+		true,
+	)
+	require.NoError(t, err)
+	models := decodeCodexManifestModels(t, body)
+	require.Len(t, models, 1)
+	require.Nil(t, models[0]["multi_agent_version"])
 }
 
 func TestBuildCodexModelsManifestKeepsKnownReasoningChoices(t *testing.T) {

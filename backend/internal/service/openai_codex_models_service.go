@@ -442,6 +442,9 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 		Priority:                          configuredCodexModelPriority,
 		AdditionalSpeedTiers:              []string{},
 		ServiceTiers:                      []configuredCodexServiceTier{},
+		IncludeSkillsUsageInstructions:    true,
+		IncludePluginUsageInstructions:    true,
+		IncludeAppsUsageInstructions:      true,
 		SupportsReasoningSummaryParameter: true,
 		DefaultReasoningSummary:           "auto",
 		WebSearchToolType:                 "text",
@@ -451,14 +454,15 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 		EffectiveContextWindowPercent:     95,
 		ExperimentalSupportedTools:        []string{},
 		InputModalities:                   []string{"text"},
+		MultiAgentVersion:                 "v2",
 	}
 
 	// Auto 是网关能力，图片会按原生视觉或已配置的视觉助手路由；
-	// v2 让顶层 Auto 回合也能使用客户端原生子 Agent。
+	// 所有 Codex 目录模型默认启用客户端能力说明，让非 GPT 模型也能发现
+	// skills、plugins 和原生子 Agent；上游显式能力声明仍可覆盖这些默认值。
 	if modelID == "auto" {
 		descriptor.DisplayName = "Auto"
 		descriptor.InputModalities = []string{"text", "image"}
-		descriptor.MultiAgentVersion = "v2"
 	}
 
 	if isDeepSeekCodexModel(modelID) {
