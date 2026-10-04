@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -1462,9 +1463,9 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 // OpenAI APIKey 上游是否在泛化 400 上应回退到 Chat Completions 兼容桥。
 //
 // 一些第三方 OpenAI 兼容上游会探测通过 /v1/responses，但在携带工具、续接或
-// 特定模型请求时返回不带 param 的通用 upstream_error。此时继续按 Responses
-// 重试没有收益；转成 Chat Completions 通常能成功。只对泛化错误触发，避免掩盖
-// model not found、invalid_request_error 等需要直接返回给客户端的明确错误。
+// 特定模型请求时返回不带 param 的通用错误。此时继续按 Responses 重试没有收益；
+// 转成 Chat Completions 通常能成功。只对已确认的泛化错误触发，避免掩盖 model
+// not found、明确参数错误等需要直接返回给客户端的诊断。
 func shouldRetryOpenAIResponsesViaChatCompletions(status int, account *Account, respBody []byte) bool {
 	if status != http.StatusBadRequest || account == nil || !account.IsOpenAIApiKey() {
 		return false
@@ -1477,7 +1478,34 @@ func shouldRetryOpenAIResponsesViaChatCompletions(status int, account *Account, 
 	}
 
 	// 协议兼容重试与换账号使用同一个判定，不能把明确的参数或策略拒绝当成通用故障。
-	return isOpenAIOpaqueUpstreamFailure(status, respBody)
+	return isOpenAIOpaqueUpstreamFailure(status, respBody) ||
+		isCommandCodeGenericResponsesRejection(account, respBody)
+}
+
+// CommandCode 会把底层 Responses 请求校验失败包装成两层 invalid_request_error，
+// 且不提供 code/param，只留下 trace_id。复杂 Codex 请求在该端点会命中这种包装，
+// 同一模型在 Chat Completions 端点可用；仅对已知主机和该响应形状做一次协议回退。
+func isCommandCodeGenericResponsesRejection(account *Account, responseBody []byte) bool {
+	if account == nil || !account.IsOpenAIApiKey() || !isCommandCodeAPIBaseURL(account.GetOpenAIBaseURL()) {
+		return false
+	}
+	if !gjson.ValidBytes(responseBody) ||
+		!strings.EqualFold(strings.TrimSpace(gjson.GetBytes(responseBody, "error.type").String()), "invalid_request_error") {
+		return false
+	}
+	nestedMessage := strings.TrimSpace(gjson.GetBytes(responseBody, "error.message").String())
+	if nestedMessage == "" || !gjson.Valid(nestedMessage) {
+		return false
+	}
+	nested := gjson.Parse(nestedMessage)
+	return strings.EqualFold(strings.TrimSpace(nested.Get("type").String()), "invalid_request_error") &&
+		strings.TrimSpace(nested.Get("code").String()) == "" &&
+		strings.HasPrefix(strings.ToLower(strings.TrimSpace(nested.Get("message").String())), "invalid request error trace_id:")
+}
+
+func isCommandCodeAPIBaseURL(baseURL string) bool {
+	u, err := url.Parse(strings.TrimSpace(baseURL))
+	return err == nil && strings.EqualFold(u.Hostname(), "api.commandcode.ai")
 }
 
 func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token string, isStream bool, promptCacheKey string, isCodexCLI bool) (*http.Request, error) {

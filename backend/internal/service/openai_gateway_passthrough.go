@@ -375,6 +375,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 
 	agentTaskRecoveryTried := false
 	compactModelFallbackRetried := false
+	responsesToChatFallbackRetried := false
 	rejectedFieldRetryState := openAIResponsesRejectedFieldRetryStateForRequest(c, body)
 	var resp *http.Response
 	var usage *OpenAIUsage
@@ -435,6 +436,17 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 				continue
 			}
 			upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(probeBody)))
+			if !responsesToChatFallbackRetried && !modelRequestNeedsNativeSearchTools(body) &&
+				shouldRetryOpenAIResponsesViaChatCompletions(resp.StatusCode, account, probeBody) {
+				responsesToChatFallbackRetried = true
+				_ = resp.Body.Close()
+				logger.LegacyPrintf(
+					"service.openai_gateway",
+					"[OpenAI passthrough] Retrying Responses request via Chat Completions after generic upstream rejection (account: %s)",
+					account.Name,
+				)
+				return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
+			}
 			if retryBody, fallbackModel, retry := s.prepareOpenAICompactFallbackRetry(
 				c, account, requestedModel, body, resp.StatusCode, upstreamMsg, probeBody, compactModelFallbackRetried,
 			); retry {

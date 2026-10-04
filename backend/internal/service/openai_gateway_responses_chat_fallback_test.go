@@ -739,6 +739,69 @@ func TestForwardResponses_GenericUpstream400RetriesViaChatCompletions(t *testing
 	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
 }
 
+func TestCommandCodeGenericResponsesRejectionRetriesViaChatCompletions(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"deepseek/deepseek-v4.1-flash","input":"hello","stream":false}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	commandCodeError := `{"error":{"message":"{\"type\":\"invalid_request_error\",\"code\":\"\",\"message\":\"invalid request error trace_id: 87c88bf333307b8425eaf97d2c33d5f4\"}\n","type":"invalid_request_error"}}`
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{
+		newOpenAIRejectedFieldTestResponse(http.StatusBadRequest, commandCodeError),
+		newOpenAIRejectedFieldTestResponse(http.StatusOK, `{"id":"chatcmpl_fallback","object":"chat.completion","model":"deepseek/deepseek-v4.1-flash","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}}`),
+	}}
+	account := rawChatCompletionsTestAccount()
+	account.ID = 851
+	account.Name = "zjarlin_commandcode"
+	account.Credentials["base_url"] = "https://api.commandcode.ai/provider/v1"
+	account.Extra = map[string]any{
+		"openai_passthrough":                     true,
+		openai_compat.ExtraKeyResponsesSupported: true,
+	}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+
+	result, err := svc.Forward(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, "/provider/v1/responses", upstream.requests[0].URL.Path)
+	require.Equal(t, "/provider/v1/chat/completions", upstream.requests[1].URL.Path)
+	require.Equal(t, "deepseek/deepseek-v4.1-flash", gjson.GetBytes(upstream.bodies[1], "model").String())
+	require.Equal(t, "hello", gjson.GetBytes(upstream.bodies[1], "messages.0.content").String())
+	require.Equal(t, "ok", gjson.Get(rec.Body.String(), "output.0.content.0.text").String())
+}
+
+func TestCommandCodeGenericResponsesRejectionRequiresKnownWrapper(t *testing.T) {
+	account := rawChatCompletionsTestAccount()
+	account.Credentials["base_url"] = "https://api.commandcode.ai/provider/v1"
+	account.Extra = map[string]any{
+		"openai_passthrough":                     true,
+		openai_compat.ExtraKeyResponsesSupported: true,
+	}
+	require.True(t, shouldRetryOpenAIResponsesViaChatCompletions(
+		http.StatusBadRequest,
+		account,
+		[]byte(`{"error":{"message":"{\"type\":\"invalid_request_error\",\"code\":\"\",\"message\":\"invalid request error trace_id: abc\"}\n","type":"invalid_request_error"}}`),
+	))
+	require.False(t, shouldRetryOpenAIResponsesViaChatCompletions(
+		http.StatusBadRequest,
+		account,
+		[]byte(`{"error":{"message":"invalid parameter","type":"invalid_request_error","param":"input","code":"invalid_parameter"}}`),
+	))
+	account.Credentials["base_url"] = "https://compat.example"
+	require.False(t, shouldRetryOpenAIResponsesViaChatCompletions(
+		http.StatusBadRequest,
+		account,
+		[]byte(`{"error":{"message":"{\"type\":\"invalid_request_error\",\"code\":\"\",\"message\":\"invalid request error trace_id: abc\"}\n","type":"invalid_request_error"}}`),
+	))
+}
+
 func TestResponsesChatFallbackPreservesSpecificUpstreamErrors(t *testing.T) {
 	account := rawChatCompletionsTestAccount()
 	account.Extra = map[string]any{openai_compat.ExtraKeyResponsesSupported: true}
