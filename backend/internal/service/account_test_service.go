@@ -1017,6 +1017,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	}
 	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth)
 	applyAccountHealthProbePayload(c, credentialAccount, payload, APIProtocolResponses)
+	ensureCodexProbeInstallationMetadata(apiURL, credentialAccount, payload)
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event once. A task-invalid Agent Identity response may
@@ -2385,7 +2386,9 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 	if isOAuth {
 		testModelID = normalizeOpenAIModelForUpstream(credentialAccount, testModelID)
 	}
-	payloadBytes, _ := json.Marshal(createOpenAICompactProbePayload(testModelID, isOAuth))
+	compactProbePayload := createOpenAICompactProbePayload(testModelID, isOAuth)
+	ensureCodexProbeInstallationMetadata(apiURL, credentialAccount, compactProbePayload)
+	payloadBytes, _ := json.Marshal(compactProbePayload)
 	if !agentIdentityTaskRecoveryWasTried(ctx) {
 		s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
 	}
@@ -2928,6 +2931,70 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 			return s.sendErrorAndEnd(c, errorMsg)
 		}
 	}
+}
+
+// codexProbeInstallationHosts 是需要请求体 client_metadata.x-codex-installation-id
+// 才能通过上游 Codex 客户端门控的探测主机。仅这些主机命中时补写该字段，避免影响
+// 官方 api.openai.com 与其它普通中转站（它们的探测保持原样、不做任何改写）。
+var codexProbeInstallationHosts = []string{
+	"new.sharedchat.cc",
+}
+
+// codexProbeRequiresInstallationMetadata 判断给定探测 URL 是否命中需要补写
+// client_metadata.x-codex-installation-id 的主机名单。URL 无法解析时安全返回 false。
+func codexProbeRequiresInstallationMetadata(apiURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(apiURL))
+	if err != nil {
+		return false
+	}
+	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
+	for _, want := range codexProbeInstallationHosts {
+		if host == want {
+			return true
+		}
+	}
+	return false
+}
+
+// ensureCodexProbeInstallationMetadata 为探测请求补写请求体
+// client_metadata.x-codex-installation-id。真实 Codex 客户端每个 /responses 请求
+// 都会在请求体里携带该字段；只有请求头、没有该 body 字段的请求会被上游
+// （如 RawChat 公益站 https://new.sharedchat.cc/codex）判为非官方客户端并返回
+// 403 codex_access_restricted。实测该判定与 originator / User-Agent / 传输指纹
+// 均无关，仅请求体中的该字段能放行。
+//
+// 为避免影响其它上游，本函数只对命中 codexProbeInstallationHosts 的主机生效；
+// 官方 api.openai.com、其它中转站、以及 OAuth 的 chatgpt.com 均保持原样。
+func ensureCodexProbeInstallationMetadata(apiURL string, account *Account, payload map[string]any) {
+	if account == nil || !account.IsOpenAI() || payload == nil {
+		return
+	}
+	if !codexProbeRequiresInstallationMetadata(apiURL) {
+		return
+	}
+	// 已由收敛（真实转发）写入或账号自带身份时不覆盖。
+	if existing, ok := payload["client_metadata"].(map[string]any); ok {
+		if raw, _ := existing["x-codex-installation-id"].(string); strings.TrimSpace(raw) != "" {
+			return
+		}
+	}
+	// 收敛账号复用与真实转发同源的账号级 installation_id；否则按账号 ID 派生稳定值，
+	// 避免探测流量以「每请求随机设备」的形态暴露在上游。
+	installationID := ""
+	if account.IsOpenAIOAuthLike() {
+		if seed, ok := codexFingerprintSeed(account.Extra); ok {
+			installationID = resolveConvergedInstallationID(account, seed)
+		}
+	}
+	if installationID == "" {
+		installationID = deriveStableUUIDv4(fmt.Sprintf("sub2api:codex-probe-install-id:v1:account:%d", account.ID))
+	}
+	metadata, _ := payload["client_metadata"].(map[string]any)
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	metadata["x-codex-installation-id"] = installationID
+	payload["client_metadata"] = metadata
 }
 
 // createOpenAITestPayload creates a test payload for OpenAI Responses API
