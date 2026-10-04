@@ -94,11 +94,10 @@
         </template>
 
         <template #cell-account="{ row }">
-          <details v-if="row.account_attempts?.length" class="group max-w-[280px] text-xs" data-testid="account-attempts" @click.stop>
-            <summary class="flex cursor-pointer list-none items-center gap-1.5 rounded px-1 py-1 text-gray-900 hover:bg-gray-100 dark:text-white dark:hover:bg-dark-700 [&::-webkit-details-marker]:hidden">
-              <Icon name="chevronRight" size="xs" class="shrink-0 transition-transform group-open:rotate-90" />
+          <div v-if="row.account_attempts?.length" class="max-w-[280px] text-xs" data-testid="account-attempts" @click.stop>
+            <div class="flex items-center gap-1.5 px-1 py-1 font-medium text-gray-900 dark:text-white">
               <span>{{ t('admin.ops.errorLog.attemptCount', { count: row.account_attempts.length }) }}</span>
-            </summary>
+            </div>
             <ol class="mt-1 space-y-1 border-l border-gray-200 pl-3 text-gray-900 dark:border-dark-600 dark:text-white">
               <li v-for="(attempt, index) in row.account_attempts" :key="index" class="break-all">
                 <span class="mr-1 text-gray-400">{{ index + 1 }}.</span>{{ attempt.account_name || t('common.unknown') }}
@@ -108,7 +107,7 @@
                 {{ recovered && row.type === 'recovered_upstream' ? t('admin.ops.errorDetail.attemptChain.finalSuccess') : t('admin.ops.errorDetail.attemptChain.logAccount') }}: {{ row.account_name || '#' + row.account_id }}
               </li>
             </ol>
-          </details>
+          </div>
           <span
             v-else-if="row.account_id"
             class="text-sm text-gray-900 dark:text-white"
@@ -199,7 +198,6 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import DataTable from '@/components/common/DataTable.vue'
-import Icon from '@/components/icons/Icon.vue'
 import EmptyState from '@/components/common/EmptyState.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import IpGeoCell from '@/components/common/IpGeoCell.vue'

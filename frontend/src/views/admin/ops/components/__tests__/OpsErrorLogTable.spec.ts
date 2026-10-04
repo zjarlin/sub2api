@@ -62,7 +62,8 @@ describe('OpsErrorLogTable Auto model attribution', () => {
 })
 
 describe('OpsErrorLogTable user/api-key/account columns', () => {
-  it('collapses account attempts and preserves a different log account without opening the detail', async () => {
+  // 回归:账号列不再需要点击展开,调用链默认完整展示,且点击不会打开错误详情。
+  it('renders the full account attempt chain without expanding and preserves a different log account', async () => {
     const wrapper = mountTable({
       account_id: 900, account_name: 'final-account',
       account_attempts: [
@@ -71,9 +72,10 @@ describe('OpsErrorLogTable user/api-key/account columns', () => {
         { account_id: 832, account_name: 'r4' }
       ]
     })
-    const accordion = wrapper.get('details[data-testid="account-attempts"]')
-    expect(accordion.attributes('open')).toBeUndefined()
-    await accordion.get('summary').trigger('click')
+    const cell = wrapper.get('[data-testid="account-attempts"]')
+    expect(cell.find('details').exists()).toBe(false)
+    expect(cell.text()).toContain('aaawinn')
+    await cell.trigger('click')
     expect(wrapper.emitted('openErrorDetail')).toBeUndefined()
     const attempts = wrapper.findAll('ol li')
     expect(attempts).toHaveLength(4)
