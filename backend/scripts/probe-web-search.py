@@ -25,7 +25,7 @@ def main():
         body = None if payload is None else json.dumps(payload).encode()
         req = urllib.request.Request(root + path, data=body, headers={
             'x-api-key': key, 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0',
-        })
+        }, method='PUT' if payload is not None and path == '' else ('POST' if payload is not None else 'GET'))
         with urllib.request.urlopen(req, timeout=70) as response:
             return json.load(response)['data']
 
