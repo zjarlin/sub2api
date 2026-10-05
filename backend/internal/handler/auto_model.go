@@ -304,6 +304,8 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 			return
 		}
 		c.Request = c.Request.WithContext(ctx)
+		ctx = h.gatewayService.BindAutoModelSearchCapabilities(ctx, apiKey.Group, body)
+		c.Request = c.Request.WithContext(ctx)
 		if !h.virtualModelAvailable(ctx, apiKey.Group, models, virtualModel) {
 			finishObservation := h.observeAutoModelRoute(c, apiKey, "")
 			defer finishObservation()

@@ -46,7 +46,8 @@ func modelAccountPreservesSearchTools(account *Account, model string, body []byt
 	if !needed {
 		return true
 	}
-	if account == nil {
+	// 官方 DeepSeek Responses 会忽略内置搜索工具，必须交给搜索助手。
+	if account == nil || isDeepSeekResponsesAccount(account) {
 		return false
 	}
 	if account.Platform == PlatformGrok {

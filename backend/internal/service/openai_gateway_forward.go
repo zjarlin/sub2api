@@ -73,6 +73,12 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		return nil, visionErr
 	}
 	body = visionBody
+	searchBody, searchErr := s.prepareSearchFallback(ctx, c, account, body)
+	if searchErr != nil {
+		return nil, searchErr
+	}
+	body = searchBody
+	needsNativeSearchTools = modelRequestNeedsNativeSearchTools(body)
 
 	normalizedBody, normalized, err := normalizeOpenAICodexCompactReasoningEffortForAccount(c, account, body)
 	if err != nil {

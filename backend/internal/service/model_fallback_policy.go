@@ -49,6 +49,7 @@ type autoModelRequestCapabilities struct {
 	tools          bool
 	images         bool
 	visionFallback bool
+	searchFallback bool
 }
 
 type autoModelToolCapabilityBlock struct {

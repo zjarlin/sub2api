@@ -125,7 +125,7 @@ func (c *visionDescriptionCache) put(key [32]byte, text string) {
 	c.entries[key] = visionDescriptionEntry{text: text, expires: time.Now().Add(visionDescriptionTTL)}
 }
 
-// VisionFallbackUsage 交给原请求的计费入口独立记录，主模型失败也不丢失辅助用量。
+// VisionFallbackUsage 供视觉与搜索辅助共用，主模型失败也不丢失辅助用量。
 type VisionFallbackUsage struct {
 	Result      *OpenAIForwardResult
 	Account     *Account

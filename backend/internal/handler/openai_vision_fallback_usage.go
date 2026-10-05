@@ -22,7 +22,7 @@ func (h *OpenAIGatewayHandler) recordVisionFallbackUsage(c *gin.Context, apiKey 
 		}
 		h.submitMandatoryUsageRecordTask(c.Request.Context(), func(ctx context.Context) {
 			if err := h.gatewayService.RecordUsage(ctx, input); err != nil {
-				logger.LegacyPrintf("handler.vision_fallback", "记录视觉辅助用量失败: account_id=%d err=%v", input.Account.ID, err)
+				logger.LegacyPrintf("handler.model_assistance", "记录模型辅助用量失败: account_id=%d err=%v", input.Account.ID, err)
 			}
 		})
 	}
