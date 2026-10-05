@@ -1281,19 +1281,39 @@ func normalizeOpenAIResponsesWebSocketCompatibilityBody(body []byte, account *Ac
 			changed = true
 		}
 	}
-	needsOrphanCleanup := account != nil && account.IsOpenAIOAuthLike() &&
-		gjson.GetBytes(normalized, "input").IsArray()
-	if needsOrphanCleanup || openAIResponsesInputMayNeedTruncation(normalized) {
+	hasInputArray := gjson.GetBytes(normalized, "input").IsArray()
+	needsOrphanCleanup := account != nil && account.IsOpenAIOAuthLike() && hasInputArray
+	// Strict Responses relays (e.g. DeepSeek) reject histories where an
+	// assistant tool_call has no matching output with 400 "insufficient tool
+	// messages following tool_calls message". Only repair for API-key
+	// accounts: they always run store=false with no server-side call state,
+	// so unmatched calls are genuinely dangling. OAuth accounts may carry
+	// calls whose outputs live in server-side history (previous_response_id
+	// or prior stored turns); rewriting those would silently drop valid
+	// context.
+	needsUnansweredCallCleanup := hasInputArray &&
+		account != nil && account.IsOpenAIApiKey()
+	if needsOrphanCleanup || needsUnansweredCallCleanup || openAIResponsesInputMayNeedTruncation(normalized) {
 		var reqBody map[string]any
 		if err := decodeOpenAIJSONUseNumber(normalized, &reqBody); err != nil {
 			return body, false, fmt.Errorf("normalize websocket Responses body: %w", err)
 		}
 		mapChanged := false
+		hasPrevRespID := strings.TrimSpace(firstNonEmptyString(reqBody["previous_response_id"])) != ""
 		if needsOrphanCleanup {
 			if input, ok := reqBody["input"].([]any); ok && sanitizeOpenAIResponsesOrphanToolOutputs(
 				reqBody,
 				input,
-				strings.TrimSpace(firstNonEmptyString(reqBody["previous_response_id"])) != "",
+				hasPrevRespID,
+			) {
+				mapChanged = true
+			}
+		}
+		if needsUnansweredCallCleanup {
+			if input, ok := reqBody["input"].([]any); ok && sanitizeOpenAIResponsesUnansweredToolCalls(
+				reqBody,
+				input,
+				hasPrevRespID,
 			) {
 				mapChanged = true
 			}

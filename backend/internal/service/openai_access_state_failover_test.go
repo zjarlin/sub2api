@@ -451,3 +451,18 @@ func TestOpenAIStreamOAuthLike429GetsDeadlineWithoutImmediateRuntimeBlock(t *tes
 		})
 	}
 }
+
+func TestOpenAIToolCallContinuationErrorMatchesStrictRelayMessage(t *testing.T) {
+	// DeepSeek-style strict relay rejects histories where an assistant tool_call
+	// has no matching tool message. The gateway must treat this as a continuation
+	// error so failover / Chat-Completions fallback can kick in when the body-level
+	// repair is not applicable (e.g. store=true continuations).
+	body := []byte(`{"error":{"code":"InvalidParameter","message":"An assistant message with 'tool_calls' must be followed by tool messages responding to each 'tool_call_id'. (insufficient tool messages following tool_calls message)","type":"BadRequest"}}`)
+	message := extractUpstreamErrorMessage(body)
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+
+	require.True(t, isOpenAIToolCallContinuationError(message, body))
+	require.True(t, shouldFailoverOpenAIPassthroughResponse(account, http.StatusBadRequest, body))
+	require.True(t, openAIStreamFailedEventShouldFailover(body, message))
+	require.True(t, openAIStreamErrorEventShouldFailover(body, message))
+}

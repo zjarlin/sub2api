@@ -220,3 +220,91 @@ func TestOpenAIGatewayService_PreservesOversizedToolOutputForUpstream(t *testing
 	require.Len(t, upstream.bodies, 1)
 	require.Equal(t, oversized, gjson.GetBytes(upstream.bodies[0], "input.1.output").String())
 }
+
+func TestSanitizeOpenAIResponsesUnansweredToolCalls(t *testing.T) {
+	t.Run("drops dangling call without output", func(t *testing.T) {
+		input := []any{
+			map[string]any{"type": "message", "role": "user", "content": "go"},
+			map[string]any{"type": "function_call", "call_id": "d1", "name": "exec", "arguments": "{}"},
+		}
+		reqBody := map[string]any{"input": input}
+		require.True(t, sanitizeOpenAIResponsesUnansweredToolCalls(reqBody, input, false))
+		got, ok := reqBody["input"].([]any)
+		require.True(t, ok)
+		require.Len(t, got, 1)
+		require.Equal(t, "message", got[0].(map[string]any)["type"])
+	})
+
+	t.Run("preserves paired call and output", func(t *testing.T) {
+		input := []any{
+			map[string]any{"type": "message", "role": "user", "content": "go"},
+			map[string]any{"type": "function_call", "call_id": "p1", "name": "exec", "arguments": "{}"},
+			map[string]any{"type": "function_call_output", "call_id": "p1", "output": "ok"},
+		}
+		reqBody := map[string]any{"input": input}
+		require.False(t, sanitizeOpenAIResponsesUnansweredToolCalls(reqBody, input, false))
+		require.Equal(t, input, reqBody["input"])
+	})
+
+	t.Run("parallel calls: keeps only answered ones", func(t *testing.T) {
+		input := []any{
+			map[string]any{"type": "message", "role": "user", "content": "go"},
+			map[string]any{"type": "function_call", "call_id": "a", "name": "exec", "arguments": "{}"},
+			map[string]any{"type": "function_call", "call_id": "b", "name": "exec", "arguments": "{}"},
+			map[string]any{"type": "function_call_output", "call_id": "a", "output": "ok"},
+		}
+		reqBody := map[string]any{"input": input}
+		require.True(t, sanitizeOpenAIResponsesUnansweredToolCalls(reqBody, input, false))
+		got := reqBody["input"].([]any)
+		require.Len(t, got, 3) // user + answered call + its output
+		types := make([]string, len(got))
+		for i, it := range got {
+			types[i] = it.(map[string]any)["type"].(string)
+		}
+		require.Equal(t, []string{"message", "function_call", "function_call_output"}, types)
+	})
+
+	t.Run("drops orphan output without announcing call", func(t *testing.T) {
+		input := []any{
+			map[string]any{"type": "message", "role": "user", "content": "go"},
+			map[string]any{"type": "function_call_output", "call_id": "ghost", "output": "x"},
+		}
+		reqBody := map[string]any{"input": input}
+		require.True(t, sanitizeOpenAIResponsesUnansweredToolCalls(reqBody, input, false))
+		got := reqBody["input"].([]any)
+		require.Len(t, got, 1)
+	})
+
+	t.Run("preserves named standalone function_call_output (no call_id)", func(t *testing.T) {
+		named := map[string]any{"type": "function_call_output", "name": "send_message_to_thread", "output": "delegation"}
+		input := []any{named}
+		reqBody := map[string]any{"input": input}
+		require.False(t, sanitizeOpenAIResponsesUnansweredToolCalls(reqBody, input, false))
+		require.Equal(t, input, reqBody["input"])
+	})
+
+	t.Run("skips rewrite when previous_response_id is set", func(t *testing.T) {
+		input := []any{
+			map[string]any{"type": "function_call", "call_id": "remote", "name": "exec", "arguments": "{}"},
+		}
+		reqBody := map[string]any{"input": input, "previous_response_id": "resp_1"}
+		require.False(t, sanitizeOpenAIResponsesUnansweredToolCalls(reqBody, input, true))
+		require.Equal(t, input, reqBody["input"])
+	})
+
+	t.Run("covers custom/mcp/tool_search variants", func(t *testing.T) {
+		pairs := []struct{ call, out string }{
+			{"custom_tool_call", "custom_tool_call_output"},
+			{"mcp_tool_call", "mcp_tool_call_output"},
+			{"tool_search_call", "tool_search_output"},
+		}
+		for _, p := range pairs {
+			input := []any{
+				map[string]any{"type": p.call, "call_id": "x", "name": "t"},
+				map[string]any{"type": p.out, "call_id": "x", "output": "ok"},
+			}
+			reqBody := map[string]any{"input": input}
+			require.Falsef(t, sanitizeOpenAIResponsesUnansweredToolCalls(reqBody, input, false), "pair %s/%s should be preserved", p.call, p.out)
+		}
+	})
+}

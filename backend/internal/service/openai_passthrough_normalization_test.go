@@ -70,11 +70,17 @@ func TestNormalizeOpenAIResponsesWebSocketCompatibilityBody_OnlyStripsOAuthField
 }
 
 func TestNormalizeOpenAIResponsesWebSocketCompatibilityBody_SanitizesNativeItemIDs(t *testing.T) {
+	// Calls are paired with their outputs so the history is self-contained;
+	// only the native item-ID sanitization behavior is under test here.
 	body := []byte(`{"type":"response.create","model":"gpt-5.6-sol","input":[` +
 		`{"type":"custom_tool_call","id":"fc_wrong_custom","call_id":"call_custom_1","name":"apply_patch","input":"patch"},` +
 		`{"type":"custom_tool_call","id":"ctc_valid","call_id":"call_custom_2","name":"apply_patch","input":"patch"},` +
 		`{"type":"tool_search_call","id":"fc_wrong_search","call_id":"call_search_1","arguments":{"query":"docs"}},` +
-		`{"type":"tool_search_call","id":"tsc_valid","call_id":"call_search_2","arguments":{"query":"docs"}}]}`)
+		`{"type":"tool_search_call","id":"tsc_valid","call_id":"call_search_2","arguments":{"query":"docs"}},` +
+		`{"type":"custom_tool_call_output","call_id":"call_custom_1","output":"ok"},` +
+		`{"type":"custom_tool_call_output","call_id":"call_custom_2","output":"ok"},` +
+		`{"type":"tool_search_output","call_id":"call_search_1","output":"ok"},` +
+		`{"type":"tool_search_output","call_id":"call_search_2","output":"ok"}]}`)
 
 	for _, oauth := range []bool{false, true} {
 		accountType := AccountTypeAPIKey
@@ -374,4 +380,43 @@ func TestDetectOpenAIPassthroughInstructionsRejectReason(t *testing.T) {
 			require.Equal(t, tt.want, detectOpenAIPassthroughInstructionsRejectReason("gpt-5.1-codex", []byte(tt.body)))
 		})
 	}
+}
+
+func TestNormalizeOpenAIResponsesWebSocketCompatibilityBody_RepairsDanglingToolCallsForAPIKey(t *testing.T) {
+	// Reproduces the strict-relay 400: an assistant function_call with no
+	// matching function_call_output. API-key passthrough runs store=false, so
+	// the dangling call is dropped before it reaches the upstream.
+	body := []byte(`{"model":"deepseek-v4.1-flash","store":false,"stream":true,"instructions":"x","input":[` +
+		`{"type":"message","role":"user","content":[{"type":"input_text","text":"go"}]},` +
+		`{"type":"function_call","call_id":"dangling","name":"exec_command","arguments":"{}"}]}`)
+
+	apiKeyBody, changed, err := normalizeOpenAIResponsesWebSocketCompatibilityBody(
+		body, &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}, false)
+	require.NoError(t, err)
+	require.True(t, changed)
+	require.Len(t, gjson.GetBytes(apiKeyBody, "input").Array(), 1)
+	require.Equal(t, "message", gjson.GetBytes(apiKeyBody, "input.0.type").String())
+
+	// A fully paired history is preserved byte-for-byte.
+	paired := []byte(`{"model":"deepseek-v4.1-flash","store":false,"stream":true,"instructions":"x","input":[` +
+		`{"type":"message","role":"user","content":[{"type":"input_text","text":"go"}]},` +
+		`{"type":"function_call","call_id":"c1","name":"exec_command","arguments":"{}"},` +
+		`{"type":"function_call_output","call_id":"c1","output":"ok"}]}`)
+	pairedOut, _, err := normalizeOpenAIResponsesWebSocketCompatibilityBody(
+		paired, &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}, false)
+	require.NoError(t, err)
+	require.Len(t, gjson.GetBytes(pairedOut, "input").Array(), 3)
+}
+
+func TestNormalizeOpenAIResponsesWebSocketCompatibilityBody_OAuthKeepsDanglingToolCalls(t *testing.T) {
+	// OAuth may reference server-side call state; do not rewrite its history.
+	body := []byte(`{"model":"gpt-5.5","stream":true,"instructions":"x","input":[` +
+		`{"type":"function_call","call_id":"call_old","name":"spawn_agent","namespace":"collaboration","arguments":"{}"},` +
+		`{"type":"message","role":"user","content":[{"type":"input_text","text":"keep"}]}]}`)
+
+	out, _, err := normalizeOpenAIResponsesWebSocketCompatibilityBody(
+		body, &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}, false)
+	require.NoError(t, err)
+	require.Len(t, gjson.GetBytes(out, "input").Array(), 2)
+	require.Equal(t, "collaboration", gjson.GetBytes(out, "input.0.namespace").String())
 }
