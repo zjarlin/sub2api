@@ -194,7 +194,7 @@ func searchFallbackError(message string) *UpstreamFailoverError {
 func (s *OpenAIGatewayService) prepareSearchFallback(ctx context.Context, c *gin.Context, primary *Account, body []byte) ([]byte, error) {
 	caps, _ := ctx.Value(autoModelRequestCapabilitiesContextKey{}).(autoModelRequestCapabilities)
 	if c.GetBool(searchFallbackInternalKey) || !IsAutoModelRouting(ctx) || !caps.searchFallback ||
-		modelAccountPreservesSearchTools(primary, gjson.GetBytes(body, "model").String(), body) {
+		configuredAccountHasNativeSearch(ctx, primary, gjson.GetBytes(body, "model").String(), body) {
 		return body, nil
 	}
 	value, _ := c.Get("api_key")

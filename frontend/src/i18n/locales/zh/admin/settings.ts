@@ -9,6 +9,7 @@ export default {
         saved: 'Auto 模型黑名单已保存，后续请求生效。',
       },
       searchFallback: {
+        sourceCount: '查看来源（{count}）',
         totalTimeout: '整个搜索辅助阶段超时（秒）',
         "title": "联网搜索助手",
         "description": "主模型缺少原生搜索时，委托已验证的助手联网，并将带来源的结果交回主模型。",

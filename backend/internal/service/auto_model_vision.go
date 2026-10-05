@@ -65,7 +65,10 @@ func AutoModelRequestAccountCompatible(ctx context.Context, account *Account, mo
 	}
 	capabilities, _ := ctx.Value(autoModelRequestCapabilitiesContextKey{}).(autoModelRequestCapabilities)
 	assistedVision := capabilities.visionFallback && accountNeedsVisionFallback(account, model)
-	if capabilities.searchFallback && !modelAccountPreservesSearchTools(account, model, body) {
+	if modelRequestNeedsNativeSearchTools(body) && !configuredAccountHasNativeSearch(ctx, account, model, body) {
+		if !capabilities.searchFallback {
+			return false
+		}
 		var err error
 		body, err = stripDelegatedSearchTools(body)
 		if err != nil {

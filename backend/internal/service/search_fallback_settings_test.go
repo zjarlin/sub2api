@@ -135,3 +135,46 @@ func TestSearchCapabilityProbePersistsOnlyActualNativeSearchEvidence(t *testing.
 		})
 	}
 }
+
+func TestSearchFallbackUnverifiedNativePrimaryDelegatesToVerifiedHelper(t *testing.T) {
+	primary, helper := searchTestHelper(), searchTestHelper()
+	primary.ID, primary.Name = 1, "native-primary"
+	primary.Credentials["model_mapping"] = map[string]any{"native-primary": "native-primary"}
+	repo := &searchPolicyRepo{}
+	settings := NewSettingService(repo, nil)
+	evidence := SearchProbeResult{AccountID: helper.ID, Model: helper.Name, UpstreamModel: helper.Name, RouteFingerprint: searchProbeRouteFingerprint(&helper, helper.Name), Status: "supported", CheckedAt: time.Now(), SourceURLs: []string{"https://example.com/docs"}}
+	require.NoError(t, settings.SaveSearchProbeResult(context.Background(), evidence))
+	policy, err := settings.GetSearchFallbackPolicy(context.Background())
+	require.NoError(t, err)
+	policy.RequireVerified = true
+	require.NoError(t, settings.SetSearchFallbackPolicy(context.Background(), policy))
+	body := []byte(`{"model":"native-primary","input":"Find official docs","tools":[{"type":"web_search"}]}`)
+	ctx := context.WithValue(context.Background(), autoModelRoutingPolicyContextKey{}, &autoModelRoutingPolicy{policy: &AutoModelPolicy{}})
+	ctx = WithAutoModelRequestCapabilities(ctx, body)
+	ctx = context.WithValue(ctx, autoModelAccountsKey{}, &autoModelInventory{groupID: 7, accounts: []Account{primary, helper}})
+	ctx, err = (&GatewayService{settingService: settings}).BindAutoModelSearchCapabilities(ctx, &Group{ID: 7}, body)
+	require.NoError(t, err)
+	require.True(t, modelAccountPreservesSearchTools(&primary, primary.Name, body), "原生协议并不证明已执行搜索")
+	require.False(t, configuredAccountHasNativeSearch(ctx, &primary, primary.Name, body))
+	require.True(t, AutoModelRequestAccountCompatible(ctx, &primary, primary.Name, body), "有已验证助手时仍保留主模型")
+	calls := 0
+	svc := &OpenAIGatewayService{cfg: visionTestConfig(), settingService: settings, accountRepo: codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{7: {primary, helper}}}, httpUpstream: &codexModelsHTTPUpstreamStub{do: func(req *http.Request, _ string, id int64, _ int) (*http.Response, error) {
+		calls++
+		require.Equal(t, helper.ID, id)
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(verifiedSearchResponse))}, nil
+	}}}
+	c, _ := visionTestContext(body, 9, 7)
+	converted, err := svc.prepareSearchFallback(ctx, c, &primary, body)
+	require.NoError(t, err)
+	require.Equal(t, 1, calls)
+	require.False(t, modelRequestNeedsNativeSearchTools(converted))
+	require.Contains(t, string(converted), "https://example.com/docs")
+	nativeBody := []byte(strings.ReplaceAll(string(body), primary.Name, helper.Name))
+	native, err := svc.prepareSearchFallback(ctx, c, &helper, nativeBody)
+	require.NoError(t, err)
+	require.Equal(t, nativeBody, native)
+	policy.ProbeResults = nil
+	isolated := context.WithValue(ctx, autoModelSearchPolicyKey{}, policy)
+	isolated = WithAutoModelRequestCapabilities(isolated, body)
+	require.False(t, AutoModelRequestAccountCompatible(isolated, &primary, primary.Name, body), "无可用助手与原生证据时不宣称搜索兼容")
+}

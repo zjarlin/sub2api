@@ -167,3 +167,22 @@ func configuredSearchFallbackCandidates(ctx context.Context, accounts []Account,
 func searchProbeRouteFingerprint(account *Account, upstream string) string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(account.Platform+"|"+account.Type+"|"+account.GetOpenAIBaseURL()+"|"+upstream)))
 }
+
+// 开启已验证过滤后，原生搜索能力也必须有当前线路的真实搜索证据。
+func configuredAccountHasNativeSearch(ctx context.Context, account *Account, model string, body []byte) bool {
+	if !modelAccountPreservesSearchTools(account, model, body) {
+		return false
+	}
+	policy, _ := ctx.Value(autoModelSearchPolicyKey{}).(*SearchFallbackPolicy)
+	if policy == nil || !policy.RequireVerified || !modelRequestNeedsNativeSearchTools(body) {
+		return true
+	}
+	target := ResolveOpenAIAccountUpstreamModelForRequest(account, model, false)
+	aliases := ModelAliasesFromContext(ctx)
+	for _, result := range policy.ProbeResults {
+		if result.AccountID == account.ID && result.UpstreamModel == target && result.RouteFingerprint == searchProbeRouteFingerprint(account, target) && aliases.Canonicalize(result.Model) == aliases.Canonicalize(model) {
+			return result.Status == "supported"
+		}
+	}
+	return false
+}
