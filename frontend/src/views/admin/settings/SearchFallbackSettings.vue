@@ -14,7 +14,7 @@
         <label class="block text-sm text-gray-900 dark:text-white">{{ t('admin.settings.searchFallback.models') }}<textarea v-model="models" class="input mt-2 w-full font-mono" rows="3" spellcheck="false" /></label>
         <div class="grid gap-4 sm:grid-cols-2">
           <label class="block text-sm text-gray-900 dark:text-white">{{ t('admin.settings.visionFallback.candidateTimeout') }}<input v-model.number="policy.candidate_timeout_seconds" class="input mt-2 w-full" type="number" min="1" max="120" /></label>
-          <label class="block text-sm text-gray-900 dark:text-white">{{ t('admin.settings.visionFallback.totalTimeout') }}<input v-model.number="policy.timeout_seconds" class="input mt-2 w-full" type="number" min="1" max="300" /></label>
+          <label class="block text-sm text-gray-900 dark:text-white">{{ t('admin.settings.searchFallback.totalTimeout') }}<input v-model.number="policy.timeout_seconds" class="input mt-2 w-full" type="number" min="1" max="300" /></label>
         </div>
         <div class="flex justify-end"><button type="button" class="btn btn-primary" :disabled="!valid" @click="save">{{ saving ? t('common.saving') : t('common.save') }}</button></div>
       </fieldset>

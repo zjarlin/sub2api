@@ -9,6 +9,7 @@ export default {
         saved: 'Auto model blacklist saved. New requests use the updated configuration.',
       },
       searchFallback: {
+        totalTimeout: 'Total search assistance timeout (seconds)',
         "title": "Web search assistance",
         "description": "When the primary model lacks native search, delegate to a verified helper and return sourced results to the primary.",
         "enabled": "Enable search assistance",
