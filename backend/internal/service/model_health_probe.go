@@ -130,6 +130,7 @@ func collectModelHealthProbeCandidates(
 	// 每个账号/模型单独到期，避免一个模型的流量推迟同账号其他模型的探测。
 	selected := make([]modelHealthProbeCandidate, 0)
 	seen := make(map[string]bool)
+	probeSeen := make(map[string]bool)
 	for i := range accounts {
 		account := &accounts[i]
 		policy := account.ModelProbePolicy()
@@ -168,6 +169,29 @@ func collectModelHealthProbeCandidates(
 				continue
 			}
 			selected = append(selected, modelHealthProbeCandidate{AccountID: account.ID, Model: model, CheckedAt: checkedAt})
+		}
+		// 显式映射但目录未确认（含同义词）的目标此前会被 Auto 直接排除，
+		// 从不对其发起真实请求。这里补一次受占用保护的付费探测，让账号能力以
+		// 实测为准，而不是只凭静态目录下结论；失败会写入健康记录并进入冷却。
+		for _, target := range configuredUpstreamModelsForCapabilitySync(account) {
+			target = strings.TrimSpace(target)
+			if target == "" || !isTextModelHealthProbeCandidate(target) || !account.allowsAutomaticModelProbe(target) {
+				continue
+			}
+			// 已有健康记录的模型由上面的到期队列负责；这里只补「从无证据、
+			// 且静态目录未精确确认」的显式映射目标。
+			key := modelHealthProbeKey(account.ID, observedUnsupportedModelKey(account, target))
+			if checkedByPair[key] != nil {
+				continue
+			}
+			if !account.capabilityProbeUnconfirmed(target) {
+				continue
+			}
+			if probeSeen[key] {
+				continue
+			}
+			probeSeen[key] = true
+			selected = append(selected, modelHealthProbeCandidate{AccountID: account.ID, Model: target})
 		}
 	}
 	sort.SliceStable(selected, func(i, j int) bool {

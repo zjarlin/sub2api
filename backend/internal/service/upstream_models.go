@@ -107,6 +107,12 @@ func (a *Account) upstreamModelCatalogSupport(requestedModel string, now time.Ti
 			return true, true
 		}
 	}
+	// 同义词归一化：映射目标与目录条目可能只是 provider 前缀不同（例如
+	// cline-pass/deepseek-v4.1-flash 与 deepseek/deepseek-v4.1-flash）。
+	// 只要同属一个已配置别名组，就按同一模型互认，不剥离前缀。
+	if a.modelAliasCatalogMatchAny(snapshot.Models, model) {
+		return true, true
+	}
 	if verified, ok := a.Extra[VerifiedModelsExtraKey].(map[string]any); ok {
 		if stamp, ok := verified[model].(string); ok {
 			checkedAt, err := time.Parse(time.RFC3339Nano, stamp)
@@ -120,6 +126,33 @@ func (a *Account) upstreamModelCatalogSupport(requestedModel string, now time.Ti
 		return false, false
 	}
 	return true, false
+}
+
+// capabilityProbeUnconfirmed 报告该显式映射目标尚未被上游目录精确确认、也没有 verified
+// 记录，因而需要一次实测把「静态名单里的未知」变成「已验证」，而不是只凭目录下结论。
+func (a *Account) capabilityProbeUnconfirmed(model string) bool {
+	if a == nil || !a.hasExplicitModelMapping() {
+		return false
+	}
+	snapshot := a.GetUpstreamSupportedModelsSnapshot()
+	if snapshot == nil {
+		return false
+	}
+	target := normalizeUnsupportedModelKey(model)
+	if target == "" {
+		return false
+	}
+	for _, candidate := range snapshot.Models {
+		if normalizeUnsupportedModelKey(candidate) == target {
+			return false
+		}
+	}
+	if verified, ok := a.Extra[VerifiedModelsExtraKey].(map[string]any); ok {
+		if _, exists := verified[target]; exists {
+			return false
+		}
+	}
+	return true
 }
 
 func upstreamSupportedModelsSnapshotFresh(snapshot *UpstreamSupportedModelsSnapshot, now time.Time) bool {

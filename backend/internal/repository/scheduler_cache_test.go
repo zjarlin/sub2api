@@ -33,7 +33,10 @@ func TestSchedulerMetadataAccountKeepsVerifiedMappedModel(t *testing.T) {
 	require.Contains(t, metadata.Extra, service.VerifiedModelsExtraKey)
 	require.True(t, metadata.IsModelSupported("deepseek-v4.1-flash"))
 	delete(metadata.Extra, service.VerifiedModelsExtraKey)
-	require.False(t, metadata.IsModelSupported("deepseek-v4.1-flash"))
+	// 调度投影必须保留显式 model_mapping：非透传账号对该精确映射的目录缺失
+	// 视为「未知」而非「不支持」，仍放行调度，交由真实请求判定并记录健康结果。
+	require.Contains(t, metadata.Credentials, "model_mapping")
+	require.True(t, metadata.IsModelSupported("deepseek-v4.1-flash"))
 }
 
 func TestFilterSchedulerCredentialsKeepsSubscriptionPlanType(t *testing.T) {

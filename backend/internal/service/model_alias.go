@@ -140,6 +140,8 @@ func accountWithModelAliases(ctx context.Context, account *Account) *Account {
 	}
 	clone := *account
 	clone.globalModelMapping = nil
+	// 记录本次请求的别名组快照，供上游目录的同义词归一化判定使用。
+	clone.modelAliasGroups = policy.Groups
 	native := clone.GetModelMapping()
 	overlay := make(map[string]string)
 	for _, group := range policy.Groups {
@@ -173,6 +175,54 @@ func accountWithModelAliases(ctx context.Context, account *Account) *Account {
 	}
 	clone.globalModelMapping = overlay
 	return &clone
+}
+
+// modelAliasGroupContains 报告 id 是否为该别名组成员（规范名或别名，忽略大小写精确匹配）。
+func modelAliasGroupContains(group ModelAliasGroup, id string) bool {
+	if id == "" {
+		return false
+	}
+	if strings.EqualFold(id, group.Canonical) {
+		return true
+	}
+	for _, alias := range group.Aliases {
+		if strings.EqualFold(id, alias) {
+			return true
+		}
+	}
+	return false
+}
+
+// modelAliasCatalogMatch 报告上游目录条目 candidate 与目标 target 是否属于同一别名组。
+// 只用请求级别名组做同义词互认，不剥离 provider 前缀，避免把无关模型误判为同一模型。
+func (a *Account) modelAliasCatalogMatch(candidate, target string) bool {
+	if a == nil || len(a.modelAliasGroups) == 0 {
+		return false
+	}
+	candidate = strings.TrimSpace(candidate)
+	target = strings.TrimSpace(target)
+	if candidate == "" || target == "" {
+		return false
+	}
+	for _, group := range a.modelAliasGroups {
+		if modelAliasGroupContains(group, candidate) && modelAliasGroupContains(group, target) {
+			return true
+		}
+	}
+	return false
+}
+
+// modelAliasCatalogMatchAny 报告目录条目中是否存在与 target 同属一个别名组的成员。
+func (a *Account) modelAliasCatalogMatchAny(catalog []string, target string) bool {
+	if a == nil || len(a.modelAliasGroups) == 0 {
+		return false
+	}
+	for _, candidate := range catalog {
+		if a.modelAliasCatalogMatch(candidate, target) {
+			return true
+		}
+	}
+	return false
 }
 
 // 空映射账号仅采用该平台已公开的默认 ID，避免凭别名配置猜测上游能力。

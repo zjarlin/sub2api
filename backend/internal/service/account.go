@@ -22,7 +22,10 @@ import (
 
 type Account struct {
 	// 请求级全局别名派生映射，不持久化。
-	globalModelMapping      map[string]string
+	globalModelMapping map[string]string
+	// 请求级别名组成员快照（来自 model_aliases 设置），不持久化。
+	// 供上游目录的同义词归一化判定使用，使 provider 前缀不同的同一模型可互认。
+	modelAliasGroups        []ModelAliasGroup
 	OwnerUserID             *int64
 	ID                      int64
 	Name                    string
@@ -904,6 +907,31 @@ func resolveRequestedModelInMapping(mapping map[string]string, requestedModel st
 // 例外：DeepSeek 平台的空映射不再是「允许所有」，改按官方模型白名单判定
 // （isDeepseekServableModel）——未知模型名透传上游只会得到 404/400，并误触发
 // per-(账号,模型) 30 分钟冷却；带 [1m] 上下文后缀的写法先归一化再比对。
+// hasExplicitModelMapping 报告账号凭据中是否存在管理员显式配置的 model_mapping。
+// 平台默认映射和请求级全局别名派生映射不计入。
+func (a *Account) hasExplicitModelMapping() bool {
+	if a == nil || a.Credentials == nil {
+		return false
+	}
+	raw, ok := a.Credentials["model_mapping"].(map[string]any)
+	return ok && len(raw) > 0
+}
+
+// explicitMappingTrustsCatalogAbsence 决定「新鲜目录未列出该模型」是否只算未知。
+// 仅当非透传账号在凭据中显式命名了该精确模型（非通配符）时成立：透传按原始名
+// 转发，目录缺失是强证据，保持硬否定；通配符映射不代表管理员为该精确模型背书。
+func (a *Account) explicitMappingTrustsCatalogAbsence(requestedModel string, mappingSupported bool) bool {
+	if !mappingSupported || a.IsOpenAIPassthroughEnabled() || a.Credentials == nil {
+		return false
+	}
+	raw, ok := a.Credentials["model_mapping"].(map[string]any)
+	if !ok || len(raw) == 0 {
+		return false
+	}
+	_, exact := raw[strings.TrimSpace(requestedModel)]
+	return exact
+}
+
 func (a *Account) IsModelSupported(requestedModel string) bool {
 	if a == nil {
 		return false
@@ -924,6 +952,12 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 		return false
 	}
 	if known, supported := a.upstreamModelCatalogSupport(requestedModel, time.Now()); known {
+		if !supported && a.explicitMappingTrustsCatalogAbsence(requestedModel, mappingSupported) {
+			// 非透传账号按映射目标改写后转发，目录命名未必与映射目标一致；
+			// 管理员显式命名该精确模型时，目录缺失视为「未知」而非「不支持」，
+			// 交由真实请求判定；失败记录仍会撤销该模型的调度资格。
+			return true
+		}
 		return supported
 	}
 	// 透传仍按原始模型名转发，映射键只用于调度白名单，不改写请求模型。
