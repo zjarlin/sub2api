@@ -1670,3 +1670,32 @@ export async function updateModelSystemPromptPolicy(policy: ModelSystemPromptPol
   const { data } = await apiClient.put<ModelSystemPromptPolicy>("/admin/settings/model-system-prompts", policy);
   return data;
 }
+
+export interface SearchProbeResult {
+  account_id: number; account_name: string; model: string; upstream_model: string;
+  actual_model?: string; route_fingerprint: string; status: 'supported' | 'unverified' | 'busy';
+  checked_at: string; source_urls: string[]; message?: string;
+}
+export interface SearchFallbackPolicy {
+  enabled: boolean; models: string[]; require_verified: boolean;
+  candidate_timeout_seconds: number; timeout_seconds: number; probe_results: SearchProbeResult[];
+}
+export interface SearchProbeCandidate {
+  account_id: number; account_name: string; model: string; upstream_model: string;
+}
+export async function getSearchFallbackPolicy(): Promise<SearchFallbackPolicy> {
+  const { data } = await apiClient.get<SearchFallbackPolicy>('/admin/settings/search-fallback');
+  return data;
+}
+export async function updateSearchFallbackPolicy(policy: SearchFallbackPolicy): Promise<SearchFallbackPolicy> {
+  const { data } = await apiClient.put<SearchFallbackPolicy>('/admin/settings/search-fallback', policy);
+  return data;
+}
+export async function getSearchProbeCandidates(groupId: number): Promise<SearchProbeCandidate[]> {
+  const { data } = await apiClient.get<SearchProbeCandidate[]>('/admin/settings/search-fallback/candidates', { params: { group_id: groupId } });
+  return data;
+}
+export async function probeSearchCapability(groupId: number, candidate: SearchProbeCandidate, signal?: AbortSignal): Promise<SearchProbeResult> {
+  const { data } = await apiClient.post<SearchProbeResult>('/admin/settings/search-fallback/probe', { group_id: groupId, account_id: candidate.account_id, model: candidate.model }, { timeout: 70000, signal });
+  return data;
+}

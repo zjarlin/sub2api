@@ -14,11 +14,13 @@ import (
 
 const verifiedSearchResponse = `{"id":"resp_search","model":"search-model","object":"response","status":"completed","output":[{"type":"web_search_call","status":"completed","action":{"type":"search","query":"documentation"}},{"type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"The API documentation describes the Responses endpoint.","annotations":[{"type":"url_citation","url":"https://example.com/docs","title":"Documentation"}]}]}],"usage":{"input_tokens":20,"output_tokens":30,"total_tokens":50}}`
 
-func searchTestRoutingContext(body []byte, accounts []Account) context.Context {
+func searchTestRoutingContext(t *testing.T, body []byte, accounts []Account) context.Context {
 	ctx := context.WithValue(context.Background(), autoModelRoutingPolicyContextKey{}, &autoModelRoutingPolicy{policy: &AutoModelPolicy{}})
 	ctx = context.WithValue(ctx, autoModelAccountsKey{}, &autoModelInventory{groupID: 7, accounts: accounts})
 	ctx = WithAutoModelRequestCapabilities(ctx, body)
-	return (&GatewayService{}).BindAutoModelSearchCapabilities(ctx, &Group{ID: 7, Platform: PlatformOpenAI}, body)
+	ctx, err := (&GatewayService{}).BindAutoModelSearchCapabilities(ctx, &Group{ID: 7, Platform: PlatformOpenAI}, body)
+	require.NoError(t, err)
+	return ctx
 }
 
 func searchTestHelper() Account {
@@ -30,7 +32,7 @@ func searchTestHelper() Account {
 func TestAutoSearchFallbackKeepsPrimaryAndBillsHelperOnce(t *testing.T) {
 	primary, helper := visionTestAccount(1, "text-model", "text"), searchTestHelper()
 	body := []byte(`{"model":"text-model","input":"Find the official API docs","tools":[{"type":"web_search","filters":{"allowed_domains":["example.com"]}},{"type":"function","name":"shell","parameters":{"type":"object"}}],"stream":false}`)
-	ctx := searchTestRoutingContext(body, []Account{primary, helper})
+	ctx := searchTestRoutingContext(t, body, []Account{primary, helper})
 	var calls []int64
 	svc := &OpenAIGatewayService{cfg: visionTestConfig(),
 		accountRepo: codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{7: {primary, helper}}},
@@ -77,7 +79,7 @@ func TestAutoSearchAdmissionRequiresGroupHelper(t *testing.T) {
 	for _, available := range []bool{false, true} {
 		helper := searchTestHelper()
 		helper.Schedulable = available
-		ctx := searchTestRoutingContext(body, []Account{primary, helper})
+		ctx := searchTestRoutingContext(t, body, []Account{primary, helper})
 		require.Equal(t, available, AutoModelRequestAccountCompatible(ctx, &primary, primary.Name, body))
 		require.False(t, ModelAccountCompatible(&primary, primary.Name, body))
 		require.False(t, ModelFallbackAccountCompatible(&primary, primary.Name, body))
@@ -91,7 +93,7 @@ func TestAutoSearchAdmissionRequiresGroupHelper(t *testing.T) {
 		`{"input":"Find docs","tool_choice":"none","tools":[{"type":"web_search"}]}`,
 		`{"input":[{"type":"function_call_output","output":"Find docs"}],"tools":[{"type":"web_search"}]}`,
 	} {
-		ctx := searchTestRoutingContext([]byte(input), []Account{primary, searchTestHelper()})
+		ctx := searchTestRoutingContext(t, []byte(input), []Account{primary, searchTestHelper()})
 		require.False(t, AutoModelRequestAccountCompatible(ctx, &primary, primary.Name, []byte(input)))
 	}
 }
@@ -132,7 +134,7 @@ func TestSearchHelperRequiresCompletedSearchWithSources(t *testing.T) {
 func TestSearchFallbackRejectsPlainAnswerAndCachesFailure(t *testing.T) {
 	primary, helper := visionTestAccount(1, "text-model", "text"), searchTestHelper()
 	body := []byte(`{"model":"text-model","input":"Find official documentation","tools":[{"type":"web_search"}]}`)
-	ctx := searchTestRoutingContext(body, []Account{primary, helper})
+	ctx := searchTestRoutingContext(t, body, []Account{primary, helper})
 	calls := 0
 	svc := &OpenAIGatewayService{cfg: visionTestConfig(),
 		accountRepo: codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{7: {primary, helper}}},
@@ -169,7 +171,7 @@ func TestAutoSearchOfficialDeepSeekRequiresHelper(t *testing.T) {
 func TestAutoSearchStreamsOnlyPrimaryResponse(t *testing.T) {
 	primary, helper := visionTestAccount(1, "text-model", "text"), searchTestHelper()
 	body := []byte(`{"model":"text-model","input":"Find API docs","tools":[{"type":"web_search"}],"stream":true}`)
-	ctx := searchTestRoutingContext(body, []Account{primary, helper})
+	ctx := searchTestRoutingContext(t, body, []Account{primary, helper})
 	var calls []int64
 	svc := &OpenAIGatewayService{cfg: visionTestConfig(), accountRepo: codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{7: {primary, helper}}},
 		httpUpstream: &codexModelsHTTPUpstreamStub{do: func(req *http.Request, _ string, id int64, _ int) (*http.Response, error) {

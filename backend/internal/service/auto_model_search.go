@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -108,21 +109,26 @@ func searchFallbackQuery(body []byte) string {
 	return strings.TrimSpace(query)
 }
 
-func (s *GatewayService) BindAutoModelSearchCapabilities(ctx context.Context, group *Group, body []byte) context.Context {
+func (s *GatewayService) BindAutoModelSearchCapabilities(ctx context.Context, group *Group, body []byte) (context.Context, error) {
 	if !IsAutoModelRouting(ctx) || group == nil || !modelRequestNeedsNativeSearchTools(body) {
-		return ctx
+		return ctx, nil
 	}
 	query := searchFallbackQuery(body)
 	if query == "" || len(query) > 8000 {
-		return ctx
+		return ctx, nil
 	}
 	snapshot, ok := ctx.Value(autoModelAccountsKey{}).(*autoModelInventory)
 	if !ok || snapshot.groupID != group.ID {
-		return ctx
+		return ctx, nil
 	}
+	policy, err := s.settingService.GetSearchFallbackPolicy(ctx)
+	if err != nil {
+		return ctx, err
+	}
+	ctx = context.WithValue(ctx, autoModelSearchPolicyKey{}, policy)
 	caps, _ := ctx.Value(autoModelRequestCapabilitiesContextKey{}).(autoModelRequestCapabilities)
-	caps.searchFallback = len(searchFallbackCandidates(ctx, snapshot.accounts, group, body)) > 0
-	return context.WithValue(ctx, autoModelRequestCapabilitiesContextKey{}, caps)
+	caps.searchFallback = len(configuredSearchFallbackCandidates(ctx, snapshot.accounts, group, body, policy)) > 0
+	return context.WithValue(ctx, autoModelRequestCapabilitiesContextKey{}, caps), nil
 }
 
 func isHostedSearchType(kind string) bool {
@@ -239,14 +245,18 @@ func (s *OpenAIGatewayService) prepareSearchFallback(ctx context.Context, c *gin
 func (s *OpenAIGatewayService) runSearchFallback(ctx context.Context, parent *gin.Context, key *APIKey, primary *Account, body []byte, query string) (string, error) {
 	// 搜索助手只接收文本，不继承主请求的图像能力要求或辅助递归标记。
 	ctx = WithAutoModelRequestCapabilities(ctx, []byte(`{"model":"auto","tools":[{"type":"web_search"}]}`))
-	ctx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	policy, _ := ctx.Value(autoModelSearchPolicyKey{}).(*SearchFallbackPolicy)
+	if policy == nil {
+		policy = DefaultSearchFallbackPolicy()
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Duration(policy.TimeoutSeconds)*time.Second)
 	defer cancel()
 	accounts, err := s.accountRepo.ListSchedulableByGroupID(ctx, *key.GroupID)
 	if err != nil {
 		return "", searchFallbackError("Unable to load search assistance sources")
 	}
 	accounts = accountsWithModelAliases(ctx, accounts)
-	candidates := searchFallbackCandidates(ctx, accounts, key.Group, body)
+	candidates := configuredSearchFallbackCandidates(ctx, accounts, key.Group, body, policy)
 	attempts := 0
 	failedAccounts := make(map[int64]bool)
 	for _, candidate := range candidates {
@@ -269,7 +279,7 @@ func (s *OpenAIGatewayService) runSearchFallback(ctx context.Context, parent *gi
 		attempts++
 		text, callErr := func() (string, error) {
 			defer release()
-			callCtx, callCancel := context.WithTimeout(ctx, 45*time.Second)
+			callCtx, callCancel := context.WithTimeout(ctx, time.Duration(policy.CandidateTimeoutSeconds)*time.Second)
 			defer callCancel()
 			return s.callSearchFallbackHelper(callCtx, parent, key, candidate, body, query)
 		}()
@@ -352,6 +362,7 @@ func (s *OpenAIGatewayService) callSearchFallbackHelper(ctx context.Context, par
 	if err != nil {
 		return "", err
 	}
+	parent.Set("search_helper_source_urls", searchFallbackSourceURLs(writer.body.Bytes()))
 	s.ReportOpenAIAccountScheduleResult(candidate.account, candidate.model, true, result.FirstTokenMs)
 	logger.FromContext(ctx).Info("gateway.search_helper_succeeded", zap.Int64("account_id", candidate.account.ID), zap.String("model", candidate.model))
 	return text, nil
@@ -382,7 +393,7 @@ func verifiedSearchFallbackText(body []byte) (string, error) {
 		if item.Get("type").String() == "web_search_call" && item.Get("status").String() == "completed" {
 			searched = true
 			for _, source := range item.Get("action.sources").Array() {
-				if source.Get("url").String() != "" {
+				if validSearchSourceURL(source.Get("url").String()) {
 					sourced = true
 					parts = append(parts, source.Raw)
 				}
@@ -397,7 +408,7 @@ func verifiedSearchFallbackText(body []byte) (string, error) {
 			}
 			parts = append(parts, content.Get("text").String())
 			for _, annotation := range content.Get("annotations").Array() {
-				if annotation.Get("type").String() == "url_citation" && annotation.Get("url").String() != "" {
+				if annotation.Get("type").String() == "url_citation" && validSearchSourceURL(annotation.Get("url").String()) {
 					sourced = true
 					parts = append(parts, annotation.Raw)
 				}
@@ -409,4 +420,38 @@ func verifiedSearchFallbackText(body []byte) (string, error) {
 		return "", searchFallbackError("Search helper did not return verified source-backed results")
 	}
 	return text, nil
+}
+
+// 来源仅取自结构化搜索结果与引用，不解析助手正文中的自称来源。
+func searchFallbackSourceURLs(body []byte) []string {
+	urls := []string{}
+	seen := map[string]bool{}
+	add := func(source string) {
+		if validSearchSourceURL(source) && !seen[source] {
+			urls = append(urls, source)
+			seen[source] = true
+		}
+	}
+	for _, item := range gjson.GetBytes(body, "output").Array() {
+		if item.Get("type").String() == "web_search_call" && item.Get("status").String() == "completed" {
+			for _, source := range item.Get("action.sources").Array() {
+				add(source.Get("url").String())
+			}
+		}
+		if item.Get("type").String() == "message" {
+			for _, content := range item.Get("content").Array() {
+				for _, annotation := range content.Get("annotations").Array() {
+					if annotation.Get("type").String() == "url_citation" {
+						add(annotation.Get("url").String())
+					}
+				}
+			}
+		}
+	}
+	return urls
+}
+
+func validSearchSourceURL(source string) bool {
+	parsed, err := url.Parse(source)
+	return err == nil && parsed.Host != "" && (parsed.Scheme == "https" || parsed.Scheme == "http")
 }

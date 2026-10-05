@@ -206,6 +206,7 @@
           <ModelFallbackSettings v-if="activeTab === 'gateway'" />
           <AutoModelSettings v-if="activeTab === 'gateway'" />
           <VisionFallbackSettings v-if="activeTab === 'gateway'" />
+          <SearchFallbackSettings v-if="activeTab === 'gateway'" />
           <ModelAliasSettings v-if="activeTab === 'gateway'" />
           <ModelSystemPromptSettings v-if="activeTab === 'gateway'" />
           <!-- Overload Cooldown (529) Settings -->
@@ -8881,6 +8882,7 @@ import BackupSettings from "@/views/admin/BackupView.vue";
 import EmailTemplateEditor from "@/views/admin/settings/EmailTemplateEditor.vue";
 import ModelFallbackSettings from "@/views/admin/settings/ModelFallbackSettings.vue";
 import AutoModelSettings from "@/views/admin/settings/AutoModelSettings.vue";
+import SearchFallbackSettings from "@/views/admin/settings/SearchFallbackSettings.vue";
 import VisionFallbackSettings from "@/views/admin/settings/VisionFallbackSettings.vue";
 import ModelAliasSettings from "@/views/admin/settings/ModelAliasSettings.vue";
 import ModelSystemPromptSettings from "@/views/admin/settings/ModelSystemPromptSettings.vue";

@@ -304,7 +304,12 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 			return
 		}
 		c.Request = c.Request.WithContext(ctx)
-		ctx = h.gatewayService.BindAutoModelSearchCapabilities(ctx, apiKey.Group, body)
+		ctx, err = h.gatewayService.BindAutoModelSearchCapabilities(ctx, apiKey.Group, body)
+		if err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "api_error", "message": "Unable to load search assistance policy"}})
+			c.Abort()
+			return
+		}
 		c.Request = c.Request.WithContext(ctx)
 		if !h.virtualModelAvailable(ctx, apiKey.Group, models, virtualModel) {
 			finishObservation := h.observeAutoModelRoute(c, apiKey, "")
