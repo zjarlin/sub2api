@@ -1611,6 +1611,13 @@ export interface ModelFallbackPolicy {
 
 export interface AutoModelPolicy {
   blacklist: string[];
+  vertical_routing?: {
+    enabled: boolean;
+    min_confidence: number;
+    timeout_ms: number;
+    image_model: string;
+    video_model: string;
+  };
 }
 export async function getAutoModelPolicy(): Promise<AutoModelPolicy> {
   const { data } = await apiClient.get<AutoModelPolicy>("/admin/settings/auto-model");

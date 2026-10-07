@@ -11,7 +11,23 @@ import (
 const SettingKeyAutoModelPolicy = "auto_model_policy"
 
 type AutoModelPolicy struct {
-	Blacklist []string `json:"blacklist"`
+	Blacklist       []string               `json:"blacklist"`
+	VerticalRouting *VerticalRoutingPolicy `json:"vertical_routing,omitempty"`
+}
+
+type VerticalRoutingPolicy struct {
+	Enabled       bool    `json:"enabled"`
+	MinConfidence float64 `json:"min_confidence"`
+	TimeoutMS     int     `json:"timeout_ms"`
+	ImageModel    string  `json:"image_model"`
+	VideoModel    string  `json:"video_model"`
+}
+
+func (p *AutoModelPolicy) VerticalPolicy() VerticalRoutingPolicy {
+	if p != nil && p.VerticalRouting != nil {
+		return *p.VerticalRouting
+	}
+	return VerticalRoutingPolicy{Enabled: true, MinConfidence: 0.8, TimeoutMS: 1500}
 }
 
 func DefaultAutoModelPolicy() *AutoModelPolicy {
@@ -30,6 +46,16 @@ func (p *AutoModelPolicy) Validate() error {
 			return fmt.Errorf("blacklist patterns must be unique model IDs with an optional trailing *: %q", pattern)
 		}
 		seen[normalized] = true
+	}
+	if v := p.VerticalRouting; v != nil {
+		if v.MinConfidence < 0.8 || v.MinConfidence > 1 || v.TimeoutMS < 200 || v.TimeoutMS > 5000 {
+			return fmt.Errorf("vertical routing confidence must be 0.8..1 and timeout must be 200..5000 ms")
+		}
+		for _, model := range []string{v.ImageModel, v.VideoModel} {
+			if len(model) > 512 || strings.ContainsAny(model, " \t\r\n*") {
+				return fmt.Errorf("vertical routing requires an exact media model ID")
+			}
+		}
 	}
 	return nil
 }

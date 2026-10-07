@@ -77,3 +77,24 @@ func TestAutoModelBlacklistInvalidPolicy(t *testing.T) {
 		require.Error(t, err)
 	}
 }
+
+func TestVerticalRoutingPolicyDefaultsAndValidation(t *testing.T) {
+	policy := DefaultAutoModelPolicy()
+	defaults := policy.VerticalPolicy()
+	require.True(t, defaults.Enabled)
+	require.Equal(t, 0.8, defaults.MinConfidence)
+	require.Equal(t, 1500, defaults.TimeoutMS)
+	policy.VerticalRouting = &defaults
+	require.NoError(t, policy.Validate())
+	for _, mutate := range []func(*VerticalRoutingPolicy){
+		func(v *VerticalRoutingPolicy) { v.MinConfidence = 0.79 },
+		func(v *VerticalRoutingPolicy) { v.TimeoutMS = 0 },
+		func(v *VerticalRoutingPolicy) { v.ImageModel = "gpt-image-*" },
+		func(v *VerticalRoutingPolicy) { v.VideoModel = "invalid model" },
+	} {
+		invalid := defaults
+		mutate(&invalid)
+		policy.VerticalRouting = &invalid
+		require.Error(t, policy.Validate())
+	}
+}

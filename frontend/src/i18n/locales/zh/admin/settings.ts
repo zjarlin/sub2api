@@ -2,11 +2,17 @@ export default {
     settings: {
       autoModel: {
         title: 'Auto 自动模型',
-        description: '配置 auto 自动选模的模型黑名单，候选选择、模型映射和降级重试均排除命中模型。手动指定模型不受此黑名单影响；最高成本档仍按现有规则排除。',
+        verticalEnabled: '明确垂直意图优先路由（所有模型 ID）',
+        confidence: 'Laya 最低置信度',
+        decisionTimeout: '意图判断超时（毫秒）',
+        imageModel: '图片生成模型 ID（空则自动选择）',
+        videoModel: '视频生成模型 ID（空则自动选择）',
+        invalidVertical: '置信度须为 0.8 至 1，超时须为 200 至 5000 毫秒，媒体模型 ID 不得包含空白或通配符。',
+        description: '黑名单仅约束 auto 选模、映射和降级；手动指定模型不受黑名单影响。垂直意图优先路由独立生效，适用于所有模型 ID。',
         blacklist: '模型黑名单',
         hint: '每行一条，不区分大小写；支持精确 ID 或末尾 * 前缀匹配。不带供应商前缀的规则同时匹配命名空间后的模型名，例如 doubao* 也排除 volcengine/doubao-seed。默认排除 doubao 系列；清空并保存可移除黑名单。',
         invalidRules: '最多 128 条且不能重复；每条最多 200 字符，仅支持末尾 *，不支持 ?、方括号或反斜杠。',
-        saved: 'Auto 模型黑名单已保存，后续请求生效。',
+        saved: 'Auto 选模与垂直路由配置已保存，后续请求生效。',
       },
       searchFallback: {
         sourceCount: '查看来源（{count}）',

@@ -23,19 +23,31 @@ beforeEach(() => {
 })
 
 describe('AutoModelSettings', () => {
+  it('保存所有模型适用的垂直路由开关和媒体模型', async () => {
+    const wrapper = await render()
+    await wrapper.get('[data-testid="vertical-enabled"]').setValue(false)
+    const fields = wrapper.findAll('input:not([type="checkbox"])')
+    await fields[2]!.setValue('gpt-image-2')
+    await fields[3]!.setValue('grok-imagine-video')
+    await wrapper.get('.btn-primary').trigger('click')
+    await flushPromises()
+    expect(updateAutoModelPolicy).toHaveBeenLastCalledWith(expect.objectContaining({
+      vertical_routing: { enabled: false, min_confidence: 0.8, timeout_ms: 1500, image_model: 'gpt-image-2', video_model: 'grok-imagine-video' },
+    }))
+  })
   it('展示默认黑名单并保存修改，允许显式清空', async () => {
     const wrapper = await render()
     expect(wrapper.get('textarea').element.value).toBe('doubao*')
     await wrapper.get('textarea').setValue('doubao*\ngpt-5.5')
     await wrapper.get('.btn-primary').trigger('click')
     await flushPromises()
-    expect(updateAutoModelPolicy).toHaveBeenLastCalledWith({ blacklist: ['doubao*', 'gpt-5.5'] })
+    expect(updateAutoModelPolicy).toHaveBeenLastCalledWith(expect.objectContaining({ blacklist: ['doubao*', 'gpt-5.5'] }))
     expect(wrapper.text()).toContain('admin.settings.autoModel.saved')
     await wrapper.get('textarea').setValue('')
     expect(wrapper.text()).not.toContain('admin.settings.autoModel.saved')
     await wrapper.get('.btn-primary').trigger('click')
     await flushPromises()
-    expect(updateAutoModelPolicy).toHaveBeenLastCalledWith({ blacklist: [] })
+    expect(updateAutoModelPolicy).toHaveBeenLastCalledWith(expect.objectContaining({ blacklist: [] }))
   })
 
   it.each(['doubao*\nDOUBAO*', '*doubao*', 'model?', 'a'.repeat(201)])('拒绝无效规则 %s', async value => {

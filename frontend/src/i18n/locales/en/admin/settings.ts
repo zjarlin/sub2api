@@ -2,11 +2,17 @@ export default {
     settings: {
       autoModel: {
         title: 'Auto model routing',
-        description: 'Exclude blacklisted models from auto selection, model mappings and fallback retries. Explicit model requests are unaffected. The highest cost tier remains excluded.',
+        verticalEnabled: 'Prioritize explicit vertical intents (all model IDs)',
+        confidence: 'Minimum Laya confidence',
+        decisionTimeout: 'Decision timeout (milliseconds)',
+        imageModel: 'Image model ID (empty for automatic selection)',
+        videoModel: 'Video model ID (empty for automatic selection)',
+        invalidVertical: 'Confidence must be 0.8 to 1, timeout 200 to 5000 ms, and media model IDs must not contain whitespace or wildcards.',
+        description: 'The blacklist applies only to Auto selection, mappings and fallback retries. Vertical intent routing applies independently to every model ID.',
         blacklist: 'Model blacklist',
         hint: 'One case-insensitive rule per line: an exact ID or a prefix ending in *. Rules without a provider prefix also match namespaced model names, so doubao* excludes volcengine/doubao-seed. The doubao family is excluded by default. Clear and save to remove the blacklist.',
         invalidRules: 'Use up to 128 unique rules of at most 200 characters each. Only a trailing * is supported; ?, brackets and backslashes are not supported.',
-        saved: 'Auto model blacklist saved. New requests use the updated configuration.',
+        saved: 'Auto selection and vertical routing settings saved. New requests use the updated configuration.',
       },
       searchFallback: {
         sourceCount: 'Show sources ({count})',

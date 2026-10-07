@@ -18,9 +18,18 @@ import (
 )
 
 const autoRouteObservationKey = "auto_route_observation"
+const autoRoutePersistKey = "auto_route_persist"
 const autoRouteObservationBodyLimit = 2 << 20
 
 func (h *GatewayHandler) AutoModelRoutes(c *gin.Context) {
+	h.autoModelRoutes(c, nil)
+}
+
+func (h *GatewayHandler) AutoModelRoutesWithMedia(status gin.HandlerFunc) gin.HandlerFunc {
+	return func(c *gin.Context) { h.autoModelRoutes(c, status) }
+}
+
+func (h *GatewayHandler) autoModelRoutes(c *gin.Context, mediaStatus gin.HandlerFunc) {
 	key, ok := middleware.GetAPIKeyFromContext(c)
 	if !ok || key == nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": gin.H{"message": "Invalid API key"}})
@@ -47,6 +56,9 @@ func (h *GatewayHandler) AutoModelRoutes(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"message": "Unable to read auto route observations"}})
 		return
+	}
+	if mediaStatus != nil {
+		h.refreshVerticalVideos(c, key, store, routes, mediaStatus)
 	}
 	c.Header("Cache-Control", "no-store")
 	c.JSON(http.StatusOK, gin.H{"object": "list", "data": routes})
@@ -97,7 +109,11 @@ func (h *GatewayHandler) observeAutoModelRoute(c *gin.Context, key *service.APIK
 	route := &service.AutoModelRouteObservation{
 		RequestID: requestID, SessionID: sessionID, TurnID: turnID, RunID: turnID,
 		RequestedModel: requestedModel, SelectedModel: selected,
+		AttemptedModels: []string{},
 		State: "selected", StartedAt: now, UpdatedAt: now,
+	}
+	if value, ok := c.Get(verticalOperationKey); ok {
+		route.Operation, _ = value.(*service.VerticalOperation)
 	}
 	if selected == "" {
 		route.State = "failed"
@@ -112,6 +128,11 @@ func (h *GatewayHandler) observeAutoModelRoute(c *gin.Context, key *service.APIK
 		route.Revision++
 		snapshot := *route
 		snapshot.AttemptedModels = slices.Clone(route.AttemptedModels)
+		if route.Operation != nil {
+			operation := *route.Operation
+			operation.Artifacts = slices.Clone(operation.Artifacts)
+			snapshot.Operation = &operation
+		}
 		h.submitMandatoryUsageRecordTask(c.Request.Context(), func(parent context.Context) {
 			ctx, cancel := context.WithTimeout(parent, 250*time.Millisecond)
 			defer cancel()
@@ -122,6 +143,7 @@ func (h *GatewayHandler) observeAutoModelRoute(c *gin.Context, key *service.APIK
 	}
 	persist()
 	c.Set(autoRouteObservationKey, route)
+	c.Set(autoRoutePersistKey, persist)
 	writer := &autoRouteObserverWriter{ResponseWriter: c.Writer, route: route, persist: persist}
 	c.Writer = writer
 	return func() {
@@ -198,6 +220,10 @@ func (w *autoRouteObserverWriter) capture(body []byte) {
 }
 
 func (w *autoRouteObserverWriter) observe(body []byte) {
+	// 媒体任务的终态由专属接口确认，文字回复完成不代表视频完成。
+	if w.route.Operation != nil {
+		return
+	}
 	if !gjson.ValidBytes(body) {
 		return
 	}

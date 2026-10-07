@@ -20,6 +20,21 @@ type AutoModelRouteObservation struct {
 	State           string               `json:"state"`
 	StartedAt       int64                `json:"started_at"`
 	UpdatedAt       int64                `json:"updated_at"`
+	Operation       *VerticalOperation   `json:"operation,omitempty"`
+}
+
+type VerticalOperation struct {
+	Kind           string          `json:"kind"`
+	Provider       string          `json:"provider,omitempty"`
+	TaskID         string          `json:"task_id,omitempty"`
+	SourceLanguage string          `json:"source_language,omitempty"`
+	TargetLanguage string          `json:"target_language,omitempty"`
+	Artifacts      []RouteArtifact `json:"artifacts,omitempty"`
+}
+
+type RouteArtifact struct {
+	Kind string `json:"kind"`
+	URL  string `json:"url"`
 }
 
 type AutoModelCandidate struct {
