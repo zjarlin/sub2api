@@ -24,8 +24,9 @@ func decodeChat(w http.ResponseWriter, r *http.Request) (chatRequest, string, er
 		return request, "", problem(400, "invalid_request", "Invalid chat request")
 	}
 	allowed := map[string]bool{"model": true, "messages": true, "stream": true, "stream_options": true, "tools": true, "tool_choice": true, "parallel_tool_calls": true, "response_format": true}
+	ignored := map[string]bool{"max_tokens": true, "max_completion_tokens": true, "reasoning_effort": true}
 	for key, value := range raw {
-		if !allowed[key] && string(bytes.TrimSpace(value)) != "null" {
+		if !allowed[key] && !ignored[key] && string(bytes.TrimSpace(value)) != "null" {
 			return request, "", problem(400, "unsupported_parameter", "VibeX does not support parameter: "+key)
 		}
 	}

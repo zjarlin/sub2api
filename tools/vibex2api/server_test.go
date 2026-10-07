@@ -115,7 +115,7 @@ func TestModelsUsesLiveCatalogAndRejectsHTTP200AuthEnvelope(t *testing.T) {
 
 func TestUnsupportedChatInputsDoNotReachUpstream(t *testing.T) {
 	a := fixtureAdapter(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Error("unsupported input reached upstream") }))
-	for _, extra := range []string{`,"tools":[{"type":"function"}]`, `,"temperature":0`, `,"max_tokens":100`} {
+	for _, extra := range []string{`,"tools":[{"type":"function"}]`, `,"temperature":0`} {
 		w := invoke(a, "POST", "/v1/chat/completions", `{"model":"model","messages":[{"role":"user","content":"hello"}]`+extra+`}`)
 		if w.Code != 400 {
 			t.Fatal(w.Code, w.Body.String())
@@ -124,6 +124,17 @@ func TestUnsupportedChatInputsDoNotReachUpstream(t *testing.T) {
 	for _, message := range []string{`{"role":"user","content":[{"type":"image_url","image_url":{"url":"file:///image"}}]}`, `{"role":"assistant","content":"","tool_calls":[{}]}`} {
 		w := invoke(a, "POST", "/v1/chat/completions", `{"model":"model","messages":[`+message+`]}`)
 		if w.Code != 400 {
+			t.Fatal(w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestUnsupportedOpenAICompatibilityParametersAreIgnored(t *testing.T) {
+	var sessions atomic.Int32
+	a := fixtureAdapter(t, chatFixture(t, false, "", &sessions))
+	for _, extra := range []string{`,"max_tokens":100`, `,"max_completion_tokens":100`, `,"reasoning_effort":"high"`} {
+		w := invoke(a, "POST", "/v1/chat/completions", `{"model":"live-model","messages":[{"role":"user","content":"hello"}]`+extra+`}`)
+		if w.Code != 200 {
 			t.Fatal(w.Code, w.Body.String())
 		}
 	}

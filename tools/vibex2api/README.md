@@ -48,7 +48,8 @@ V2A_API_KEY=<private-adapter-key> V2A_STATE_FILE=<private-state-path> go run .
   3200 万像素，请求体最多 32 MiB。支持 PNG/JPEG/GIF/WebP（动画取首帧）；图片缩放至最长边 1024，
   转 JPEG 上传到专用项目，经平台原生 Read 检视。图片地址不携带账号凭证，
   连接时拒绝本地、私网和保留地址。附件仍保存在上游专用项目中。
-- `temperature`、`max_tokens` 等未适配的参数仍返回 400。
+- `max_tokens`、`max_completion_tokens`、`reasoning_effort` 等 OpenAI 常用但 VibeX
+  不支持的兼容参数会被忽略；`temperature` 等其它未适配参数仍返回 400。
 - 支持 `response_format` 的 `text`、`json_object`、`json_schema`；JSON 格式通过提示词约束，
   完整输出在返回前校验，流式请求也先缓冲校验再发送。不符合格式返回 502，
   不提供上游原生受约束解码。Schema 支持本地引用，拒绝远程引用；客户端工具调用不受最终答案格式约束。
