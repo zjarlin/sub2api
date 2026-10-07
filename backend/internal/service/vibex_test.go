@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -80,8 +81,8 @@ func TestVibexChatOmitsUnsupportedCompletionBudget(t *testing.T) {
 	result, err := svc.forwardAsRawChatCompletions(context.Background(), c, vibexBridgeTestAccount(), body, "")
 	require.NoError(t, err)
 	require.NotNil(t, result)
+	require.False(t, gjson.GetBytes(upstream.lastBody, "max_tokens").Exists())
 	require.False(t, gjson.GetBytes(upstream.lastBody, "max_completion_tokens").Exists())
-	require.EqualValues(t, 64, gjson.GetBytes(upstream.lastBody, "max_tokens").Int())
 }
 
 func TestVibexResponsesOmitsUnsupportedReasoningEffort(t *testing.T) {
@@ -106,4 +107,33 @@ func TestVibexResponsesOmitsUnsupportedReasoningEffort(t *testing.T) {
 	require.Equal(t, "free-qwen-3.8-max", gjson.GetBytes(upstream.lastBody, "model").String())
 	require.False(t, gjson.GetBytes(upstream.lastBody, "reasoning_effort").Exists())
 	require.Equal(t, "ok", gjson.Get(recorder.Body.String(), "output.0.content.0.text").String())
+}
+
+func TestVibexAnthropicFallbackOmitsUnsupportedMaxTokens(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"vibex-alias","max_tokens":64,"messages":[{"role":"user","content":"hello"}],"stream":false}`)
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"chatcmpl-vibex","object":"chat.completion","model":"free-qwen-3.8-max","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}`,
+		)),
+	}}
+	account := vibexBridgeTestAccount()
+	account.Extra = map[string]any{
+		openai_compat.ExtraKeyResponsesMode: string(openai_compat.ResponsesSupportModeForceChatCompletions),
+	}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.False(t, gjson.GetBytes(upstream.lastBody, "max_tokens").Exists())
+	require.False(t, gjson.GetBytes(upstream.lastBody, "max_completion_tokens").Exists())
+	require.Equal(t, "ok", gjson.Get(recorder.Body.String(), "content.0.text").String())
 }

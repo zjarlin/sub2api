@@ -194,11 +194,11 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	// 字段，上游 400 "The `reasoning_content` in the thinking mode must be
 	// passed back to the API"。在共用出站点补空格占位，真实明文不覆盖。
 	body = ensureDeepSeekChatReasoningPlaceholders(account, body)
-	// VibeX does not accept reasoning_effort or max_completion_tokens on Chat
-	// Completions. Its whitelist rejects the latter outright, including when it
-	// was produced by a Responses-to-Chat or Anthropic-to-Chat conversion.
+	// VibeX does not accept reasoning_effort or either completion-budget field
+	// on Chat Completions. Its whitelist rejects them outright, including when
+	// produced by a Responses-to-Chat or Anthropic-to-Chat conversion.
 	if account.Platform == PlatformVibex {
-		for _, field := range []string{"reasoning_effort", "max_completion_tokens"} {
+		for _, field := range []string{"reasoning_effort", "max_tokens", "max_completion_tokens"} {
 			if !gjson.GetBytes(body, field).Exists() {
 				continue
 			}
