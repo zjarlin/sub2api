@@ -284,6 +284,14 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 			ctx = service.WithAutoModelRequestCapabilities(ctx, body)
 			c.Request = c.Request.WithContext(ctx)
 		}
+		if virtualModel == askModelID {
+			body, err = enforceAskAnswerOnlyPolicy(body)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": "Failed to normalize ask instructions"}})
+				c.Abort()
+				return
+			}
+		}
 		ctx, models, err := h.gatewayService.BindAutoModelInventory(ctx, apiKey.Group.ID)
 		if err != nil {
 			finishObservation := h.observeAutoModelRoute(c, apiKey, "")
