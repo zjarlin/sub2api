@@ -7,6 +7,7 @@
           <span class="badge" :class="status?.enabled ? 'badge-success' : 'badge-gray'">{{ t('admin.vision.visualStatus') }}</span>
           <span class="badge" :class="status?.media_enabled ? 'badge-success' : 'badge-gray'">{{ t('admin.vision.mediaStatus') }}</span>
           <span class="badge" :class="status?.laya_enabled ? 'badge-success' : 'badge-gray'">{{ t('admin.vision.layaStatus') }}</span>
+          <span class="badge" :class="status?.translate_enabled ? 'badge-success' : 'badge-gray'">{{ t('admin.vision.translateStatus') }}</span>
           <button type="button" class="btn btn-icon btn-secondary h-8 w-8" :title="t('common.refresh')" :aria-label="t('common.refresh')" :disabled="loading" @click="loadStatus">
             <Icon name="refresh" size="sm" :class="loading ? 'animate-spin' : ''" />
           </button>
@@ -322,10 +323,12 @@ interface VisionStatus {
   enabled: boolean
   laya_enabled: boolean
   media_enabled: boolean
+  translate_enabled?: boolean
+  translate_providers?: string[]
 }
 
-type Preset = 'vision' | 'jev' | 'laya' | 'manbo' | 'video-dub' | 'video-generation'
-type EndpointCategory = 'vision' | 'media' | 'decision'
+type Preset = 'vision' | 'jev' | 'laya' | 'manbo' | 'video-dub' | 'video-generation' | 'translate' | 'translate-providers'
+type EndpointCategory = 'vision' | 'media' | 'decision' | 'translate'
 
 interface EndpointDefinition {
   key: string
@@ -415,6 +418,8 @@ const endpoints = computed<EndpointDefinition[]>(() => [
   { key: 'generation', path: '/v1/contents/generations/tasks', method: 'POST', description: t('admin.vision.endpointVideoGeneration'), category: 'media', preset: 'video-generation' },
   { key: 'jev', path: '/v1/systemone', method: 'POST', description: t('admin.vision.jevDescription'), category: 'decision', preset: 'jev' },
   { key: 'laya', path: '/v1/systemone', method: 'POST', description: t('admin.vision.layaDescription'), category: 'decision', preset: 'laya' },
+  { key: 'translate', path: '/api/v1/translate', method: 'POST', description: t('admin.vision.endpointTranslate'), category: 'translate', preset: 'translate' },
+  { key: 'translate-providers', path: '/api/v1/translate/providers', method: 'GET', description: t('admin.vision.endpointTranslateProviders'), category: 'translate', preset: 'translate-providers' },
 ])
 
 const endpointGroups = computed(() => {
@@ -422,6 +427,7 @@ const endpointGroups = computed(() => {
     { key: 'vision', title: t('admin.vision.categoryVision'), description: t('admin.vision.categoryVisionDescription') },
     { key: 'media', title: t('admin.vision.categoryMedia'), description: t('admin.vision.categoryMediaDescription') },
     { key: 'decision', title: t('admin.vision.categoryDecision'), description: t('admin.vision.categoryDecisionDescription') },
+    { key: 'translate', title: t('admin.vision.categoryTranslate'), description: t('admin.vision.categoryTranslateDescription') },
   ]
   return categories.map(category => ({
     ...category,
@@ -457,6 +463,7 @@ function endpointEnabled(endpoint: EndpointDefinition): boolean {
   if (!status.value) return false
   if (endpoint.category === 'vision') return status.value.enabled
   if (endpoint.category === 'media') return status.value.media_enabled
+  if (endpoint.category === 'translate') return !!status.value.translate_enabled
   return status.value.laya_enabled
 }
 
@@ -556,6 +563,30 @@ function presetRequest(preset: Preset) {
       model: 'YOUR_ARK_MODEL_ID',
     }
   }
+  if (preset === 'translate') {
+    gatewayPath.value = '/api/v1/translate'
+    return {
+      method: 'POST' as EdgeRequestMethod,
+      url: buildGatewayUrl('/api/v1/translate'),
+      headers: [{ name: 'Content-Type', value: 'application/json' }],
+      query: [] as EdgeKeyValue[],
+      body: JSON.stringify({ q: ['Hello, world!'], source: 'en', target: 'zh-CN' }, null, 2),
+      bodyMode: 'json' as EdgeBodyMode,
+      model: '',
+    }
+  }
+  if (preset === 'translate-providers') {
+    gatewayPath.value = '/api/v1/translate/providers'
+    return {
+      method: 'GET' as EdgeRequestMethod,
+      url: buildGatewayUrl('/api/v1/translate/providers'),
+      headers: [] as EdgeKeyValue[],
+      query: [] as EdgeKeyValue[],
+      body: '',
+      bodyMode: 'none' as EdgeBodyMode,
+      model: '',
+    }
+  }
   const model = preset === 'jev' ? 'typesafe/jev' : 'laya'
   gatewayPath.value = '/v1/systemone'
   return {
@@ -649,6 +680,7 @@ function gatewayPathForUrl(urlText: string): string {
     if (path.startsWith('/v1/')) return path
     if (path.startsWith('/vision/')) return path
     if (path.startsWith('/media/')) return path
+    if (path.startsWith('/api/')) return path
   } catch {
     return ''
   }

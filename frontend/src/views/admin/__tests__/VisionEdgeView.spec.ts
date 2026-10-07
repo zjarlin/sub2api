@@ -120,7 +120,7 @@ describe('VisionEdgeView workbench', () => {
     vi.clearAllMocks()
     URL.createObjectURL = vi.fn().mockReturnValue('blob:media-result')
     URL.revokeObjectURL = vi.fn()
-    getStatus.mockResolvedValue({ data: { enabled: true, laya_enabled: true } })
+    getStatus.mockResolvedValue({ data: { enabled: true, laya_enabled: true, media_enabled: true, translate_enabled: true, translate_providers: ['tencent'] } })
     getAllGroups.mockResolvedValue([group(7, 'Main')])
     getCandidates.mockResolvedValue(['existing-model', 'laya-multilingual'])
     updateGroup.mockResolvedValue(group(7, 'Main'))
@@ -319,6 +319,33 @@ describe('VisionEdgeView workbench', () => {
     await flushPromises()
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(wrapper.text()).toContain('admin.vision.mediaResult.invalidOutput')
+  })
+
+  it('lists the translate endpoints and sends a unified translation request', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ code: 0, data: { translations: [{ text: '\u4f60\u597d' }], provider: 'tencent' } }), {
+      status: 200,
+      statusText: 'OK',
+      headers: { 'content-type': 'application/json' },
+    }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const wrapper = mount(VisionEdgeView)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="edge-endpoint-translate"]').trigger('click')
+    await flushPromises()
+    expect((wrapper.get('[data-testid="edge-request-url"]').element as HTMLInputElement).value).toContain('/api/v1/translate')
+    expect((wrapper.get('[data-testid="edge-request-body"]').element as HTMLTextAreaElement).value).toContain('"target": "zh-CN"')
+
+    await wrapper.get('[data-testid="edge-send-request"]').trigger('click')
+    await flushPromises()
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock.mock.calls[0][0]).toContain('/api/v1/translate')
+    expect(wrapper.text()).toContain('tencent')
+
+    await wrapper.get('[data-testid="edge-endpoint-translate-providers"]').trigger('click')
+    await flushPromises()
+    expect((wrapper.get('[data-testid="edge-request-url"]').element as HTMLInputElement).value).toContain('/api/v1/translate/providers')
   })
 
   it('ignores a response after switching endpoints', async () => {

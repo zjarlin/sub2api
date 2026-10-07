@@ -1467,6 +1467,7 @@ export default {
     visualStatus: '视觉服务',
     layaStatus: 'Laya 服务',
     mediaStatus: '媒体服务',
+    translateStatus: '翻译服务',
     statusEnabled: '已启用',
     statusDisabled: '未启用',
     disabledHint: '请在 gateway.vision.enabled 中启用此功能，并设置正确的 edge-vision 地址。',
@@ -1477,6 +1478,8 @@ export default {
       manbo: '曼波配音',
       videoDub: '视频配音',
       videoGeneration: '视频生成',
+      translate: '翻译请求',
+      translateProviders: '服务商查询',
     },
     curl: {
       title: '粘贴并解析 curl',
@@ -1627,6 +1630,8 @@ export default {
     categoryVisionDescription: '图像推理端点',
     categoryMediaDescription: '音频与视频任务端点',
     categoryDecisionDescription: '本地决策与中转模型',
+    categoryTranslate: '翻译',
+    categoryTranslateDescription: '多平台统一翻译端点',
     detailPath: '网关路径',
     colEndpoint: '端点路径',
     colMethod: '方法',
@@ -1652,5 +1657,7 @@ export default {
     endpointManboTts: '曼波/GPT-SoVITS 文本转语音',
     endpointVideoDub: '视频配音任务（语音识别、TTS、音轨混音）',
     endpointVideoGeneration: 'Seedance / Ark 网络视频生成任务',
+    endpointTranslate: '统一翻译（腾讯 / 百度 / 有道自动回退）',
+    endpointTranslateProviders: '查询已配置的翻译服务商',
   }
 }

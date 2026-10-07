@@ -1473,6 +1473,7 @@ export default {
     visualStatus: 'Vision service',
     layaStatus: 'Laya service',
     mediaStatus: 'Media service',
+    translateStatus: 'Translation service',
     statusEnabled: 'Enabled',
     statusDisabled: 'Disabled',
     disabledHint: 'Enable this feature in gateway.vision.enabled config and set the correct edge-vision URL.',
@@ -1483,6 +1484,8 @@ export default {
       manbo: 'Manbo voice',
       videoDub: 'Video dubbing',
       videoGeneration: 'Video generation',
+      translate: 'Translation request',
+      translateProviders: 'Providers query',
     },
     curl: {
       title: 'Paste and parse curl',
@@ -1633,6 +1636,8 @@ export default {
     categoryVisionDescription: 'Image inference endpoints',
     categoryMediaDescription: 'Audio and video task endpoints',
     categoryDecisionDescription: 'Local decision and relay models',
+    categoryTranslate: 'Translation',
+    categoryTranslateDescription: 'Unified multi-provider translation endpoints',
     detailPath: 'Gateway path',
     colEndpoint: 'Endpoint Path',
     colMethod: 'Method',
@@ -1658,5 +1663,7 @@ export default {
     endpointManboTts: 'Manbo/GPT-SoVITS text-to-speech',
     endpointVideoDub: 'Video dubbing task (ASR, TTS, and audio mix)',
     endpointVideoGeneration: 'Seedance / Ark network video generation',
+    endpointTranslate: 'Unified translation (Tencent / Baidu / Youdao fallback)',
+    endpointTranslateProviders: 'List configured translation providers',
   }
 }
