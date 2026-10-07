@@ -161,7 +161,7 @@ const downloads = computed(() => [
     links: [],
     code: 'curl -fL "https://chatgpt.com/codex/install.sh" -o codex-install.sh && sh codex-install.sh'
   }
-])
+].filter(download => download.id === selectedPlatform.value))
 const setupCommand = computed(() => buildCodexSetupCommand(
   downloadRoot.value,
   currentUserKey.value?.key || manualApiKey.value || 'sk-xxxx',
