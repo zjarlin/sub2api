@@ -134,18 +134,19 @@ func messageContentText(content gjson.Result) []string {
 
 // autoModelDomainPriority orders a domain preference. Existing eligibility still decides adoption.
 //
-// 高级任务（UI 设计、前端、架构推理、多模态）优先本站真实可用的旗舰 gpt-6-astra / gpt-6-sol /
+// 高级任务（UI 设计、前端、架构推理）优先本站真实可用的旗舰 gpt-6-astra / gpt-6-sol /
 // gpt-6.1-sol，其次本站 GPT-6 家族与其他经济型编码模型。claude 系列在本站基本没有、有了也
-// 基本不可用，因此不再参与领域加成，交由通用档位顺序排到后面。通用任务不受影响，仍由档位与
-// 性价比顺序决定，保留 deepseek-v4.1-flash 首选。
+// 基本不可用，因此不再参与领域加成，交由通用档位顺序排到后面。仅附带图片不算高级任务，通用
+// 任务仍由档位与性价比顺序决定，保留 deepseek-v4.1-flash 首选。
 func autoModelDomainPriority(domain autoModelDomain, model string) (int, bool) {
 	name := strings.ToLower(strings.TrimSpace(model))
 	if slash := strings.LastIndex(name, "/"); slash >= 0 {
 		name = name[slash+1:]
 	}
 	switch domain {
-	case autoModelDomainUIDesign, autoModelDomainFrontend, autoModelDomainReasoning, autoModelDomainMultimodal:
+	case autoModelDomainUIDesign, autoModelDomainFrontend, autoModelDomainReasoning:
 	default:
+		// 仅附带图片不算高级任务，保持通用档位顺序与 deepseek-v4.1-flash 首选。
 		return 0, false
 	}
 	switch {
