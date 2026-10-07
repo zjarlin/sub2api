@@ -1044,6 +1044,20 @@ func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account
 		)
 		return false
 	}
+	// 上游按调用来源国家/地区拦截（opencode zen/go 等会回
+	// code=unsupported_country_region_territory 的结构化 403）时，性质与上面的
+	// HTML 403 相同：描述的是「这条出口链路所在地区被上游拒绝」，不是账号凭据
+	// 或权限失效。同一账号其它模型、其它出口仍可用——据此升级成账号级处罚会把
+	// 一个仍健康的账号永久禁用，且 403 在 failover 状态集里会被逐账号重放。
+	// 同样只跳过账号处罚，failover 行为不变。
+	if isOpenAIRegionRestricted403(upstreamMsg, responseBody) {
+		slog.Warn(
+			"openai_403_region_restricted_skips_account_penalty",
+			"account_id", account.ID,
+			"upstream_message", upstreamMsg,
+		)
+		return false
+	}
 	// 余额不足与 402 采用相同停调语义，不能十分钟后当作普通权限冷却自动重试。
 	balanceMessage := strings.ToLower(strings.TrimSpace(upstreamMsg))
 	if account.IsOpenAIApiKey() && (balanceMessage == "insufficient account balance" ||

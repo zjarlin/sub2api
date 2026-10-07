@@ -69,6 +69,38 @@ func boolInt(v bool) int {
 	return 0
 }
 
+func TestGlobalModelAliasPreservesExplicitUpstreamTarget(t *testing.T) {
+	const canonical = "deepseek-v4.1-flash"
+	const upstream = "DeepSeek-V4.1-Flash"
+	policy := &ModelAliasPolicy{Groups: []ModelAliasGroup{{Canonical: canonical, Aliases: []string{upstream, "cn:" + canonical}}}}
+	ctx := WithModelAliases(context.Background(), policy)
+	for _, passthrough := range []bool{false, true} {
+		for _, mappingKey := range []string{canonical, "cn:" + canonical} {
+			t.Run(mappingKey+string(rune('0'+boolInt(passthrough))), func(t *testing.T) {
+				account := &Account{
+					Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+					Credentials: map[string]any{"model_mapping": map[string]any{mappingKey: upstream, upstream: upstream}},
+					Extra:       map[string]any{"openai_passthrough": passthrough},
+				}
+				account.SetUpstreamSupportedModelsSnapshot(UpstreamSupportedModelsSnapshot{
+					Source: "upstream", SyncedAt: time.Now().UTC().Format(time.RFC3339), Models: []string{upstream},
+				})
+				before, err := json.Marshal(account)
+				require.NoError(t, err)
+				routed := accountWithModelAliases(ctx, account)
+				require.True(t, routed.IsModelSupported(canonical))
+				require.Equal(t, upstream, routed.GetMappedModel(canonical))
+				require.Equal(t, upstream, resolveOpenAIAccountUpstreamModelForRequest(routed, canonical, false))
+				require.Equal(t, upstream, resolveOpenAIForwardModel(routed, canonical, ""))
+				after, err := json.Marshal(account)
+				require.NoError(t, err)
+				require.JSONEq(t, string(before), string(after))
+				require.Nil(t, account.globalModelMapping)
+			})
+		}
+	}
+}
+
 func TestGlobalModelAliasDoesNotInventAvailability(t *testing.T) {
 	ctx := WithModelAliases(context.Background(), aliasTestPolicy())
 	unknown := &Account{Platform: PlatformWorkbuddy, Type: AccountTypeAPIKey}

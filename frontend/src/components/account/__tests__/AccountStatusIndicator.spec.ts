@@ -51,6 +51,37 @@ function makeAccount(overrides: Partial<Account>): Account {
 }
 
 describe('AccountStatusIndicator', () => {
+  it.each([
+    'upstream_404_model_not_found',
+    'upstream_model_unsupported',
+    'upstream_400_codex_plan_gated_model',
+    'upstream_openrouter_agentic_harness_only'
+  ])('模型不支持不显示为限流或积分超量: %s', (reason) => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: {
+        account: makeAccount({
+          extra: {
+            allow_overages: true,
+            model_rate_limits: {
+              'deepseek-v4.1-flash': {
+                reason,
+                rate_limited_at: '2026-10-05T08:26:26Z',
+                rate_limit_reset_at: '2099-10-05T08:56:26Z'
+              }
+            }
+          }
+        })
+      },
+      global: { stubs: { Icon: true } }
+    })
+
+    expect(wrapper.text()).toContain('admin.accounts.status.modelUnsupported')
+    expect(wrapper.text()).toContain('admin.accounts.status.modelUnsupportedUntil')
+    expect(wrapper.text()).not.toContain('admin.accounts.status.modelRateLimitedUntil')
+    expect(wrapper.text()).not.toContain('admin.accounts.status.modelCreditOveragesUntil')
+    expect(wrapper.text()).not.toContain('⚡')
+  })
+
   it('Claude 5 模型限流时显示 Opus 和 Sonnet 的短别名', () => {
     const wrapper = mount(AccountStatusIndicator, {
       props: {

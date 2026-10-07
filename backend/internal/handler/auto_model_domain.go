@@ -17,15 +17,13 @@ const (
 )
 
 // autoModelRequestDomain classifies the request without inferring model ability from its name.
+//
+// 只读取用户真实请求文本，不读取客户端注入的 `instructions` 系统/开发者指令：
+// Codex 等 Harness 会把技能、插件与工具说明整段注入，其中固定出现 figma、react、
+// vue、css、页面、组件、layout 等词，导致几乎每个请求都被判成 UI 设计或前端，
+// 从而让 claude 系列反超用户指定的首选 deepseek-v4.1-flash。
 func autoModelRequestDomain(body []byte) autoModelDomain {
-	text := strings.ToLower(strings.Join([]string{
-		gjson.GetBytes(body, "instructions").String(),
-		gjson.GetBytes(body, "input").String(),
-		gjson.GetBytes(body, "prompt").String(),
-	}, "\n"))
-	if text == "" {
-		text = strings.ToLower(string(body))
-	}
+	text := strings.ToLower(autoModelUserRequestText(body))
 	if hasAny(text, []string{
 		"ui 设计", "ui设计", "界面设计", "交互设计", "视觉设计", "设计稿", "figma", "ui/ux",
 		"ui design", "user interface", "visual design", "design system",
@@ -52,6 +50,86 @@ func autoModelRequestDomain(body []byte) autoModelDomain {
 		}
 	}
 	return autoModelDomainGeneral
+}
+
+// autoModelUserRequestText 汇总最近一条用户消息，兼容 Responses `input` 与 Chat `messages`。
+// 工具循环中最后一项是工具结果，此时回溯到仍在历史里的用户请求，保持同一领域判断。
+func autoModelUserRequestText(body []byte) string {
+	var parts []string
+	if input := gjson.GetBytes(body, "input"); input.Exists() {
+		switch {
+		case input.Type == gjson.String:
+			parts = append(parts, input.String())
+		case input.IsArray():
+			if text := lastRoleMessageText(input, "user"); len(text) > 0 {
+				parts = append(parts, text...)
+			} else {
+				parts = append(parts, rolelessTextItems(input)...)
+			}
+		}
+	}
+	if messages := gjson.GetBytes(body, "messages"); messages.IsArray() {
+		parts = append(parts, lastRoleMessageText(messages, "user")...)
+	}
+	if prompt := gjson.GetBytes(body, "prompt"); prompt.Type == gjson.String {
+		parts = append(parts, prompt.String())
+	}
+	return strings.Join(parts, "\n")
+}
+
+// lastRoleMessageText 从数组末尾取最近一条指定角色消息的文本；空消息继续向前回溯。
+func lastRoleMessageText(items gjson.Result, role string) []string {
+	array := items.Array()
+	for i := len(array) - 1; i >= 0; i-- {
+		item := array[i]
+		if !strings.EqualFold(strings.TrimSpace(item.Get("role").String()), role) {
+			continue
+		}
+		if parts := messageContentText(item.Get("content")); len(parts) > 0 {
+			return parts
+		}
+	}
+	return nil
+}
+
+// rolelessTextItems 兼容不带 role 的顶层 input_text 项。
+func rolelessTextItems(items gjson.Result) []string {
+	var parts []string
+	items.ForEach(func(_, item gjson.Result) bool {
+		if item.Get("role").Exists() {
+			return true
+		}
+		if kind := item.Get("type").String(); kind == "input_text" || kind == "text" {
+			if text := strings.TrimSpace(item.Get("text").String()); text != "" {
+				parts = append(parts, text)
+			}
+		}
+		return true
+	})
+	return parts
+}
+
+// messageContentText 兼容字符串与内容块两种 content 形态，只取用户可见文本。
+func messageContentText(content gjson.Result) []string {
+	switch {
+	case content.Type == gjson.String:
+		if text := strings.TrimSpace(content.String()); text != "" {
+			return []string{text}
+		}
+	case content.IsArray():
+		var parts []string
+		content.ForEach(func(_, part gjson.Result) bool {
+			switch part.Get("type").String() {
+			case "input_text", "text", "output_text":
+				if text := strings.TrimSpace(part.Get("text").String()); text != "" {
+					parts = append(parts, text)
+				}
+			}
+			return true
+		})
+		return parts
+	}
+	return nil
 }
 
 // autoModelDomainPriority orders a domain preference. Existing eligibility still decides adoption.

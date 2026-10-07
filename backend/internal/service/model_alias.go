@@ -148,9 +148,6 @@ func accountWithModelAliases(ctx context.Context, account *Account) *Account {
 		for _, id := range policy.IDs(group.Canonical) {
 			target, explicit := native[id]
 			defaultTarget := false
-			if clone.IsOpenAIPassthroughEnabled() {
-				target = id
-			}
 			if !explicit {
 				// 目录证据必须按实际 ID 精确匹配，避免把 TRAE 的大小写目标改成规范名。
 				snapshot := clone.GetUpstreamSupportedModelsSnapshot()
