@@ -11,6 +11,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
+	"github.com/Wei-Shaw/sub2api/internal/platform/translate"
 	"golang.org/x/sync/singleflight"
 	"sync"
 )
@@ -119,6 +120,9 @@ type WebSearchManagerBuilder func(cfg *WebSearchEmulationConfig, proxyURLs map[i
 type SettingService struct {
 	searchProbeMu               sync.Mutex
 	settingRepo                 SettingRepository
+	translateRuntimeMu          sync.Mutex
+	translateRuntimeHash        [32]byte
+	translateRuntime            *translate.Aggregator
 	defaultSubGroupReader       DefaultSubscriptionGroupReader
 	proxyRepo                   ProxyRepository // for resolving websearch provider proxy URLs
 	cfg                         *config.Config

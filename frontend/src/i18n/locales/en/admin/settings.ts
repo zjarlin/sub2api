@@ -1464,7 +1464,7 @@ export default {
 
   vision: {
     title: 'Edge Services',
-    description: 'Vision, speech synthesis, video dubbing and network video generation',
+    description: 'Language, vision, media and decision API services',
     localService: 'Offline inference services',
     gatewayBase: 'Gateway base',
     chooseImage: 'Choose image',
@@ -1664,6 +1664,31 @@ export default {
     endpointVideoDub: 'Video dubbing task (ASR, TTS, and audio mix)',
     endpointVideoGeneration: 'Seedance / Ark network video generation',
     endpointTranslate: 'Unified translation (Tencent / Baidu / Youdao fallback)',
+    catalog: {
+      subtitle: 'Edge API services', services: 'Service Catalog', categories: 'Service Categories', all: 'All Services', language: 'Language', vision: 'Vision', media: 'Audio & Video', decision: 'Decision Models', search: 'Search services or adapters', noResults: 'No matching services',
+      translationTitle: 'Text Translation', translationDescription: 'A unified translation API with online providers and offline models.',
+      visionTitle: 'Image Recognition', visionDescription: 'Object detection, segmentation, pose estimation, classification and OCR.',
+      ttsTitle: 'Speech Synthesis', ttsDescription: 'Convert text into audio for playback and download.',
+      dubTitle: 'Video Dubbing', dubDescription: 'Speech recognition, translated voiceovers and audio mixing.',
+      generationTitle: 'Video Generation', generationDescription: 'Create and track video generation tasks with Seedance / Ark.',
+      layaTitle: 'Laya Decisions', layaDescription: 'Local decision inference with structured questions.',
+      jevTitle: 'JEV Decisions', jevDescription: 'TypeSafe JEV with the shared System One protocol.',
+      docs: 'API Documentation', debug: 'API Explorer', code: 'Code Samples', context: 'Adapter Context',
+      endpoints: 'API Endpoints', requestParameters: 'Request Parameters', parameter: 'Parameter', type: 'Type', description: 'Description', response: 'Example Response', authentication: 'Authentication', gateway: 'Gateway URL', adapters: 'Service Adapters',
+      authDescription: 'Authenticate with a gateway API key. Provider credentials are used only on the server.',
+      translationLimits: 'An explicit provider never falls back to another service. Hy-MT2 supports text only, up to 16 items and 4096 UTF-8 bytes per item. MyMemory supports up to 500 UTF-8 bytes per item.',
+      contextExternal: 'This service uses deployment settings or upstream credentials from account management.', manageAccounts: 'Account Management',
+      fields: {
+        q: 'Text array. Responses preserve input order.', target: 'Target language code, such as zh-CN, en or ja.', source: 'Source language code. Omit or use auto for detection.', provider: 'Omit for configured priority; examples: baidu, mymemory, hymt.', format: 'Defaults to text. HTML is available only for supporting adapters.',
+        action: 'Detect, Segment, Pose, Classify or OCR, matching the endpoint.', version: 'API version: 2022-08-31.', image: 'Base64 image content without a data URI prefix.', params: 'Task parameters such as ConfidenceThreshold or classification TopK.', text: 'Text to synthesize.', language: 'Language code, such as zh or en.', audioFormat: 'Audio format: wav, mp3 or ogg.', arkModel: 'A configured Ark model or inference endpoint ID.', content: 'Content objects with type and text fields.', duration: 'Duration in seconds, within the model supported range.', resolution: 'Output resolution, such as 720p.', decisionModel: 'Use laya for Laya or typesafe/jev for JEV.', state: 'Input context for the decision.', questions: 'An object keyed by question ID, with type and instructions.',
+      },
+    },
+    context: {
+      serviceEnabled: 'Enable Translation', adapterEnabled: 'Enable Adapter', configured: 'Configured', keepSecret: 'Leave blank to keep existing secret', toggleSecret: 'Show or hide new secret', defaultAdapter: 'Default Adapter', selector: 'Request Selector', noCredentials: 'This adapter requires no credentials.',
+      secretPolicy: 'Saved secrets are never returned in plain text. Leave blank to keep or enter a new value to replace. Changes apply immediately. Disabled adapters receive no requests.',
+      loadFailed: 'Failed to load translation settings', saveFailed: 'Failed to save translation settings', saved: 'Translation settings saved and applied',
+      baiduHint: 'Baidu Translation API with APP_ID and SECURITY_KEY.', tencentHint: 'Tencent Cloud translation with SecretId, SecretKey and region.', youdaoHint: 'Youdao translation with application credentials.', mymemoryHint: 'Public REST API. Email and API Key are optional.', libretranslateHint: 'A self-hosted translation instance with an optional API key.', hymtHint: 'Private Hy-MT2 inference compatible with llama.cpp / vLLM.', caiyunHint: 'Caiyun translation with an optional custom token.', google_webHint: 'Google web translation with an optional dedicated proxy.',
+    },
     endpointTranslateProviders: 'List configured translation providers',
   }
 }

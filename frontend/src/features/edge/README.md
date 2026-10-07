@@ -1,5 +1,10 @@
 # 边缘服务工作台
 
+- `EdgeServiceCatalog.vue`：服务卡片矩阵，支持分类与搜索。
+- `catalog.ts`：服务目录和 URL 契约。`service`、`tab`、`endpoint`、`adapter` 可分享；请求和凭据草稿不写入 URL。
+- `EdgeServiceDocs.vue`：服务专属端点、请求参数、鉴权和响应文档。
+- `TranslateProvidersCard.vue`：翻译适配上下文；服务开关、优先级和脱敏凭据由管理员配置接口保存，运行时立即读取。
+
 - `DubbingForm.vue`：视频 File、自动/时间轴模式、JSON 参数导入导出。
 - `dubbing.ts`：表单契约及客户端校验；服务端仍做权威校验。
 - `DubbingDocs.vue`：两种流程、参数语义、鉴权及任务下载说明。

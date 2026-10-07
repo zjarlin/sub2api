@@ -2,6 +2,25 @@ import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import VisionEdgeView from '@/views/admin/VisionEdgeView.vue'
+import { EDGE_SERVICES, edgeQuery } from '@/features/edge/catalog'
+import { reactive } from 'vue'
+
+const navigation = reactive<{ query: Record<string, string> }>({ query: {} })
+vi.mock('vue-router', async () => {
+  const actual = await vi.importActual<typeof import('vue-router')>('vue-router')
+  return {
+    ...actual,
+    useRoute: () => navigation,
+    useRouter: () => ({ push: async (location: { query: Record<string, string> }) => { navigation.query = location.query } }),
+    RouterLink: { props: ['to'], template: '<a href="#" @click.prevent="navigate"><slot /></a>', methods: { navigate(this: { to: { query: Record<string, string> } }) { if (this.to.query) navigation.query = this.to.query } } },
+  }
+})
+
+async function openEndpoint(key: string) {
+  const service = EDGE_SERVICES.find(item => (item.endpoints as readonly string[]).includes(key))
+  navigation.query = edgeQuery({}, service, 'debug', key) as Record<string, string>
+  await flushPromises()
+}
 
 enableAutoUnmount(afterEach)
 
@@ -118,6 +137,7 @@ function group(id: number, name: string, platform = 'openai') {
 describe('VisionEdgeView workbench', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    navigation.query = { service: 'vision', tab: 'debug' }
     URL.createObjectURL = vi.fn().mockReturnValue('blob:media-result')
     URL.revokeObjectURL = vi.fn()
     getStatus.mockResolvedValue({ data: { enabled: true, laya_enabled: true, media_enabled: true, translate_enabled: true, translate_providers: ['tencent'] } })
@@ -137,7 +157,7 @@ describe('VisionEdgeView workbench', () => {
     const wrapper = mount(VisionEdgeView)
     await flushPromises()
 
-    await wrapper.get('[data-testid="edge-endpoint-detect"]').trigger('click')
+    await openEndpoint('detect')
     await wrapper.get('[data-testid="edge-curl-input"]').setValue(`curl -X POST https://upstream.example/v1/systemone \\
   -H 'authorization: Bearer upstream-secret' \\
   -H 'content-type: application/json' \\
@@ -146,15 +166,22 @@ describe('VisionEdgeView workbench', () => {
 
     expect((wrapper.get('[data-testid="edge-request-url"]').element as HTMLInputElement).value).toContain('/v1/systemone')
     expect((wrapper.get('[data-testid="edge-model-input"]').element as HTMLInputElement).value).toBe('laya-multilingual')
-    expect(wrapper.text()).toContain('$SUB2API_KEY')
     expect(wrapper.text()).not.toContain('upstream-secret')
     expect(wrapper.get('[data-testid="edge-request-detail"]').text()).not.toContain('upstream-secret')
+    await wrapper.get('[data-testid="edge-tab-code"]').trigger('click')
+    expect(wrapper.text()).toContain('$SUB2API_KEY')
   })
 
-  it('shows the Postman-style workspace on first render', async () => {
+  it('shows a service matrix first and enters the API explorer from documentation', async () => {
+    navigation.query = {}
     const wrapper = mount(VisionEdgeView)
     await flushPromises()
-
+    expect(wrapper.find('[data-testid="edge-request-detail"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-testid^="edge-service-"]')).toHaveLength(8)
+    await wrapper.get('[data-testid="edge-service-vision"]').trigger('click')
+    expect(wrapper.find('[data-testid="edge-service-docs"]').exists()).toBe(true)
+    await wrapper.get('[data-testid="edge-tab-debug"]').trigger('click')
+    await flushPromises()
     const editor = wrapper.get('[data-testid="edge-request-detail"]')
     expect(editor.isVisible()).toBe(true)
     expect(editor.get('[data-testid="edge-request-url"]').exists()).toBe(true)
@@ -176,7 +203,7 @@ describe('VisionEdgeView workbench', () => {
     const wrapper = mount(VisionEdgeView)
     await flushPromises()
 
-    await wrapper.get('[data-testid="edge-endpoint-detect"]').trigger('click')
+    await openEndpoint('detect')
     await flushPromises()
 
     const keySelect = wrapper.get('[data-testid="edge-api-key-select"]')
@@ -201,11 +228,12 @@ describe('VisionEdgeView workbench', () => {
     const wrapper = mount(VisionEdgeView)
     await flushPromises()
 
-    await wrapper.get('[data-testid="edge-endpoint-classify"]').trigger('click')
+    await openEndpoint('classify')
     await flushPromises()
 
     expect((wrapper.get('[data-testid="edge-request-url"]').element as HTMLInputElement).value).toContain('/vision/volcengine/classify')
     expect((wrapper.get('[data-testid="edge-request-body"]').element as HTMLTextAreaElement).value).toContain('"Action": "Classify"')
+    await wrapper.get('[data-testid="edge-tab-code"]').trigger('click')
     expect(wrapper.text()).toContain('cURL')
     expect(wrapper.text()).toContain('JavaScript')
     expect(wrapper.text()).toContain('Python')
@@ -239,7 +267,7 @@ describe('VisionEdgeView workbench', () => {
     vi.stubGlobal('fetch', fetchMock)
     const wrapper = mount(VisionEdgeView)
     await flushPromises()
-    await wrapper.get('[data-testid="edge-endpoint-dub"]').trigger('click')
+    await openEndpoint('dub')
     const input = wrapper.get('[data-testid="dub-file"]')
     Object.defineProperty(input.element, 'files', { value: [new File(['video'], 'input.mp4', { type: 'video/mp4' })] })
     await input.trigger('change')
@@ -260,7 +288,7 @@ describe('VisionEdgeView workbench', () => {
     expect(wrapper.get('[data-testid="edge-media-result"] video').exists()).toBe(true)
     expect(wrapper.get('[data-testid="edge-media-download"]').attributes('download')).toBe('result.mp4')
     expect(wrapper.text()).toContain('4 B')
-    await wrapper.get('[data-testid="edge-endpoint-tts"]').trigger('click')
+    await openEndpoint('tts')
     expect(URL.revokeObjectURL).toHaveBeenCalled()
     expect(wrapper.find('[data-testid="edge-media-result"]').exists()).toBe(false)
   })
@@ -270,7 +298,7 @@ describe('VisionEdgeView workbench', () => {
     vi.stubGlobal('fetch', fetchMock)
     const wrapper = mount(VisionEdgeView)
     await flushPromises()
-    await wrapper.get('[data-testid="edge-endpoint-dub"]').trigger('click')
+    await openEndpoint('dub')
     await wrapper.get('[data-testid="edge-send-request"]').trigger('click')
     expect(wrapper.text()).toContain('admin.vision.dubbing.chooseVideo')
     await wrapper.get('[data-testid="dub-mode-timeline"]').trigger('click')
@@ -286,7 +314,7 @@ describe('VisionEdgeView workbench', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(new Uint8Array([82, 73, 70, 70, 255, 128]), { headers: { 'content-type': 'audio/wav' } })))
     const wrapper = mount(VisionEdgeView)
     await flushPromises()
-    await wrapper.get('[data-testid="edge-endpoint-tts"]').trigger('click')
+    await openEndpoint('tts')
     await wrapper.get('[data-testid="edge-send-request"]').trigger('click')
     await flushPromises()
     expect(wrapper.get('audio').attributes('src')).toBe('blob:media-result')
@@ -314,7 +342,7 @@ describe('VisionEdgeView workbench', () => {
     await wrapper.get('[data-testid="edge-request-url"]').setValue('https://other.example/tts')
     await wrapper.get('[data-testid="edge-send-request"]').trigger('click')
     expect(fetchMock).not.toHaveBeenCalled()
-    await wrapper.get('[data-testid="edge-endpoint-tts"]').trigger('click')
+    await openEndpoint('tts')
     await wrapper.get('[data-testid="edge-send-request"]').trigger('click')
     await flushPromises()
     expect(fetchMock).toHaveBeenCalledTimes(1)
@@ -332,7 +360,7 @@ describe('VisionEdgeView workbench', () => {
     const wrapper = mount(VisionEdgeView)
     await flushPromises()
 
-    await wrapper.get('[data-testid="edge-endpoint-translate"]').trigger('click')
+    await openEndpoint('translate')
     await flushPromises()
     expect((wrapper.get('[data-testid="edge-request-url"]').element as HTMLInputElement).value).toContain('/api/v1/translate')
     expect((wrapper.get('[data-testid="edge-request-body"]').element as HTMLTextAreaElement).value).toContain('"target": "zh-CN"')
@@ -343,7 +371,7 @@ describe('VisionEdgeView workbench', () => {
     expect(fetchMock.mock.calls[0][0]).toContain('/api/v1/translate')
     expect(wrapper.text()).toContain('tencent')
 
-    await wrapper.get('[data-testid="edge-endpoint-translate-providers"]').trigger('click')
+    await openEndpoint('translate-providers')
     await flushPromises()
     expect((wrapper.get('[data-testid="edge-request-url"]').element as HTMLInputElement).value).toContain('/api/v1/translate/providers')
   })
@@ -354,7 +382,7 @@ describe('VisionEdgeView workbench', () => {
     const wrapper = mount(VisionEdgeView)
     await flushPromises()
     await wrapper.get('[data-testid="edge-send-request"]').trigger('click')
-    await wrapper.get('[data-testid="edge-endpoint-dub"]').trigger('click')
+    await openEndpoint('dub')
     resolve(new Response('old-result'))
     await flushPromises()
     expect(wrapper.text()).not.toContain('old-result')

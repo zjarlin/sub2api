@@ -2,7 +2,10 @@
   <AppLayout>
     <div class="mx-auto min-w-0 max-w-7xl space-y-6 overflow-x-hidden pb-10">
       <header class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 pb-4 dark:border-dark-700">
-        <h1 class="text-xl font-bold text-gray-950 dark:text-white">{{ t('admin.vision.title') }}</h1>
+        <div>
+          <h1 class="text-xl font-bold text-gray-950 dark:text-white">{{ t('admin.vision.title') }}</h1>
+          <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t('admin.vision.catalog.subtitle') }}</p>
+        </div>
         <div class="flex flex-wrap items-center gap-2 text-xs">
           <span class="badge" :class="status?.enabled ? 'badge-success' : 'badge-gray'">{{ t('admin.vision.visualStatus') }}</span>
           <span class="badge" :class="status?.media_enabled ? 'badge-success' : 'badge-gray'">{{ t('admin.vision.mediaStatus') }}</span>
@@ -15,14 +18,39 @@
         <p v-if="error" role="alert" class="w-full text-sm text-red-600">{{ error }}</p>
       </header>
 
-      <section class="overflow-hidden border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900">
+      <EdgeServiceCatalog v-if="!selection.service" :enabled="serviceEnabled" :loading="loading" />
+
+      <template v-else>
+      <div class="space-y-4" data-testid="edge-service-detail">
+        <nav class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400" :aria-label="t('admin.vision.catalog.services')">
+          <RouterLink :to="{ query: edgeQuery(route.query) }" class="flex items-center gap-1 hover:text-primary-600" data-testid="edge-back"><Icon name="chevronLeft" size="sm" />{{ t('admin.vision.catalog.services') }}</RouterLink>
+          <span>/</span><span class="font-medium text-gray-900 dark:text-white">{{ serviceTitle }}</span>
+        </nav>
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div><h2 class="text-lg font-semibold text-gray-950 dark:text-white">{{ serviceTitle }}</h2><p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t('admin.vision.catalog.' + selection.service.title + 'Description') }}</p></div>
+          <span class="badge" :class="serviceEnabled(selection.service) ? 'badge-success' : 'badge-gray'">{{ serviceEnabled(selection.service) ? t('admin.vision.statusEnabled') : t('admin.vision.statusDisabled') }}</span>
+        </div>
+        <nav class="flex overflow-x-auto border-b border-gray-200 dark:border-dark-700" :aria-label="serviceTitle">
+          <RouterLink v-for="tab in detailTabs" :key="tab.key" :to="{ query: edgeQuery(route.query, selection.service, tab.key, selectedEndpointKey, selection.adapter) }" class="flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-sm font-medium" :class="selection.tab === tab.key ? 'border-primary-500 text-primary-700 dark:text-primary-300' : 'border-transparent text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'" :aria-current="selection.tab === tab.key ? 'page' : undefined" :data-testid="`edge-tab-${tab.key}`"><Icon :name="tab.icon" size="sm" />{{ t('admin.vision.catalog.' + tab.key) }}</RouterLink>
+        </nav>
+      </div>
+
+      <EdgeServiceDocs v-if="selection.tab === 'docs'" :service="selection.service" :endpoints="serviceEndpoints" />
+      <TranslateProvidersCard v-if="selection.tab === 'context' && selection.service.key === 'translate'" :adapter="selection.adapter" @select="selectAdapter" @saved="loadStatus" />
+      <section v-else-if="selection.tab === 'context'" class="space-y-4 py-2" data-testid="edge-service-context">
+        <h3 class="text-sm font-semibold">{{ t('admin.vision.catalog.context') }}</h3>
+        <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('admin.vision.catalog.contextExternal') }}</p>
+        <RouterLink to="/admin/accounts" class="btn btn-secondary"><Icon name="cog" size="sm" />{{ t('admin.vision.catalog.manageAccounts') }}</RouterLink>
+      </section>
+
+      <section v-if="selection.tab === 'debug'" class="overflow-hidden border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900">
         <div class="flex items-center gap-3 border-b border-gray-200 px-4 py-3 dark:border-dark-700">
           <select class="input min-w-0 w-full text-xs sm:hidden" :value="selectedEndpointKey" :aria-label="t('admin.vision.endpoints')" @change="selectEndpointFromMenu">
-            <option v-for="endpoint in endpoints" :key="endpoint.key" :value="endpoint.key">{{ endpoint.path }}</option>
+            <option v-for="endpoint in serviceEndpoints" :key="endpoint.key" :value="endpoint.key">{{ endpoint.path }}</option>
           </select>
           <div class="hidden min-w-0 flex-1 items-center overflow-x-auto sm:flex">
             <button
-              v-for="endpoint in endpoints"
+              v-for="endpoint in serviceEndpoints"
               :key="endpoint.key"
               type="button"
               class="flex shrink-0 items-center gap-2 border-b-2 px-3 py-2 text-xs font-semibold transition-colors"
@@ -50,7 +78,7 @@
               </button>
             </div>
             <div class="mt-2 space-y-4">
-              <div v-for="group in endpointGroups" :key="group.key">
+              <div v-for="group in serviceEndpointGroups" :key="group.key">
                 <div class="px-2 text-xs font-bold uppercase text-gray-400">{{ group.title }}</div>
                 <div class="mt-1 space-y-1">
                   <button
@@ -195,12 +223,11 @@
         </div>
       </section>
 
-      <section class="card min-w-0">
-        <div class="card-header flex flex-wrap items-center justify-between gap-3">
+      <section v-if="selection.tab === 'code'" class="min-w-0 space-y-4 py-2" data-testid="edge-code-panel">
+        <div class="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <span class="text-xs font-black uppercase text-primary-700 dark:text-primary-300">02 / CODE</span>
-            <h2 class="mt-1 text-xl font-bold text-gray-950 dark:text-white">{{ t('admin.vision.output.title') }}</h2>
-            <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">{{ t('admin.vision.output.description') }}</p>
+            <h2 class="text-sm font-semibold text-gray-950 dark:text-white">{{ t('admin.vision.catalog.code') }}</h2>
+            <code class="mt-1 block break-all text-xs text-gray-500">{{ selectedEndpoint.path }}</code>
           </div>
           <div class="flex items-center gap-2">
             <select v-model="codeLanguage" class="input w-40 text-xs">
@@ -212,20 +239,19 @@
             </button>
           </div>
         </div>
-        <div class="card-body">
+        <div>
           <pre class="max-h-[480px] overflow-auto rounded-lg border border-gray-800 bg-gray-950 p-4 text-xs leading-5 text-gray-100"><code>{{ generatedCode || t('admin.vision.output.empty') }}</code></pre>
         </div>
       </section>
 
-      <details class="card min-w-0">
-        <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-6 py-4">
+      <details v-if="selection.tab === 'debug'" class="min-w-0 border-t border-gray-200 dark:border-dark-700">
+        <summary class="flex cursor-pointer list-none items-center justify-between gap-3 py-4">
           <span>
-            <span class="block text-xs font-black uppercase text-primary-700 dark:text-primary-300">03 / ADVANCED</span>
-            <span class="mt-1 block text-lg font-bold text-gray-950 dark:text-white">{{ t('admin.vision.curl.title') }}</span>
+            <span class="block text-sm font-semibold text-gray-950 dark:text-white">{{ t('admin.vision.curl.title') }}</span>
           </span>
           <Icon name="chevronDown" size="sm" />
         </summary>
-        <div class="card-body grid gap-4 border-t border-gray-200 pt-4 dark:border-dark-700 lg:grid-cols-2">
+        <div class="grid gap-4 border-t border-gray-200 pt-4 dark:border-dark-700 lg:grid-cols-2">
           <div>
             <label class="input-label" for="edge-curl-input">{{ t('admin.vision.curl.title') }}</label>
             <textarea id="edge-curl-input" v-model="curlInput" rows="8" class="input mt-2 w-full whitespace-pre font-mono text-xs" data-testid="edge-curl-input" :placeholder="t('admin.vision.curl.placeholder')" />
@@ -283,12 +309,14 @@
           </section>
         </div>
       </details>
+      </template>
     </div>
   </AppLayout>
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
+import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -304,6 +332,10 @@ import DubbingDocs from '@/features/edge/DubbingDocs.vue'
 import { defaultDubbingOptions, dubbingOptionsError, videoFileError } from '@/features/edge/dubbing'
 import { useEdgeResponse } from '@/features/edge/useEdgeResponse'
 import KeyValueEditor from '@/features/edge/KeyValueEditor.vue'
+import EdgeServiceCatalog from '@/features/edge/EdgeServiceCatalog.vue'
+import EdgeServiceDocs from '@/features/edge/EdgeServiceDocs.vue'
+import TranslateProvidersCard from '@/features/edge/TranslateProvidersCard.vue'
+import { EDGE_SERVICES, edgeQuery, edgeSelection, type EdgeAdapter, type EdgeService, type EdgeDetailTab } from '@/features/edge/catalog'
 import {
   applyGatewayPath,
   parseEdgeCurl,
@@ -341,6 +373,11 @@ interface EndpointDefinition {
 
 
 const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
+const selection = computed(() => edgeSelection(route.query))
+const serviceTitle = computed(() => selection.value.service ? t('admin.vision.catalog.' + selection.value.service.title + 'Title') : '')
+const detailTabs: Array<{ key: EdgeDetailTab; icon: 'book' | 'play' | 'terminal' | 'cog' }> = [{ key: 'docs', icon: 'book' }, { key: 'debug', icon: 'play' }, { key: 'code', icon: 'terminal' }, { key: 'context', icon: 'cog' }]
 const { copyToClipboard } = useClipboard()
 const loading = ref(true)
 const error = ref('')
@@ -436,6 +473,8 @@ const endpointGroups = computed(() => {
 })
 
 const selectedEndpoint = computed(() => endpoints.value.find(endpoint => endpoint.key === selectedEndpointKey.value) ?? endpoints.value[0])
+const serviceEndpoints = computed(() => endpoints.value.filter(endpoint => (selection.value.service?.endpoints as readonly string[] | undefined)?.includes(endpoint.key)))
+const serviceEndpointGroups = computed(() => endpointGroups.value.map(group => ({ ...group, endpoints: group.endpoints.filter(endpoint => serviceEndpoints.value.includes(endpoint)) })).filter(group => group.endpoints.length))
 const selectedAPIKey = computed(() => apiKeys.value.find(apiKey => apiKey.id === selectedAPIKeyID.value) ?? null)
 
 const generatedCode = computed(() => generateEdgeCode({
@@ -468,7 +507,17 @@ function endpointEnabled(endpoint: EndpointDefinition): boolean {
 }
 
 
+function serviceEnabled(service: EdgeService) {
+  const endpoint = endpoints.value.find(item => item.key === service.endpoints[0])
+  return !!endpoint && endpointEnabled(endpoint)
+}
+
 function openEndpoint(endpoint: EndpointDefinition) {
+  const service = EDGE_SERVICES.find(item => (item.endpoints as readonly string[]).includes(endpoint.key))
+  if (service) void router.push({ query: edgeQuery(route.query, service, 'debug', endpoint.key, selection.value.adapter) })
+}
+
+function applyEndpoint(endpoint: EndpointDefinition) {
   selectedEndpointKey.value = endpoint.key
   usePreset(endpoint.preset)
   gatewayPath.value = endpoint.path
@@ -478,6 +527,26 @@ function openEndpoint(endpoint: EndpointDefinition) {
   taskID.value = ''
   reset()
 }
+
+function selectAdapter(adapter: EdgeAdapter) {
+  void router.push({ query: edgeQuery(route.query, selection.value.service, 'context', selectedEndpointKey.value, adapter) })
+}
+
+watch(() => selection.value.endpoint, key => {
+  const endpoint = endpoints.value.find(item => item.key === key)
+  if (endpoint) applyEndpoint(endpoint)
+  else reset()
+}, { immediate: true })
+
+watch(() => selection.value.adapter, adapter => {
+  if (selectedEndpointKey.value !== 'translate') return
+  try {
+    const body = JSON.parse(request.body)
+    request.body = JSON.stringify({ ...body, provider: adapter }, null, 2)
+  } catch {
+    // 保留用户尚未完成的 JSON 草稿。
+  }
+})
 
 function selectEndpointFromMenu(event: Event) {
   const endpoint = endpoints.value.find(item => item.key === (event.target as HTMLSelectElement).value)
@@ -570,7 +639,7 @@ function presetRequest(preset: Preset) {
       url: buildGatewayUrl('/api/v1/translate'),
       headers: [{ name: 'Content-Type', value: 'application/json' }],
       query: [] as EdgeKeyValue[],
-      body: JSON.stringify({ q: ['Hello, world!'], source: 'en', target: 'zh-CN' }, null, 2),
+      body: JSON.stringify({ q: ['Hello, world!'], source: 'en', target: 'zh-CN', provider: selection.value.adapter }, null, 2),
       bodyMode: 'json' as EdgeBodyMode,
       model: '',
     }
@@ -622,13 +691,17 @@ function usePreset(preset: Preset) {
   applyRequest(presetRequest(preset))
 }
 
-function importCurl() {
+async function importCurl() {
   parseError.value = ''
   registerError.value = ''
   registerSuccess.value = ''
   try {
     const parsed = parseEdgeCurl(curlInput.value)
     const endpoint = endpoints.value.find(item => item.path === new URL(parsed.url).pathname)
+    if (endpoint) {
+      const service = EDGE_SERVICES.find(item => (item.endpoints as readonly string[]).includes(endpoint.key))
+      await router.push({ query: edgeQuery(route.query, service, 'debug', endpoint.key, selection.value.adapter) })
+    }
     selectedEndpointKey.value = endpoint?.key ?? ''
     requestTab.value = 'body'
     reset()
@@ -891,7 +964,6 @@ async function copyGeneratedCode() {
 }
 
 onMounted(async () => {
-  openEndpoint(endpoints.value[0])
   await Promise.all([loadStatus(), loadGroups(), loadAPIKeys()])
 })
 </script>

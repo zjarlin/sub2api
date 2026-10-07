@@ -1,8 +1,6 @@
 package handler
 
 import (
-	"os"
-
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
 	"github.com/Wei-Shaw/sub2api/internal/platform/translate"
@@ -54,6 +52,7 @@ func ProvideAdminHandlers(
 	upstreamBillingProbe *service.UpstreamBillingProbeService,
 	ollamaCloudUsage *service.OllamaCloudUsageService,
 	translateAggregator *translate.Aggregator,
+	settingService *service.SettingService,
 	cfg *config.Config,
 ) *AdminHandlers {
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
@@ -91,7 +90,7 @@ func ProvideAdminHandlers(
 		ChannelMonitor:         channelMonitorHandler,
 		ChannelMonitorTemplate: channelMonitorTemplateHandler,
 		ContentModeration:      contentModerationHandler,
-		Vision:                 admin.NewVisionHandler(cfg, translateAggregator),
+		Vision:                 admin.NewVisionHandler(cfg, translateAggregator, settingService),
 		PromptAudit:            promptAuditHandler,
 		Payment:                paymentHandler,
 		Affiliate:              affiliateHandler,
@@ -307,51 +306,5 @@ var ProviderSet = wire.NewSet(
 
 // ProvideTranslateAggregator 从环境变量构建翻译聚合器
 func ProvideTranslateAggregator() *translate.Aggregator {
-	cfg := &translate.Config{
-		// 默认启用免密钥公开翻译源，可用 TRANSLATE_FREE_PROVIDERS=false 关闭。
-		EnableFreeProviders: os.Getenv("TRANSLATE_FREE_PROVIDERS") != "false",
-	}
-
-	if token := os.Getenv("TRANSLATE_CAIYUN_TOKEN"); token != "" {
-		cfg.Caiyun = &translate.CaiyunConfig{Token: token}
-	}
-	if cfg.EnableFreeProviders && os.Getenv("TRANSLATE_GOOGLE_WEB") == "true" {
-		cfg.GoogleWeb = &translate.GoogleWebConfig{ProxyURL: os.Getenv("TRANSLATE_GOOGLE_WEB_PROXY_URL")}
-	}
-	if os.Getenv("TRANSLATE_MYMEMORY") == "true" {
-		cfg.MyMemory = &translate.MyMemoryConfig{Email: os.Getenv("TRANSLATE_MYMEMORY_EMAIL"), APIKey: os.Getenv("TRANSLATE_MYMEMORY_API_KEY")}
-	}
-	if baseURL := os.Getenv("TRANSLATE_LIBRETRANSLATE_URL"); baseURL != "" {
-		cfg.LibreTranslate = &translate.LibreTranslateConfig{BaseURL: baseURL, APIKey: os.Getenv("TRANSLATE_LIBRETRANSLATE_API_KEY")}
-	}
-	if baseURL := os.Getenv("TRANSLATE_HYMT_URL"); baseURL != "" {
-		cfg.HyMT = &translate.HyMTConfig{BaseURL: baseURL, APIKey: os.Getenv("TRANSLATE_HYMT_API_KEY")}
-	}
-
-	// 腾讯云
-	if sid := os.Getenv("TRANSLATE_TENCENT_SECRET_ID"); sid != "" {
-		cfg.Tencent = &translate.TencentConfig{
-			SecretID:  sid,
-			SecretKey: os.Getenv("TRANSLATE_TENCENT_SECRET_KEY"),
-			Region:    os.Getenv("TRANSLATE_TENCENT_REGION"),
-		}
-	}
-
-	// 百度
-	if appID := os.Getenv("TRANSLATE_BAIDU_APP_ID"); appID != "" {
-		cfg.Baidu = &translate.BaiduConfig{
-			AppID:  appID,
-			Secret: os.Getenv("TRANSLATE_BAIDU_SECRET"),
-		}
-	}
-
-	// 有道
-	if appKey := os.Getenv("TRANSLATE_YOUDAO_APP_KEY"); appKey != "" {
-		cfg.Youdao = &translate.YoudaoConfig{
-			AppKey:    appKey,
-			AppSecret: os.Getenv("TRANSLATE_YOUDAO_APP_SECRET"),
-		}
-	}
-
-	return translate.NewAggregator(cfg)
+	return translate.NewAggregator(translate.ConfigFromEnvironment())
 }

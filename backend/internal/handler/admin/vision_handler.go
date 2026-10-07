@@ -4,6 +4,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/platform/translate"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
 )
@@ -12,10 +13,11 @@ import (
 type VisionHandler struct {
 	cfg        *config.Config
 	translator *translate.Aggregator
+	settings   *service.SettingService
 }
 
-func NewVisionHandler(cfg *config.Config, translator *translate.Aggregator) *VisionHandler {
-	return &VisionHandler{cfg: cfg, translator: translator}
+func NewVisionHandler(cfg *config.Config, translator *translate.Aggregator, settings *service.SettingService) *VisionHandler {
+	return &VisionHandler{cfg: cfg, translator: translator, settings: settings}
 }
 
 // translateProviders 返回已配置的翻译服务商，未配置时返回空列表。
@@ -29,6 +31,14 @@ func (h *VisionHandler) translateProviders() []string {
 // GetStatus 返回边缘视觉服务的启用状态，不暴露内部服务地址。
 func (h *VisionHandler) GetStatus(c *gin.Context) {
 	providers := h.translateProviders()
+	if h.settings != nil {
+		translator, err := h.settings.GetTranslationAggregator(c.Request.Context())
+		if err != nil {
+			response.InternalError(c, "Unable to load translation configuration")
+			return
+		}
+		providers = translator.AvailableProviders()
+	}
 	if h.cfg == nil {
 		response.Success(c, gin.H{
 			"enabled":             false,

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 )
 
 var ErrProviderUnavailable = errors.New("translate: provider is not configured")
@@ -57,6 +58,19 @@ func NewAggregator(cfg *Config) *Aggregator {
 		log.Println("[translate] registered provider: hymt")
 	}
 
+	if len(cfg.Priority) > 0 {
+		rank := make(map[string]int, len(cfg.Priority))
+		for i, name := range cfg.Priority {
+			rank[name] = i
+		}
+		priority := func(name string) int {
+			if value, ok := rank[name]; ok {
+				return value
+			}
+			return len(cfg.Priority)
+		}
+		sort.SliceStable(translators, func(i, j int) bool { return priority(translators[i].Name()) < priority(translators[j].Name()) })
+	}
 	return &Aggregator{translators: translators}
 }
 

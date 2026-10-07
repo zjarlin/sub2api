@@ -1458,7 +1458,7 @@ export default {
 
   vision: {
     title: '边缘计算服务',
-    description: '视觉识别、语音合成、视频配音与网络视频生成',
+    description: '语言、视觉、音视频与决策 API 服务',
     localService: '离线推理服务',
     gatewayBase: '网关地址',
     chooseImage: '选择图片',
@@ -1657,7 +1657,32 @@ export default {
     endpointManboTts: '曼波/GPT-SoVITS 文本转语音',
     endpointVideoDub: '视频配音任务（语音识别、TTS、音轨混音）',
     endpointVideoGeneration: 'Seedance / Ark 网络视频生成任务',
-    endpointTranslate: '统一翻译（腾讯 / 百度 / 有道自动回退）',
+    catalog: {
+      subtitle: '边缘 API 服务', services: '服务目录', categories: '服务分类', all: '全部服务', language: '语言服务', vision: '视觉智能', media: '音视频', decision: '决策模型', search: '搜索服务或适配器', noResults: '没有匹配的服务',
+      translationTitle: '文本翻译', translationDescription: '统一翻译接口，在线服务与离线模型按需选择。',
+      visionTitle: '图像识别', visionDescription: '目标检测、实例分割、姿态估计、分类与文字识别。',
+      ttsTitle: '语音合成', ttsDescription: '文本转语音，生成可播放、下载的音频。',
+      dubTitle: '视频配音', dubDescription: '语音识别、译文配音与音轨混音，异步生成视频。',
+      generationTitle: '视频生成', generationDescription: '通过 Seedance / Ark 创建并查询视频生成任务。',
+      layaTitle: 'Laya 决策', layaDescription: '本地决策模型，以结构化问题获取判断结果。',
+      jevTitle: 'JEV 决策', jevDescription: 'TypeSafe JEV 接口，共用 System One 调用协议。',
+      docs: '调用文档', debug: '在线调试', code: '接入代码', context: '适配上下文',
+      endpoints: 'API 端点', requestParameters: '请求参数', parameter: '参数', type: '类型', description: '说明', response: '响应示例', authentication: '鉴权', gateway: '网关地址', adapters: '服务适配器',
+      authDescription: '使用网关 API Key 鉴权。上游服务商凭据仅在服务端使用。',
+      translationLimits: '显式指定 provider 时不会回退到其他服务。Hy-MT2 仅支持 text，单批最多 16 项，每项最多 4096 UTF-8 字节。MyMemory 单项最多 500 UTF-8 字节。',
+      contextExternal: '此服务沿用部署参数或账号管理中的上游配置。', manageAccounts: '账号管理',
+      fields: {
+        q: '待翻译文本数组。响应顺序与输入顺序一致。', target: '目标语言代码，例如 zh-CN、en、ja。', source: '源语言代码。省略或使用 auto 时自动识别。', provider: '省略时按配置优先级调用；例如 baidu、mymemory、hymt。', format: '默认 text；html 仅在对应适配器支持时可用。',
+        action: 'Detect、Segment、Pose、Classify 或 OCR，与端点匹配。', version: '接口版本：2022-08-31。', image: '图片的 Base64 内容，不包含 data URI 前缀。', params: '检测阈值 ConfidenceThreshold；分类 TopK 等任务参数。', text: '待合成文本。', language: '语种代码，例如 zh、en。', audioFormat: '音频格式：wav、mp3 或 ogg。', arkModel: '已配置的 Ark 模型或推理接入点 ID。', content: '包含 type 和 text 等字段的内容数组。', duration: '生成时长（秒），以模型支持范围为准。', resolution: '输出分辨率，例如 720p。', decisionModel: 'Laya 使用 laya，JEV 使用 typesafe/jev。', state: '需要判断的输入上下文。', questions: '以问题 ID 为键的对象，包含 type 和 instructions。',
+      },
+    },
+    context: {
+      serviceEnabled: '启用翻译服务', adapterEnabled: '启用适配器', configured: '已配置', keepSecret: '留空保留现有密钥', toggleSecret: '显示或隐藏新密钥', defaultAdapter: '默认适配器', selector: '调用选择器', noCredentials: '此适配器无需凭据。',
+      secretPolicy: '已保存的密钥不回传明文。留空保留现有值，填写新值可替换。保存后立即生效；禁用适配器后不会再调用该服务。',
+      loadFailed: '读取翻译配置失败', saveFailed: '保存翻译配置失败', saved: '翻译配置已保存并生效',
+      baiduHint: '百度通用翻译 API，配置 APP_ID 和 SECURITY_KEY。', tencentHint: '腾讯云机器翻译，配置 SecretId、SecretKey 和区域。', youdaoHint: '有道智云翻译，配置应用凭据。', mymemoryHint: '公开 REST 接口；Email 和 API Key 均为可选配置。', libretranslateHint: '自部署翻译实例，按实例要求配置 API Key。', hymtHint: 'Hy-MT2 私有推理实例，兼容 llama.cpp / vLLM。', caiyunHint: '彩云小译适配器，可配置自有 Token。', google_webHint: 'Google 网页翻译兼容接口，可配置独立出网代理。',
+    },
+    endpointTranslate: '统一翻译（在线适配器与离线模型）',
     endpointTranslateProviders: '查询已配置的翻译服务商',
   }
 }

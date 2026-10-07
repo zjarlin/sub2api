@@ -35,6 +35,7 @@ type Translator interface {
 
 // Config 翻译服务配置
 type Config struct {
+	Priority []string `json:"priority,omitempty"`
 	// EnableFreeProviders 启用内置的免密钥公开翻译源（彩云小译）。
 	EnableFreeProviders bool                  `json:"enable_free_providers,omitempty"`
 	Caiyun              *CaiyunConfig         `json:"caiyun,omitempty"`
