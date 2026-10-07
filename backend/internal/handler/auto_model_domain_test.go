@@ -71,3 +71,40 @@ func TestAutoModelPlanKeepsDeepSeekFirstDespiteInjectedInstructions(t *testing.T
 	require.NotEmpty(t, routes)
 	require.Equal(t, "deepseek-v4.1-flash", routes[0].model)
 }
+
+// 高级任务领域：旗舰 gpt-6-astra / gpt-6-sol / gpt-6.1-sol 优先，claude 不做领域加成。
+func TestAutoModelDomainPriorityFlagshipThenDemotesClaude(t *testing.T) {
+	for _, domain := range []autoModelDomain{
+		autoModelDomainUIDesign, autoModelDomainFrontend, autoModelDomainReasoning, autoModelDomainMultimodal,
+	} {
+		flagship, ok := autoModelDomainPriority(domain, "gpt-6-astra")
+		require.True(t, ok, domain)
+		require.Equal(t, 0, flagship)
+
+		for _, model := range []string{"gpt-6.1-sol", "gpt-6-sol"} {
+			rank, ok := autoModelDomainPriority(domain, model)
+			require.True(t, ok, model)
+			require.Equal(t, 0, rank, model)
+		}
+
+		gpt6, ok := autoModelDomainPriority(domain, "gpt-6-luna")
+		require.True(t, ok)
+		require.Greater(t, gpt6, flagship, "本站 GPT-6 家族排在旗舰之后")
+
+		economy, ok := autoModelDomainPriority(domain, "glm-5.3")
+		require.True(t, ok)
+		require.Greater(t, economy, gpt6, "经济型编码模型排在本站 GPT-6 之后")
+
+		// claude 系列不再参与领域加成，由通用档位顺序排到后面。
+		for _, model := range []string{"claude-opus-4-7", "claude-sonnet-4-6", "claude-opus-5", "claude-sonnet-5"} {
+			_, ok := autoModelDomainPriority(domain, model)
+			require.False(t, ok, model)
+		}
+	}
+
+	// 通用任务不做领域加成。
+	_, ok := autoModelDomainPriority(autoModelDomainGeneral, "gpt-6-astra")
+	require.False(t, ok)
+	_, ok = autoModelDomainPriority(autoModelDomainGeneral, "claude-opus-4-7")
+	require.False(t, ok)
+}

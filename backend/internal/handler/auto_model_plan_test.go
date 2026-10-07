@@ -81,7 +81,52 @@ func (r *autoInventoryRepo) ListModelAvailabilityCandidates(ctx context.Context,
 	return r.autoModelAccountRepoStub.ListModelAvailabilityCandidates(ctx, groupID, platforms, includeGrouped)
 }
 
-func TestAutoModelPlanRoutesUIDesignToDesignCapableModels(t *testing.T) {
+// 高级任务（UI 设计/前端/架构推理/多模态）优先本站真实可用的旗舰 gpt-6-astra / gpt-6.1-sol；
+// claude 系列在本站基本不可用，不再参与领域加成，通用档位顺序把它排到后面。
+func TestAutoModelPlanPrefersFlagshipForAdvancedDomains(t *testing.T) {
+	accounts := []service.Account{{
+		ID: 1, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+		Status: service.StatusActive, Schedulable: true,
+		Credentials: map[string]any{"model_mapping": map[string]any{
+			"gpt-6-astra":         "gpt-6-astra",
+			"deepseek-v4.1-flash": "deepseek-v4.1-flash",
+			"claude-opus-4-7":     "claude-opus-4-7",
+			"kimi-k3":             "kimi-k3",
+		}},
+	}}
+	h := newAutoModelTestHandler(accounts)
+	// gpt-6-astra 默认属于最高档并被排除，这里把它移出最高档以验证领域优先级。
+	h.settingService = service.NewSettingService(&contentModerationHandlerSettingRepo{values: map[string]string{
+		service.SettingKeyModelFallbackPolicy: `{"enabled":true,"tiers":[` +
+			`{"name":"旗舰","models":["gpt-6.1-sol"]},` +
+			`{"name":"主力编码","models":["gpt-6-astra","deepseek-v4.1-flash","claude-opus-4-7","kimi-k3"]}]}`,
+	}}, nil)
+	ctx, err := h.settingService.BindAutoModelRoutingPolicy(context.Background())
+	require.NoError(t, err)
+	ctx, models, err := h.gatewayService.BindAutoModelInventory(ctx, 71)
+	require.NoError(t, err)
+	group := &service.Group{ID: 71, Platform: service.PlatformOpenAI}
+
+	for _, body := range []string{
+		`{"model":"auto","input":"帮我做 UI 设计，降低卡片感的 AI 味"}`,
+		`{"model":"auto","input":"调整这个 Vue 组件的样式"}`,
+		`{"model":"auto","input":"重构这个分布式事务的数据库迁移"}`,
+	} {
+		routes, _, err := h.autoModelPlan(ctx, group, nil, "/v1/responses", []byte(body), models)
+		require.NoError(t, err)
+		require.NotEmpty(t, routes)
+		require.Equal(t, "gpt-6-astra", routes[0].model, body)
+	}
+
+	// 通用任务仍保留 deepseek-v4.1-flash 首选。
+	routes, _, err := h.autoModelPlan(ctx, group, nil, "/v1/responses", []byte(`{"model":"auto","input":"修复这个空指针"}`), models)
+	require.NoError(t, err)
+	require.NotEmpty(t, routes)
+	require.Equal(t, "deepseek-v4.1-flash", routes[0].model)
+}
+
+// 没有旗舰候选时，claude 不得因领域加成反超首选 deepseek-v4.1-flash。
+func TestAutoModelPlanDemotesClaudeWhenNoFlagshipAvailable(t *testing.T) {
 	accounts := []service.Account{{
 		ID: 1, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
 		Status: service.StatusActive, Schedulable: true,
@@ -101,12 +146,8 @@ func TestAutoModelPlanRoutesUIDesignToDesignCapableModels(t *testing.T) {
 	routes, _, err := h.autoModelPlan(ctx, group, nil, "/v1/responses", []byte(`{"model":"auto","input":"帮我做 UI 设计，降低卡片感的 AI 味"}`), models)
 	require.NoError(t, err)
 	require.NotEmpty(t, routes)
-	require.Equal(t, "claude-opus-4-7", routes[0].model)
-
-	routes, _, err = h.autoModelPlan(ctx, group, nil, "/v1/responses", []byte(`{"model":"auto","input":"修复这个空指针"}`), models)
-	require.NoError(t, err)
-	require.NotEmpty(t, routes)
 	require.Equal(t, "deepseek-v4.1-flash", routes[0].model)
+	require.NotEqual(t, "claude-opus-4-7", routes[0].model)
 }
 
 func TestAutoModelPlanIncludesEveryConfiguredCandidateWithoutHealthHistory(t *testing.T) {

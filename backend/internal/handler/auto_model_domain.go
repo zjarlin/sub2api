@@ -133,37 +133,36 @@ func messageContentText(content gjson.Result) []string {
 }
 
 // autoModelDomainPriority orders a domain preference. Existing eligibility still decides adoption.
+//
+// 高级任务（UI 设计、前端、架构推理、多模态）优先本站真实可用的旗舰 gpt-6-astra / gpt-6-sol /
+// gpt-6.1-sol，其次本站 GPT-6 家族与其他经济型编码模型。claude 系列在本站基本没有、有了也
+// 基本不可用，因此不再参与领域加成，交由通用档位顺序排到后面。通用任务不受影响，仍由档位与
+// 性价比顺序决定，保留 deepseek-v4.1-flash 首选。
 func autoModelDomainPriority(domain autoModelDomain, model string) (int, bool) {
 	name := strings.ToLower(strings.TrimSpace(model))
 	if slash := strings.LastIndex(name, "/"); slash >= 0 {
 		name = name[slash+1:]
 	}
 	switch domain {
-	case autoModelDomainUIDesign:
-		switch {
-		case name == "claude-opus-4-7" || name == "claude-opus-4-6" || name == "claude-opus-5":
-			return 0, true
-		case name == "claude-sonnet-4-6" || name == "claude-sonnet-4-5" || name == "claude-sonnet-5":
-			return 1, true
-		case strings.HasPrefix(name, "kimi-") || strings.HasPrefix(name, "glm-"):
-			return 2, true
-		}
-	case autoModelDomainFrontend:
-		switch {
-		case strings.HasPrefix(name, "claude-"), strings.HasPrefix(name, "gpt-6"):
-			return 0, true
-		case strings.HasPrefix(name, "kimi-"), strings.HasPrefix(name, "glm-"):
-			return 1, true
-		}
-	case autoModelDomainReasoning, autoModelDomainMultimodal:
-		switch {
-		case strings.HasPrefix(name, "gpt-6"), strings.HasPrefix(name, "claude-opus"):
-			return 0, true
-		case strings.HasPrefix(name, "deepseek-v4"), strings.HasPrefix(name, "kimi-"), strings.HasPrefix(name, "glm-"):
-			return 1, true
-		}
+	case autoModelDomainUIDesign, autoModelDomainFrontend, autoModelDomainReasoning, autoModelDomainMultimodal:
+	default:
+		return 0, false
 	}
+	switch {
+	case isAutoModelFlagship(name):
+		return 0, true
+	case strings.HasPrefix(name, "gpt-6"):
+		return 1, true
+	case strings.HasPrefix(name, "deepseek-v4"), strings.HasPrefix(name, "kimi-"), strings.HasPrefix(name, "glm-"):
+		return 2, true
+	}
+	// claude 等本站在售不可用的模型不做领域加成，按通用档位顺序排在后面。
 	return 0, false
+}
+
+// isAutoModelFlagship 只识别本站真实可用的旗舰模型。
+func isAutoModelFlagship(name string) bool {
+	return name == "gpt-6-astra" || name == "gpt-6-sol" || name == "gpt-6.1-sol"
 }
 
 func hasAny(text string, needles []string) bool {
