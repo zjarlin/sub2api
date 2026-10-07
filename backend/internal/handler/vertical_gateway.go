@@ -242,6 +242,15 @@ func (h *GatewayHandler) verticalMediaModel(ctx context.Context, group *service.
 				}
 			}
 		}
+		mediaModel := model
+		if decision.Matched && decision.UpstreamModel != "" {
+			mediaModel = decision.UpstreamModel
+		}
+		// 目录中的 image 名称不保证支持当前生成端点，复用现有处理器的模型识别。
+		if kind == "image_generation" && platform == service.PlatformOpenAI &&
+			!service.IsExplicitImageGenerationIntent("/v1/responses", mediaModel, nil) {
+			continue
+		}
 		if (kind == "image_generation" && (platform == service.PlatformOpenAI || platform == service.PlatformGrok)) ||
 			(kind == "video_generation" && platform == service.PlatformGrok) {
 			return model, platform, nil

@@ -207,20 +207,21 @@ func TestVerticalMediaDoesNotAllowUnsafeArtifactURLs(t *testing.T) {
 
 func TestVerticalMediaModelRequiresInventoryAndHonorsAliasesAndAllowlist(t *testing.T) {
 	accounts := []service.Account{{ID: 1, Platform: service.PlatformOpenAI, Credentials: map[string]any{
-		"model_mapping": map[string]any{"vendor/image-model": "upstream-image"},
+		"model_mapping": map[string]any{"vendor/gpt-image-2": "gpt-image-2", "agnes-image-2.0-flash": "agnes-image-2.0-flash"},
 	}}}
 	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{byGroup: map[int64][]service.Account{71: accounts}})
 	ctx := service.WithModelAliases(context.Background(), &service.ModelAliasPolicy{Groups: []service.ModelAliasGroup{
-		{Canonical: "image-model", Aliases: []string{"vendor/image-model"}},
+		{Canonical: "gpt-image-2", Aliases: []string{"vendor/gpt-image-2"}},
 	}})
 	for _, test := range []struct {
 		name, configured, want string
 		allowlist              service.GroupModelAllowlist
 	}{
-		{name: "inventory discovery", want: "image-model"},
-		{name: "configured alias", configured: "vendor/image-model", want: "image-model"},
+		{name: "inventory discovery excludes unsupported image names", want: "gpt-image-2"},
+		{name: "configured alias", configured: "vendor/gpt-image-2", want: "gpt-image-2"},
+		{name: "unsupported configured model", configured: "agnes-image-2.0-flash"},
 		{name: "missing model", configured: "missing-image"},
-		{name: "disallowed model", configured: "image-model", allowlist: service.GroupModelAllowlist{Enabled: true, Models: []string{"ask"}}},
+		{name: "disallowed model", configured: "gpt-image-2", allowlist: service.GroupModelAllowlist{Enabled: true, Models: []string{"ask"}}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			group := &service.Group{ID: 71, Platform: service.PlatformComposite, ModelAllowlist: test.allowlist}
