@@ -65,11 +65,14 @@ func TestTempUnscheduleRetryableErrorSkipsRequestScopedTransient(t *testing.T) {
 func TestStreamFailedEventCapacityShedRetriesOnSameAccount(t *testing.T) {
 	nonPool := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
 
-	for _, code := range []string{"server_is_overloaded", "slow_down"} {
+	for _, code := range []string{"server_is_overloaded", "slow_down", "gateway_concurrency_limit", "gateway_queue_full"} {
 		payload := []byte(`{"type":"response.failed","response":{"error":{"code":"` + code + `"}}}`)
 		require.True(t, isOpenAIUpstreamCapacityShedEvent(payload), code)
 		require.True(t, openAIStreamFailedEventRetryableOnSameAccount(nonPool, payload, "overloaded"), code)
 	}
+	userConcurrency := []byte(`{"type":"response.failed","response":{"error":{"code":"gateway_concurrency_limit","message":"Concurrency limit exceeded for user, please retry later"}}}`)
+	require.True(t, isOpenAIUpstreamCapacityShedEvent(userConcurrency))
+	require.Equal(t, http.StatusServiceUnavailable, openAIStreamFailedEventSemanticStatus(userConcurrency, ""))
 
 	// 非降载的 failed 事件在非池模式下仍不做同账号重试，避免放大改动面。
 	other := []byte(`{"type":"response.failed","response":{"error":{"code":"server_error"}}}`)
@@ -426,4 +429,64 @@ func TestCodexOutboundVersionHasSingleSource(t *testing.T) {
 	require.GreaterOrEqual(t, CompareVersions(codexCLIVersion, codexUpstreamMinVersion), 0,
 		"codexCLIVersion=%q 不得低于上游最低门槛 %q", codexCLIVersion, codexUpstreamMinVersion,
 	)
+}
+
+// 用实际带内错误验证首帧重试、健康归因和已输出后的客户端终态。
+func TestGatewayCapacityPassthrough(t *testing.T) {
+	for _, code := range []string{"gateway_concurrency_limit", "gateway_queue_full"} {
+		for _, started := range []bool{false, true} {
+			name := code + "/before_output"
+			if started {
+				name = code + "/after_output"
+			}
+			t.Run(name, func(t *testing.T) {
+				message := "Concurrency limit exceeded for user, please retry later"
+				if code == "gateway_queue_full" {
+					message = "Too many pending requests, please retry later"
+				}
+				stream := ""
+				if started {
+					stream = "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n"
+				}
+				stream += "event: response.failed\ndata: {\"type\":\"response.failed\",\"response\":{\"id\":\"resp_busy\",\"status\":\"failed\",\"error\":{\"code\":\"" + code + "\",\"message\":\"" + message + "\"}}}\n\n"
+				svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}
+				rec := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(rec)
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+				resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(stream))}
+				account := &Account{ID: 880, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+				_, err := svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, account, time.Now(), "model", "model")
+				require.Error(t, err)
+				var failure *UpstreamFailoverError
+				if started {
+					require.False(t, errors.As(err, &failure))
+					require.Contains(t, rec.Body.String(), "partial")
+					require.Contains(t, rec.Body.String(), `"code":"server_error"`)
+					require.Contains(t, rec.Body.String(), message)
+					require.Equal(t, 1, strings.Count(rec.Body.String(), "event: response.failed"))
+				} else {
+					require.True(t, errors.As(err, &failure))
+					require.True(t, failure.RequestScopedTransient)
+					require.True(t, failure.RetryableOnSameAccount)
+					require.True(t, failure.IsOpenAICapacityShed())
+					require.Equal(t, http.StatusServiceUnavailable, failure.ClientStatusCode)
+					require.Equal(t, message, failure.ClientMessage)
+					_, _, healthFailure := classifyOpenAIAPIKeyHealthFailure(failure)
+					require.False(t, healthFailure)
+					require.False(t, c.Writer.Written())
+				}
+			})
+		}
+	}
+}
+
+func TestGatewayCapacityClassificationBoundaries(t *testing.T) {
+	for _, body := range []string{
+		`{"response":{"error":{"code":"gateway_concurrency_limit","message":"Concurrency limit exceeded for account, please retry later"}}}`,
+		`{"input":{"code":"gateway_concurrency_limit"}}`,
+		`{"error":{"code":"insufficient_quota","message":"quota exhausted"}}`,
+	} {
+		require.False(t, isOpenAIUpstreamCapacityShedEvent([]byte(body)), body)
+	}
+	require.False(t, isOpenAIRequestScopedCapacityShed("OpenAI stream ended before a terminal event", nil))
 }

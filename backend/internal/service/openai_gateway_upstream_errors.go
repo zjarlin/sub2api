@@ -219,9 +219,15 @@ func isOpenAICapacityShedMessage(text string) bool {
 		strings.Contains(lower, "servers are currently overloaded")
 }
 
+// 只匹配上游用户级并发提示，账号级并发保留先切号策略。
+func isOpenAIUserConcurrencyMessage(message string) bool {
+	return strings.EqualFold(strings.TrimSpace(message), "Concurrency limit exceeded for user, please retry later")
+}
+
 func isOpenAIRequestScopedCapacityShed(upstreamMsg string, upstreamBody []byte) bool {
 	return isOpenAIUpstreamCapacityShedEvent(upstreamBody) ||
 		isOpenAICapacityShedMessage(upstreamMsg) ||
+		isOpenAIUserConcurrencyMessage(upstreamMsg) ||
 		(!gjson.ValidBytes(upstreamBody) && isOpenAICapacityShedMessage(string(upstreamBody)))
 }
 
@@ -631,7 +637,8 @@ func openAICapacityShedClientMessage(upstreamMsg string, body []byte) string {
 		gjson.GetBytes(body, "message").String(),
 	} {
 		candidate = sanitizeUpstreamErrorMessage(strings.TrimSpace(candidate))
-		if candidate != "" && isOpenAICapacityShedMessage(candidate) {
+		if candidate != "" && (isOpenAICapacityShedMessage(candidate) || isOpenAIUserConcurrencyMessage(candidate) ||
+			(openAIStreamFailedEventErrorCode(body) == "gateway_queue_full" && candidate == "Too many pending requests, please retry later")) {
 			return candidate
 		}
 	}

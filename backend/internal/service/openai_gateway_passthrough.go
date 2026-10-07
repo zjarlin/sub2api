@@ -1425,9 +1425,14 @@ func isOpenAIUpstreamCapacityShedEvent(payload []byte) bool {
 	switch openAIStreamFailedEventErrorCode(payload) {
 	case "server_is_overloaded", "slow_down":
 		return true
+	case "gateway_concurrency_limit", "gateway_queue_full":
+		// 明确的账号槽位限制仍优先切号；用户级或队列降载走有界重试。
+		message := firstNonEmpty(gjson.GetBytes(payload, "response.error.message").String(), gjson.GetBytes(payload, "error.message").String())
+		return !strings.EqualFold(strings.TrimSpace(message), "Concurrency limit exceeded for account, please retry later")
 	}
 	for _, path := range []string{"response.error.message", "error.message", "message"} {
-		if isOpenAICapacityShedMessage(gjson.GetBytes(payload, path).String()) {
+		message := gjson.GetBytes(payload, path).String()
+		if isOpenAICapacityShedMessage(message) || isOpenAIUserConcurrencyMessage(message) {
 			return true
 		}
 	}
@@ -1480,7 +1485,7 @@ func sanitizeOpenAICapacityShedErrorCodeForClient(payload []byte) ([]byte, bool)
 			continue
 		}
 		code := strings.ToLower(strings.TrimSpace(gjson.GetBytes(updated, path).String()))
-		if code != "" && code != "server_is_overloaded" && code != "slow_down" {
+		if code != "" && code != "server_is_overloaded" && code != "slow_down" && code != "gateway_concurrency_limit" && code != "gateway_queue_full" {
 			continue
 		}
 		next, err := sjson.SetBytes(updated, path, openAICapacityShedRetryableClientCode)
@@ -1522,7 +1527,7 @@ func openAIStreamFailedEventSemanticStatus(payload []byte, message string) int {
 		return http.StatusForbidden
 	case isOpenAIUpstreamAccessStateError(message, payload):
 		return http.StatusForbidden
-	case isOpenAIUpstreamCapacityShedEvent(payload):
+	case isOpenAIUpstreamCapacityShedEvent(payload) || isOpenAIUserConcurrencyMessage(message):
 		return http.StatusServiceUnavailable
 	default:
 		return http.StatusBadGateway
@@ -1538,7 +1543,7 @@ func openAIStreamFailureStatus(payload []byte, message string) int {
 	case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests, 529:
 		return semanticStatus
 	case http.StatusServiceUnavailable:
-		if isOpenAIUpstreamCapacityShedEvent(payload) {
+		if isOpenAIUpstreamCapacityShedEvent(payload) || isOpenAIUserConcurrencyMessage(message) {
 			return semanticStatus
 		}
 	}
