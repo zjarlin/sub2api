@@ -1,0 +1,14 @@
+serverAddr = "host.docker.internal"
+serverPort = 7000
+auth.method = "token"
+auth.token = "{{ .Envs.FRP_AUTH_TOKEN }}"
+transport.tls.enable = true
+
+[[visitors]]
+name = "hymt-gateway-visitor"
+type = "stcp"
+serverName = "tianjin-hymt-dcu"
+secretKey = "{{ .Envs.HYMT_STCP_KEY }}"
+bindAddr = "0.0.0.0"
+bindPort = 18086
+transport.useEncryption = true

@@ -1,0 +1,13 @@
+serverAddr = "{{ .Envs.FRP_SERVER_ADDR }}"
+serverPort = 7000
+auth.method = "token"
+auth.token = "{{ .Envs.FRP_AUTH_TOKEN }}"
+transport.tls.enable = true
+
+[[proxies]]
+name = "tianjin-hymt-dcu"
+type = "stcp"
+secretKey = "{{ .Envs.HYMT_STCP_KEY }}"
+localIP = "127.0.0.1"
+localPort = 18086
+transport.useEncryption = true

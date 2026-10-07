@@ -19,20 +19,21 @@ func TestHyMTTranslate(t *testing.T) {
 			t.Errorf("incorrect request method, endpoint or headers")
 		}
 		var body struct {
-			Model         string                           `json:"model"`
-			Messages      []struct{ Role, Content string } `json:"messages"`
-			Stream        bool                             `json:"stream"`
-			MaxTokens     int                              `json:"max_tokens"`
-			Temperature   float64                          `json:"temperature"`
-			TopP          float64                          `json:"top_p"`
-			TopK          int                              `json:"top_k"`
-			RepeatPenalty float64                          `json:"repeat_penalty"`
+			Model             string                           `json:"model"`
+			Messages          []struct{ Role, Content string } `json:"messages"`
+			Stream            bool                             `json:"stream"`
+			MaxTokens         int                              `json:"max_tokens"`
+			Temperature       float64                          `json:"temperature"`
+			TopP              float64                          `json:"top_p"`
+			TopK              int                              `json:"top_k"`
+			RepeatPenalty     float64                          `json:"repeat_penalty"`
+			RepetitionPenalty float64                          `json:"repetition_penalty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Error(err)
 			return
 		}
-		if body.Model != "hy-mt2" || body.Stream || body.MaxTokens != 2048 || body.Temperature != 0.7 || body.TopP != 0.6 || body.TopK != 20 || body.RepeatPenalty != 1.05 || len(body.Messages) != 1 || body.Messages[0].Role != "user" {
+		if body.Model != "hy-mt2" || body.Stream || body.MaxTokens != 2048 || body.Temperature != 0.7 || body.TopP != 0.6 || body.TopK != 20 || body.RepeatPenalty != 1.05 || body.RepetitionPenalty != 1.05 || len(body.Messages) != 1 || body.Messages[0].Role != "user" {
 			t.Errorf("incorrect model payload: %+v", body)
 			return
 		}

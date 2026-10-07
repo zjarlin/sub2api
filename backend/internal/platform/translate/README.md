@@ -123,6 +123,33 @@ TRANSLATE_HYMT_LIVE_TEST=1 TRANSLATE_HYMT_URL=http://127.0.0.1:18085 \
 
 上面的本地测试地址需自行建立临时 loopback 访问入口，生产默认不映射端口。
 
+### 天津海光 DCU 部署
+
+天津 `tianjin-ai` 是海光 K100_AI / gfx928，不使用 NVIDIA CUDA 镜像或 `--gpus all`。
+`deploy/docker-compose.hymt-tianjin.yml` 复用主机现有海光版 vLLM 0.13.0，
+固定本地镜像标签 `hy-vllm:hymt-20261007`，准备时须核对其镜像 ID 与已验证环境一致。
+运行前下载 BF16 模型：`download-hymt-hf-model.py` 固定官方仓库 revision，验证
+`model.safetensors` 的 SHA-256。此脚本需要 `huggingface_hub`，可在现有推理镜像中运行。
+推理容器启用 `HF_HUB_OFFLINE=1` 与 `TRANSFORMERS_OFFLINE=1`，只挂载准备好的本地文件。
+
+默认仅使用第 2 张卡（device 1），显存预算为该卡总量的 12%，上下文 8192 token，
+并发最多 2，关闭 CUDA graph 捕获。不得为了新服务停止现有模型或改变主机驱动。
+设置独立的 `HYMT_DCU_API_KEY`，服务仅绑定 `127.0.0.1:18086`，不要直接暴露公网。
+
+天津侧 `hymt-tunnel` 与网关侧 `docker-compose.hymt-visitor.yml` 使用独立 FRP STCP 通道，
+不新增公网推理监听端口，也不修改现有媒体代理。两端须使用匹配的 FRP 0.70.1，
+密钥通过私有环境文件注入；`Dockerfile.hymt-frpc` 使用已校验的静态 `frpc` 二进制构建。
+visitor 只加入网关私网，无宿主机端口映射。配置网关：
+
+```dotenv
+TRANSLATE_HYMT_URL=http://hymt-visitor:18086
+TRANSLATE_HYMT_API_KEY=<private-instance-key>
+```
+
+采样参数同时包含 llama.cpp 的 `repeat_penalty` 和 vLLM 的 `repetition_penalty`，
+确保两个引擎使用相同的重复惩罚。切换前必须验证远端真实译文及未授权请求被拒绝；
+保留 CPU 实例可供人工回切，但显式 `provider: "hymt"` 不自动切到其他在线服务。
+
 ```sh
 TRANSLATE_PUBLIC_LIVE_TEST=1 TRANSLATE_LIBRETRANSLATE_URL=http://127.0.0.1:5000 \
   go test ./internal/platform/translate -run TestPublicProvidersLive -v

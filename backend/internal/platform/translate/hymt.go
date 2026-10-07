@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-// HyMTTranslator 使用官方单轮翻译提示，通过 llama.cpp 的本地接口推理。
+// HyMTTranslator 使用官方单轮翻译提示，通过私有兼容接口离线推理。
 type HyMTTranslator struct {
 	baseURL string
 	apiKey  string
@@ -78,11 +78,11 @@ func (h *HyMTTranslator) translateText(ctx context.Context, text, target string)
 	if err != nil {
 		return "", fmt.Errorf("invalid endpoint")
 	}
-	// 模型没有默认系统提示；直接使用官方推荐的 user 提示和采样参数。
+	// 模型没有默认系统提示；同时传递两个引擎各自的重复惩罚字段名。
 	payload := map[string]any{
 		"model": "hy-mt2", "stream": false,
 		"messages":    []map[string]string{{"role": "user", "content": "Translate the following text into " + target + ". Note that you should only output the translated result without any additional explanation:\n\n" + text}},
-		"temperature": 0.7, "top_p": 0.6, "top_k": 20, "repeat_penalty": 1.05, "max_tokens": 2048,
+		"temperature": 0.7, "top_p": 0.6, "top_k": 20, "repeat_penalty": 1.05, "repetition_penalty": 1.05, "max_tokens": 2048,
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {

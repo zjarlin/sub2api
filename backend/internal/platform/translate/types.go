@@ -47,7 +47,7 @@ type Config struct {
 	HyMT                *HyMTConfig           `json:"hymt,omitempty"`
 }
 
-// HyMTConfig 指向运行 Hy-MT2 的本地 llama.cpp 服务。
+// HyMTConfig 指向运行 Hy-MT2 的私有 llama.cpp 或 vLLM 服务。
 type HyMTConfig struct {
 	BaseURL string `json:"base_url"`
 	APIKey  string `json:"api_key,omitempty"`
