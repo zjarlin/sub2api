@@ -324,6 +324,9 @@ func ProvideTranslateAggregator() *translate.Aggregator {
 	if baseURL := os.Getenv("TRANSLATE_LIBRETRANSLATE_URL"); baseURL != "" {
 		cfg.LibreTranslate = &translate.LibreTranslateConfig{BaseURL: baseURL, APIKey: os.Getenv("TRANSLATE_LIBRETRANSLATE_API_KEY")}
 	}
+	if baseURL := os.Getenv("TRANSLATE_HYMT_URL"); baseURL != "" {
+		cfg.HyMT = &translate.HyMTConfig{BaseURL: baseURL, APIKey: os.Getenv("TRANSLATE_HYMT_API_KEY")}
+	}
 
 	// 腾讯云
 	if sid := os.Getenv("TRANSLATE_TENCENT_SECRET_ID"); sid != "" {

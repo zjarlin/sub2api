@@ -52,6 +52,10 @@ func NewAggregator(cfg *Config) *Aggregator {
 		translators = append(translators, NewLibreTranslateTranslator(cfg.LibreTranslate))
 		log.Println("[translate] registered provider: libretranslate")
 	}
+	if cfg.HyMT != nil && cfg.HyMT.BaseURL != "" {
+		translators = append(translators, NewHyMTTranslator(cfg.HyMT))
+		log.Println("[translate] registered provider: hymt")
+	}
 
 	return &Aggregator{translators: translators}
 }

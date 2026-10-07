@@ -1,0 +1,45 @@
+services:
+  hymt:
+    image: ${HYMT_IMAGE:-ghcr.io/ggml-org/llama.cpp:server@sha256:a48c794aabc51dc5f9663c358b946b79d4cc02de67ab4d508c2c850fd0bc20f8}
+    platform: linux/amd64
+    container_name: sub2api-hymt
+    restart: unless-stopped
+    mem_limit: 4g
+    cpus: 3
+    pids_limit: 256
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    tmpfs:
+      - /tmp:size=64m
+    command:
+      - --model
+      - /models/Hy-MT2-1.8B-Q8_0.gguf
+      - --alias
+      - hy-mt2
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - --ctx-size
+      - "8192"
+      - --parallel
+      - "1"
+      - --threads
+      - "3"
+      - --threads-batch
+      - "3"
+      - --jinja
+      - --no-webui
+    volumes:
+      - ${HYMT_MODEL_DIR:-/opt/sub2api/models/hy-mt2}:/models:ro
+    networks:
+      - sub2api-network
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 120s

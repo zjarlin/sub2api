@@ -44,6 +44,13 @@ type Config struct {
 	Youdao              *YoudaoConfig         `json:"youdao,omitempty"`
 	MyMemory            *MyMemoryConfig       `json:"mymemory,omitempty"`
 	LibreTranslate      *LibreTranslateConfig `json:"libretranslate,omitempty"`
+	HyMT                *HyMTConfig           `json:"hymt,omitempty"`
+}
+
+// HyMTConfig 指向运行 Hy-MT2 的本地 llama.cpp 服务。
+type HyMTConfig struct {
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key,omitempty"`
 }
 
 // MyMemoryConfig 可选联系方式和正式 API Key；不自动编造邮箱提升额度。

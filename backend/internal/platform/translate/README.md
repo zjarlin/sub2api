@@ -28,6 +28,8 @@
 | `TRANSLATE_MYMEMORY_API_KEY` | MyMemory 正式 API Key，可选 | 否 |
 | `TRANSLATE_LIBRETRANSLATE_URL` | 自有或授权使用的 LibreTranslate 实例地址，配置后启用 | 否 |
 | `TRANSLATE_LIBRETRANSLATE_API_KEY` | 实例要求的 API Key，可选 | 否 |
+| `TRANSLATE_HYMT_URL` | 本地 Hy-MT2 llama.cpp 服务根地址，配置后启用 `hymt` | 否 |
+| `TRANSLATE_HYMT_API_KEY` | 推理实例要求的 API Key，可选 | 否 |
 
 MyMemory 和自定义 LibreTranslate 使用独立的显式配置，不受 `TRANSLATE_FREE_PROVIDERS=false` 影响。
 
@@ -84,6 +86,42 @@ TRANSLATE_LIBRETRANSLATE_URL=http://libretranslate:5000
 
 新服务器须显式启动此可选服务；Go 网关重建不会自动下载模型或启动旁路实例。
 当前中英以外的语言可能不支持，指定上游时返回错误，自动模式继续回退。
+
+### Hy-MT2 离线翻译
+
+`provider: "hymt"` 调用本地 Hy-MT2-1.8B，通过 llama.cpp 的
+`/v1/chat/completions` 推理。使用官方单轮 user 提示，不添加系统提示；采样参数为
+temperature=0.7、top_p=0.6、top_k=20、repeat_penalty=1.05。
+指定服务商不会暗中回退到联网服务；省略服务商时保留现有顺序，百度仍优先于新服务。
+
+部署固定版本的 Q8_0 权重（约 1.91 GB），下载脚本验证官方 LFS SHA-256。
+首次准备模型和镜像需要联网；准备完成后的翻译只访问本地服务，不自动下载模型。
+Apache-2.0 许可证及官方模型说明见 `tencent/Hy-MT2-1.8B-GGUF` 模型仓库。
+
+```sh
+sh deploy/download-hymt-model.sh
+# 如官方站点不可达，可显式使用镜像下载，仍校验相同权重摘要。
+HYMT_MODEL_HUB=https://hf-mirror.com sh deploy/download-hymt-model.sh
+
+docker compose --project-name sub2api --project-directory /opt/sub2api \
+  --env-file /opt/sub2api/.env -f /opt/sub2api/deploy/docker-compose.yml \
+  -f /opt/sub2api/deploy/docker-compose.hymt.yml up -d --no-deps hymt
+```
+
+在 Go 网关私有环境文件中设置 `TRANSLATE_HYMT_URL=http://hymt:8080`，再重建网关。
+服务只加入 Docker 私网，不开放宿主机端口，挂载只读模型，限制 3 CPU / 4 GiB。
+单推理槽、8192-token 上下文；每项最多 4096 UTF-8 字节，每批最多 16 项，逐项翻译。
+推理超时 120 秒/项，输出最多 2048 token，截断或空输出均报错，不返回不完整译文。
+仅支持 `text`，不承诺保留 HTML。支持 `zh-CN`/`zh-Hans`、`zh-TW`/`zh-Hant` 等语言别名。
+源语言留空或 `auto` 时模型自动翻译，但不伪造 `detected_language`；不提供独立语言检测。
+CPU 适合低并发短文本，长文本或多人并发需另行评估 GPU 部署。
+
+```sh
+TRANSLATE_HYMT_LIVE_TEST=1 TRANSLATE_HYMT_URL=http://127.0.0.1:18085 \
+  go test ./internal/platform/translate -run TestHyMTLive -v
+```
+
+上面的本地测试地址需自行建立临时 loopback 访问入口，生产默认不映射端口。
 
 ```sh
 TRANSLATE_PUBLIC_LIVE_TEST=1 TRANSLATE_LIBRETRANSLATE_URL=http://127.0.0.1:5000 \
