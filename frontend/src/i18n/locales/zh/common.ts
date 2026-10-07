@@ -164,6 +164,8 @@ export default {
 
   // Navigation
   nav: {
+    searchMenu: '搜索菜单',
+    noMenuResults: '未找到匹配的菜单',
     dashboard: '仪表盘',
     announcements: '公告',
     apiKeys: 'API 密钥',
@@ -185,7 +187,7 @@ export default {
     subscriptions: '订阅管理',
     accounts: '账号管理',
     plugins: '插件管理',
-    proxies: 'IP管理',
+    proxies: '代理管理',
     redeemCodes: '兑换码',
     ops: '运维监控',
     promoCodes: '优惠码',

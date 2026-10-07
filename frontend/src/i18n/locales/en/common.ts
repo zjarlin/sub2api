@@ -164,6 +164,8 @@ export default {
 
   // Navigation
   nav: {
+    searchMenu: 'Search menus',
+    noMenuResults: 'No matching menus',
     dashboard: 'Dashboard',
     announcements: 'Announcements',
     apiKeys: 'API Keys',

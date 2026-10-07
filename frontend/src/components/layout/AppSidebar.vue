@@ -29,13 +29,52 @@
       </div>
     </div>
 
+    <div class="px-3 pb-2">
+      <button
+        v-if="sidebarCollapsed"
+        type="button"
+        class="sidebar-link w-full sidebar-link-collapsed"
+        :title="t('nav.searchMenu')"
+        :aria-label="t('nav.searchMenu')"
+        @click="openMenuSearch"
+      >
+        <Icon name="search" class="h-5 w-5" />
+      </button>
+      <div v-else class="relative">
+        <Icon name="search" class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+        <input
+          ref="menuSearchInput"
+          v-model="menuSearch"
+          type="search"
+          class="input w-full pl-9 pr-9 text-sm [&::-webkit-search-cancel-button]:hidden"
+          :placeholder="t('nav.searchMenu')"
+          :aria-label="t('nav.searchMenu')"
+          @keydown.esc.prevent="menuSearch = ''"
+          @keydown.enter.prevent="navigateToFirstSearchResult"
+        />
+        <button
+          v-if="menuSearch"
+          type="button"
+          class="absolute right-2 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center text-gray-500 hover:text-gray-900 dark:hover:text-white"
+          :title="t('common.clear')"
+          :aria-label="t('common.clear')"
+          @click="menuSearch = ''; menuSearchInput?.focus()"
+        >
+          <Icon name="x" class="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+
     <!-- Navigation -->
     <nav ref="sidebarNavRef" class="sidebar-nav scrollbar-hide">
+      <p v-if="menuSearch.trim() && !hasMenuSearchResults && !sidebarCollapsed" role="status" class="px-3 py-4 text-sm text-gray-500">
+        {{ t('nav.noMenuResults') }}
+      </p>
       <!-- Admin View: Admin menu first, then personal menu -->
       <template v-if="isAdmin">
         <!-- Admin Section -->
         <div class="sidebar-section">
-          <template v-for="item in adminNavItems" :key="item.path">
+          <template v-for="item in searchedAdminNavItems" :key="item.path">
             <!-- Collapsible group (has children) -->
             <template v-if="item.children?.length">
               <button
@@ -102,7 +141,7 @@
         </div>
 
         <!-- Personal Section for Admin (hidden in simple mode) -->
-        <div v-if="!authStore.isSimpleMode" class="sidebar-section">
+        <div v-if="!authStore.isSimpleMode && searchedPersonalNavItems.length" class="sidebar-section">
           <div class="sidebar-section-title" :class="{ 'sidebar-section-title-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">
             <span class="sidebar-section-title-text" :class="{ 'sidebar-section-title-text-collapsed': sidebarCollapsed }">
               {{ t('nav.myAccount') }}
@@ -110,7 +149,7 @@
           </div>
 
           <router-link
-            v-for="item in personalNavItems"
+            v-for="item in searchedPersonalNavItems"
             :key="item.path"
             :to="item.path"
             class="sidebar-link mb-1"
@@ -130,7 +169,7 @@
       <template v-else-if="!appStore.backendModeEnabled">
         <div class="sidebar-section">
           <router-link
-            v-for="item in userNavItems"
+            v-for="item in searchedUserNavItems"
             :key="item.path"
             :to="item.path"
             class="sidebar-link mb-1"
@@ -199,10 +238,12 @@ import { sanitizeUrl } from '@/utils/url'
 import { FeatureFlags, makeSidebarFlag } from '@/utils/featureFlags'
 import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
 import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
+import { filterMenuItems } from '@/utils/menuSearch'
 
 interface NavItem {
   path: string
   label: string
+  searchKeywords?: string
   icon: unknown
   iconSvg?: string
   hideInSimpleMode?: boolean
@@ -250,6 +291,8 @@ const sidebarCollapsed = computed(() => appStore.sidebarCollapsed)
 const mobileOpen = computed(() => appStore.mobileOpen)
 const isAdmin = computed(() => authStore.isAdmin)
 const sidebarNavRef = ref<HTMLElement | null>(null)
+const menuSearch = ref('')
+const menuSearchInput = ref<HTMLInputElement | null>(null)
 const isDark = ref(document.documentElement.classList.contains('dark'))
 
 const homePath = computed(() => (isAdmin.value ? '/admin/dashboard' : '/dashboard'))
@@ -801,7 +844,7 @@ const adminNavItems = computed((): NavItem[] => {
     { path: '/admin/accounts', label: t('nav.accounts'), icon: GlobeIcon },
     { path: '/admin/plugins', label: t('nav.plugins'), icon: PluginIcon, featureFlag: flagPluginManagement },
     { path: '/admin/announcements', label: t('nav.announcements'), icon: BellIcon },
-    { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon },
+    { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon, searchKeywords: 'IP proxy proxies 代理' },
     {
       path: '/admin/security-audit',
       label: t('nav.securityAudit'),
@@ -909,7 +952,45 @@ function isGroupActive(item: NavItem): boolean {
   return item.children.some(child => route.path === child.path)
 }
 
+const searchedAdminNavItems = computed(() => filterMenuItems(adminNavItems.value, menuSearch.value))
+const searchedPersonalNavItems = computed(() => filterMenuItems(personalNavItems.value, menuSearch.value))
+const searchedUserNavItems = computed(() => filterMenuItems(userNavItems.value, menuSearch.value))
+const menuSearchResults = computed(() => {
+  if (isAdmin.value) {
+    return [...searchedAdminNavItems.value, ...(!authStore.isSimpleMode ? searchedPersonalNavItems.value : [])]
+  }
+  return appStore.backendModeEnabled ? [] : searchedUserNavItems.value
+})
+const hasMenuSearchResults = computed(() => menuSearchResults.value.length > 0)
+
+async function openMenuSearch() {
+  appStore.toggleSidebar()
+  await nextTick()
+  menuSearchInput.value?.focus()
+}
+
+function navigateToFirstSearchResult() {
+  if (!menuSearch.value.trim()) {
+    return
+  }
+  const first = menuSearchResults.value[0]
+  const target = first?.children?.[0] || first
+  if (target) {
+    router.push(target.path)
+    handleMenuItemClick(target.path)
+  }
+}
+
+watch(menuSearch, () => {
+  if (sidebarNavRef.value) {
+    sidebarNavRef.value.scrollTop = 0
+  }
+})
+
 function isGroupExpanded(item: NavItem): boolean {
+  if (menuSearch.value.trim()) {
+    return true
+  }
   const override = groupExpandOverrides.value.get(item.path)
   if (override !== undefined) return override
   return isGroupActive(item)
