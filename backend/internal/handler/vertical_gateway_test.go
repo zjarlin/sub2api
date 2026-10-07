@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -107,7 +108,7 @@ func TestVerticalTranslationShortCircuitsEveryModelAndPreservesProtocol(t *testi
 		_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"Hello"},"finish_reason":"stop"}]}`))
 	}))
 	defer upstream.Close()
-	for _, endpoint := range []string{"/v1/responses", "/responses", "/backend-api/codex/responses", "/v1/chat/completions"} {
+	for _, endpoint := range []string{"/v1/responses", "/responses", "/backend-api/codex/responses", "/v1/chat/completions", "/chat/completions"} {
 		for _, model := range []string{"ask", "auto", "gpt-6-astra", "custom-bundle"} {
 			for _, stream := range []bool{false, true} {
 				t.Run(fmt.Sprintf("%s/%s/%t", endpoint, model, stream), func(t *testing.T) {
@@ -147,7 +148,7 @@ func TestVerticalTranslationShortCircuitsEveryModelAndPreservesProtocol(t *testi
 			}
 		}
 	}
-	require.Equal(t, int32(32), calls.Load())
+	require.Equal(t, int32(40), calls.Load())
 }
 
 func TestVerticalTranslationFailureDoesNotSilentlyCallTextModel(t *testing.T) {
@@ -233,4 +234,28 @@ func TestVerticalMediaModelRequiresInventoryAndHonorsAliasesAndAllowlist(t *test
 			}
 		})
 	}
+}
+
+func TestVerticalVideoRefreshUsesTaskProviderInsteadOfOriginalGroup(t *testing.T) {
+	cache := &observationCache{}
+	h := observationHandler(cache)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/auto/routes", nil)
+	key := &service.APIKey{ID: 81, Group: &service.Group{ID: 71, Platform: service.PlatformOpenAI}}
+	c.Set(string(middleware.ContextKeyAPIKey), key)
+	routes := []service.AutoModelRouteObservation{{
+		State: "queued", UpdatedAt: time.Now().Add(-5 * time.Second).UnixMilli(),
+		Operation: &service.VerticalOperation{Kind: "video_generation", Provider: service.PlatformGrok, TaskID: "video-123"},
+	}}
+	h.refreshVerticalVideos(c, key, cache, routes, func(child *gin.Context) {
+		platform, ok := service.ResolvedTargetPlatformFromContext(child.Request.Context())
+		require.True(t, ok)
+		require.Equal(t, service.PlatformGrok, platform)
+		childKey, _ := middleware.GetAPIKeyFromContext(child)
+		require.Same(t, key, childKey)
+		require.Equal(t, "video-123", child.Param("request_id"))
+		child.JSON(200, gin.H{"status": "done", "video": gin.H{"url": "https://example.com/video.mp4"}})
+	})
+	require.Equal(t, "completed", routes[0].State)
+	require.Equal(t, "completed", cache.routes[len(cache.routes)-1].State)
 }

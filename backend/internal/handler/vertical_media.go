@@ -241,6 +241,7 @@ func (h *GatewayHandler) refreshVerticalVideos(c *gin.Context, key *service.APIK
 		}
 		count++
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
+		ctx = service.WithResolvedTargetPlatform(ctx, service.PlatformGrok)
 		code, body := verticalInternalRequest(c, ctx, http.MethodGet, "/v1/videos/"+url.PathEscape(operation.TaskID), nil,
 			gin.Params{{Key: "request_id", Value: operation.TaskID}}, status)
 		cancel()
