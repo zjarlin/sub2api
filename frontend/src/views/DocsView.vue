@@ -38,6 +38,10 @@
 
       <section id="downloads" class="scroll-mt-6 border-t border-gray-200 pt-6 dark:border-dark-700">
         <h2 class="text-lg font-semibold">{{ t('docs.downloads.title') }}</h2>
+        <p class="mt-2 text-xs leading-5 text-gray-500 dark:text-dark-300">
+          {{ t('docs.downloads.lead') }}
+          <a href="https://chatgpt.com/download" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:underline dark:text-primary-300">{{ t('docs.downloads.official') }}</a>
+        </p>
         <div v-for="download in downloads" :key="download.id" class="mt-5 min-w-0" :data-testid="'download-' + download.id">
           <div class="flex items-center justify-between gap-3">
             <h3 class="text-sm font-semibold">{{ download.title }}</h3>
@@ -45,10 +49,23 @@
               <Icon :name="copied === download.id ? 'check' : 'document'" size="sm" />
             </button>
           </div>
-          <p class="mb-2 text-xs leading-5 text-gray-500 dark:text-dark-300">
-            {{ download.description }}
-            <a href="https://chatgpt.com/download" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:underline dark:text-primary-300">{{ t('docs.downloads.official') }}</a>
-          </p>
+          <p class="mb-2 text-xs leading-5 text-gray-500 dark:text-dark-300">{{ download.description }}</p>
+          <div v-if="download.links.length" class="mb-3 flex flex-wrap items-center gap-2">
+            <a
+              v-for="(link, index) in download.links"
+              :key="link.href"
+              :href="link.href"
+              :download="link.filename"
+              :data-testid="'download-file-' + download.id + '-' + index"
+              class="inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-semibold transition-colors"
+              :class="index === 0
+                ? 'bg-primary-600 text-white hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600'
+                : 'border border-primary-300 text-primary-700 hover:bg-primary-50 dark:border-primary-700 dark:text-primary-200 dark:hover:bg-primary-950'"
+            >
+              <Icon :name="index === 0 ? 'download' : 'document'" size="sm" />
+              {{ t('docs.downloads.downloadFile', { name: link.filename }) }}
+            </a>
+          </div>
           <pre class="max-w-full overflow-x-auto rounded-lg bg-gray-950 p-4 text-sm text-gray-100"><code>{{ download.code }}</code></pre>
         </div>
       </section>
@@ -116,28 +133,37 @@ function selectPlatform(platform: Platform) {
   selectedPlatform.value = platform
   setupOptions.value = { ...defaultCodexSetupOptions(), client: platform === 'linux' ? 'cli' : 'desktop' }
 }
+const downloadRoot = computed(() => window.location.origin.replace(/\/+$/, ''))
 const downloads = computed(() => [
   {
     id: 'macos',
     title: 'macOS',
     description: t('docs.downloads.macos'),
-    code: 'curl -fL "' + window.location.origin.replace(/\/+$/, '') + '/downloads/Codex.dmg" -o Codex.dmg\nopen Codex.dmg'
+    links: [
+      { href: downloadRoot.value + '/downloads/Codex.dmg', filename: 'Codex.dmg' }
+    ],
+    code: 'curl -fL "' + downloadRoot.value + '/downloads/Codex.dmg" -o Codex.dmg\nopen Codex.dmg'
   },
   {
     id: 'windows',
-    title: 'Windows (CMD / PowerShell)',
+    title: 'Windows',
     description: t('docs.downloads.windows'),
-    code: 'powershell.exe -NoProfile -Command "Invoke-WebRequest -UseBasicParsing -Uri \'' + window.location.origin.replace(/\/+$/, '') + '/downloads/codex-setup.ps1\' -OutFile codex-setup.ps1; & .\\codex-setup.ps1 -BaseUrl \'' + window.location.origin.replace(/\/+$/, '') + '\' -ApiKey \'sk-xxxx\'"'
+    links: [
+      { href: downloadRoot.value + '/downloads/codex-setup.ps1', filename: 'codex-setup.ps1' },
+      { href: downloadRoot.value + '/downloads/ChatGPT-Installer.exe', filename: 'ChatGPT-Installer.exe' }
+    ],
+    code: 'powershell.exe -NoProfile -Command "Invoke-WebRequest -UseBasicParsing -Uri \'' + downloadRoot.value + '/downloads/codex-setup.ps1\' -OutFile codex-setup.ps1; & .\\codex-setup.ps1 -BaseUrl \'' + downloadRoot.value + '\' -ApiKey \'sk-xxxx\'"'
   },
   {
     id: 'linux',
     title: 'Linux',
     description: t('docs.downloads.linux'),
+    links: [],
     code: 'curl -fL "https://chatgpt.com/codex/install.sh" -o codex-install.sh && sh codex-install.sh'
   }
-].filter(download => download.id === selectedPlatform.value))
+])
 const setupCommand = computed(() => buildCodexSetupCommand(
-  window.location.origin.replace(/\/+$/, ''),
+  downloadRoot.value,
   currentUserKey.value?.key || manualApiKey.value || 'sk-xxxx',
   setupOptions.value,
   selectedPlatform.value === 'windows'

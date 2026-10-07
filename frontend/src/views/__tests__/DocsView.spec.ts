@@ -69,6 +69,13 @@ const messages: Record<string, string> = {
   'home.login': 'Login',
   'common.copy': 'Copy',
   'common.copied': 'Copied',
+  'docs.downloads.title': 'Client downloads',
+  'docs.downloads.lead': 'Download directly from this site.',
+  'docs.downloads.official': 'Official download page',
+  'docs.downloads.macos': 'Cached macOS installer.',
+  'docs.downloads.windows': 'Windows setup script and Store bootstrap.',
+  'docs.downloads.linux': 'Official Codex CLI installer.',
+  'docs.downloads.downloadFile': 'Download {name}',
 }
 
 vi.mock('vue-i18n', () => ({
@@ -136,8 +143,17 @@ describe('DocsView', () => {
     expect(wrapper.find('#quick-start').exists()).toBe(true)
     expect(wrapper.text()).toContain('curl -fL')
     expect(wrapper.text()).toContain('Codex.dmg')
-    expect(wrapper.find('[data-testid="download-windows"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="download-linux"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="download-macos"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="download-windows"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="download-linux"]').exists()).toBe(true)
+    const macLink = wrapper.get('[data-testid="download-file-macos-0"]')
+    expect(macLink.attributes('href')).toContain('/downloads/Codex.dmg')
+    expect(macLink.attributes('download')).toBe('Codex.dmg')
+    const winScript = wrapper.get('[data-testid="download-file-windows-0"]')
+    expect(winScript.attributes('href')).toContain('/downloads/codex-setup.ps1')
+    expect(winScript.attributes('download')).toBe('codex-setup.ps1')
+    const winInstaller = wrapper.get('[data-testid="download-file-windows-1"]')
+    expect(winInstaller.attributes('href')).toContain('/downloads/ChatGPT-Installer.exe')
     expect(wrapper.text()).toContain('npx --registry=https://registry.npmmirror.com -y sub2api-codex-setup')
     expect(wrapper.text()).toContain('Login required.')
     expect(wrapper.find('#clients').exists()).toBe(false)
@@ -157,15 +173,16 @@ describe('DocsView', () => {
     expect(command).toContain('& .\\codex-setup.ps1')
     expect(command).not.toContain('$LASTEXITCODE')
     expect(command).not.toContain('\n')
-    expect(wrapper.text()).not.toContain('Codex.dmg')
+    expect(download.get('[data-testid="download-file-windows-0"]').attributes('href')).toContain('/downloads/codex-setup.ps1')
+    expect(download.get('[data-testid="download-file-windows-1"]').attributes('href')).toContain('/downloads/ChatGPT-Installer.exe')
+    expect(wrapper.get('[data-testid="download-macos"]').text()).toContain('Codex.dmg')
+    expect(wrapper.get('[data-testid="download-linux"]').text()).toContain('https://chatgpt.com/codex/install.sh')
     expect(wrapper.get('[data-testid="setup-command"]').text()).toContain('powershell.exe -NoProfile -ExecutionPolicy Bypass')
     await download.get('button').trigger('click')
     expect(writeText).toHaveBeenCalledWith(command)
     await wrapper.get('[data-testid="platform-macos"]').trigger('click')
-    expect(wrapper.find('[data-testid="download-windows"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="download-macos"]').text()).toContain('Codex.dmg')
     await wrapper.get('[data-testid="platform-linux"]').trigger('click')
-    expect(wrapper.find('[data-testid="download-macos"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="download-linux"]').text()).toContain('https://chatgpt.com/codex/install.sh')
     wrapper.unmount()
   })

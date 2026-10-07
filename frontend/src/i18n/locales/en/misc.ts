@@ -64,10 +64,12 @@ export default {
     official: 'Codex official website and documentation',
     downloads: {
       title: 'Client downloads',
+      lead: 'Click the buttons below to download directly from this site. No login and no command copying required.',
       official: 'Official download page',
-      macos: 'Downloads from this site first, with the official source as fallback.',
-      windows: 'Downloads the official Store bootstrap from this site first; the setup script falls back to Codex CLI when Store networking is unavailable.',
+      macos: 'This site caches the official macOS installer; click to download directly, with the official source as fallback.',
+      windows: 'The Windows desktop app ships through the Microsoft Store. Download the one-command setup script first (it installs the Codex CLI from a China-friendly npm mirror), then download the Store bootstrap if you need the desktop app.',
       linux: 'Official Codex CLI installer.',
+      downloadFile: 'Download {name}',
     },
     setup: {
       title: 'Install and configure',

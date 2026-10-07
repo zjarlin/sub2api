@@ -63,10 +63,12 @@ export default {
     official: 'Codex 官网与使用文档',
     downloads: {
       title: '客户端下载',
+      lead: '直接点击下方按钮即可从本站下载，无需登录，也不需要复制命令。',
       official: '官方下载页',
-      macos: '优先从本站缓存下载；缓存未准备好时会回退官方源。',
-      windows: '优先从本站缓存下载官方 Store 引导器；商店网络不可用时安装脚本会自动回退 Codex CLI。',
+      macos: '本站已缓存官方 macOS 安装包，点击按钮直接下载；缓存未准备好时会回退官方源。',
+      windows: 'Windows 桌面版由微软商店分发，先下载本站的一键安装脚本（自动走国内 npm 镜像安装 Codex CLI），需要桌面应用时再下载商店引导器。',
       linux: '官方 Codex CLI 安装脚本。',
+      downloadFile: '下载 {name}',
     },
     setup: {
       title: '一键安装与配置',
