@@ -2,16 +2,19 @@ package translate
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 )
+
+var ErrProviderUnavailable = errors.New("translate: provider is not configured")
 
 // Aggregator 翻译服务聚合器，按优先级调用多个 Translator，失败自动回退
 type Aggregator struct {
 	translators []Translator
 }
 
-// NewAggregator 根据配置创建聚合器，优先级: 腾讯 > 百度 > 有道
+// NewAggregator 保留既有上游顺序，新接入服务追加为备用。
 func NewAggregator(cfg *Config) *Aggregator {
 	var translators []Translator
 
@@ -41,12 +44,31 @@ func NewAggregator(cfg *Config) *Aggregator {
 		translators = append(translators, NewYoudaoTranslator(cfg.Youdao))
 		log.Println("[translate] registered provider: youdao")
 	}
+	if cfg.MyMemory != nil {
+		translators = append(translators, NewMyMemoryTranslator(cfg.MyMemory))
+		log.Println("[translate] registered provider: mymemory")
+	}
+	if cfg.LibreTranslate != nil && cfg.LibreTranslate.BaseURL != "" {
+		translators = append(translators, NewLibreTranslateTranslator(cfg.LibreTranslate))
+		log.Println("[translate] registered provider: libretranslate")
+	}
 
 	return &Aggregator{translators: translators}
 }
 
 // Translate 按优先级尝试翻译，首个成功即返回
 func (a *Aggregator) Translate(ctx context.Context, req *TranslateRequest) (*TranslateResponse, error) {
+	if req == nil {
+		return nil, fmt.Errorf("translate: request is required")
+	}
+	if req.Provider != "" {
+		for _, t := range a.translators {
+			if t.Name() == req.Provider {
+				return t.Translate(ctx, req)
+			}
+		}
+		return nil, ErrProviderUnavailable
+	}
 	if len(a.translators) == 0 {
 		return nil, fmt.Errorf("translate: no providers configured")
 	}

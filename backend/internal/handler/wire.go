@@ -318,6 +318,12 @@ func ProvideTranslateAggregator() *translate.Aggregator {
 	if cfg.EnableFreeProviders && os.Getenv("TRANSLATE_GOOGLE_WEB") == "true" {
 		cfg.GoogleWeb = &translate.GoogleWebConfig{ProxyURL: os.Getenv("TRANSLATE_GOOGLE_WEB_PROXY_URL")}
 	}
+	if os.Getenv("TRANSLATE_MYMEMORY") == "true" {
+		cfg.MyMemory = &translate.MyMemoryConfig{Email: os.Getenv("TRANSLATE_MYMEMORY_EMAIL"), APIKey: os.Getenv("TRANSLATE_MYMEMORY_API_KEY")}
+	}
+	if baseURL := os.Getenv("TRANSLATE_LIBRETRANSLATE_URL"); baseURL != "" {
+		cfg.LibreTranslate = &translate.LibreTranslateConfig{BaseURL: baseURL, APIKey: os.Getenv("TRANSLATE_LIBRETRANSLATE_API_KEY")}
+	}
 
 	// 腾讯云
 	if sid := os.Getenv("TRANSLATE_TENCENT_SECRET_ID"); sid != "" {

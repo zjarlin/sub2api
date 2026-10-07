@@ -10,11 +10,14 @@ for compose_file in \
   deploy/docker-compose.standalone.yml \
   deploy/docker-compose.dev.yml
 do
-  for key in TRANSLATE_FREE_PROVIDERS TRANSLATE_BAIDU_APP_ID TRANSLATE_BAIDU_SECRET
+  for key in TRANSLATE_FREE_PROVIDERS TRANSLATE_BAIDU_APP_ID TRANSLATE_BAIDU_SECRET TRANSLATE_MYMEMORY TRANSLATE_MYMEMORY_EMAIL TRANSLATE_MYMEMORY_API_KEY TRANSLATE_LIBRETRANSLATE_URL TRANSLATE_LIBRETRANSLATE_API_KEY
   do
     fallback=''
     if [ "$key" = TRANSLATE_FREE_PROVIDERS ]; then
       fallback=true
+    fi
+    if [ "$key" = TRANSLATE_MYMEMORY ]; then
+      fallback=false
     fi
     expected=$(printf '      - %s=${%s:-%s}' "$key" "$key" "$fallback")
     count=$(grep -Fxc "$expected" "$compose_file" || true)
@@ -25,7 +28,7 @@ do
   done
 done
 
-for key in TRANSLATE_BAIDU_APP_ID TRANSLATE_BAIDU_SECRET
+for key in TRANSLATE_BAIDU_APP_ID TRANSLATE_BAIDU_SECRET TRANSLATE_MYMEMORY_API_KEY TRANSLATE_LIBRETRANSLATE_API_KEY
 do
   if ! grep -Fxq "$key=" deploy/.env.example; then
     printf 'Example credentials must be empty: %s\n' "$key" >&2

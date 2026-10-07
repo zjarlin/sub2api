@@ -6,7 +6,7 @@ import (
 )
 
 func TestProvideTranslateAggregatorGoogleWebOptIn(t *testing.T) {
-	for _, key := range []string{"TRANSLATE_CAIYUN_TOKEN", "TRANSLATE_TENCENT_SECRET_ID", "TRANSLATE_BAIDU_APP_ID", "TRANSLATE_YOUDAO_APP_KEY", "TRANSLATE_GOOGLE_WEB_PROXY_URL"} {
+	for _, key := range []string{"TRANSLATE_CAIYUN_TOKEN", "TRANSLATE_TENCENT_SECRET_ID", "TRANSLATE_BAIDU_APP_ID", "TRANSLATE_YOUDAO_APP_KEY", "TRANSLATE_GOOGLE_WEB_PROXY_URL", "TRANSLATE_MYMEMORY", "TRANSLATE_LIBRETRANSLATE_URL"} {
 		t.Setenv(key, "")
 	}
 	for _, tc := range []struct {
@@ -26,5 +26,20 @@ func TestProvideTranslateAggregatorGoogleWebOptIn(t *testing.T) {
 				t.Fatalf("providers = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestProvideTranslateAggregatorPublicProviders(t *testing.T) {
+	for _, key := range []string{"TRANSLATE_CAIYUN_TOKEN", "TRANSLATE_TENCENT_SECRET_ID", "TRANSLATE_YOUDAO_APP_KEY", "TRANSLATE_GOOGLE_WEB"} {
+		t.Setenv(key, "")
+	}
+	t.Setenv("TRANSLATE_FREE_PROVIDERS", "false")
+	t.Setenv("TRANSLATE_BAIDU_APP_ID", "test-app")
+	t.Setenv("TRANSLATE_BAIDU_SECRET", "test-secret")
+	t.Setenv("TRANSLATE_MYMEMORY", "true")
+	t.Setenv("TRANSLATE_LIBRETRANSLATE_URL", "http://libretranslate:5000")
+	got := ProvideTranslateAggregator().AvailableProviders()
+	if !reflect.DeepEqual(got, []string{"baidu", "mymemory", "libretranslate"}) {
+		t.Fatalf("providers = %v", got)
 	}
 }

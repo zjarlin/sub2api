@@ -6,7 +6,7 @@
 
 - **语言代码**: 严格遵循 ISO 639-1 / BCP 47 (如 `zh-CN`, `en-US`, `ja-JP`)
 - **API 风格**: RESTful JSON，与 Sub2API 网关鉴权体系集成
-- **回退策略**: 彩云小译 → Google 网页翻译兼容接口 → 腾讯云 → 百度 → 有道
+- **回退策略**: 彩云小译 → Google 网页翻译兼容接口 → 腾讯云 → 百度 → 有道 → MyMemory → LibreTranslate；仅尝试已启用的上游
 
 ## 环境变量配置
 
@@ -23,6 +23,13 @@
 | `TRANSLATE_BAIDU_SECRET` | 百度翻译密钥 | 备选 |
 | `TRANSLATE_YOUDAO_APP_KEY` | 有道智云 AppKey | 备选 |
 | `TRANSLATE_YOUDAO_APP_SECRET` | 有道智云 AppSecret | 备选 |
+| `TRANSLATE_MYMEMORY` | `true` 显式启用 MyMemory，默认关闭 | 否 |
+| `TRANSLATE_MYMEMORY_EMAIL` | 自有有效联系邮箱，可选；不自动填入假邮箱 | 否 |
+| `TRANSLATE_MYMEMORY_API_KEY` | MyMemory 正式 API Key，可选 | 否 |
+| `TRANSLATE_LIBRETRANSLATE_URL` | 自有或授权使用的 LibreTranslate 实例地址，配置后启用 | 否 |
+| `TRANSLATE_LIBRETRANSLATE_API_KEY` | 实例要求的 API Key，可选 | 否 |
+
+MyMemory 和自定义 LibreTranslate 使用独立的显式配置，不受 `TRANSLATE_FREE_PROVIDERS=false` 影响。
 
 至少配置一个服务商即可启动。未配置任何服务商时，翻译接口返回错误。
 
@@ -41,6 +48,49 @@
   "format": "text"
 }
 ```
+
+可选字段 `provider` 指定 `baidu`、`mymemory`、`libretranslate` 等已配置上游。
+指定服务商后只调用该上游，失败不暗中回退；未知或未启用服务商返回 HTTP 400。
+留空则保留自动回退行为，响应 `provider` 始终标识实际返回译文的上游。
+
+```json
+{"q":["Hello world"],"source":"en","target":"zh-CN","provider":"mymemory"}
+```
+
+## MyMemory 与 LibreTranslate
+
+MyMemory 调用官方 `/get` 接口，每个文本项最多 500 个 UTF-8 字节，必须指定源语言。
+自动源语言、HTML、超长文本直接报错，不猜测语言或静默截断。
+即使 HTTP 200，也必须校验 `responseStatus` 和 `quotaFinished`，防止把错误说明当译文。
+匿名额度由官方控制；有邮箱或密钥时也不承诺不限量。
+
+LibreTranslate 调用 `/translate` 和 `/detect`，支持文本/HTML及自动语言识别。
+配置 `zh-CN` 映射到实例的 `zh`，每个输入项单独请求以保留批次边界。
+默认不使用不可靠的第三方公共实例；提供独立 Compose 文件部署私网服务：
+
+```sh
+docker compose --project-name sub2api --project-directory /opt/sub2api \
+  --env-file /opt/sub2api/.env -f /opt/sub2api/deploy/docker-compose.yml \
+  -f /opt/sub2api/deploy/docker-compose.libretranslate.yml up -d --no-deps libretranslate
+```
+
+实例固定镜像版本与摘要，只加载中英模型，限制 2 CPU/2 GiB，并持久化模型缓存。
+不映射公网端口。Go 网关容器与其共享私网，设置：
+
+```dotenv
+TRANSLATE_MYMEMORY=true
+TRANSLATE_LIBRETRANSLATE_URL=http://libretranslate:5000
+```
+
+新服务器须显式启动此可选服务；Go 网关重建不会自动下载模型或启动旁路实例。
+当前中英以外的语言可能不支持，指定上游时返回错误，自动模式继续回退。
+
+```sh
+TRANSLATE_PUBLIC_LIVE_TEST=1 TRANSLATE_LIBRETRANSLATE_URL=http://127.0.0.1:5000 \
+  go test ./internal/platform/translate -run TestPublicProvidersLive -v
+```
+
+实时测试中的地址应替换为实际可访问的私网实例地址；默认部署并不发布宿主机 5000 端口。
 
 **响应:**
 ```json

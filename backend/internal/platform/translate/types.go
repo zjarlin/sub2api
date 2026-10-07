@@ -4,10 +4,11 @@ import "context"
 
 // TranslateRequest 统一翻译请求，遵循 ISO 639-1 语言代码标准
 type TranslateRequest struct {
-	Text       []string `json:"q"`                // 待翻译文本列表
-	SourceLang string   `json:"source"`           // 源语言，ISO 639-1，空表示自动检测
-	TargetLang string   `json:"target"`           // 目标语言，ISO 639-1，必填
-	Format     string   `json:"format,omitempty"` // "text" 或 "html"，默认 "text"
+	Text       []string `json:"q"`                  // 待翻译文本列表
+	SourceLang string   `json:"source"`             // 源语言，ISO 639-1，空表示自动检测
+	TargetLang string   `json:"target"`             // 目标语言，ISO 639-1，必填
+	Format     string   `json:"format,omitempty"`   // "text" 或 "html"，默认 "text"
+	Provider   string   `json:"provider,omitempty"` // 留空自动回退，指定时只调用该服务商
 }
 
 // TranslateResponse 统一翻译响应
@@ -35,12 +36,26 @@ type Translator interface {
 // Config 翻译服务配置
 type Config struct {
 	// EnableFreeProviders 启用内置的免密钥公开翻译源（彩云小译）。
-	EnableFreeProviders bool             `json:"enable_free_providers,omitempty"`
-	Caiyun              *CaiyunConfig    `json:"caiyun,omitempty"`
-	GoogleWeb           *GoogleWebConfig `json:"google_web,omitempty"`
-	Tencent             *TencentConfig   `json:"tencent,omitempty"`
-	Baidu               *BaiduConfig     `json:"baidu,omitempty"`
-	Youdao              *YoudaoConfig    `json:"youdao,omitempty"`
+	EnableFreeProviders bool                  `json:"enable_free_providers,omitempty"`
+	Caiyun              *CaiyunConfig         `json:"caiyun,omitempty"`
+	GoogleWeb           *GoogleWebConfig      `json:"google_web,omitempty"`
+	Tencent             *TencentConfig        `json:"tencent,omitempty"`
+	Baidu               *BaiduConfig          `json:"baidu,omitempty"`
+	Youdao              *YoudaoConfig         `json:"youdao,omitempty"`
+	MyMemory            *MyMemoryConfig       `json:"mymemory,omitempty"`
+	LibreTranslate      *LibreTranslateConfig `json:"libretranslate,omitempty"`
+}
+
+// MyMemoryConfig 可选联系方式和正式 API Key；不自动编造邮箱提升额度。
+type MyMemoryConfig struct {
+	Email  string `json:"email,omitempty"`
+	APIKey string `json:"api_key,omitempty"`
+}
+
+// LibreTranslateConfig 指向自有或明确授权使用的实例。
+type LibreTranslateConfig struct {
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key,omitempty"`
 }
 
 // GoogleWebConfig 配置 Google 网页翻译兼容接口及专用出网代理。

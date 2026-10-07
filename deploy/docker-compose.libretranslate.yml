@@ -1,0 +1,24 @@
+services:
+  libretranslate:
+    image: ${LIBRETRANSLATE_IMAGE:-libretranslate/libretranslate:v1.9.6@sha256:1de2d7056bb8ad607a412f4563d9abe324ff632b43b5be9428bcc8e213aebb32}
+    container_name: sub2api-libretranslate
+    restart: unless-stopped
+    mem_limit: 2g
+    cpus: 2
+    pids_limit: 512
+    environment:
+      - LT_LOAD_ONLY=en,zh
+      - LT_UPDATE_MODELS=true
+    volumes:
+      - libretranslate_models:/home/libretranslate/.local:rw
+    networks:
+      - sub2api-network
+    healthcheck:
+      test: ["CMD-SHELL", "./venv/bin/python scripts/healthcheck.py"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 180s
+
+volumes:
+  libretranslate_models:

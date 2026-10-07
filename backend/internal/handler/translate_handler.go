@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/platform/translate"
 
@@ -37,6 +38,10 @@ func (h *TranslateHandler) Translate(c *gin.Context) {
 
 	resp, err := h.aggregator.Translate(c.Request.Context(), &req)
 	if err != nil {
+		if errors.Is(err, translate.ErrProviderUnavailable) {
+			response.BadRequest(c, "Unknown or unavailable translation provider")
+			return
+		}
 		response.InternalError(c, err.Error())
 		return
 	}
