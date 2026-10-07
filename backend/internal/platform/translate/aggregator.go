@@ -24,6 +24,11 @@ func NewAggregator(cfg *Config) *Aggregator {
 		log.Println("[translate] registered provider: caiyun (built-in token)")
 	}
 
+	if cfg.GoogleWeb != nil {
+		translators = append(translators, NewGoogleWebTranslator(cfg.GoogleWeb))
+		log.Println("[translate] registered provider: google_web")
+	}
+
 	if cfg.Tencent != nil && cfg.Tencent.SecretID != "" {
 		translators = append(translators, NewTencentTranslator(cfg.Tencent))
 		log.Println("[translate] registered provider: tencent")

@@ -4,8 +4,8 @@ import (
 	"os"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/platform/translate"
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
+	"github.com/Wei-Shaw/sub2api/internal/platform/translate"
 	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -314,6 +314,9 @@ func ProvideTranslateAggregator() *translate.Aggregator {
 
 	if token := os.Getenv("TRANSLATE_CAIYUN_TOKEN"); token != "" {
 		cfg.Caiyun = &translate.CaiyunConfig{Token: token}
+	}
+	if cfg.EnableFreeProviders && os.Getenv("TRANSLATE_GOOGLE_WEB") == "true" {
+		cfg.GoogleWeb = &translate.GoogleWebConfig{ProxyURL: os.Getenv("TRANSLATE_GOOGLE_WEB_PROXY_URL")}
 	}
 
 	// 腾讯云

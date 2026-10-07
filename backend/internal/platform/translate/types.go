@@ -4,9 +4,9 @@ import "context"
 
 // TranslateRequest 统一翻译请求，遵循 ISO 639-1 语言代码标准
 type TranslateRequest struct {
-	Text       []string `json:"q"`      // 待翻译文本列表
-	SourceLang string   `json:"source"` // 源语言，ISO 639-1，空表示自动检测
-	TargetLang string   `json:"target"` // 目标语言，ISO 639-1，必填
+	Text       []string `json:"q"`                // 待翻译文本列表
+	SourceLang string   `json:"source"`           // 源语言，ISO 639-1，空表示自动检测
+	TargetLang string   `json:"target"`           // 目标语言，ISO 639-1，必填
 	Format     string   `json:"format,omitempty"` // "text" 或 "html"，默认 "text"
 }
 
@@ -18,7 +18,7 @@ type TranslateResponse struct {
 
 // TranslationResult 单条翻译结果
 type TranslationResult struct {
-	Text             string `json:"text"`                       // 翻译后文本
+	Text             string `json:"text"`                        // 翻译后文本
 	DetectedLanguage string `json:"detected_language,omitempty"` // 自动检测到的源语言（仅当 source 为空时返回）
 }
 
@@ -35,11 +35,17 @@ type Translator interface {
 // Config 翻译服务配置
 type Config struct {
 	// EnableFreeProviders 启用内置的免密钥公开翻译源（彩云小译）。
-	EnableFreeProviders bool `json:"enable_free_providers,omitempty"`
-	Caiyun  *CaiyunConfig  `json:"caiyun,omitempty"`
-	Tencent *TencentConfig `json:"tencent,omitempty"`
-	Baidu   *BaiduConfig   `json:"baidu,omitempty"`
-	Youdao  *YoudaoConfig  `json:"youdao,omitempty"`
+	EnableFreeProviders bool             `json:"enable_free_providers,omitempty"`
+	Caiyun              *CaiyunConfig    `json:"caiyun,omitempty"`
+	GoogleWeb           *GoogleWebConfig `json:"google_web,omitempty"`
+	Tencent             *TencentConfig   `json:"tencent,omitempty"`
+	Baidu               *BaiduConfig     `json:"baidu,omitempty"`
+	Youdao              *YoudaoConfig    `json:"youdao,omitempty"`
+}
+
+// GoogleWebConfig 配置 Google 网页翻译兼容接口及专用出网代理。
+type GoogleWebConfig struct {
+	ProxyURL string `json:"proxy_url,omitempty"`
 }
 
 // CaiyunConfig 彩云小译配置；Token 留空时使用内置公开令牌。

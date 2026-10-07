@@ -6,14 +6,16 @@
 
 - **语言代码**: 严格遵循 ISO 639-1 / BCP 47 (如 `zh-CN`, `en-US`, `ja-JP`)
 - **API 风格**: RESTful JSON，与 Sub2API 网关鉴权体系集成
-- **回退策略**: 彩云小译(免密钥) → 腾讯云 → 百度 → 有道
+- **回退策略**: 彩云小译 → Google 网页翻译兼容接口 → 腾讯云 → 百度 → 有道
 
 ## 环境变量配置
 
 | 变量名 | 说明 | 必填 |
 |--------|------|------|
-| `TRANSLATE_FREE_PROVIDERS` | 设为 `false` 关闭内置免密钥源（彩云小译），默认开启 | 否 |
+| `TRANSLATE_FREE_PROVIDERS` | 设为 `false` 关闭免密钥源（彩云小译及可选 Google 网页兼容接口），默认开启 | 否 |
 | `TRANSLATE_CAIYUN_TOKEN` | 彩云小译令牌，留空使用内置公开令牌 | 否 |
+| `TRANSLATE_GOOGLE_WEB` | 设为 `true` 显式开启 Google 网页翻译兼容接口，默认关闭；需同时允许免密钥源 | 否 |
+| `TRANSLATE_GOOGLE_WEB_PROXY_URL` | Google 专用 HTTP/HTTPS/SOCKS5 出网代理；未配置时遵循标准 HTTP_PROXY/HTTPS_PROXY | 否 |
 | `TRANSLATE_TENCENT_SECRET_ID` | 腾讯云 SecretId | 推荐 |
 | `TRANSLATE_TENCENT_SECRET_KEY` | 腾讯云 SecretKey | 推荐 |
 | `TRANSLATE_TENCENT_REGION` | 腾讯云区域，默认 `ap-guangzhou` | 否 |
@@ -90,3 +92,25 @@ type Translator interface {
 ```
 
 然后在 `aggregator.go` 的 `NewAggregator` 中按优先级注册。
+
+## uTools 聚合翻译分析
+
+2026-10-07 在用户 MacBook 上只读分析官方 `translatehub` 1.3.13 插件。
+ASAR SHA-256：`d307216a3b71cf4210a769337de6a61e36b3ff96765c2b518c079bb47984f6bd`。
+插件通过 Electron webview 打开腾讯、有道、搜狗、DeepL、微软、彩云、CNKI、Google 网页，
+使用 `executeJavaScript` 写入 textarea/contenteditable 并派发 input 事件，没有独立的 uTools 翻译 HTTP 上游。
+
+网关因此按实际来源返回 `google_web`，不伪装成 `utools`。
+Google 的兼容端点使用 `client=gtx`、`sl`、`tl`、`dt=t`、`dj=1`、`q`，
+逐项解析 `sentences[].trans` 和 `src`，保留批次顺序与自动语言检测。
+它是非正式网页兼容接口，可能改版、限流或失效，不承诺免费额度或 SLA。
+访问失败、验证码或无翻译响应会返回错误，聚合器继续回退，不尝试绕过校验。
+当前服务端直连 Google 超时；经 MacBook 的临时 SOCKS5 通道，curl 返回了真实译文，
+Go 适配器首次实测遇到 HTTP 429，不能据此认定稳定可用。
+为避免影响现有翻译延迟，此实验性上游默认关闭。
+部署环境必须自行提供可访问 Google 的出网路径；临时验证通道不是生产代理。
+
+```sh
+TRANSLATE_GOOGLE_WEB_LIVE_TEST=1 TRANSLATE_GOOGLE_WEB_PROXY_URL=socks5h://127.0.0.1:19087 \
+  go test ./internal/platform/translate -run TestGoogleWebLive -v
+```
