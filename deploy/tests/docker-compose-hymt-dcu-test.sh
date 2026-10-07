@@ -2,6 +2,15 @@
 set -eu
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$repo_root"
+node -e '
+  const fs = require("fs");
+  for (const file of ["deploy/hymt-frpc.toml", "deploy/hymt-frp-visitor.toml"]) {
+    const config = fs.readFileSync(file, "utf8");
+    for (const setting of ["transport.tcpMux = true", "transport.heartbeatInterval = 20", "transport.heartbeatTimeout = 90"]) {
+      if (!config.includes(setting)) throw new Error(file + ": missing explicit FRP heartbeat configuration");
+    }
+  }
+'
 HYMT_DCU_API_KEY=test-key FRP_SERVER_ADDR=127.0.0.1 FRP_AUTH_TOKEN=test-token HYMT_STCP_KEY=test-stcp \
   docker compose -f deploy/docker-compose.hymt-tianjin.yml config --format json |
   node -e '

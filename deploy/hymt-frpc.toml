@@ -3,6 +3,9 @@ serverPort = 7000
 auth.method = "token"
 auth.token = "{{ .Envs.FRP_AUTH_TOKEN }}"
 transport.tls.enable = true
+transport.tcpMux = true
+transport.heartbeatInterval = 20
+transport.heartbeatTimeout = 90
 
 [[proxies]]
 name = "tianjin-hymt-dcu"
