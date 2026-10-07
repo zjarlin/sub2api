@@ -1488,6 +1488,8 @@ func (a *Account) GetOpenAIBaseURL() string {
 	case PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformDeepseekWeb, PlatformArena, PlatformLaya, PlatformJev, PlatformCursor, PlatformWindsurf:
 		// 内置适配器模式下由部署注入地址，账号本身不存默认公网端点。
 		return builtinAdapterBaseURL(a.Platform)
+	case PlatformKilo:
+		return DefaultKiloBaseURL
 	case PlatformKimi:
 		if a.GetAccountMode() == AccountModeCoding {
 			return DefaultKimiCodingBaseURL

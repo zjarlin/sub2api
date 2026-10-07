@@ -145,7 +145,7 @@ func autoModelTextPlatform(platform string) bool {
 	switch platform {
 	case service.PlatformOpenAI, service.PlatformGrok, service.PlatformKimi,
 		service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax,
-		service.PlatformOpenCodeGo, service.PlatformDoubao, service.PlatformDeepseekWeb, service.PlatformCursor, service.PlatformWindsurf, service.PlatformTraework,
+		service.PlatformOpenCodeGo, service.PlatformKilo, service.PlatformDoubao, service.PlatformDeepseekWeb, service.PlatformCursor, service.PlatformWindsurf, service.PlatformTraework,
 		service.PlatformWorkbuddy, service.PlatformVibex, service.PlatformZcode,
 		service.PlatformQoder:
 		return true

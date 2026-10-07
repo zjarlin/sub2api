@@ -264,6 +264,20 @@
           </button>
           <button
             type="button"
+            data-testid="platform-kilo"
+            @click="selectKiloPlatform"
+            :class="[
+              'flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'kilo'
+                ? 'bg-white text-fuchsia-700 shadow-sm dark:bg-dark-600 dark:text-fuchsia-300'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <PlatformIcon platform="kilo" size="sm" />
+            Kilo
+          </button>
+          <button
+            type="button"
             data-testid="platform-doubao"
             @click="selectDoubaoPlatform"
             :class="[
@@ -693,6 +707,29 @@
             <div>
               <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.opencodeGo.accountMode.zen') }}</span>
               <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.opencodeGo.accountMode.zenDesc') }}</span>
+            </div>
+          </button>
+          <button
+            type="button"
+            @click="openCodeAccountMode = 'free'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              openCodeAccountMode === 'free'
+                ? cnAccentActiveClass
+                : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
+            ]"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                openCodeAccountMode === 'free' ? cnAccentIconClass : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="gift" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.opencodeGo.accountMode.free') }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.opencodeGo.accountMode.freeDesc') }}</span>
             </div>
           </button>
           <button
@@ -4183,6 +4220,7 @@ import {
   cloneOpenCodeGoProtocolRules,
   cnSupportsNativeResponses,
   defaultCNAdaptiveBaseUrls,
+  KILO_BASE_URL,
   defaultCNBaseUrl,
   defaultOpenCodeProtocolRules,
   isCNProviderPlatform,
@@ -4337,6 +4375,8 @@ const apiKeyValuePlaceholder = computed(() => {
     case 'minimax':
     case 'opencode_go':
       return 'sk-...'
+    case 'kilo':
+      return 'public'
     default:
       return 'sk-ant-...'
   }
@@ -4560,6 +4600,18 @@ function selectOpenCodeGoPlatform() {
   apiKeyBaseUrl.value = defaultCNBaseUrl('opencode_go', openCodeAccountMode.value, 'adaptive')
   resetAdaptiveBaseUrls('opencode_go', openCodeAccountMode.value)
   openCodeGoProtocolRules.value = cloneOpenCodeGoProtocolRules(defaultOpenCodeProtocolRules(openCodeAccountMode.value))
+}
+
+// Kilo 公共免费池：无 API Key，仅 Chat Completions，地址与鉴权由后端处理。
+function selectKiloPlatform() {
+  upstreamBillingAutoProbeEnabled.value = false
+  form.platform = 'kilo'
+  form.type = 'apikey'
+  accountCategory.value = 'apikey'
+  apiProtocol.value = 'chat_completions'
+  apiKeyBaseUrl.value = KILO_BASE_URL
+  apiKeyValue.value = 'public'
+  form.concurrency = 1
 }
 
 // 豆包使用已部署适配器的密钥，只支持 Chat Completions 上游和单并发。
@@ -6384,7 +6436,7 @@ const handleSubmit = async () => {
 
   // For apikey type, create directly
   // 豆包 / TRAE Work 使用内置适配器，地址由后端注入，无需手填。
-  if (!apiKeyValue.value.trim() && !isBuiltinAdapterPlatform.value) {
+  if (!apiKeyValue.value.trim() && !isBuiltinAdapterPlatform.value && form.platform !== 'kilo') {
     appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
     return
   }
@@ -6447,7 +6499,12 @@ const handleSubmit = async () => {
   // 国产供应商：账号模式 + 协议 + 对应端点写入凭据；后端按 account_mode 路由
   // 额度/余额探测，按 api_protocol 路由转发端点与格式。注意 CN apikey 走本函数
   // 的通用路径（直接 doCreateAccount），不经过 createAccountAndFinish。
-  if (isCNProviderPlatform(form.platform) || form.platform === 'opencode_go') {
+  if (form.platform === 'kilo') {
+    credentials.account_mode = 'free'
+    credentials.api_protocol = 'chat_completions'
+    credentials.base_url = KILO_BASE_URL
+    credentials.api_key = 'public'
+  } else if (isCNProviderPlatform(form.platform) || form.platform === 'opencode_go') {
     credentials.account_mode = form.platform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
     credentials.api_protocol = apiProtocol.value
     if (apiProtocol.value === 'adaptive') {

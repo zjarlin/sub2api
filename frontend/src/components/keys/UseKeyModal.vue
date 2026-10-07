@@ -1389,6 +1389,7 @@ function generateRoutedCodexFiles(
     jev: 'typesafe/jev',
     minimax: 'MiniMax-M3',
     opencode_go: 'glm-5.3',
+    kilo: 'kilo-auto/free',
     composite: 'gpt-5.5'
   }
   const preferredModel = preferredModels[platform] || ''
@@ -1417,6 +1418,7 @@ function generateRoutedCodexFiles(
     jev: 'JEV',
     minimax: 'MiniMax',
     opencode_go: 'OpenCode',
+    kilo: 'Kilo',
     composite: 'Composite'
   }
   const label = labels[platform]

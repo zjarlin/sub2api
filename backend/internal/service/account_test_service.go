@@ -2302,6 +2302,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	// 账号级请求头覆写：测试请求与真实转发保持一致的最终头
 	account.ApplyHeaderOverrides(req.Header)
 	applyOpenCodeSessionHeader(c, account, apiURL, req.Header, payloadBytes)
+	applyFreeLaneRequestHeaders(account, req.Header, resolveFreeLaneSessionSeed(c, payloadBytes))
 
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {

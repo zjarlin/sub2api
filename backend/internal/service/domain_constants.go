@@ -63,6 +63,7 @@ const (
 	PlatformLaya        = domain.PlatformLaya
 	PlatformJev         = domain.PlatformJev
 	PlatformOpenCodeGo  = domain.PlatformOpenCodeGo
+	PlatformKilo        = domain.PlatformKilo
 	PlatformComposite   = domain.PlatformComposite
 	// PlatformKiro is retained for unsupported-platform threshold tests and legacy
 	// account rows. Scheduling-threshold evaluation never pauses kiro accounts.
@@ -75,6 +76,7 @@ const (
 	AccountModeCoding = domain.AccountModeCoding
 	AccountModeZen    = domain.AccountModeZen
 	AccountModeGo     = domain.AccountModeGo
+	AccountModeFree   = domain.AccountModeFree
 )
 
 // 上游 API 协议（国产供应商）：决定转发端点与格式，与接入模式正交。
@@ -100,6 +102,8 @@ const (
 	DefaultOpenCodeGoBaseURL = "https://opencode.ai/zen/go/v1"
 	// OpenCode Zen：按量付费网关，模型列表为 /zen/v1/models。
 	DefaultOpenCodeZenBaseURL = "https://opencode.ai/zen/v1"
+	// Kilo AI 公共网关：/api/gateway/models 与 /api/gateway/chat/completions。
+	DefaultKiloBaseURL = "https://api.kilo.ai/api/gateway"
 )
 
 // 国产供应商 Anthropic 协议端点的默认 base_url（上游路径为 {base}/v1/messages）。
@@ -118,7 +122,7 @@ const (
 // IsCNProvider 报告 platform 是否为国产 OpenAI 兼容供应商（含豆包桌面会话适配器）。
 func IsCNProvider(platform string) bool {
 	switch platform {
-	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformArena, PlatformMiniMax, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformSystemOne, PlatformLaya, PlatformJev:
+	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformArena, PlatformMiniMax, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformSystemOne, PlatformLaya, PlatformJev, PlatformKilo:
 		return true
 	default:
 		return false
@@ -133,7 +137,7 @@ func IsOpenCodeGo(platform string) bool {
 // IsMultiProtocolAPIKeyProvider 报告 platform 是否为多协议 API Key 网关
 // （国产供应商 + OpenCode）：共用 OpenAI 网关；豆包固定 Chat Completions，其余按配置分流。
 func IsMultiProtocolAPIKeyProvider(platform string) bool {
-	return IsCNProvider(platform) || platform == PlatformOpenCodeGo || platform == PlatformCursor || platform == PlatformWindsurf
+	return IsCNProvider(platform) || platform == PlatformOpenCodeGo || platform == PlatformKilo || platform == PlatformCursor || platform == PlatformWindsurf
 }
 
 // AllowedQuotaPlatforms 是允许设置 user × platform quota 的平台列表（单一权威来源）。
@@ -152,6 +156,7 @@ var AllowedQuotaPlatforms = []string{
 	PlatformCursor,
 	PlatformWindsurf,
 	PlatformOpenCodeGo,
+	PlatformKilo,
 	PlatformDoubao,
 	PlatformTraework,
 	PlatformWorkbuddy,
@@ -791,6 +796,7 @@ var MixedSchedulingCompatibleTargets = map[string][]string{
 	PlatformDeepseekWeb: {PlatformOpenAI},
 	PlatformMiniMax:     {PlatformOpenAI},
 	PlatformOpenCodeGo:  {PlatformOpenAI},
+	PlatformKilo:        {PlatformOpenAI},
 	PlatformDoubao:      {PlatformOpenAI},
 	PlatformTraework:    {PlatformOpenAI},
 	PlatformWorkbuddy:   {PlatformOpenAI},

@@ -994,6 +994,7 @@ export default {
         laya: 'Laya',
         jev: 'JEV',
       opencode_go: 'OpenCode',
+      kilo: 'Kilo',
         composite: 'Composite',
       },
       deleteConfirm:

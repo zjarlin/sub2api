@@ -421,10 +421,14 @@ func normalizeOpenAILongContextBillingUpdateExtra(account *Account, input *Updat
 
 func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]any) (*Account, error) {
 	applyBuiltinAdapterCredentials(input.Platform, input.Credentials)
+	normalizeFreeLaneCredentials(input.Platform, input.Credentials)
 	if err := validateDoubaoCredentials(input.Platform, input.Type, input.Credentials); err != nil {
 		return nil, err
 	}
 	if err := validateBuiltinChatCredentials(input.Platform, input.Type, input.Credentials); err != nil {
+		return nil, err
+	}
+	if err := validateKiloCredentials(input.Platform, input.Type, input.Credentials); err != nil {
 		return nil, err
 	}
 	// Probe/session state is system-managed. New accounts always start with automatic refresh disabled.
@@ -492,10 +496,14 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
 	applyBuiltinAdapterCredentials(input.Platform, input.Credentials)
+	normalizeFreeLaneCredentials(input.Platform, input.Credentials)
 	if err := validateDoubaoCredentials(input.Platform, input.Type, input.Credentials); err != nil {
 		return nil, err
 	}
 	if err := validateBuiltinChatCredentials(input.Platform, input.Type, input.Credentials); err != nil {
+		return nil, err
+	}
+	if err := validateKiloCredentials(input.Platform, input.Type, input.Credentials); err != nil {
 		return nil, err
 	}
 	accountExtra, err := normalizeOpenAILongContextBillingExtra(input.Platform, input.Extra)
@@ -683,10 +691,14 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		account.Credentials = SanitizeStoredCredentials(account.Platform, account.Credentials)
 	}
 	applyBuiltinAdapterCredentials(account.Platform, account.Credentials)
+	normalizeFreeLaneCredentials(account.Platform, account.Credentials)
 	if err := validateDoubaoCredentials(account.Platform, account.Type, account.Credentials); err != nil {
 		return nil, err
 	}
 	if err := validateBuiltinChatCredentials(account.Platform, account.Type, account.Credentials); err != nil {
+		return nil, err
+	}
+	if err := validateKiloCredentials(account.Platform, account.Type, account.Credentials); err != nil {
 		return nil, err
 	}
 	// Extra 使用 map：需要区分“未提供(nil)”与“显式清空({})”。

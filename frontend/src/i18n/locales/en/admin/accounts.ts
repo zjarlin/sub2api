@@ -314,6 +314,7 @@ export default {
         laya: 'Laya',
         jev: 'JEV',
       opencode_go: 'OpenCode',
+      kilo: 'Kilo',
       },
       builtinCheckin: {
         title: 'Check-in Records',
@@ -405,6 +406,8 @@ export default {
           zenDesc: 'Pay-as-you-go gateway. Consumes account credits, billed per token.',
           go: 'GO',
           goDesc: 'Subscription gateway, rate-limited by 5-hour / weekly / monthly usage windows.',
+          free: 'Free',
+          freeDesc: 'Public keyless pool (Bearer public). Free-tier models only; prompts may be logged upstream.',
         },
         protocolRules: {
           title: 'Model protocol routing',

@@ -326,7 +326,7 @@ export const GROK_BASE_URL_PRESETS: GrokBaseUrlPreset[] = [
 // 两者正交。同协议请求零转换直通，跨协议组合才走转换链。
 
 export type CnAccountMode = 'payg' | 'coding'
-export type OpenCodeAccountMode = 'zen' | 'go'
+export type OpenCodeAccountMode = 'zen' | 'go' | 'free'
 export type CnProviderPlatform = 'kimi' | 'zhipu' | 'deepseek' | 'minimax'
 
 /** deepseek / kimi / minimax 支持原生 responses；adaptive 会按入站协议选择原生端点。 */
@@ -346,6 +346,7 @@ export const OPENCODE_GO_BASE_URL = 'https://opencode.ai/zen/go/v1'
 export const OPENCODE_GO_ANTHROPIC_BASE_URL = 'https://opencode.ai/zen/go'
 export const OPENCODE_ZEN_BASE_URL = 'https://opencode.ai/zen/v1'
 export const OPENCODE_ZEN_ANTHROPIC_BASE_URL = 'https://opencode.ai/zen'
+export const KILO_BASE_URL = 'https://api.kilo.ai/api/gateway'
 
 export function isOpenCodeGoPlatform(platform: string): boolean {
   return platform === 'opencode_go'
@@ -371,15 +372,18 @@ export const DEFAULT_OPENCODE_ZEN_PROTOCOL_RULES: OpenCodeGoProtocolRule[] = [
   { pattern: 'gpt-*', protocol: 'responses' },
   { pattern: 'muse-spark-*', protocol: 'responses' },
   { pattern: 'claude-*', protocol: 'anthropic' },
+  { pattern: 'union-alpha', protocol: 'anthropic' },
   { pattern: 'qwen*', protocol: 'anthropic' }
 ]
 
 export function resolveOpenCodeAccountMode(value: unknown): OpenCodeAccountMode {
-  return value === 'zen' ? 'zen' : 'go'
+  if (value === 'zen') return 'zen'
+  if (value === 'free') return 'free'
+  return 'go'
 }
 
 export function defaultOpenCodeProtocolRules(mode: OpenCodeAccountMode = 'go'): OpenCodeGoProtocolRule[] {
-  return mode === 'zen' ? DEFAULT_OPENCODE_ZEN_PROTOCOL_RULES : DEFAULT_OPENCODE_GO_PROTOCOL_RULES
+  return mode === 'go' ? DEFAULT_OPENCODE_GO_PROTOCOL_RULES : DEFAULT_OPENCODE_ZEN_PROTOCOL_RULES
 }
 
 export function cloneOpenCodeGoProtocolRules(
@@ -425,7 +429,7 @@ export function applyOpenCodeGoProtocolRules(
 }
 
 export function isMultiProtocolApiKeyPlatform(platform: string): boolean {
-  return platform === 'kimi' || platform === 'zhipu' || platform === 'deepseek' || platform === 'minimax' || platform === 'opencode_go'
+  return platform === 'kimi' || platform === 'zhipu' || platform === 'deepseek' || platform === 'minimax' || platform === 'opencode_go' || platform === 'kilo'
 }
 
 export interface CnBaseUrlPreset {
@@ -490,7 +494,9 @@ export function defaultCNBaseUrl(
       case 'minimax':
         return 'https://api.minimaxi.com/anthropic'
       case 'opencode_go':
-        return mode === 'zen' ? OPENCODE_ZEN_ANTHROPIC_BASE_URL : OPENCODE_GO_ANTHROPIC_BASE_URL
+        return mode === 'go' ? OPENCODE_GO_ANTHROPIC_BASE_URL : OPENCODE_ZEN_ANTHROPIC_BASE_URL
+      case 'kilo':
+        return KILO_BASE_URL
       default:
         return ''
     }
@@ -508,7 +514,9 @@ export function defaultCNBaseUrl(
     case 'minimax':
       return 'https://api.minimaxi.com/v1'
     case 'opencode_go':
-      return mode === 'zen' ? OPENCODE_ZEN_BASE_URL : OPENCODE_GO_BASE_URL
+      return mode === 'go' ? OPENCODE_GO_BASE_URL : OPENCODE_ZEN_BASE_URL
+    case 'kilo':
+      return KILO_BASE_URL
     default:
       return ''
   }
@@ -531,7 +539,8 @@ export function defaultCNAdaptiveBaseUrls(
 // 共用，避免多处复制条件后一处改另一处漏改。
 
 export function cnQuotaCellVisible(platform: string, accountMode: string): boolean {
-  if (platform === 'opencode_go') return accountMode !== 'zen'
+  if (platform === 'opencode_go') return accountMode !== 'zen' && accountMode !== 'free'
+  if (platform === 'kilo') return false
   return (platform === 'kimi' || platform === 'zhipu' || platform === 'minimax') && accountMode === 'coding'
 }
 

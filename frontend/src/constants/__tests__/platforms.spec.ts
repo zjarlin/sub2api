@@ -14,6 +14,7 @@ const concretePlatforms = [
   'arena',
   'minimax',
   'opencode_go',
+  'kilo',
   'doubao',
   'traework',
   'workbuddy',

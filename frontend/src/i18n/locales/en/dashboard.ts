@@ -556,7 +556,8 @@ export default {
       zcode: 'ZCode',
       laya: 'Laya',
       jev: 'JEV',
-      opencode_go: 'OpenCode'
+      opencode_go: 'OpenCode',
+      kilo: 'Kilo'
     },
     // Check modes (how a monitor performs its checks)
     checkMode: {

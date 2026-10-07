@@ -48,6 +48,7 @@ const (
 	PlatformCursor      = domain.PlatformCursor
 	PlatformWindsurf    = domain.PlatformWindsurf
 	PlatformOpenCodeGo  = domain.PlatformOpenCodeGo
+	PlatformKilo        = domain.PlatformKilo
 	PlatformDoubao      = domain.PlatformDoubao
 	PlatformTraework    = domain.PlatformTraework
 	PlatformWorkbuddy   = domain.PlatformWorkbuddy
@@ -73,6 +74,7 @@ func AllPlatforms() []string {
 		PlatformCursor,
 		PlatformWindsurf,
 		PlatformOpenCodeGo,
+		PlatformKilo,
 		PlatformDoubao,
 		PlatformTraework,
 		PlatformWorkbuddy,

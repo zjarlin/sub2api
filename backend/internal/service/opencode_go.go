@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -58,6 +59,29 @@ func DefaultOpenCodeGoModelIDs() []string {
 	}
 }
 
+// DefaultKiloModelIDs 是 Kilo 免费池的静态回退目录（listing 中 isFree=true 的 id）。
+// 上游会随政策增删，真实清单以 /api/gateway/models 同步结果为准。
+func DefaultKiloModelIDs() []string {
+	return []string{
+		"kilo-auto/free",
+		"inclusionai/ling-3.1-flash",
+		"stepfun/step-3.7-flash:free",
+		"nvidia/nemotron-3-ultra-550b-a55b:free",
+		"dots-studio/dots-3-note-preview:free",
+		"poolside/laguna-s-2.1:free",
+		"inclusionai/ling-3.0-flash-sante:free",
+		"liquid/lfm-2.5-2.6b:free",
+		"nvidia/nemotron-3.5-lightning:free",
+		"thinkingmachines/inkling-small:free",
+		"poolside/laguna-xs-2.1:free",
+		"cohere/north-mini-code:free",
+		"nvidia/nemotron-3.5-content-safety:free",
+		"nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+		"nvidia/nemotron-3-super-120b-a12b:free",
+		"openrouter/free",
+	}
+}
+
 func normalizeOpenCodeGoModelID(model string) string {
 	model = strings.ToLower(strings.TrimSpace(model))
 	for _, prefix := range []string{"opencode-go/", "opencode_go/", "opencode/"} {
@@ -92,12 +116,13 @@ func DefaultOpenCodeZenProtocolRules() []OpenCodeGoProtocolRule {
 		{Pattern: "gpt-*", Protocol: APIProtocolResponses},
 		{Pattern: "muse-spark-*", Protocol: APIProtocolResponses},
 		{Pattern: "claude-*", Protocol: APIProtocolAnthropic},
+		{Pattern: "union-alpha", Protocol: APIProtocolAnthropic},
 		{Pattern: "qwen*", Protocol: APIProtocolAnthropic},
 	}
 }
 
 func defaultOpenCodeProtocolRules(mode string) []OpenCodeGoProtocolRule {
-	if mode == AccountModeZen {
+	if mode == AccountModeZen || mode == AccountModeFree {
 		return DefaultOpenCodeZenProtocolRules()
 	}
 	return DefaultOpenCodeGoProtocolRules()
@@ -257,14 +282,22 @@ func (a *Account) GetOpenCodeAccountMode() string {
 	if a == nil || !a.IsOpenCodeGo() {
 		return ""
 	}
-	if strings.TrimSpace(a.GetCredential("account_mode")) == AccountModeZen {
+	switch strings.TrimSpace(a.GetCredential("account_mode")) {
+	case AccountModeZen:
 		return AccountModeZen
+	case AccountModeFree:
+		return AccountModeFree
+	default:
+		return AccountModeGo
 	}
-	return AccountModeGo
 }
 
 func (a *Account) IsOpenCodeZen() bool {
 	return a.GetOpenCodeAccountMode() == AccountModeZen
+}
+
+func (a *Account) IsOpenCodeFree() bool {
+	return a.GetOpenCodeAccountMode() == AccountModeFree
 }
 
 func (a *Account) IsOpenCodeGoPlan() bool {
@@ -272,14 +305,14 @@ func (a *Account) IsOpenCodeGoPlan() bool {
 }
 
 func (a *Account) openCodeDefaultChatBaseURL() string {
-	if a.IsOpenCodeZen() {
+	if a.IsOpenCodeZen() || a.IsOpenCodeFree() {
 		return DefaultOpenCodeZenBaseURL
 	}
 	return DefaultOpenCodeGoBaseURL
 }
 
 func (a *Account) openCodeDefaultAnthropicBaseURL() string {
-	if a.IsOpenCodeZen() {
+	if a.IsOpenCodeZen() || a.IsOpenCodeFree() {
 		return DefaultOpenCodeZenAnthropicBaseURL
 	}
 	return DefaultOpenCodeGoAnthropicBaseURL
@@ -327,4 +360,38 @@ func openCodeGoQuotaURL(baseURL string) string {
 		base = DefaultOpenCodeGoBaseURL
 	}
 	return base + openCodeGoUsagePath
+}
+
+// AvailableUpstreamModelIDs 返回账号已同步的上游模型目录（快照优先，其次 model_mapping）。
+// 用于管理端模型列表回显，避免多协议网关账号落到通用默认模型列表。
+func AvailableUpstreamModelIDs(account *Account) []string {
+	if account == nil {
+		return nil
+	}
+	if snapshot := account.GetUpstreamSupportedModelsSnapshot(); snapshot != nil && len(snapshot.Models) > 0 {
+		return append([]string(nil), snapshot.Models...)
+	}
+	if mapping := account.GetModelMapping(); len(mapping) > 0 {
+		ids := make([]string, 0, len(mapping))
+		for id := range mapping {
+			if id = strings.TrimSpace(id); id != "" {
+				ids = append(ids, id)
+			}
+		}
+		sort.Strings(ids)
+		return ids
+	}
+	return nil
+}
+
+// DefaultModelIDsForPlatform 返回平台级静态候选模型目录（无账号上下文时使用）。
+func DefaultModelIDsForPlatform(platform string) []string {
+	switch platform {
+	case PlatformOpenCodeGo:
+		return DefaultOpenCodeGoModelIDs()
+	case PlatformKilo:
+		return DefaultKiloModelIDs()
+	default:
+		return nil
+	}
 }

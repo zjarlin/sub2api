@@ -942,6 +942,11 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 	if err != nil {
 		return nil, nil, newUpstreamModelSyncUpstreamError("Upstream model list response was not valid JSON", err)
 	}
+	if account.IsKilo() {
+		// Kilo 的 /models 同时列出付费 id；只有 isFree=true 属于无鉴权免费池，
+		// 广告付费 id 会让用户选到必然 401 的模型，这里只保留免费池。
+		models = filterKiloFreeModelIDs(body)
+	}
 	if len(models) == 0 && !isArenaSessionAdapter(account) {
 		return nil, nil, newUpstreamModelSyncUpstreamError("Upstream returned no supported models", nil)
 	}
@@ -998,7 +1003,7 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 		return s.buildAntigravityAPIKeyModelsRequest(ctx, account)
 	case account.IsGrok():
 		return s.buildGrokUpstreamModelsRequest(ctx, account)
-	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo() || account.IsArena() || account.IsCursor() || account.IsWindsurf():
+	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo() || account.IsKilo() || account.IsArena() || account.IsCursor() || account.IsWindsurf():
 		// 国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）与 OpenCode Go
 		// 复用 OpenAI /v1/models 探测。
 		return s.buildOpenAIUpstreamModelsRequest(ctx, account)
@@ -1237,12 +1242,27 @@ func buildOpenAIAPIKeyModelsRequest(ctx context.Context, account *Account, valid
 		return nil, newUpstreamModelSyncConfigError("Invalid OpenAI base URL", err)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, buildOpenAIModelsURL(normalizedBaseURL), nil)
+	modelsURL := buildOpenAIModelsURL(normalizedBaseURL)
+	if account.IsKilo() {
+		// Kilo 的模型清单不在 /v1 下：网关根路径直接挂 /models。
+		modelsURL = strings.TrimRight(normalizedBaseURL, "/") + "/models"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL, nil)
 	if err != nil {
 		return nil, newUpstreamModelSyncConfigError("Invalid OpenAI model list URL", err)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
+	if account.IsKilo() {
+		// Kilo 免费池无鉴权：清单同样按无 key 请求。
+		req.Header.Del("Authorization")
+		req.Header.Set("User-Agent", kiloUserAgent)
+	}
+	if account.IsOpenCodeFree() {
+		req.Header.Set("Authorization", "Bearer public")
+		req.Header.Set("User-Agent", openCodeFreeUserAgent)
+		req.Header.Set(openCodeClientHeader, openCodeClientName)
+	}
 	if account.IsCursor() || account.IsWindsurf() {
 		if adapterKey := builtinAdapterSharedKeyForTarget(account.Platform, normalizedBaseURL); adapterKey != "" {
 			req.Header.Set("X-Sub2API-Adapter-Key", adapterKey)
@@ -1442,13 +1462,15 @@ func buildGeminiModelsURL(base string) string {
 }
 
 type upstreamModelEntry struct {
-	ID           string          `json:"id"`
-	Slug         string          `json:"slug"`
-	Model        string          `json:"model"`
-	ModelID      string          `json:"modelId"`
-	ModelIDSnake string          `json:"model_id"`
-	Name         string          `json:"name"`
-	Meta         json.RawMessage `json:"_meta"`
+	ID           string `json:"id"`
+	Slug         string `json:"slug"`
+	Model        string `json:"model"`
+	ModelID      string `json:"modelId"`
+	ModelIDSnake string `json:"model_id"`
+	Name         string `json:"name"`
+	// IsFree marks the Kilo free pool; other gateways omit it.
+	IsFree bool            `json:"isFree"`
+	Meta   json.RawMessage `json:"_meta"`
 }
 
 type upstreamModelEntryMetadata struct {
@@ -1656,6 +1678,29 @@ func normalizeCodexInputModalities(modalities []string) []string {
 		normalized = append(normalized, modality)
 	}
 	return normalized
+}
+
+// filterKiloFreeModelIDs 从 Kilo 的模型清单中只保留免费池（isFree=true）。
+// 清单无法解析时返回空列表，交由上层报"上游未返回可用模型"，避免把付费 id 当免费。
+func filterKiloFreeModelIDs(body []byte) []string {
+	var response struct {
+		Data   []upstreamModelEntry `json:"data"`
+		Models []upstreamModelEntry `json:"models"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return nil
+	}
+	entries := append(append([]upstreamModelEntry{}, response.Data...), response.Models...)
+	models := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if !entry.IsFree {
+			continue
+		}
+		if id := upstreamModelEntryID(entry); id != "" {
+			models = append(models, id)
+		}
+	}
+	return dedupeAndSortModelIDs(models)
 }
 
 func extractUpstreamModelIDsWithSelector(body []byte, selectID func(upstreamModelEntry) string) ([]string, error) {

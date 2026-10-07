@@ -81,6 +81,10 @@
     <circle cx="18" cy="18" r="3" />
     <path stroke-linecap="round" stroke-linejoin="round" d="M8.7 10.7 15.3 7.3M8.7 13.3l6.6 3.4" />
   </svg>
+  <!-- Kilo logo (stylized K bolt) -->
+  <svg v-else-if="platform === 'kilo'" :class="sizeClass" viewBox="0 0 24 24" fill="currentColor">
+    <path d="M5 3h3v7l6-7h4l-6.5 7.4L19 21h-4l-4.6-7.2L8 16.4V21H5V3z" />
+  </svg>
   <!-- Fallback: generic platform icon -->
   <svg v-else :class="sizeClass" fill="currentColor" viewBox="0 0 24 24">
     <path

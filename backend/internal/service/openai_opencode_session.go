@@ -13,6 +13,11 @@ import (
 
 const (
 	openCodeSessionHeader         = "X-OpenCode-Session"
+	openCodeClientHeader          = "X-OpenCode-Client"
+	openCodeRequestHeader         = "X-OpenCode-Request"
+	openCodeProjectHeader         = "X-OpenCode-Project"
+	openCodeClientName            = "desktop"
+	openCodeProjectName           = "global"
 	openCodeInboundBodyContextKey = "opencode_inbound_body"
 )
 
@@ -70,14 +75,14 @@ func applyOpenCodeSessionHeader(c *gin.Context, account *Account, targetURL stri
 }
 
 func shouldSendOpenCodeSessionHeader(account *Account, targetURL string) bool {
-	if account != nil && account.IsOpenCodeGoPlan() {
+	if account != nil && (account.IsOpenCodeGoPlan() || account.IsOpenCodeFree()) {
 		return true
 	}
 	return isOfficialOpenCodeHost(targetURL)
 }
 
 func shouldGenerateOpenCodeSession(account *Account, targetURL string) bool {
-	if account != nil && account.IsOpenCodeGoPlan() {
+	if account != nil && (account.IsOpenCodeGoPlan() || account.IsOpenCodeFree()) {
 		return true
 	}
 	parsed, err := url.Parse(targetURL)

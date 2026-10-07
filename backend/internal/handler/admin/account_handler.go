@@ -2911,6 +2911,22 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
+	// 多协议网关（OpenCode / Kilo / 国产兼容供应商）：优先返回账号已同步的
+	// 上游目录（Kilo 已过滤为免费池），未同步时回落到平台默认候选，避免落到
+	// 通用 Claude 默认列表而误报模型。
+	if service.IsMultiProtocolAPIKeyProvider(account.Platform) {
+		ids := service.AvailableUpstreamModelIDs(account)
+		if len(ids) == 0 {
+			ids = service.DefaultModelIDsForPlatform(account.Platform)
+		}
+		models := make([]openai.Model, 0, len(ids))
+		for _, id := range ids {
+			models = append(models, openai.Model{ID: id, Object: "model", Type: "model", DisplayName: id})
+		}
+		response.Success(c, models)
+		return
+	}
+
 	// Handle Gemini accounts
 	if account.IsGemini() {
 		// Consumer Google One OAuth still uses the legacy Gemini CLI / Code

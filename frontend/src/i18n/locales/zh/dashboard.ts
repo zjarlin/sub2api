@@ -561,7 +561,8 @@ export default {
       zcode: 'ZCode',
       laya: 'Laya',
       jev: 'JEV',
-      opencode_go: 'OpenCode'
+      opencode_go: 'OpenCode',
+      kilo: 'Kilo'
     },
     // 检查模式（监控条目的工作方式）
     checkMode: {

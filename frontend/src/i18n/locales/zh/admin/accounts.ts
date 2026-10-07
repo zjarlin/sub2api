@@ -517,6 +517,7 @@ export default {
         laya: 'Laya',
         jev: 'JEV',
       opencode_go: 'OpenCode',
+      kilo: 'Kilo',
       },
       builtinCheckin: {
         title: '签到记录',
@@ -608,6 +609,8 @@ export default {
           zenDesc: '按量付费网关，消耗账户余额，按 Token 计费。',
           go: 'GO',
           goDesc: '订阅制网关，按 5 小时 / 周 / 月滚动用量窗口限流。',
+          free: 'Free',
+          freeDesc: '公共免密池（Bearer public），仅免费模型；prompt 可能被上游记录。',
         },
         protocolRules: {
           title: '模型协议分流',

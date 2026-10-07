@@ -16,6 +16,7 @@ import {
   defaultCNBaseUrl,
   defaultOpenCodeProtocolRules,
   isCustomGrokBaseUrl,
+  isMultiProtocolApiKeyPlatform,
   resolveOpenCodeAccountMode,
   isHeaderOverrideCapable,
   parseQuickOpenAIInput,
@@ -130,11 +131,24 @@ describe('applyAntigravityProjectID', () => {
 })
 
 describe('openCodeGo protocol rules', () => {
-  it('resolves missing OpenCode account_mode as GO and zen as Zen', () => {
+  it('resolves missing OpenCode account_mode as GO and zen/free as themselves', () => {
     expect(resolveOpenCodeAccountMode(undefined)).toBe('go')
     expect(resolveOpenCodeAccountMode('coding')).toBe('go')
     expect(resolveOpenCodeAccountMode('zen')).toBe('zen')
+    expect(resolveOpenCodeAccountMode('free')).toBe('free')
     expect(resolveOpenCodeAccountMode('go')).toBe('go')
+  })
+
+  it('maps Kilo to its keyless gateway and hides quota cells', () => {
+    expect(defaultCNBaseUrl('kilo', 'free', 'chat_completions')).toBe('https://api.kilo.ai/api/gateway')
+    expect(cnQuotaCellVisible('kilo', 'free')).toBe(false)
+    expect(isMultiProtocolApiKeyPlatform('kilo')).toBe(true)
+  })
+
+  it('keeps free mode on the Zen endpoints and hides quota cells', () => {
+    expect(defaultCNBaseUrl('opencode_go', 'free', 'adaptive')).toBe('https://opencode.ai/zen/v1')
+    expect(defaultCNBaseUrl('opencode_go', 'free', 'anthropic')).toBe('https://opencode.ai/zen')
+    expect(cnQuotaCellVisible('opencode_go', 'free')).toBe(false)
   })
 
   it('uses Zen vs GO default endpoints and protocol rules', () => {
