@@ -15,6 +15,15 @@ type Aggregator struct {
 func NewAggregator(cfg *Config) *Aggregator {
 	var translators []Translator
 
+	// 彩云小译：免密钥、免注册，作为默认可用源优先尝试。
+	if cfg.Caiyun != nil && cfg.Caiyun.Token != "" {
+		translators = append(translators, NewCaiyunTranslator(cfg.Caiyun))
+		log.Println("[translate] registered provider: caiyun")
+	} else if cfg.EnableFreeProviders {
+		translators = append(translators, NewCaiyunTranslator(nil))
+		log.Println("[translate] registered provider: caiyun (built-in token)")
+	}
+
 	if cfg.Tencent != nil && cfg.Tencent.SecretID != "" {
 		translators = append(translators, NewTencentTranslator(cfg.Tencent))
 		log.Println("[translate] registered provider: tencent")

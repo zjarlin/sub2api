@@ -34,9 +34,17 @@ type Translator interface {
 
 // Config 翻译服务配置
 type Config struct {
+	// EnableFreeProviders 启用内置的免密钥公开翻译源（彩云小译）。
+	EnableFreeProviders bool `json:"enable_free_providers,omitempty"`
+	Caiyun  *CaiyunConfig  `json:"caiyun,omitempty"`
 	Tencent *TencentConfig `json:"tencent,omitempty"`
 	Baidu   *BaiduConfig   `json:"baidu,omitempty"`
 	Youdao  *YoudaoConfig  `json:"youdao,omitempty"`
+}
+
+// CaiyunConfig 彩云小译配置；Token 留空时使用内置公开令牌。
+type CaiyunConfig struct {
+	Token string `json:"token,omitempty"`
 }
 
 // TencentConfig 腾讯云翻译配置

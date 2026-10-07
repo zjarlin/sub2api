@@ -307,7 +307,14 @@ var ProviderSet = wire.NewSet(
 
 // ProvideTranslateAggregator 从环境变量构建翻译聚合器
 func ProvideTranslateAggregator() *translate.Aggregator {
-	cfg := &translate.Config{}
+	cfg := &translate.Config{
+		// 默认启用免密钥公开翻译源，可用 TRANSLATE_FREE_PROVIDERS=false 关闭。
+		EnableFreeProviders: os.Getenv("TRANSLATE_FREE_PROVIDERS") != "false",
+	}
+
+	if token := os.Getenv("TRANSLATE_CAIYUN_TOKEN"); token != "" {
+		cfg.Caiyun = &translate.CaiyunConfig{Token: token}
+	}
 
 	// 腾讯云
 	if sid := os.Getenv("TRANSLATE_TENCENT_SECRET_ID"); sid != "" {

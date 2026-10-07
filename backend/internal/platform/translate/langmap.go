@@ -63,6 +63,15 @@ var isoToYoudao = map[string]string{
 	"hi":    "hi",
 }
 
+// isoToCaiyun 将 ISO 639-1 语言代码映射为彩云小译语言代码（仅支持中/英/日）。
+var isoToCaiyun = map[string]string{
+	"zh-CN": "zh",
+	"zh-TW": "zh",
+	"zh":    "zh",
+	"en":    "en",
+	"ja":    "ja",
+}
+
 // MapLang 将 ISO 639-1 代码转换为指定平台的代码，未找到则返回原始值
 func MapLang(isoCode string, mapping map[string]string) string {
 	if v, ok := mapping[isoCode]; ok {
