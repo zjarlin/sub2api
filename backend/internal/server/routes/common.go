@@ -77,6 +77,31 @@ func registerCodexDownloadRoutes(r *gin.Engine) {
 	r.GET("/downloads/Codex.dmg", func(c *gin.Context) {
 		serveCodexInstaller(c, downloads.MacOSInstallerFile, codexMacOSInstallerURL, "Codex.dmg")
 	})
+
+	// 暴露缓存同步状态：文档页据此展示「上次同步时间」，用户也能核对安装包是否随官网更新。
+	r.GET("/downloads/manifest.json", func(c *gin.Context) {
+		entries := codexDownloadCache.Manifest()
+		if entries == nil {
+			entries = []downloads.Entry{}
+		}
+		c.Header("Cache-Control", "no-store")
+		c.JSON(http.StatusOK, gin.H{
+			"refreshed_at": latestSyncedAt(entries),
+			"interval":     codexDownloadCache.RefreshInterval().String(),
+			"entries":      entries,
+		})
+	})
+}
+
+// latestSyncedAt 返回所有条目里最近的同步时间，供前端显示「随官网更新」的时间点。
+func latestSyncedAt(entries []downloads.Entry) string {
+	latest := ""
+	for _, entry := range entries {
+		if entry.SyncedAt > latest {
+			latest = entry.SyncedAt
+		}
+	}
+	return latest
 }
 
 func serveCodexInstaller(c *gin.Context, cacheFilename, upstreamURL, downloadFilename string) {

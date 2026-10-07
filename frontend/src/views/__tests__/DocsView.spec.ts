@@ -76,6 +76,8 @@ const messages: Record<string, string> = {
   'docs.downloads.windows': 'Windows setup script and Store bootstrap.',
   'docs.downloads.linux': 'Official Codex CLI installer.',
   'docs.downloads.downloadFile': 'Download {name}',
+  'docs.downloads.syncStatus': 'Installers sync every {hours} hours. Last sync: {time}.',
+  'docs.downloads.syncPending': 'Fetching last sync time...',
 }
 
 vi.mock('vue-i18n', () => ({
@@ -114,6 +116,10 @@ vi.mock('@/api/keys', () => ({
 
 describe('DocsView', () => {
   beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ refreshed_at: '2026-10-07T02:18:05Z', interval: '12h0m0s' }),
+    }))
     authState.isAuthenticated = false
     Object.defineProperty(navigator, 'platform', { configurable: true, value: 'MacIntel' })
     listKeysMock.mockReset()
@@ -311,6 +317,28 @@ describe('DocsView', () => {
     await wrapper.get('[data-testid="platform-linux"]').trigger('click')
     expect(wrapper.get('[data-testid="setup-command"]').text()).toContain('--client cli')
     expect(wrapper.get('[data-testid="setup-command"]').text()).not.toContain('--persist-home')
+    wrapper.unmount()
+  })
+
+  it('shows the installer sync status from the manifest endpoint', async () => {
+    const wrapper = mount(DocsView, {
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, Icon: { template: '<span />' } } }
+    })
+    await flushPromises()
+    const status = wrapper.get('[data-testid="downloads-sync-status"]').text()
+    expect(status).toContain('Installers sync every 12 hours')
+    expect(status).toContain('Last sync:')
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(expect.stringContaining('/downloads/manifest.json'), expect.anything())
+    wrapper.unmount()
+  })
+
+  it('falls back to a pending sync label when the manifest is unavailable', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')))
+    const wrapper = mount(DocsView, {
+      global: { stubs: { RouterLink: { template: '<a><slot /></a>' }, Icon: { template: '<span />' } } }
+    })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="downloads-sync-status"]').text()).toContain('Fetching last sync time')
     wrapper.unmount()
   })
 

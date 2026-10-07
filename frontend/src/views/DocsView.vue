@@ -42,6 +42,13 @@
           {{ t('docs.downloads.lead') }}
           <a href="https://chatgpt.com/download" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:underline dark:text-primary-300">{{ t('docs.downloads.official') }}</a>
         </p>
+        <p class="mt-2 text-xs leading-5 text-gray-500 dark:text-dark-300" data-testid="downloads-sync-status">
+          <template v-if="syncStatus">
+            <Icon name="sync" size="xs" class="mr-1 inline-block align-text-bottom" />
+            {{ t('docs.downloads.syncStatus', { time: syncStatus.refreshedAt, hours: syncStatus.intervalHours }) }}
+          </template>
+          <template v-else>{{ t('docs.downloads.syncPending') }}</template>
+        </p>
         <div v-for="download in downloads" :key="download.id" class="mt-5 min-w-0" :data-testid="'download-' + download.id">
           <div class="flex items-center justify-between gap-3">
             <h3 class="text-sm font-semibold">{{ download.title }}</h3>
@@ -168,6 +175,30 @@ const setupCommand = computed(() => buildCodexSetupCommand(
   setupOptions.value,
   selectedPlatform.value === 'windows'
 ))
+type SyncStatus = { refreshedAt: string; intervalHours: number }
+const syncStatus = ref<SyncStatus | null>(null)
+async function loadSyncStatus() {
+  try {
+    const response = await fetch(downloadRoot.value + '/downloads/manifest.json', { headers: { Accept: 'application/json' } })
+    if (!response.ok) return
+    const data = await response.json() as { refreshed_at?: string; interval?: string }
+    const refreshedAt = data.refreshed_at ? formatSyncTime(data.refreshed_at) : ''
+    if (!refreshedAt) return
+    syncStatus.value = { refreshedAt, intervalHours: intervalHours(data.interval) }
+  } catch {
+    // 同步状态是增强信息，拉取失败时静默降级为「待同步」。
+  }
+}
+function formatSyncTime(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toLocaleString()
+}
+function intervalHours(value?: string): number {
+  const match = /^(\d+)h/.exec(value || '')
+  return match ? Number(match[1]) : 12
+}
+
 const copied = ref('')
 const copyError = ref(false)
 let copyTimer: ReturnType<typeof setTimeout> | undefined
@@ -194,6 +225,6 @@ async function loadCurrentUserKey() {
     currentUserKeyLoading.value = false
   }
 }
-onMounted(() => { void loadCurrentUserKey() })
+onMounted(() => { void loadCurrentUserKey(); void loadSyncStatus() })
 onUnmounted(() => { clearTimeout(copyTimer) })
 </script>

@@ -70,6 +70,8 @@ export default {
       windows: 'The Windows desktop app ships through the Microsoft Store. Download the one-command setup script first (it installs the Codex CLI from a China-friendly npm mirror), then download the Store bootstrap if you need the desktop app.',
       linux: 'Official Codex CLI installer.',
       downloadFile: 'Download {name}',
+      syncStatus: 'Installers sync with the official source every {hours} hours. Last sync: {time}.',
+      syncPending: 'Installers sync automatically with the official source. Fetching last sync time…',
     },
     setup: {
       title: 'Install and configure',

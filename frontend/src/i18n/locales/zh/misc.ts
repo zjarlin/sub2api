@@ -69,6 +69,8 @@ export default {
       windows: 'Windows 桌面版由微软商店分发，先下载本站的一键安装脚本（自动走国内 npm 镜像安装 Codex CLI），需要桌面应用时再下载商店引导器。',
       linux: '官方 Codex CLI 安装脚本。',
       downloadFile: '下载 {name}',
+      syncStatus: '安装包每 {hours} 小时自动跟官网同步一次，上次同步：{time}。',
+      syncPending: '安装包会自动跟官网同步，正在获取同步时间…',
     },
     setup: {
       title: '一键安装与配置',

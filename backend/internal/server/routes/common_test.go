@@ -72,3 +72,31 @@ func TestCachedInstallerRoutePrefersLocalFile(t *testing.T) {
 	require.Equal(t, http.StatusPartialContent, rangeRecorder.Code)
 	require.Equal(t, content[:6], rangeRecorder.Body.Bytes())
 }
+
+func TestCodexDownloadManifestRoute(t *testing.T) {
+	dir := t.TempDir()
+	codexDownloadCache = downloads.NewStaticCache(dir)
+
+	router := gin.New()
+	RegisterCommonRoutes(router, nil)
+
+	// 没有 manifest 时仍是合法响应：空条目 + 刷新周期说明。
+	empty := httptest.NewRecorder()
+	router.ServeHTTP(empty, httptest.NewRequest(http.MethodGet, "/downloads/manifest.json", nil))
+	require.Equal(t, http.StatusOK, empty.Code)
+	require.Contains(t, empty.Body.String(), `"entries":[]`)
+	require.Contains(t, empty.Body.String(), `"interval"`)
+
+	// 落盘 manifest 后应能读出同步时间与包信息。
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "manifest.json"), []byte(`{
+  "updated_at": "2026-10-07T02:18:05Z",
+  "entries": [{"filename":"Codex.dmg","name":"macOS Codex installer","url":"https://example.invalid","size":750982223,"sha256":"deadbeef","source":"upstream","synced_at":"2026-10-07T02:18:05Z"}]
+}`), 0o644))
+
+	full := httptest.NewRecorder()
+	router.ServeHTTP(full, httptest.NewRequest(http.MethodGet, "/downloads/manifest.json", nil))
+	require.Equal(t, http.StatusOK, full.Code)
+	require.Contains(t, full.Body.String(), `"refreshed_at":"2026-10-07T02:18:05Z"`)
+	require.Contains(t, full.Body.String(), `"Codex.dmg"`)
+	require.Contains(t, full.Body.String(), `"sha256":"deadbeef"`)
+}
