@@ -30,8 +30,6 @@ const (
 	manifestFileName = "manifest.json"
 	lockFileName     = ".refresh.lock"
 	partPrefix       = ".part-"
-	// stalePartAge 之后仍残留的临时文件视为上次刷新被中断的垃圾，可以安全删除。
-	stalePartAge = 6 * time.Hour
 )
 
 type Artifact struct {
@@ -148,18 +146,27 @@ func (c *Cache) RefreshInterval() time.Duration {
 
 // Manifest 返回最近一次刷新的同步状态；尚未生成时返回空条目，不报错。
 func (c *Cache) Manifest() []Entry {
+	return c.readManifest().Entries
+}
+
+// ManifestUpdatedAt 返回最近一次刷新周期的完成时间，用于「上次同步」展示。
+func (c *Cache) ManifestUpdatedAt() string {
+	return c.readManifest().UpdatedAt
+}
+
+func (c *Cache) readManifest() manifest {
 	if c == nil {
-		return nil
+		return manifest{}
 	}
 	raw, err := os.ReadFile(filepath.Join(c.dir, manifestFileName))
 	if err != nil {
-		return nil
+		return manifest{}
 	}
 	var m manifest
 	if err := json.Unmarshal(raw, &m); err != nil {
-		return nil
+		return manifest{}
 	}
-	return m.Entries
+	return m
 }
 
 func (c *Cache) loop(ctx context.Context) {
@@ -195,7 +202,7 @@ func (c *Cache) Refresh(ctx context.Context) {
 	}
 	defer release()
 
-	c.cleanStaleParts()
+	c.cleanOrphanParts()
 
 	entries := make([]Entry, 0, len(c.artifacts))
 	for _, artifact := range c.artifacts {
@@ -229,20 +236,21 @@ func (c *Cache) acquireLock() (func(), bool) {
 	}, true
 }
 
-// cleanStaleParts 删除刷新中断遗留的临时文件（按 mtime 判断，避免误删正在写入的分片）。
-func (c *Cache) cleanStaleParts() {
+// cleanOrphanParts 删除刷新中断遗留的临时文件。
+//
+// 调用方必须已持有刷新锁：同一时刻只有一个进程在刷新，因此此刻目录里任何
+// 下载分片都不可能是「正在写入」的，可以安全清除，避免大文件残留占用磁盘。
+func (c *Cache) cleanOrphanParts() {
 	matches, err := filepath.Glob(filepath.Join(c.dir, "*"+partPrefix+"*"))
 	if err != nil {
 		return
 	}
-	cutoff := time.Now().Add(-stalePartAge)
 	for _, path := range matches {
-		info, err := os.Stat(path)
-		if err != nil || info.IsDir() || info.ModTime().After(cutoff) {
+		if info, err := os.Stat(path); err != nil || info.IsDir() {
 			continue
 		}
 		if err := os.Remove(path); err == nil {
-			log.Printf("[downloads] removed stale partial %s", filepath.Base(path))
+			log.Printf("[downloads] removed orphaned partial %s", filepath.Base(path))
 		}
 	}
 }
@@ -260,6 +268,15 @@ func (c *Cache) refreshArtifact(ctx context.Context, artifact Artifact) (*Entry,
 		} else if unchanged {
 			entry := *prev
 			entry.Source = "upstream-not-modified"
+			entry.SyncedAt = time.Now().UTC().Format(time.RFC3339)
+			// 升级前缓存的包没有哈希，这里一次性补算，保证清单始终可校验。
+			if entry.SHA256 == "" {
+				if sum, err := hashFile(target); err == nil {
+					entry.SHA256 = sum
+				} else {
+					log.Printf("[downloads] hash %s: %v", artifact.Name, err)
+				}
+			}
 			return &entry, nil
 		}
 	}
@@ -383,6 +400,20 @@ func totalFromContentRange(value string) (int64, bool) {
 		return 0, false
 	}
 	return total, true
+}
+
+// hashFile 计算已缓存文件的 SHA-256，用于补齐旧缓存的清单元数据。
+func hashFile(path string) (string, error) {
+	file, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer file.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, file); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
 func (c *Cache) cachedEntry(artifact Artifact) *Entry {

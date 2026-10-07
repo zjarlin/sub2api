@@ -84,9 +84,13 @@ func registerCodexDownloadRoutes(r *gin.Engine) {
 		if entries == nil {
 			entries = []downloads.Entry{}
 		}
+		refreshedAt := codexDownloadCache.ManifestUpdatedAt()
+		if refreshedAt == "" {
+			refreshedAt = latestSyncedAt(entries)
+		}
 		c.Header("Cache-Control", "no-store")
 		c.JSON(http.StatusOK, gin.H{
-			"refreshed_at": latestSyncedAt(entries),
+			"refreshed_at": refreshedAt,
 			"interval":     codexDownloadCache.RefreshInterval().String(),
 			"entries":      entries,
 		})

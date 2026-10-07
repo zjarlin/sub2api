@@ -118,34 +118,37 @@ func TestRefreshSkipsDownloadWhenUpstreamNotModified(t *testing.T) {
 	if second.Source != "upstream-not-modified" {
 		t.Fatalf("expected not-modified, got %+v", second)
 	}
+	if second.SyncedAt == "" {
+		t.Fatalf("unchanged entry should still record a sync time: %+v", second)
+	}
+	if second.SHA256 == "" {
+		t.Fatalf("unchanged entry should backfill a hash: %+v", second)
+	}
 	if downloads != 1 {
 		t.Fatalf("expected a single download, got %d", downloads)
 	}
 }
 
-func TestRefreshRemovesStalePartials(t *testing.T) {
+func TestCleanOrphanPartsRemovesInterruptedDownloads(t *testing.T) {
 	dir := t.TempDir()
-	stale := filepath.Join(dir, "."+MacOSInstallerFile+partPrefix+"123")
-	if err := os.WriteFile(stale, make([]byte, 16), 0o600); err != nil {
+	// 刷新锁已持有，任何残留分片都视为中断遗留。
+	orphan := filepath.Join(dir, "."+MacOSInstallerFile+partPrefix+"123")
+	if err := os.WriteFile(orphan, make([]byte, 16), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	old := time.Now().Add(-24 * time.Hour)
-	if err := os.Chtimes(stale, old, old); err != nil {
-		t.Fatal(err)
-	}
-	fresh := filepath.Join(dir, "."+MacOSInstallerFile+partPrefix+"456")
-	if err := os.WriteFile(fresh, make([]byte, 16), 0o600); err != nil {
+	keep := filepath.Join(dir, MacOSInstallerFile)
+	if err := os.WriteFile(keep, make([]byte, 16), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	cache := NewCache(dir)
-	cache.cleanStaleParts()
+	cache.cleanOrphanParts()
 
-	if _, err := os.Stat(stale); !os.IsNotExist(err) {
-		t.Fatalf("stale partial should be removed: %v", err)
+	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
+		t.Fatalf("orphaned partial should be removed: %v", err)
 	}
-	if _, err := os.Stat(fresh); err != nil {
-		t.Fatalf("fresh partial must survive: %v", err)
+	if _, err := os.Stat(keep); err != nil {
+		t.Fatalf("cached artifact must survive cleanup: %v", err)
 	}
 }
 
@@ -172,6 +175,9 @@ func TestRefreshWritesManifest(t *testing.T) {
 	}
 	if entries[0].SHA256 == "" || entries[0].LastModified == "" {
 		t.Fatalf("manifest entry missing metadata: %+v", entries[0])
+	}
+	if cache.ManifestUpdatedAt() == "" {
+		t.Fatal("manifest updated_at must be recorded")
 	}
 }
 
