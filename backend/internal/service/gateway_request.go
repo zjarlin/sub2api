@@ -1585,6 +1585,51 @@ func normalizeAgnesOpenAIReasoningEffortForModels(body []byte, models ...string)
 	return body, false
 }
 
+// openAIReasoningModelRejectsNoneEffort 报告上游最低推理档位为 low 的模型：
+// GPT-6 家族（Astra 与 Sol 6.1）拒绝 none / minimal，只接受 low 及以上。
+// gpt-6-sol 等其它型号仍接受 none，因此不能按名称前缀一刀切。
+func openAIReasoningModelRejectsNoneEffort(model string) bool {
+	return isOpenAIGPT6AstraModel(model) || isOpenAIGPT61SolModel(model)
+}
+
+// normalizeGPT6OpenAIReasoningEffort 把 Codex 等客户端发送的 reasoning.effort=none
+// / minimal 提升到 GPT-6 家族的最低档位 low。
+// 触发场景：切换模型后客户端仍沿用旧模型保存的 none 档位（例如从无推理档模型切到
+// gpt-6.1-sol / gpt-6-astra），上游会以 unsupported_value 拒绝并中断流式响应。
+// 仅在至少一个候选模型名命中时改写，其它模型保持原值透传。
+func normalizeGPT6OpenAIReasoningEffort(body []byte, models ...string) ([]byte, bool) {
+	matched := false
+	for _, model := range models {
+		if openAIReasoningModelRejectsNoneEffort(model) {
+			matched = true
+			break
+		}
+	}
+	if !matched {
+		return body, false
+	}
+
+	result := body
+	changed := false
+	for _, path := range []string{"reasoning.effort", "reasoning_effort"} {
+		field := gjson.GetBytes(result, path)
+		if field.Type != gjson.String {
+			continue
+		}
+		raw := strings.ToLower(strings.TrimSpace(field.String()))
+		if raw != "none" && raw != "minimal" {
+			continue
+		}
+		normalized, err := sjson.SetBytes(result, path, "low")
+		if err != nil {
+			continue
+		}
+		result = normalized
+		changed = true
+	}
+	return result, changed
+}
+
 func normalizeEffortToken(raw string) string {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	return strings.NewReplacer("-", "", "_", "", " ", "").Replace(value)

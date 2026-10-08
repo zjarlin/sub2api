@@ -87,6 +87,12 @@ func isOpenAIGPT6AstraModel(model string) bool {
 	return normalized == "gpt-6" || normalized == "gpt-6-astra" || strings.HasPrefix(normalized, "gpt-6-astra-")
 }
 
+// isOpenAIGPT61SolModel 仅识别 Sol 6.1 及其日期版本。
+func isOpenAIGPT61SolModel(model string) bool {
+	normalized := canonicalizeOpenAIModelAliasSpelling(model)
+	return normalized == "gpt-6.1-sol" || strings.HasPrefix(normalized, "gpt-6.1-sol-")
+}
+
 // isOpenAIGPT56Model 判断是否 GPT-5.6 系列模型；入参可为原始模型名
 // （含大小写/路径/后缀变体）或已归一化的基名，两者均能正确识别。
 func isOpenAIGPT56Model(model string) bool {

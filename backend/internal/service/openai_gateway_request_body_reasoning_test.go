@@ -8,6 +8,32 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func TestNormalizeGPT6OpenAIReasoningEffort(t *testing.T) {
+	tests := []struct {
+		name    string
+		model   string
+		body    string
+		path    string
+		want    string
+		changed bool
+	}{
+		{name: "6.1 sol none becomes low", model: "gpt-6.1-sol", body: `{"reasoning":{"effort":"none"}}`, path: "reasoning.effort", want: "low", changed: true},
+		{name: "6.1 sol minimal becomes low", model: "openai/gpt-6.1-sol", body: `{"reasoning":{"effort":"minimal"}}`, path: "reasoning.effort", want: "low", changed: true},
+		{name: "6.1 sol flat none becomes low", model: "gpt-6.1-sol-2026-10-01", body: `{"reasoning_effort":"none"}`, path: "reasoning_effort", want: "low", changed: true},
+		{name: "astra none becomes low", model: "gpt-6-astra", body: `{"reasoning":{"effort":"none"}}`, path: "reasoning.effort", want: "low", changed: true},
+		{name: "low stays low", model: "gpt-6.1-sol", body: `{"reasoning":{"effort":"low"}}`, path: "reasoning.effort", want: "low", changed: false},
+		{name: "other model stays unchanged", model: "gpt-6-sol", body: `{"reasoning":{"effort":"none"}}`, path: "reasoning.effort", want: "none", changed: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, changed := normalizeGPT6OpenAIReasoningEffort([]byte(tt.body), tt.model)
+			require.Equal(t, tt.changed, changed)
+			require.Equal(t, tt.want, gjson.GetBytes(got, tt.path).String())
+		})
+	}
+}
+
 func TestTrimOpenAIEncryptedReasoningItems_ContentNull(t *testing.T) {
 	reqBody := map[string]any{
 		"model": "grok-4.5",

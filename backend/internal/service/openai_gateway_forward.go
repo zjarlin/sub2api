@@ -194,6 +194,11 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	}
 
 	body = s.restoreDeepSeekReasoning(c, account, body)
+	initialRequestedModel := gjson.GetBytes(body, "model").String()
+	initialBillingModel, initialUpstreamModel := resolveOpenAIForwardMappedModels(account, initialRequestedModel, compactPath)
+	if normalized, changed := normalizeGPT6OpenAIReasoningEffort(body, initialUpstreamModel, initialBillingModel, initialRequestedModel); changed {
+		body = normalized
+	}
 	originalBody := body
 	rememberOpenCodeInboundBody(c, originalBody)
 	requestView := newOpenAIRequestView(body)
@@ -471,7 +476,13 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Upstream model resolved: %s -> %s (account: %s, type: %s, isCodexCLI: %v)", billingModel, upstreamModel, account.Name, account.Type, isCodexCLI)
 		}
 	}
-	if !isAgnesReasoningModel(upstreamModel) && !isAgnesReasoningModel(billingModel) && !isAgnesReasoningModel(requestedModel) && strings.TrimSpace(gjson.GetBytes(body, "reasoning.effort").String()) == "minimal" {
+	if !isAgnesReasoningModel(upstreamModel) &&
+		!isAgnesReasoningModel(billingModel) &&
+		!isAgnesReasoningModel(requestedModel) &&
+		!openAIReasoningModelRejectsNoneEffort(upstreamModel) &&
+		!openAIReasoningModelRejectsNoneEffort(billingModel) &&
+		!openAIReasoningModelRejectsNoneEffort(requestedModel) &&
+		strings.TrimSpace(gjson.GetBytes(body, "reasoning.effort").String()) == "minimal" {
 		markPatchSet("reasoning.effort", "none")
 		logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Normalized reasoning.effort: minimal -> none (account: %s)", account.Name)
 	}
