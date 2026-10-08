@@ -1,6 +1,6 @@
 import { apiClient } from '../client'
 
-export type BuiltinLoginPlatform = 'traework' | 'workbuddy' | 'vibex' | 'zcode' | 'deepseek_web' | 'arena' | 'cursor' | 'windsurf'
+export type BuiltinLoginPlatform = 'traework' | 'workbuddy' | 'vibex' | 'zcode' | 'deepseek_web' | 'madao' | 'arena' | 'cursor' | 'windsurf'
 export interface BuiltinLoginSession {
   session_id: string
   auth_url?: string

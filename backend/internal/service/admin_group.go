@@ -298,6 +298,8 @@ func defaultModelsListCandidateIDs(platform string) []string {
 		return DefaultDoubaoModelIDs()
 	case PlatformDeepseekWeb:
 		return DefaultDeepseekWebModelIDs()
+	case PlatformMadao:
+		return DefaultMadaoModelIDs()
 	case PlatformTraework:
 		return DefaultTraeworkModelIDs()
 	case PlatformVibex, PlatformArena:
@@ -338,7 +340,7 @@ func defaultAllowImageGenerationForPlatform(platform string) bool {
 func compositeDefaultModelsListCandidateIDs() []string {
 	seen := make(map[string]struct{})
 	ids := make([]string, 0)
-	for _, platform := range []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformArena, PlatformMiniMax, PlatformCursor, PlatformWindsurf, PlatformOpenCodeGo, PlatformKilo, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformLaya, PlatformJev} {
+	for _, platform := range []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformMadao, PlatformArena, PlatformMiniMax, PlatformCursor, PlatformWindsurf, PlatformOpenCodeGo, PlatformKilo, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformLaya, PlatformJev} {
 		for _, id := range defaultModelsListCandidateIDs(platform) {
 			if _, ok := seen[id]; ok {
 				continue

@@ -1,0 +1,5 @@
+# 构建产物与本地运行数据不入库。
+/madao2api
+/adapter
+bin/
+*.local.json

@@ -16,6 +16,7 @@ export type Platform =
   | 'kimi'
   | 'zhipu'
   | 'deepseek'
+  | 'madao'
   | 'arena'
   | 'minimax'
   | 'opencode_go'
@@ -43,6 +44,7 @@ const BADGE: Record<Platform, string> = {
   kimi: 'bg-pink-500/10 text-pink-600 border-pink-500/30 dark:text-pink-400',
   zhipu: 'bg-indigo-500/10 text-indigo-600 border-indigo-500/30 dark:text-indigo-400',
   deepseek: 'bg-teal-500/10 text-teal-600 border-teal-500/30 dark:text-teal-400',
+  madao: 'bg-red-500/10 text-red-600 border-red-500/30 dark:text-red-400',
   doubao: 'bg-cyan-500/10 text-cyan-600 border-cyan-500/30 dark:text-cyan-400',
   traework: 'bg-lime-500/10 text-lime-600 border-lime-500/30 dark:text-lime-400',
   workbuddy: 'bg-blue-500/10 text-blue-600 border-blue-500/30 dark:text-blue-400',
@@ -72,6 +74,7 @@ const BADGE_LIGHT: Record<Platform, string> = {
   kimi: 'bg-pink-500/10 text-pink-600 dark:bg-pink-500/10 dark:text-pink-300',
   zhipu: 'bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300',
   deepseek: 'bg-teal-500/10 text-teal-600 dark:bg-teal-500/10 dark:text-teal-300',
+  madao: 'bg-red-500/10 text-red-600 dark:bg-red-500/10 dark:text-red-300',
   doubao: 'bg-cyan-500/10 text-cyan-600 dark:bg-cyan-500/10 dark:text-cyan-300',
   traework: 'bg-lime-500/10 text-lime-600 dark:bg-lime-500/10 dark:text-lime-300',
   workbuddy: 'bg-blue-500/10 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300',
@@ -100,6 +103,7 @@ const BORDER: Record<Platform, string> = {
   kimi: 'border-pink-500/20 dark:border-pink-500/20',
   zhipu: 'border-indigo-500/20 dark:border-indigo-500/20',
   deepseek: 'border-teal-500/20 dark:border-teal-500/20',
+  madao: 'border-red-500/20 dark:border-red-500/20',
   doubao: 'border-cyan-500/20 dark:border-cyan-500/20',
   traework: 'border-lime-500/20 dark:border-lime-500/20',
   workbuddy: 'border-blue-500/20 dark:border-blue-500/20',
@@ -129,6 +133,7 @@ const BORDER_STRONG: Record<Platform, string> = {
   kimi: 'border-pink-500/35 dark:border-pink-500/30',
   zhipu: 'border-indigo-500/35 dark:border-indigo-500/30',
   deepseek: 'border-teal-500/35 dark:border-teal-500/30',
+  madao: 'border-red-500/35 dark:border-red-500/30',
   doubao: 'border-cyan-500/35 dark:border-cyan-500/30',
   traework: 'border-lime-500/35 dark:border-lime-500/30',
   workbuddy: 'border-blue-500/35 dark:border-blue-500/30',
@@ -159,6 +164,7 @@ const ACCENT: Record<Platform, string> = {
   kimi: '#ec4899', // pink-500
   zhipu: '#6366f1', // indigo-500
   deepseek: '#14b8a6', // teal-500
+  madao: '#ef4444',
   doubao: '#06b6d4',
   traework: '#84cc16',
   workbuddy: '#3b82f6',
@@ -188,6 +194,7 @@ const ACCENT_BAR: Record<Platform, string> = {
   kimi: 'bg-gradient-to-r from-pink-400 to-pink-500',
   zhipu: 'bg-gradient-to-r from-indigo-400 to-indigo-500',
   deepseek: 'bg-gradient-to-r from-teal-400 to-teal-500',
+  madao: 'bg-gradient-to-r from-red-400 to-red-500',
   doubao: 'bg-gradient-to-r from-cyan-400 to-cyan-500',
   traework: 'bg-gradient-to-r from-lime-400 to-lime-500',
   workbuddy: 'bg-gradient-to-r from-blue-400 to-blue-500',
@@ -217,6 +224,7 @@ const TEXT: Record<Platform, string> = {
   kimi: 'text-pink-600 dark:text-pink-400',
   zhipu: 'text-indigo-600 dark:text-indigo-400',
   deepseek: 'text-teal-600 dark:text-teal-400',
+  madao: 'text-red-600 dark:text-red-400',
   doubao: 'text-cyan-600 dark:text-cyan-400',
   traework: 'text-lime-600 dark:text-lime-400',
   workbuddy: 'text-blue-600 dark:text-blue-400',
@@ -246,6 +254,7 @@ const ICON: Record<Platform, string> = {
   kimi: 'text-pink-500 dark:text-pink-400',
   zhipu: 'text-indigo-500 dark:text-indigo-400',
   deepseek: 'text-teal-500 dark:text-teal-400',
+  madao: 'text-red-500 dark:text-red-400',
   doubao: 'text-cyan-500 dark:text-cyan-400',
   traework: 'text-lime-500 dark:text-lime-400',
   workbuddy: 'text-blue-500 dark:text-blue-400',
@@ -275,6 +284,7 @@ const BUTTON: Record<Platform, string> = {
   kimi: 'bg-pink-500 text-white hover:bg-pink-600 active:bg-pink-700 dark:bg-pink-500/80 dark:hover:bg-pink-500',
   zhipu: 'bg-indigo-500 text-white hover:bg-indigo-600 active:bg-indigo-700 dark:bg-indigo-500/80 dark:hover:bg-indigo-500',
   deepseek: 'bg-teal-500 text-white hover:bg-teal-600 active:bg-teal-700 dark:bg-teal-500/80 dark:hover:bg-teal-500',
+  madao: 'bg-red-500 text-white hover:bg-red-600 active:bg-red-700 dark:bg-red-500/80 dark:hover:bg-red-500',
   doubao: 'bg-cyan-500 text-white hover:bg-cyan-600 active:bg-cyan-700 dark:bg-cyan-500/80 dark:hover:bg-cyan-500',
   traework: 'bg-lime-500 text-white hover:bg-lime-600 active:bg-lime-700 dark:bg-lime-500/80 dark:hover:bg-lime-500',
   workbuddy: 'bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700 dark:bg-blue-500/80 dark:hover:bg-blue-500',
@@ -304,6 +314,7 @@ const DISCOUNT: Record<Platform, string> = {
   kimi: 'bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300',
   zhipu: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300',
   deepseek: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
+  madao: 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
   doubao: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/40 dark:text-cyan-300',
   traework: 'bg-lime-100 text-lime-700 dark:bg-lime-900/40 dark:text-lime-300',
   workbuddy: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
@@ -333,6 +344,7 @@ const GRADIENT: Record<Platform, string> = {
   kimi: 'from-pink-500 to-pink-600',
   zhipu: 'from-indigo-500 to-indigo-600',
   deepseek: 'from-teal-500 to-teal-600',
+  madao: 'from-red-500 to-red-600',
   doubao: 'from-cyan-500 to-cyan-600',
   traework: 'from-lime-500 to-lime-600',
   workbuddy: 'from-blue-500 to-blue-600',
@@ -362,6 +374,7 @@ const GRADIENT_TEXT: Record<Platform, string> = {
   kimi: 'text-pink-100',
   zhipu: 'text-indigo-100',
   deepseek: 'text-teal-100',
+  madao: 'text-red-100',
   doubao: 'text-cyan-100',
   traework: 'text-lime-100',
   workbuddy: 'text-blue-100',
@@ -390,6 +403,7 @@ const GRADIENT_SUBTEXT: Record<Platform, string> = {
   kimi: 'text-pink-200',
   zhipu: 'text-indigo-200',
   deepseek: 'text-teal-200',
+  madao: 'text-red-200',
   doubao: 'text-cyan-200',
   traework: 'text-lime-200',
   workbuddy: 'text-blue-200',
@@ -421,6 +435,7 @@ function isPlatform(p: string): p is Platform {
     p === 'kimi' ||
     p === 'zhipu' ||
     p === 'deepseek' ||
+    p === 'madao' ||
     p === 'arena' ||
     p === 'doubao' ||
     p === 'traework' ||
@@ -501,6 +516,7 @@ export function platformLabel(p: string): string {
     case 'kimi': return 'Kimi'
     case 'zhipu': return 'Zhipu GLM'
     case 'deepseek': return 'DeepSeek'
+    case 'madao': return '码道 CodeArts'
     case 'arena': return 'Arena'
     case 'doubao': return 'Doubao'
     case 'traework': return 'TRAE Work'

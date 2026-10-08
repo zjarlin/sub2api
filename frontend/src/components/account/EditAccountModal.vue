@@ -3224,7 +3224,7 @@ interface Props {
 }
 
 const props = defineProps<Props>()
-const isBuiltinAdapterAccount = computed(() => ['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'arena'].includes(props.account?.platform ?? ''))
+const isBuiltinAdapterAccount = computed(() => ['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'madao', 'arena'].includes(props.account?.platform ?? ''))
 const cursorLinkedEmail = computed(() => {
   const credentials = props.account?.credentials as Record<string, unknown> | undefined
   const email = credentials?.cursor_email
@@ -3280,6 +3280,7 @@ const baseUrlHint = computed(() => {
   if (props.account?.platform === 'traework') return t('admin.accounts.traework.baseUrlHint')
   if (props.account?.platform === 'zcode') return t('admin.accounts.zcode.baseUrlHint')
   if (props.account?.platform === 'deepseek_web') return t('admin.accounts.deepseekWeb.baseUrlHint')
+  if (props.account?.platform === 'madao') return t('admin.accounts.madao.baseUrlHint')
   if (props.account?.platform === 'arena') return t('admin.accounts.arena.baseUrlHint')
   if (!props.account) return t('admin.accounts.baseUrlHint')
   if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
@@ -3957,7 +3958,7 @@ const defaultBaseUrl = computed(() => {
   if (props.account?.platform === 'cursor') return ''
   if (props.account?.platform === 'windsurf') return ''
   if (props.account?.platform === 'arena') return ''
-  if (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web'].includes(props.account?.platform ?? '')) return ''
+  if (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'madao'].includes(props.account?.platform ?? '')) return ''
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
@@ -4399,7 +4400,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       }
     }
     const platformDefaultUrl =
-      (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'cursor', 'windsurf'].includes(newAccount.platform))
+      (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'madao', 'cursor', 'windsurf'].includes(newAccount.platform))
         ? ''
         : newAccount.platform === 'openai'
         ? 'https://api.openai.com'

@@ -644,6 +644,7 @@ var platformToLiteLLMProvider = map[string]string{
 	service.PlatformZhipu:       "zhipu",
 	service.PlatformDeepseek:    "deepseek",
 	service.PlatformDeepseekWeb: "deepseek-web",
+	service.PlatformMadao:       "madao",
 	service.PlatformMiniMax:     "minimax",
 	service.PlatformDoubao:      "doubao",
 	service.PlatformTraework:    "traework",

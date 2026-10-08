@@ -324,6 +324,11 @@
             <PlatformIcon platform="deepseek_web" size="sm" />
             {{ t('admin.accounts.deepseekWeb.title') }}
           </button>
+          <button type="button" data-testid="platform-madao" @click="selectMadaoPlatform"
+            :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'madao' ? 'bg-white text-red-600 shadow-sm dark:bg-dark-600 dark:text-red-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
+            <PlatformIcon platform="madao" size="sm" />
+            {{ t('admin.accounts.madao.title') }}
+          </button>
           <button type="button" data-testid="platform-qoder" @click="selectQoderPlatform"
             :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'qoder' ? 'bg-white text-teal-600 shadow-sm dark:bg-dark-600 dark:text-teal-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
             <PlatformIcon platform="qoder" size="sm" />
@@ -364,6 +369,9 @@
       <p v-if="form.platform === 'deepseek_web'" class="input-hint" data-testid="deepseek-web-connection-hint">
         {{ t('admin.accounts.deepseekWeb.connectionHint') }}
       </p>
+      <p v-if="form.platform === 'madao'" class="input-hint" data-testid="madao-connection-hint">
+        {{ t('admin.accounts.madao.connectionHint') }}
+      </p>
       <div v-if="form.platform === 'systemone'" class="rounded-lg border border-violet-200 bg-violet-50/60 p-3 dark:border-violet-800 dark:bg-violet-950/20" data-testid="systemone-provider">
         <p class="text-sm font-medium text-violet-900 dark:text-violet-100">System One 上游</p>
         <div class="mt-2 flex gap-2">
@@ -372,7 +380,7 @@
         </div>
         <p class="input-hint mt-2">{{ systemOneProvider === 'laya' ? t('admin.accounts.laya.baseUrlHint') : t('admin.accounts.jev.baseUrlHint') }}</p>
       </div>
-      <BuiltinAdapterLogin v-if="show && (form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'vibex' || form.platform === 'zcode' || form.platform === 'deepseek_web' || form.platform === 'arena' || form.platform === 'cursor' || form.platform === 'windsurf')" @authorized="handleBuiltinAuthorized" :key="form.platform" :platform="form.platform" />
+      <BuiltinAdapterLogin v-if="show && (form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'vibex' || form.platform === 'zcode' || form.platform === 'deepseek_web' || form.platform === 'madao' || form.platform === 'arena' || form.platform === 'cursor' || form.platform === 'windsurf')" @authorized="handleBuiltinAuthorized" :key="form.platform" :platform="form.platform" />
 
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
@@ -4304,6 +4312,7 @@ const baseUrlHint = computed(() => {
   if (form.platform === 'vibex') return t('admin.accounts.vibex.baseUrlHint')
   if (form.platform === 'zcode') return t('admin.accounts.zcode.baseUrlHint')
   if (form.platform === 'deepseek_web') return t('admin.accounts.deepseekWeb.baseUrlHint')
+  if (form.platform === 'madao') return t('admin.accounts.madao.baseUrlHint')
   if (form.platform === 'arena') return t('admin.accounts.arena.baseUrlHint')
   if (form.platform === 'systemone') return systemOneProvider.value === 'laya' ? t('admin.accounts.laya.baseUrlHint') : t('admin.accounts.jev.baseUrlHint')
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
@@ -4321,6 +4330,7 @@ const apiKeyHint = computed(() => {
   if (form.platform === 'vibex') return t('admin.accounts.vibex.apiKeyHint')
   if (form.platform === 'zcode') return t('admin.accounts.zcode.apiKeyHint')
   if (form.platform === 'deepseek_web') return t('admin.accounts.deepseekWeb.apiKeyHint')
+  if (form.platform === 'madao') return t('admin.accounts.madao.apiKeyHint')
   if (form.platform === 'arena') return t('admin.accounts.arena.apiKeyHint')
   if (form.platform === 'systemone') return systemOneProvider.value === 'laya' ? t('admin.accounts.laya.apiKeyHint') : t('admin.accounts.jev.apiKeyHint')
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
@@ -4657,6 +4667,18 @@ function selectDeepseekWebPlatform() {
   form.platform = 'deepseek_web'
 }
 
+// 码道（华为云 CodeArts 代码智能体 Web 端）走网页登录，地址与共享密钥由后端注入。
+function selectMadaoPlatform() {
+  upstreamBillingAutoProbeEnabled.value = false
+  form.platform = 'madao'
+  accountCategory.value = 'apikey'
+  form.type = 'apikey'
+  apiProtocol.value = 'chat_completions'
+  apiKeyBaseUrl.value = ''
+  apiKeyValue.value = ''
+  form.concurrency = 1
+}
+
 function selectArenaPlatform() {
   upstreamBillingAutoProbeEnabled.value = false
   form.platform = 'arena'
@@ -4721,7 +4743,7 @@ function selectSystemOnePlatform() {
 
 // 内置适配器平台（地址与共享密钥由后端注入）的单一权威列表。
 // 新增此类平台时只改这里，避免平台按钮 / base_url 复位 / 密钥必填等分支各漏一处。
-const BUILTIN_ADAPTER_PLATFORMS = ['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'qoder', 'systemone', 'arena', 'cursor', 'windsurf'] as const
+const BUILTIN_ADAPTER_PLATFORMS = ['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'madao', 'qoder', 'systemone', 'arena', 'cursor', 'windsurf'] as const
 const isBuiltinAdapterPlatform = computed(() =>
   (BUILTIN_ADAPTER_PLATFORMS as readonly string[]).includes(form.platform)
 )

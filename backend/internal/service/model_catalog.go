@@ -32,6 +32,7 @@ func modelCatalogCandidatePlatforms(targetPlatform string) []string {
 			PlatformZhipu,
 			PlatformDeepseek,
 			PlatformDeepseekWeb,
+			PlatformMadao,
 			PlatformMiniMax,
 			PlatformCursor,
 			PlatformWindsurf,

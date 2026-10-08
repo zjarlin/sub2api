@@ -76,6 +76,20 @@ func validateBuiltinChatCredentials(platform, accountType string, credentials ma
 		}
 		return nil
 	}
+	if platform == PlatformMadao {
+		if accountType != AccountTypeAPIKey || !BuiltinAdapterEnabled() {
+			return infraerrors.BadRequest("INVALID_MADAO_CREDENTIALS", "madao requires the built-in adapter")
+		}
+		key, _ := credentials["api_key"].(string)
+		if strings.TrimSpace(key) == "" {
+			return infraerrors.BadRequest("INVALID_MADAO_CREDENTIALS", "madao requires the adapter key")
+		}
+		protocol, _ := credentials["api_protocol"].(string)
+		if protocol != "" && protocol != APIProtocolChatCompletions {
+			return infraerrors.BadRequest("INVALID_MADAO_CREDENTIALS", "madao only supports chat_completions")
+		}
+		return nil
+	}
 	if platform == PlatformQoder {
 		return validateQoderCredentials(platform, accountType, credentials)
 	}

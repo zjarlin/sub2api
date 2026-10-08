@@ -1,7 +1,7 @@
 <template>
   <div class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-dark-600" data-testid="builtin-adapter-login">
     <p class="text-sm text-gray-600 dark:text-gray-300">{{ t(hintKey) }}</p>
-    <p class="input-hint">{{ t(platform === 'arena' ? 'admin.accounts.arena.loginSessionHint' : platform === 'deepseek_web' ? 'admin.accounts.builtinLogin.deepseekWebPoolHint' : platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexPoolHint' : platform === 'zcode' ? 'admin.accounts.builtinLogin.zcodePoolHint' : platform === 'cursor' ? 'admin.accounts.builtinLogin.cursorPoolHint' : platform === 'windsurf' ? 'admin.accounts.builtinLogin.windsurfPoolHint' : 'admin.accounts.builtinLogin.poolHint') }}</p>
+    <p class="input-hint">{{ t(platform === 'arena' ? 'admin.accounts.arena.loginSessionHint' : platform === 'deepseek_web' ? 'admin.accounts.builtinLogin.deepseekWebPoolHint' : platform === 'madao' ? 'admin.accounts.builtinLogin.madaoPoolHint' : platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexPoolHint' : platform === 'zcode' ? 'admin.accounts.builtinLogin.zcodePoolHint' : platform === 'cursor' ? 'admin.accounts.builtinLogin.cursorPoolHint' : platform === 'windsurf' ? 'admin.accounts.builtinLogin.windsurfPoolHint' : 'admin.accounts.builtinLogin.poolHint') }}</p>
     <div v-if="platform === 'zcode'" class="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <div>
         <label for="zcode-login-plan" class="input-label">{{ t('admin.accounts.builtinLogin.zcodePlan') }}</label>
@@ -49,12 +49,12 @@
       {{ t(startKey) }}
     </button>
     <template v-if="session?.status === 'pending'">
-      <a v-if="session.auth_url && platform !== 'deepseek_web'" :href="session.auth_url" target="_blank" rel="noopener noreferrer" class="block text-sm text-primary-600 underline dark:text-primary-400">
+      <a v-if="session.auth_url && platform !== 'deepseek_web' && platform !== 'madao'" :href="session.auth_url" target="_blank" rel="noopener noreferrer" class="block text-sm text-primary-600 underline dark:text-primary-400">
         {{ t(platform === 'cursor' ? 'admin.accounts.builtinLogin.cursorOpen' : platform === 'windsurf' ? 'admin.accounts.builtinLogin.windsurfOpen' : 'admin.accounts.builtinLogin.open') }}
       </a>
-      <div v-if="platform === 'deepseek_web'" class="space-y-2">
-        <img v-if="loginViewURL" :src="loginViewURL" data-testid="deepseek-login-view" :alt="t('admin.accounts.builtinLogin.deepseekWebQRCodeAlt')" class="mx-auto max-h-[520px] w-full rounded-lg border border-gray-200 object-contain dark:border-dark-600" />
-        <p class="input-hint" role="status">{{ t(loginViewURL ? 'admin.accounts.builtinLogin.deepseekWebWaiting' : 'admin.accounts.builtinLogin.deepseekWebLoading') }}</p>
+      <div v-if="platform === 'deepseek_web' || platform === 'madao'" class="space-y-2">
+        <img v-if="loginViewURL" :src="loginViewURL" :data-testid="platform === 'madao' ? 'madao-login-view' : 'deepseek-login-view'" :alt="t(platform === 'madao' ? 'admin.accounts.builtinLogin.madaoViewAlt' : 'admin.accounts.builtinLogin.deepseekWebQRCodeAlt')" class="mx-auto max-h-[520px] w-full rounded-lg border border-gray-200 object-contain dark:border-dark-600" />
+        <p class="input-hint" role="status">{{ t(loginViewURL ? (platform === 'madao' ? 'admin.accounts.builtinLogin.madaoWaiting' : 'admin.accounts.builtinLogin.deepseekWebWaiting') : (platform === 'madao' ? 'admin.accounts.builtinLogin.madaoLoading' : 'admin.accounts.builtinLogin.deepseekWebLoading')) }}</p>
       </div>
       <template v-else-if="session.mode === 'callback'">
         <label :for="`builtin-callback-${platform}`" class="input-label">{{ t(platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexToken' : platform === 'windsurf' ? 'admin.accounts.builtinLogin.windsurfCallback' : 'admin.accounts.builtinLogin.callback') }}</label>
@@ -114,6 +114,8 @@ const hintKey = computed(() => props.platform === 'arena'
   ? 'admin.accounts.arena.loginHint'
   : props.platform === 'deepseek_web'
   ? 'admin.accounts.builtinLogin.deepseekWebHint'
+  : props.platform === 'madao'
+  ? 'admin.accounts.builtinLogin.madaoHint'
   : props.platform === 'cursor'
   ? 'admin.accounts.builtinLogin.cursorHint'
   : props.platform === 'windsurf'
@@ -125,6 +127,9 @@ const startKey = computed(() => {
   if (props.platform === 'windsurf') return session.value ? 'admin.accounts.builtinLogin.windsurfRestart' : 'admin.accounts.builtinLogin.windsurfStart'
   if (props.platform === 'deepseek_web') {
     return session.value ? 'admin.accounts.builtinLogin.deepseekWebRestart' : 'admin.accounts.builtinLogin.deepseekWebStart'
+  }
+  if (props.platform === 'madao') {
+    return session.value ? 'admin.accounts.builtinLogin.madaoRestart' : 'admin.accounts.builtinLogin.madaoStart'
   }
   return session.value ? 'admin.accounts.builtinLogin.restart' : 'admin.accounts.builtinLogin.start'
 })
@@ -166,6 +171,10 @@ function showError(err: unknown) {
     error.value = t('admin.accounts.builtinLogin.deepseekWebUnavailable')
     return
   }
+  if (props.platform === 'madao' && detail.code === 'BUILTIN_ADAPTER_DISABLED') {
+    error.value = t('admin.accounts.builtinLogin.madaoUnavailable')
+    return
+  }
   error.value = detail.message || t('admin.accounts.builtinLogin.failed')
 }
 
@@ -184,7 +193,7 @@ async function cancel() {
 }
 
 async function refreshLoginView(current: BuiltinLoginSession, version: number) {
-  if (props.platform !== 'deepseek_web' || current.status !== 'pending') return
+  if ((props.platform !== 'deepseek_web' && props.platform !== 'madao') || current.status !== 'pending') return
   try {
     const blob = await getBuiltinLoginView(props.platform, current.session_id, controller?.signal)
     if (version !== generation) return
@@ -275,7 +284,7 @@ async function complete() {
 // 关闭表单立即中止轮询；服务端未完成会话会在十分钟后过期。
 onBeforeUnmount(() => {
   disposed = true
-  if (props.platform === 'arena' || props.platform === 'deepseek_web' || props.platform === 'cursor' || props.platform === 'windsurf') {
+  if (props.platform === 'arena' || props.platform === 'deepseek_web' || props.platform === 'madao' || props.platform === 'cursor' || props.platform === 'windsurf') {
     void cancel()
   } else {
     stop()

@@ -1095,6 +1095,9 @@ builtin_adapter:
   windsurf_key: ""
   zcode_url: "http://sub2api-zcode:7865"
   zcode_key: ""
+  # 码道（华为云 CodeArts 代码智能体 Web 端）文本适配器，账号保留真实会话凭据。
+  madao_url: "http://sub2api-madao:7870"
+  madao_key: ""
   # Laya 仅在内网可达；默认无上游密钥。若设置 LAYA_API_KEY，此处须配置相同密钥。
   laya_url: "http://edge-laya:18082"
   laya_key: ""

@@ -49,6 +49,24 @@ if [ "$DEEPSEEK_WEB_ENABLED" = "1" ]; then
   COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.deepseek-web.yml")
 fi
 
+# 码道（华为云 CodeArts 代码智能体 Web 端）适配器独立启用。
+MADAO_ENABLED="${SUB2API_MADAO:-}"
+if [ -z "$MADAO_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
+  MADAO_ENABLED="$(awk -F= '
+    $1 ~ /^[[:space:]]*(export[[:space:]]+)?SUB2API_MADAO[[:space:]]*$/ {
+      value=$2
+      sub(/#.*/, "", value)
+      gsub(/[[:space:]"\047]/, "", value)
+      result=value
+    }
+    END { if (result == "1") print "1"; else print "0" }
+  ' "$DEPLOY_DIR/.env")"
+fi
+if [ "$MADAO_ENABLED" = "1" ]; then
+  test -f "$DEPLOY_DIR/deploy/docker-compose.madao.yml"
+  COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.madao.yml")
+fi
+
 # Cursor 独立启用，真实账号 Key 在管理页面保存，部署仅生成内部共享密钥。
 CURSOR_ENABLED="${SUB2API_CURSOR:-}"
 if [ -z "$CURSOR_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
@@ -208,6 +226,9 @@ if [ "$BUILTIN_ADAPTERS_ENABLED" = "1" ]; then
 fi
 if [ "$DEEPSEEK_WEB_ENABLED" = "1" ]; then
   ensure_adapter_key DEEPSEEK_WEB_ADAPTER_KEY
+fi
+if [ "$MADAO_ENABLED" = "1" ]; then
+  ensure_adapter_key MADAO_ADAPTER_KEY
 fi
 if [ "$CURSOR_ENABLED" = "1" ]; then
   ensure_adapter_key CURSOR_ADAPTER_KEY
@@ -389,6 +410,10 @@ fi
 if [ "$DEEPSEEK_WEB_ENABLED" = "1" ]; then
   echo "Building and starting DeepSeek web adapter"
   "${COMPOSE[@]}" up -d --build sub2api-deepseek-web
+fi
+if [ "$MADAO_ENABLED" = "1" ]; then
+  echo "Building and starting CodeArts (码道) adapter"
+  "${COMPOSE[@]}" up -d --build --wait --wait-timeout 180 sub2api-madao
 fi
 if [ "$CURSOR_ENABLED" = "1" ]; then
   echo "Building and starting Cursor SDK adapter"

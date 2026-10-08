@@ -1404,6 +1404,7 @@ function generateRoutedCodexFiles(
     zhipu: 'Zhipu',
     deepseek: 'DeepSeek',
     deepseek_web: 'DeepSeek Web',
+    madao: '码道 CodeArts',
     arena: 'Arena',
     doubao: 'Doubao',
     traework: 'TRAE Work',

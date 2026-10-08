@@ -1,0 +1,45 @@
+name: CodeArts (码道) Adapter
+
+on:
+  push:
+    paths:
+      - 'tools/madao2api/**'
+      - 'tools/builtinlogin/**'
+      - 'deploy/docker-compose.madao.yml'
+      - 'deploy/cluster/deploy-252.sh'
+      - 'deploy/tests/madao-deploy-test.sh'
+      - '.github/workflows/madao2api-ci.yml'
+  pull_request:
+    paths:
+      - 'tools/madao2api/**'
+      - 'tools/builtinlogin/**'
+      - 'deploy/docker-compose.madao.yml'
+      - 'deploy/cluster/deploy-252.sh'
+      - 'deploy/tests/madao-deploy-test.sh'
+      - '.github/workflows/madao2api-ci.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.27.0'
+          cache-dependency-path: tools/madao2api/go.sum
+      - name: Adapter build and tests
+        working-directory: tools/madao2api
+        env:
+          GOPROXY: https://goproxy.cn,direct
+          GOSUMDB: sum.golang.google.cn
+        run: |
+          go build ./...
+          go vet ./...
+          go test ./...
+      - name: Deployment tests
+        run: |
+          bash -n deploy/cluster/deploy-252.sh deploy/tests/madao-deploy-test.sh
+          bash deploy/tests/madao-deploy-test.sh

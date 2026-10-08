@@ -1,0 +1,21 @@
+# 构建上下文为仓库 tools 目录。
+FROM golang:1.27-alpine AS build
+WORKDIR /src/madao2api
+ARG GOPROXY=https://goproxy.cn,direct
+ARG GOSUMDB=sum.golang.google.cn
+ENV GOPROXY=${GOPROXY} GOSUMDB=${GOSUMDB}
+COPY builtinlogin /src/builtinlogin
+COPY madao2api/go.mod madao2api/go.sum* ./
+RUN go mod download || true
+COPY madao2api/*.go ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/adapter .
+
+FROM alpine:3.20
+RUN apk add --no-cache ca-certificates chromium tzdata wget \
+ && adduser -D -u 10001 app \
+ && mkdir -p /app/data && chown -R app:app /app
+WORKDIR /app
+COPY --from=build /out/adapter /app/adapter
+USER app
+EXPOSE 7870
+ENTRYPOINT ["/app/adapter"]

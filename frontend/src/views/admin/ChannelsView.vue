@@ -763,9 +763,9 @@ const form = reactive({
 let abortController: AbortController | null = null
 
 // ── Platform config ──
-const platformOrder: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'deepseek_web', 'minimax', 'opencode_go', 'kilo', 'doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'cursor', 'windsurf', 'laya', 'jev']
+const platformOrder: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'deepseek_web', 'madao', 'minimax', 'opencode_go', 'kilo', 'doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'cursor', 'windsurf', 'laya', 'jev']
 // Composite pricing/mapping may target every concrete schedulable provider.
-const compositePlatforms: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'deepseek_web', 'minimax', 'opencode_go', 'kilo', 'doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'cursor', 'windsurf', 'laya', 'jev']
+const compositePlatforms: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'deepseek_web', 'madao', 'minimax', 'opencode_go', 'kilo', 'doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'cursor', 'windsurf', 'laya', 'jev']
 
 // ── Helpers ──
 function formatDate(value: string): string {

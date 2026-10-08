@@ -457,6 +457,8 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'laya': return ['laya', 'laya-english', 'laya-multilingual']
     case 'jev': return ['typesafe/jev']
     case 'deepseek': return deepseekModels
+    // 码道（华为云 CodeArts）内置模型目录，实际以适配器同步结果为准。
+    case 'madao': return ['GLM-5.2', 'GLM-5.1', 'Qwen3-VL-235B', 'maas-glm-4.7']
     case 'mistral': return mistralModels
     case 'meta': return metaModels
     case 'xai':

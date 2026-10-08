@@ -129,6 +129,8 @@ type BuiltinAdapterConfig struct {
 	ZcodeKey       string `mapstructure:"zcode_key"`
 	DeepseekWebURL string `mapstructure:"deepseek_web_url"`
 	DeepseekWebKey string `mapstructure:"deepseek_web_key"`
+	MadaoURL       string `mapstructure:"madao_url"`
+	MadaoKey       string `mapstructure:"madao_key"`
 	// System One 决策模型：Laya（本地 edge-laya）与 JEV（远端 / 内网 TypeSafe）。
 	LayaURL string `mapstructure:"laya_url"`
 	LayaKey string `mapstructure:"laya_key"`
@@ -206,6 +208,14 @@ func (c BuiltinAdapterConfig) DeepseekWebBaseURL() string {
 		return "http://sub2api-deepseek-web:7867"
 	}
 	return strings.TrimSpace(c.DeepseekWebURL)
+}
+
+// MadaoBaseURL 返回内置码道适配器地址。
+func (c BuiltinAdapterConfig) MadaoBaseURL() string {
+	if strings.TrimSpace(c.MadaoURL) == "" {
+		return "http://sub2api-madao:7870"
+	}
+	return strings.TrimSpace(c.MadaoURL)
 }
 
 // LayaBaseURL 返回内置 Laya 决策服务地址。
@@ -2198,6 +2208,8 @@ func setDefaults() {
 	viper.SetDefault("builtin_adapter.zcode_key", "")
 	viper.SetDefault("builtin_adapter.deepseek_web_url", "")
 	viper.SetDefault("builtin_adapter.deepseek_web_key", "")
+	viper.SetDefault("builtin_adapter.madao_url", "")
+	viper.SetDefault("builtin_adapter.madao_key", "")
 	viper.SetDefault("builtin_adapter.laya_url", "")
 	viper.SetDefault("builtin_adapter.laya_key", "")
 	viper.SetDefault("builtin_adapter.jev_url", "")

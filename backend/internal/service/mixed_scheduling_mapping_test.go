@@ -17,7 +17,7 @@ func TestMixedSchedulingMapping(t *testing.T) {
 	require.False(t, SupportsMixedScheduling(PlatformAnthropic))
 
 	// 反向查询：哪些来源平台可加入 openai 分组。
-	require.Equal(t, []string{PlatformCursor, PlatformDeepseek, PlatformDeepseekWeb, PlatformDoubao, PlatformGrok, PlatformJev, PlatformKilo, PlatformKimi, PlatformLaya, PlatformMiniMax, PlatformOpenCodeGo, PlatformSystemOne, PlatformTraework, PlatformVibex, PlatformWindsurf, PlatformWorkbuddy, PlatformZcode, PlatformZhipu}, MixedSchedulingSourcePlatforms(PlatformOpenAI))
+	require.Equal(t, []string{PlatformCursor, PlatformDeepseek, PlatformDeepseekWeb, PlatformDoubao, PlatformGrok, PlatformJev, PlatformKilo, PlatformKimi, PlatformLaya, PlatformMadao, PlatformMiniMax, PlatformOpenCodeGo, PlatformSystemOne, PlatformTraework, PlatformVibex, PlatformWindsurf, PlatformWorkbuddy, PlatformZcode, PlatformZhipu}, MixedSchedulingSourcePlatforms(PlatformOpenAI))
 	require.True(t, openAIAccountMatchesPlatform(mixedSchedulingAccount(PlatformDeepseekWeb, false), PlatformOpenAI))
 	require.Equal(t, []string{PlatformAntigravity}, MixedSchedulingSourcePlatforms(PlatformAnthropic))
 	require.Equal(t, []string{PlatformAntigravity}, MixedSchedulingSourcePlatforms(PlatformGemini))

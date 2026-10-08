@@ -61,6 +61,8 @@ func builtinAdapterBaseURL(platform string) string {
 		return strings.TrimRight(cfg.ZcodeBaseURL(), "/")
 	case PlatformDeepseekWeb:
 		return strings.TrimRight(cfg.DeepseekWebBaseURL(), "/")
+	case PlatformMadao:
+		return strings.TrimRight(cfg.MadaoBaseURL(), "/")
 	case PlatformLaya:
 		return strings.TrimRight(cfg.LayaBaseURL(), "/")
 	case PlatformJev:
@@ -95,6 +97,8 @@ func builtinAdapterAPIKey(platform string) string {
 		return strings.TrimSpace(cfg.ZcodeKey)
 	case PlatformDeepseekWeb:
 		return strings.TrimSpace(cfg.DeepseekWebKey)
+	case PlatformMadao:
+		return strings.TrimSpace(cfg.MadaoKey)
 	case PlatformLaya:
 		return strings.TrimSpace(cfg.LayaKey)
 	case PlatformJev:

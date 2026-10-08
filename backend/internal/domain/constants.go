@@ -44,6 +44,8 @@ const (
 	PlatformDeepseek = "deepseek" // DeepSeek
 	// DeepSeek 网页会话适配器，独立于官方付费 API。
 	PlatformDeepseekWeb = "deepseek_web"
+	// 码道（华为云 CodeArts 代码智能体 Web 端）网页会话适配器。
+	PlatformMadao = "madao"
 	// Arena 网页 Agent 的专属文本会话适配器。
 	PlatformArena   = "arena"
 	PlatformMiniMax = "minimax" // MiniMax (M 系列)

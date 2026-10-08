@@ -12,6 +12,7 @@ const PROVIDER_BY_PLATFORM: Record<GroupPlatform, KeyGroupProvider> = {
   zhipu: 'domestic',
   deepseek: 'domestic',
   deepseek_web: 'domestic',
+  madao: 'domestic',
   arena: 'other',
   cursor: 'other',
   windsurf: 'other',

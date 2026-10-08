@@ -315,6 +315,11 @@ func (a *Account) IsArena() bool {
 	return a != nil && a.Platform == PlatformArena
 }
 
+// IsMadao 标识码道（华为云 CodeArts 代码智能体 Web 端）文本会话适配器账号。
+func (a *Account) IsMadao() bool {
+	return a != nil && a.Platform == PlatformMadao
+}
+
 func (a *Account) IsMiniMax() bool {
 	return a.Platform == PlatformMiniMax
 }
@@ -1485,7 +1490,7 @@ func (a *Account) GetOpenAIBaseURL() string {
 	case PlatformQoder:
 		// Qoder 直连官方 Model Server，不依赖内置适配器配置。
 		return QoderModelServerURL()
-	case PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformDeepseekWeb, PlatformArena, PlatformLaya, PlatformJev, PlatformCursor, PlatformWindsurf:
+	case PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformDeepseekWeb, PlatformMadao, PlatformArena, PlatformLaya, PlatformJev, PlatformCursor, PlatformWindsurf:
 		// 内置适配器模式下由部署注入地址，账号本身不存默认公网端点。
 		return builtinAdapterBaseURL(a.Platform)
 	case PlatformKilo:
@@ -1514,7 +1519,7 @@ func (a *Account) GetOpenAIBaseURL() string {
 // GetAccountMode 返回国产供应商账号的接入模式（payg / coding）；非国产供应商或未设置时
 // 返回空串。存储于 credentials["account_mode"]。
 func (a *Account) GetAccountMode() string {
-	if a == nil || a.IsDoubao() || a.IsTraework() || a.IsWorkbuddy() || a.IsVibex() || a.IsZcode() || a.IsDeepseekWeb() || a.IsArena() || a.IsLaya() || a.IsJev() || a.IsCursor() || a.IsWindsurf() {
+	if a == nil || a.IsDoubao() || a.IsTraework() || a.IsWorkbuddy() || a.IsVibex() || a.IsZcode() || a.IsDeepseekWeb() || a.IsMadao() || a.IsArena() || a.IsLaya() || a.IsJev() || a.IsCursor() || a.IsWindsurf() {
 		return ""
 	}
 	mode := strings.TrimSpace(a.GetCredential("account_mode"))
@@ -1551,7 +1556,7 @@ func (a *Account) GetAPIProtocol() string {
 	if a.IsCursor() || a.IsWindsurf() {
 		return APIProtocolChatCompletions
 	}
-	if a.IsTraework() || a.IsWorkbuddy() || a.IsVibex() || a.IsZcode() || a.IsDeepseekWeb() || a.IsArena() || a.IsQoder() || !a.IsMultiProtocolAPIKey() {
+	if a.IsTraework() || a.IsWorkbuddy() || a.IsVibex() || a.IsZcode() || a.IsDeepseekWeb() || a.IsMadao() || a.IsArena() || a.IsQoder() || !a.IsMultiProtocolAPIKey() {
 		return APIProtocolChatCompletions
 	}
 	switch strings.TrimSpace(a.GetCredential("api_protocol")) {
