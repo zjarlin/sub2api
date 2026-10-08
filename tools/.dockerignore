@@ -7,6 +7,11 @@
 !deepseek2api/go.mod
 !deepseek2api/go.sum
 !deepseek2api/*.go
+!madao2api/
+!madao2api/go.mod
+!madao2api/go.sum
+!madao2api/*.go
+!madao2api/Dockerfile*
 !traework2api/
 !traework2api/go.mod
 !traework2api/cmd/
