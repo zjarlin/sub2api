@@ -53,8 +53,21 @@
         {{ t(platform === 'cursor' ? 'admin.accounts.builtinLogin.cursorOpen' : platform === 'windsurf' ? 'admin.accounts.builtinLogin.windsurfOpen' : 'admin.accounts.builtinLogin.open') }}
       </a>
       <div v-if="platform === 'deepseek_web' || platform === 'madao'" class="space-y-2">
-        <img v-if="loginViewURL" :src="loginViewURL" :data-testid="platform === 'madao' ? 'madao-login-view' : 'deepseek-login-view'" :alt="t(platform === 'madao' ? 'admin.accounts.builtinLogin.madaoViewAlt' : 'admin.accounts.builtinLogin.deepseekWebQRCodeAlt')" class="mx-auto max-h-[520px] w-full rounded-lg border border-gray-200 object-contain dark:border-dark-600" />
+        <img
+          v-if="loginViewURL"
+          ref="loginViewRef"
+          :src="loginViewURL"
+          :data-testid="platform === 'madao' ? 'madao-login-view' : 'deepseek-login-view'"
+          :alt="t(platform === 'madao' ? 'admin.accounts.builtinLogin.madaoViewAlt' : 'admin.accounts.builtinLogin.deepseekWebQRCodeAlt')"
+          :class="['mx-auto max-h-[520px] w-full rounded-lg border border-gray-200 object-contain dark:border-dark-600', viewInteractive ? 'cursor-text outline-none focus:ring-2 focus:ring-primary-500' : '']"
+          :tabindex="viewInteractive ? 0 : undefined"
+          @click="relayClick"
+          @wheel.prevent="relayWheel"
+          @keydown="relayKeydown"
+          @mousedown.prevent
+        />
         <p class="input-hint" role="status">{{ t(loginViewURL ? (platform === 'madao' ? 'admin.accounts.builtinLogin.madaoWaiting' : 'admin.accounts.builtinLogin.deepseekWebWaiting') : (platform === 'madao' ? 'admin.accounts.builtinLogin.madaoLoading' : 'admin.accounts.builtinLogin.deepseekWebLoading')) }}</p>
+        <p v-if="viewInteractive && loginViewURL" class="input-hint">{{ t('admin.accounts.builtinLogin.viewInteractHint') }}</p>
       </div>
       <template v-else-if="session.mode === 'callback'">
         <label :for="`builtin-callback-${platform}`" class="input-label">{{ t(platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexToken' : platform === 'windsurf' ? 'admin.accounts.builtinLogin.windsurfCallback' : 'admin.accounts.builtinLogin.callback') }}</label>
@@ -79,7 +92,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { cancelBuiltinLogin, completeBuiltinLogin, getBuiltinLoginView, startBuiltinLogin, type BuiltinLoginPlatform, type BuiltinLoginSession, type DeepseekLoginOptions, type PasswordLoginOptions, type ZcodeLoginOptions } from '@/api/admin/builtinAdapters'
+import { cancelBuiltinLogin, completeBuiltinLogin, getBuiltinLoginView, sendBuiltinLoginInput, startBuiltinLogin, type BuiltinLoginInputEvent, type BuiltinLoginPlatform, type BuiltinLoginSession, type DeepseekLoginOptions, type PasswordLoginOptions, type ZcodeLoginOptions } from '@/api/admin/builtinAdapters'
 
 const props = defineProps<{ platform: BuiltinLoginPlatform }>()
 const emit = defineEmits<{
@@ -94,6 +107,9 @@ const deepseekEmail = ref('')
 const deepseekPassword = ref('')
 const deepseekAutoRelogin = ref(true)
 const loginViewURL = ref('')
+const loginViewRef = ref<HTMLImageElement | null>(null)
+const inputQueue: BuiltinLoginInputEvent[] = []
+let inputSending = false
 const error = ref('')
 const arenaErrorKeys = new Map<string, string>([
   ['BUILTIN_ADAPTER_DISABLED', 'admin.accounts.arena.unavailable'],
@@ -107,6 +123,7 @@ const arenaErrorKeys = new Map<string, string>([
   ['ARENA_LOGIN_TIMEOUT', 'admin.accounts.arena.loginTimeout'],
   ['ARENA_SESSION_PREPARE_FAILED', 'admin.accounts.arena.sessionPrepareFailed']
 ])
+const viewInteractive = computed(() => props.platform === 'madao')
 const busy = ref(false)
 const zcodePlan = ref<ZcodeLoginOptions['plan']>('coding-plan')
 const zcodeProvider = ref<ZcodeLoginOptions['provider']>('zai')
@@ -189,6 +206,86 @@ async function cancel() {
     await cancelBuiltinLogin(props.platform, current.session_id)
   } catch (err) {
     if (!disposed) showError(err)
+  }
+}
+
+// 截图式登录：把点击/滚轮映射回隔离浏览器视口后再转发。
+// 截图与浏览器视口 1:1（naturalWidth/Height 即视口 CSS 像素），
+// 因此按 object-contain 的显示区域比例还原即可，无需假定固定分辨率。
+function mappedPoint(event: MouseEvent): { x: number; y: number } | null {
+  const el = loginViewRef.value
+  if (!el || !el.naturalWidth || !el.naturalHeight) return null
+  const box = el.getBoundingClientRect()
+  if (!box.width || !box.height) return null
+  // object-contain：图片以原比例适配，计算实际显示区域。
+  const scale = Math.min(box.width / el.naturalWidth, box.height / el.naturalHeight)
+  const shownWidth = el.naturalWidth * scale
+  const shownHeight = el.naturalHeight * scale
+  const offsetX = (box.width - shownWidth) / 2
+  const offsetY = (box.height - shownHeight) / 2
+  const localX = event.clientX - box.left - offsetX
+  const localY = event.clientY - box.top - offsetY
+  if (localX < 0 || localY < 0 || localX > shownWidth || localY > shownHeight) return null
+  // 还原为浏览器视口像素（截图 1:1 等于视口）。
+  return {
+    x: (localX / shownWidth) * el.naturalWidth,
+    y: (localY / shownHeight) * el.naturalHeight,
+  }
+}
+
+function enqueueInput(event: BuiltinLoginInputEvent) {
+  if (inputQueue.length >= 64) inputQueue.shift()
+  inputQueue.push(event)
+  void drainInput()
+}
+
+async function drainInput() {
+  if (inputSending) return
+  const current = session.value
+  if (!current || current.status !== 'pending') {
+    inputQueue.length = 0
+    return
+  }
+  inputSending = true
+  try {
+    while (inputQueue.length) {
+      const next = inputQueue.shift()
+      if (!next) break
+      try {
+        await sendBuiltinLoginInput(props.platform, current.session_id, next)
+      } catch {
+        // 会话过期或适配器未就绪时忽略单次转发失败；轮询会同步最终状态。
+      }
+    }
+  } finally {
+    inputSending = false
+  }
+}
+
+function relayClick(event: MouseEvent) {
+  if (!viewInteractive.value) return
+  const point = mappedPoint(event)
+  if (!point) return
+  enqueueInput({ type: 'click', x: point.x, y: point.y })
+}
+
+function relayWheel(event: WheelEvent) {
+  if (!viewInteractive.value) return
+  const point = mappedPoint(event)
+  if (!point) return
+  enqueueInput({ type: 'wheel', x: point.x, y: point.y, delta_x: Math.round(event.deltaX), delta_y: Math.round(event.deltaY) })
+}
+
+function relayKeydown(event: KeyboardEvent) {
+  if (!viewInteractive.value) return
+  const printable = event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey
+  if (printable) {
+    enqueueInput({ type: 'text', text: event.key })
+    return
+  }
+  const allowed = ['Enter', 'Tab', 'Backspace', 'Escape', 'ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown', 'Delete', ' ']
+  if (allowed.includes(event.key)) {
+    enqueueInput({ type: 'key', key: event.key === ' ' ? 'Space' : event.key })
   }
 }
 

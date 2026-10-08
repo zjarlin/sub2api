@@ -46,6 +46,21 @@ export async function cancelBuiltinLogin(platform: BuiltinLoginPlatform, id: str
   await apiClient.delete(`${path(platform)}/${id}`)
 }
 
+export interface BuiltinLoginInputEvent {
+  type: 'click' | 'move' | 'wheel' | 'text' | 'key'
+  x?: number
+  y?: number
+  delta_x?: number
+  delta_y?: number
+  text?: string
+  key?: string
+}
+
+/** 把页面交互转发给适配器的隔离浏览器（截图式登录必需）。 */
+export async function sendBuiltinLoginInput(platform: BuiltinLoginPlatform, id: string, event: BuiltinLoginInputEvent, signal?: AbortSignal) {
+  await apiClient.post(`${path(platform)}/${id}/input`, event, { signal, timeout: 20000 })
+}
+
 export async function getBuiltinLoginView(platform: BuiltinLoginPlatform, id: string, signal?: AbortSignal) {
   const { data } = await apiClient.get<Blob>(`${path(platform)}/${id}/view`, {
     signal,

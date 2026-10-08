@@ -128,6 +128,7 @@ export default {
         madaoLoading: 'Starting the isolated browser and opening the CodeArts sign-in page…',
         madaoWaiting: 'Waiting for the CodeArts sign-in to finish; complete the Huawei Cloud login and any verification in the browser view.',
         madaoViewAlt: 'CodeArts isolated sign-in browser view',
+        viewInteractHint: 'Click and type directly in the view above; this page completes automatically after sign-in.',
         cursorHint: 'Open the official Cursor sign-in below to authorize. This page receives the credential minted by the deployment and saves it automatically.',
         cursorPoolHint: 'Authorization happens on the official Cursor page. The credential is stored by this deployment and can be revoked; no Dashboard key to create or paste.',
         cursorStart: 'Sign in to Cursor',

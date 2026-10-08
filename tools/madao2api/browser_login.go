@@ -9,19 +9,24 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/chromedp/chromedp"
+	"github.com/chromedp/cdproto/input"
 	"github.com/chromedp/cdproto/network"
+	"github.com/chromedp/chromedp"
+
+	"sub2api/builtinlogin"
 )
 
 type browserLoginSession interface {
 	Screenshot(context.Context) ([]byte, error)
 	Credential(context.Context) (credential, bool, error)
+	Input(context.Context, builtinlogin.Input) error
 	Close()
 }
 
@@ -198,6 +203,91 @@ func (s *chromiumLoginSession) Credential(ctx context.Context) (credential, bool
 	}
 	result.Cookies = normalizeCookies(result.Cookies)
 	return result, result.usable(), nil
+}
+
+// Input 把管理页面的一次交互（鼠标/键盘/滚轮）转发到隔离浏览器，
+// 使「截图式登录」具备可操作性：用户能在浏览器画面里点选并输入。
+func (s *chromiumLoginSession) Input(ctx context.Context, event builtinlogin.Input) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	runContext, cancel := context.WithTimeout(s.context, 10*time.Second)
+	defer cancel()
+	stop := context.AfterFunc(ctx, cancel)
+	defer stop()
+	var action chromedp.Action
+	switch event.Type {
+	case "click":
+		action = chromedp.ActionFunc(func(ctx context.Context) error {
+			if err := input.DispatchMouseEvent(input.MouseMoved, event.X, event.Y).Do(ctx); err != nil {
+				return err
+			}
+			if err := input.DispatchMouseEvent(input.MousePressed, event.X, event.Y).
+				WithButton(input.Left).WithClickCount(1).WithButtons(1).Do(ctx); err != nil {
+				return err
+			}
+			return input.DispatchMouseEvent(input.MouseReleased, event.X, event.Y).
+				WithButton(input.Left).WithClickCount(1).WithButtons(0).Do(ctx)
+		})
+	case "move":
+		action = chromedp.ActionFunc(func(ctx context.Context) error {
+			return input.DispatchMouseEvent(input.MouseMoved, event.X, event.Y).Do(ctx)
+		})
+	case "wheel":
+		action = chromedp.ActionFunc(func(ctx context.Context) error {
+			return input.DispatchMouseEvent(input.MouseWheel, event.X, event.Y).
+				WithDeltaY(event.DeltaY).WithDeltaX(event.DeltaX).Do(ctx)
+		})
+	case "text":
+		action = chromedp.ActionFunc(func(ctx context.Context) error {
+			return input.InsertText(event.Text).Do(ctx)
+		})
+	case "key":
+		action = chromedp.ActionFunc(func(ctx context.Context) error {
+			return dispatchKey(ctx, event.Key)
+		})
+	default:
+		return fmt.Errorf("unsupported input event")
+	}
+	if err := chromedp.Run(runContext, action); err != nil {
+		return err
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return nil
+	}
+}
+
+// dispatchKey 发送一次按键（按下 + 抬起）。覆盖登录常见按键。
+func dispatchKey(ctx context.Context, key string) error {
+	type keySpec struct {
+		name string
+		code string
+		vk   int64
+	}
+	specs := map[string]keySpec{
+		"Enter":     {"Enter", "Enter", 13},
+		"Tab":       {"Tab", "Tab", 9},
+		"Backspace": {"Backspace", "Backspace", 8},
+		"Escape":    {"Escape", "Escape", 27},
+		"ArrowLeft": {"ArrowLeft", "ArrowLeft", 37},
+		"ArrowUp":   {"ArrowUp", "ArrowUp", 38},
+		"ArrowRight": {"ArrowRight", "ArrowRight", 39},
+		"ArrowDown": {"ArrowDown", "ArrowDown", 40},
+		"Delete":    {"Delete", "Delete", 46},
+		"Space":     {" ", "Space", 32},
+	}
+	spec, ok := specs[key]
+	if !ok {
+		return fmt.Errorf("unsupported key")
+	}
+	if err := input.DispatchKeyEvent(input.KeyDown).
+		WithKey(spec.name).WithCode(spec.code).WithWindowsVirtualKeyCode(spec.vk).Do(ctx); err != nil {
+		return err
+	}
+	return input.DispatchKeyEvent(input.KeyUp).
+		WithKey(spec.name).WithCode(spec.code).WithWindowsVirtualKeyCode(spec.vk).Do(ctx)
 }
 
 func (s *chromiumLoginSession) Close() {

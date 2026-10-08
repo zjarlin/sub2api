@@ -36,12 +36,26 @@ type View struct {
 	Body        []byte
 }
 
+// Input 是发往隔离浏览器的用户交互事件（鼠标 / 键盘 / 滚轮）。
+// 坐标使用 CSS 像素，相对浏览器视口左上角；仅供可信后台在登录会话上转发。
+type Input struct {
+	Type   string  `json:"type"`              // click | move | wheel | text | key
+	X      float64 `json:"x,omitempty"`       // click/move/wheel：视口 X
+	Y      float64 `json:"y,omitempty"`       // click/move/wheel：视口 Y
+	DeltaX float64 `json:"delta_x,omitempty"` // wheel：横向滚动像素
+	DeltaY float64 `json:"delta_y,omitempty"` // wheel：纵向滚动像素
+	Text   string  `json:"text,omitempty"`    // text：插入的文本
+	Key    string  `json:"key,omitempty"`     // key：按键名（Enter/Tab/Backspace/箭头等）
+}
+
 type Flow struct {
 	URL      string
 	Mode     string
 	Complete func(context.Context, string) (*Account, error)
 	View     func(context.Context) (*View, error)
-	Close    func()
+	// Input 可选：向隔离浏览器转发一次用户交互（截图式登录必需）。
+	Input func(context.Context, Input) error
+	Close func()
 }
 
 type Begin func(context.Context) (*Flow, error)
@@ -89,6 +103,7 @@ func (h *Handler) Register(mux *http.ServeMux, authorize func(http.HandlerFunc) 
 	mux.HandleFunc("POST /internal/login/sessions/{id}/poll", authorize(h.complete))
 	mux.HandleFunc("POST /internal/login/sessions/{id}/callback", authorize(h.complete))
 	mux.HandleFunc("GET /internal/login/sessions/{id}/view", authorize(h.view))
+	mux.HandleFunc("POST /internal/login/sessions/{id}/input", authorize(h.input))
 	mux.HandleFunc("DELETE /internal/login/sessions/{id}", authorize(h.cancel))
 }
 
@@ -294,6 +309,57 @@ func (h *Handler) view(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(view.Body)
+}
+
+// input 向隔离浏览器转发一次交互事件；会话必须属于调用者且在有效期内。
+func (h *Handler) input(w http.ResponseWriter, r *http.Request) {
+	s := h.find(r)
+	if s == nil {
+		fail(w, 404, "Login session expired or not found")
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cancelled || !h.now().Before(s.expires) || s.flow == nil || s.flow.Input == nil {
+		fail(w, 404, "Login view expired or unavailable")
+		return
+	}
+	var payload Input
+	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		fail(w, 400, "Invalid input event")
+		return
+	}
+	if !validInput(payload) {
+		fail(w, 400, "Invalid input event")
+		return
+	}
+	if err := s.flow.Input(r.Context(), payload); err != nil {
+		fail(w, 502, "Unable to relay input to the browser")
+		return
+	}
+	write(w, 200, map[string]bool{"ok": true})
+}
+
+// validInput 限制事件类型、坐标范围与文本长度，避免失控或超长输入。
+func validInput(in Input) bool {
+	const maxCoord = 20000
+	switch in.Type {
+	case "click", "move", "wheel":
+		if in.X < 0 || in.Y < 0 || in.X > maxCoord || in.Y > maxCoord {
+			return false
+		}
+		if in.DeltaX < -maxCoord || in.DeltaX > maxCoord || in.DeltaY < -maxCoord || in.DeltaY > maxCoord {
+			return false
+		}
+		return true
+	case "text":
+		return in.Text != "" && len(in.Text) <= 4096
+	case "key":
+		return in.Key != "" && len(in.Key) <= 32
+	default:
+		return false
+	}
 }
 
 func (h *Handler) cancel(w http.ResponseWriter, r *http.Request) {

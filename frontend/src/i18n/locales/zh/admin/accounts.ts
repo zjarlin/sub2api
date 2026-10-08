@@ -129,6 +129,7 @@ export default {
         madaoLoading: '正在启动隔离浏览器并打开码道登录页…',
         madaoWaiting: '正在等待码道登录完成；请在浏览器画面中完成华为云登录与可能的验证码。',
         madaoViewAlt: '码道隔离登录浏览器画面',
+        viewInteractHint: '可直接在上方画面中点击并输入；登录成功后本页自动完成接入。',
         cursorHint: '点击下方按钮打开 Cursor 官方登录页完成授权；授权成功后本页会拿到部署铸造的账号凭据并直接保存。',
         cursorPoolHint: '授权在 Cursor 官方页面完成，凭据由本部署保存并可直接撤销；不需要手动创建或粘贴 Dashboard Key。',
         cursorStart: '登录 Cursor',

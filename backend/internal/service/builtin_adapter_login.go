@@ -249,6 +249,62 @@ func arenaLoginError(res *http.Response) error {
 	return infraerrors.New(failure.status, failure.reason, failure.message)
 }
 
+// BuiltinAdapterLoginInput 把管理页面的一次交互（鼠标/键盘/滚轮）转发给隔离浏览器。
+// 只连接部署配置指定的内部服务，不接受浏览器提供的目标地址或密钥。
+func BuiltinAdapterLoginInput(ctx context.Context, platform, owner, sessionID string, event BuiltinLoginInputEvent) error {
+	base, key := builtinAdapterBaseURL(platform), builtinAdapterAPIKey(platform)
+	if base == "" || key == "" {
+		return infraerrors.BadRequest("BUILTIN_ADAPTER_DISABLED", "Enable the built-in adapter and configure its shared key first")
+	}
+	if owner == "" || !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(sessionID) {
+		return infraerrors.BadRequest("INVALID_LOGIN_SESSION", "Invalid login session")
+	}
+	body, err := json.Marshal(event)
+	if err != nil {
+		return infraerrors.BadRequest("INVALID_LOGIN_INPUT", "Invalid input event")
+	}
+	url := strings.TrimSuffix(base, "/v1") + "/internal/login/sessions/" + sessionID + "/input"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return infraerrors.BadRequest("INVALID_ADAPTER_URL", "Invalid adapter configuration")
+	}
+	req.Header.Set("Authorization", "Bearer "+key)
+	req.Header.Set("X-Login-Owner", owner)
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 20 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	res, err := client.Do(req)
+	if err != nil {
+		return infraerrors.New(502, "ADAPTER_UNREACHABLE", "Unable to reach the built-in login service")
+	}
+	defer res.Body.Close()
+	if res.StatusCode < 200 || res.StatusCode >= 300 {
+		status := res.StatusCode
+		if status < 400 || status > 599 {
+			status = 502
+		}
+		message := "Unable to relay input to the login browser"
+		if status == 404 {
+			message = "Login session expired or unavailable; start a new login"
+		}
+		if status == 400 {
+			message = "Invalid input event"
+		}
+		return infraerrors.New(status, "ADAPTER_LOGIN_INPUT_FAILED", message)
+	}
+	return nil
+}
+
+// BuiltinLoginInputEvent 是转发给内置适配器的一次交互事件（与 builtinlogin.Input 一致）。
+type BuiltinLoginInputEvent struct {
+	Type   string  `json:"type"`
+	X      float64 `json:"x,omitempty"`
+	Y      float64 `json:"y,omitempty"`
+	DeltaX float64 `json:"delta_x,omitempty"`
+	DeltaY float64 `json:"delta_y,omitempty"`
+	Text   string  `json:"text,omitempty"`
+	Key    string  `json:"key,omitempty"`
+}
+
 func BuiltinAdapterLoginView(ctx context.Context, platform, owner, sessionID string) (*BuiltinLoginView, error) {
 	base, key := builtinAdapterBaseURL(platform), builtinAdapterAPIKey(platform)
 	if base == "" || key == "" {

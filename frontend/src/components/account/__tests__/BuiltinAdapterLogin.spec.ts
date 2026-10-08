@@ -2,8 +2,8 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import BuiltinAdapterLogin from '../BuiltinAdapterLogin.vue'
 
-const { start, complete, cancel, getView } = vi.hoisted(() => ({ start: vi.fn(), complete: vi.fn(), cancel: vi.fn(), getView: vi.fn() }))
-vi.mock('@/api/admin/builtinAdapters', () => ({ startBuiltinLogin: start, completeBuiltinLogin: complete, cancelBuiltinLogin: cancel, getBuiltinLoginView: getView }))
+const { start, complete, cancel, getView, sendInput } = vi.hoisted(() => ({ start: vi.fn(), complete: vi.fn(), cancel: vi.fn(), getView: vi.fn(), sendInput: vi.fn() }))
+vi.mock('@/api/admin/builtinAdapters', () => ({ startBuiltinLogin: start, completeBuiltinLogin: complete, cancelBuiltinLogin: cancel, getBuiltinLoginView: getView, sendBuiltinLoginInput: sendInput }))
 vi.mock('vue-i18n', async () => ({ ...await vi.importActual('vue-i18n'), useI18n: () => ({ t: (key: string) => key }) }))
 
 const pending = (mode: 'poll' | 'callback') => ({ session_id: 'abc', mode, status: 'pending', auth_url: 'https://example.com/login', expires_at: Date.now() + 600000 })
@@ -14,6 +14,7 @@ describe('BuiltinAdapterLogin', () => {
     vi.clearAllMocks()
     cancel.mockResolvedValue(undefined)
     getView.mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
+    sendInput.mockResolvedValue(undefined)
     Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:deepseek-login') })
     Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
   })
@@ -276,6 +277,59 @@ describe('BuiltinAdapterLogin', () => {
     await wrapper.get('button').trigger('click'); await flushPromises()
     expect(wrapper.get('[role="alert"]').text()).toBe('Adapter unavailable')
     expect(wrapper.get('button').attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+})
+
+describe('BuiltinAdapterLogin madao interaction', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.clearAllMocks()
+    cancel.mockResolvedValue(undefined)
+    getView.mockResolvedValue(new Blob(['png'], { type: 'image/png' }))
+    sendInput.mockResolvedValue(undefined)
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:madao-login') })
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() })
+  })
+  afterEach(() => { vi.useRealTimers() })
+
+  it('relays clicks and typed text from the view image to the adapter', async () => {
+    start.mockResolvedValue({ ...pending('poll'), auth_url: undefined })
+    const wrapper = mount(BuiltinAdapterLogin, { props: { platform: 'madao' } })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    const img = wrapper.get('[data-testid="madao-login-view"]')
+    // jsdom 默认 naturalWidth/Height 为 0，显式提供尺寸以计算映射。
+    Object.defineProperty(img.element, 'naturalWidth', { configurable: true, value: 1280 })
+    Object.defineProperty(img.element, 'naturalHeight', { configurable: true, value: 761 })
+    Object.defineProperty(img.element, 'getBoundingClientRect', { configurable: true, value: () => ({ left: 0, top: 0, width: 640, height: 450, right: 640, bottom: 450, x: 0, y: 0, toJSON() {} }) })
+    await img.trigger('click', { clientX: 320, clientY: 225 })
+    await flushPromises()
+    expect(sendInput).toHaveBeenCalledWith('madao', 'abc', { type: 'click', x: 640, y: 380.5 })
+    await img.trigger('keydown', { key: '1' })
+    await flushPromises()
+    expect(sendInput).toHaveBeenCalledWith('madao', 'abc', { type: 'text', text: '1' })
+    await img.trigger('keydown', { key: 'Enter' })
+    await flushPromises()
+    expect(sendInput).toHaveBeenCalledWith('madao', 'abc', { type: 'key', key: 'Enter' })
+    expect(wrapper.text()).toContain('admin.accounts.builtinLogin.viewInteractHint')
+    wrapper.unmount()
+  })
+
+  it('does not relay input for deepseek_web (no server-side input support)', async () => {
+    start.mockResolvedValue(pending('poll'))
+    const wrapper = mount(BuiltinAdapterLogin, { props: { platform: 'deepseek_web' } })
+    await wrapper.get('#deepseek-login-email').setValue('user@example.com')
+    await wrapper.get('#deepseek-login-password').setValue('password')
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    const img = wrapper.get('[data-testid="deepseek-login-view"]')
+    Object.defineProperty(img.element, 'naturalWidth', { configurable: true, value: 1280 })
+    Object.defineProperty(img.element, 'naturalHeight', { configurable: true, value: 900 })
+    Object.defineProperty(img.element, 'getBoundingClientRect', { configurable: true, value: () => ({ left: 0, top: 0, width: 640, height: 450, right: 640, bottom: 450, x: 0, y: 0, toJSON() {} }) })
+    await img.trigger('click', { clientX: 10, clientY: 10 })
+    await flushPromises()
+    expect(sendInput).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })

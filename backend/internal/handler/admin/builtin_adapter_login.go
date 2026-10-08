@@ -26,12 +26,19 @@ func (h *AccountHandler) BuiltinAdapterLogin(c *gin.Context) {
 		return
 	}
 	var body struct {
-		CallbackURL string `json:"callback_url"`
-		Email       string `json:"email"`
-		Password    string `json:"password"`
-		Plan        string `json:"plan"`
-		Provider    string `json:"provider"`
-		AutoRelogin bool   `json:"auto_relogin"`
+		CallbackURL string   `json:"callback_url"`
+		Email       string   `json:"email"`
+		Password    string   `json:"password"`
+		Plan        string   `json:"plan"`
+		Provider    string   `json:"provider"`
+		AutoRelogin bool     `json:"auto_relogin"`
+		Type        string   `json:"type"`
+		X           float64  `json:"x"`
+		Y           float64  `json:"y"`
+		DeltaX      float64  `json:"delta_x"`
+		DeltaY      float64  `json:"delta_y"`
+		Text        string   `json:"text"`
+		Key         string   `json:"key"`
 	}
 	action := c.Param("action")
 	if c.Param("session") == "" {
@@ -39,6 +46,22 @@ func (h *AccountHandler) BuiltinAdapterLogin(c *gin.Context) {
 	}
 	if c.Request.Method == http.MethodDelete {
 		action = "cancel"
+	}
+	// 截图式登录：把页面交互转发给隔离浏览器。
+	if action == "input" {
+		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)
+		if err := c.ShouldBindJSON(&body); err != nil {
+			response.BadRequest(c, "Invalid input event")
+			return
+		}
+		event := service.BuiltinLoginInputEvent{Type: body.Type, X: body.X, Y: body.Y, DeltaX: body.DeltaX, DeltaY: body.DeltaY, Text: body.Text, Key: body.Key}
+		if err := service.BuiltinAdapterLoginInput(c.Request.Context(), c.Param("platform"), owner, c.Param("session"), event); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		c.Header("Cache-Control", "no-store")
+		response.Success(c, map[string]bool{"ok": true})
+		return
 	}
 	if action == "callback" {
 		c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 64<<10)

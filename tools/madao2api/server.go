@@ -237,6 +237,9 @@ func (a *adapter) beginLogin(ctx context.Context) (*builtinlogin.Flow, error) {
 			}
 			return a.importCredential(ctx, imported)
 		},
+		Input: func(ctx context.Context, event builtinlogin.Input) error {
+			return session.Input(ctx, event)
+		},
 		Close: session.Close,
 	}, nil
 }
