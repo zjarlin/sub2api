@@ -179,7 +179,6 @@ func TestModelFallbackBlockedReasonPreservesUpstreamError(t *testing.T) {
 	for _, tc := range []struct{ body, reason string }{
 		{`{"previous_response_id":"private-response-id"}`, "previous_response_id"},
 		{`{"conversation":"private-conversation-id"}`, "conversation"},
-		{`{"input":[{"type":"reasoning","encrypted_content":"private-ciphertext"}]}`, "nonportable_input"},
 		{`{"tools":[{"type":"file_search","vector_store_ids":["vs_private"]}]}`, "hosted_tools"},
 		{`{"input":[{"type":"web_search_call","id":"private-item-id","status":"completed"}],"tools":[{"type":"web_search"}]}`, "hosted_tool_state"},
 	} {
@@ -201,6 +200,14 @@ func TestModelFallbackBlockedReasonPreservesUpstreamError(t *testing.T) {
 			require.NotContains(t, string(encoded), "private-")
 		})
 	}
+}
+
+func TestModelFallbackReplayAllowsEncryptedReasoning(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodPost, "/responses", nil)
+	key := &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}}
+	body := []byte(`{"input":[{"type":"reasoning","encrypted_content":"private-ciphertext"},{"type":"message","role":"user","content":"continue"}]}`)
+	require.Empty(t, modelFallbackReplayBlockReason(c, key, "glm-5.3", body))
 }
 
 func TestModelFallbackReplayDistinguishesDeclarationsFromHostedState(t *testing.T) {

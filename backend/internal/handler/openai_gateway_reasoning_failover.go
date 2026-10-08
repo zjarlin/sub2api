@@ -11,6 +11,7 @@ import (
 // provider-specific encrypted reasoning produced by that passthrough upstream.
 type openAIPassthroughFailoverState struct {
 	passthroughSeen bool
+	modelFallback   bool
 }
 
 // deriveOpenAIForwardAttemptBody returns the request body for the upcoming forward
@@ -32,9 +33,8 @@ func (h *OpenAIGatewayHandler) deriveOpenAIForwardAttemptBody(
 	currentPassthrough := account.IsOpenAIPassthroughEnabled()
 	if currentPassthrough {
 		state.passthroughSeen = true
-		return canonicalBody
 	}
-	if !state.passthroughSeen {
+	if !state.modelFallback && (currentPassthrough || !state.passthroughSeen) {
 		return canonicalBody
 	}
 
@@ -55,7 +55,8 @@ func (h *OpenAIGatewayHandler) deriveOpenAIForwardAttemptBody(
 		reqLog.Info("openai.failover_cross_mode_reasoning_stripped",
 			zap.Int64("account_id", account.ID),
 			zap.Bool("account_passthrough", currentPassthrough),
-			zap.Bool("passthrough_seen", true),
+			zap.Bool("passthrough_seen", state.passthroughSeen),
+			zap.Bool("model_fallback", state.modelFallback),
 		)
 	}
 	return sanitized

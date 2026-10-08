@@ -507,7 +507,7 @@ func modelAccountCompatible(account *Account, model string, body []byte, assiste
 	return modelInputCompatible(gjson.GetBytes(body, "input"), account, model, assistedVision) && modelInputCompatible(gjson.GetBytes(body, "messages"), account, model, assistedVision)
 }
 
-// 请求级先排除不可移植输入；图片能力仍在每个候选账号上检查。
+// 请求级先排除不可移植输入；加密推理会在真正换模型时剔除，图片能力仍在每个候选账号上检查。
 func ModelFallbackRequestPortable(body []byte) bool {
 	return modelInputCompatible(gjson.GetBytes(body, "input"), nil, "", false) &&
 		modelInputCompatible(gjson.GetBytes(body, "messages"), nil, "", false)
@@ -567,12 +567,13 @@ func modelInputCompatible(value gjson.Result, account *Account, model string, as
 	case "reasoning":
 		// 原生 Responses 可以接收完整推理项；已确认走 Responses→Chat 桥接的
 		// OpenAI 账号会在转换时回注缓存/占位 reasoning_content，因此同样可用。
-		// 未知协议与其它平台仍保持严格限制；通用跨模型 fallback 另有
-		// ModelFallbackRequestPortable 作为可移植性门槛。
-		if value.Get("encrypted_content").String() != "" &&
-			(account == nil || !account.IsOpenAI() ||
-				(!account.UsesOpenAICodexProtocol() && openai_compat.ResolveResponsesSupport(account.Extra) == openai_compat.ResponsesSupportUnknown)) {
-			return false
+		// 请求级 portability 检查不绑定账号；真正跨模型时 handler 会剔除
+		// 与旧上游绑定的 encrypted_content 推理项。
+		if value.Get("encrypted_content").String() != "" && account != nil {
+			if !account.IsOpenAI() ||
+				(!account.UsesOpenAICodexProtocol() && openai_compat.ResolveResponsesSupport(account.Extra) == openai_compat.ResponsesSupportUnknown) {
+				return false
+			}
 		}
 	}
 	compatible := true

@@ -382,7 +382,7 @@ func TestAutoModelContinuesAfterEncryptedReasoningToolCall(t *testing.T) {
 		require.False(t, rejectIncompatibleModelFallbackAccount(c, selection, model, body, true))
 		forwarded = append(forwarded, body)
 		if len(forwarded) == 2 {
-			require.False(t, modelFallbackReplayableRequest(c, key, model, body))
+			require.True(t, modelFallbackReplayableRequest(c, key, model, body))
 			// 已确认的 Responses→Chat 桥接账号可以继续承接 Auto 请求。
 			chatAccount := accounts[0]
 			chatAccount.Extra = map[string]any{"openai_responses_supported": false}

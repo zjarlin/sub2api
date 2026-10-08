@@ -348,7 +348,7 @@ func TestModelFallbackReplayableRequestBoundaries(t *testing.T) {
 		{body: `{"model":"gpt-6-astra","input":[{"type":"video_url","video_url":{"url":"https://example.com/a.mp4"}}]}`},
 		{body: `{"model":"gpt-6-astra","input":[{"type":"input_video","video_url":"https://example.com/a.mp4"}]}`},
 		{body: `{"model":"gpt-6-astra","input":[{"type":"item_reference","id":"item_old"}]}`},
-		{body: `{"model":"gpt-6-astra","input":[{"type":"reasoning","encrypted_content":"opaque"}]}`},
+		{body: `{"model":"gpt-6-astra","input":[{"type":"reasoning","encrypted_content":"opaque"}]}`, replayable: true},
 		{body: `{"model":"gpt-6-astra","tools":[{"type":"function","name":"lookup"}]}`, replayable: true},
 	} {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())

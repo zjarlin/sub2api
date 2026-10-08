@@ -144,3 +144,19 @@ func TestDeriveOpenAIForwardAttemptBody_SanitizationSticksAcrossBedrockRetries(t
 	require.Equal(t, 0, reasoningItemCount(t, nextAccount), "later Bedrock account must remain sanitized")
 	require.JSONEq(t, kiroReasoningCanonicalBody, string(canonical), "canonical forwardBody must never be mutated")
 }
+
+func TestDeriveOpenAIForwardAttemptBody_ModelFallbackDropsEncryptedReasoning(t *testing.T) {
+	h := &OpenAIGatewayHandler{}
+	canonical := []byte(kiroReasoningCanonicalBody)
+	state := &openAIPassthroughFailoverState{modelFallback: true}
+
+	for _, account := range []*service.Account{
+		newOpenAIPassthroughAccount(60, false),
+		newOpenAIPassthroughAccount(61, true),
+	} {
+		attempt := h.deriveOpenAIForwardAttemptBody(nil, canonical, account, state)
+		require.Equal(t, 0, reasoningItemCount(t, attempt))
+		require.NotContains(t, string(attempt), "ENC_BLOB")
+	}
+	require.JSONEq(t, kiroReasoningCanonicalBody, string(canonical), "canonical forwardBody must never be mutated")
+}

@@ -143,10 +143,10 @@ func TestModelAccountEncryptedReasoningAllowsNativeResponsesOrKnownChatBridge(t 
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.accepted, ModelAccountCompatible(&tc.account, "gpt-5.5", body))
 			require.Equal(t, tc.accepted, AutoModelRequestAccountCompatible(context.Background(), &tc.account, "deepseek-v4.1-flash", body))
-			require.False(t, ModelFallbackAccountCompatible(&tc.account, "gpt-5.5", body))
+			require.Equal(t, tc.accepted, ModelFallbackAccountCompatible(&tc.account, "gpt-5.5", body))
 		})
 	}
-	require.False(t, ModelFallbackRequestPortable(body))
+	require.True(t, ModelFallbackRequestPortable(body))
 	for _, encrypted := range []string{`null`, `""`} {
 		plain := []byte(`{"input":[{"type":"reasoning","summary":[],"encrypted_content":` + encrypted + `}]}`)
 		require.True(t, ModelFallbackAccountCompatible(&Account{Platform: PlatformOpenAI}, "gpt-5.5", plain))

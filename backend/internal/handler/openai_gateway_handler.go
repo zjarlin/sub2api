@@ -648,6 +648,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		if !ok {
 			return false
 		}
+		passthroughFailoverState.modelFallback = true
 		reqModel, forwardBody, channelMapping = attempt.Model, attempt.Body, attempt.Mapping
 		forwardModel = gjson.GetBytes(forwardBody, "model").String()
 		requestPlatform = openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
