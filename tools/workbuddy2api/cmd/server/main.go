@@ -155,18 +155,25 @@ func main() {
 		CatHours:            cfg.Schedule.CatHours,
 		ActivityReportCount: cfg.Schedule.ActivityReportCount,
 		ExpiringSoonWindow:  cfg.ExpiringSoonDur, // 快过期积分优先消耗（issue:积分过期）
-		CheckinDisabled:     !cfg.Schedule.CheckinEnabled,
-		TravelDisabled:      !cfg.Schedule.TravelEnabled,
-		ActivityDisabled:    !cfg.Schedule.ActivityEnabled,
-		KeepaliveDisabled:   !cfg.Schedule.KeepaliveEnabled,
-		SchoolDisabled:      !cfg.Schedule.SchoolEnabled,
-		CatDisabled:         !cfg.Schedule.CatEnabled,
+		// 签到失败重试（issue:上游 5xx 导致当天积分白漏）：预算按时点独立，
+		// 30 分钟 × 3 次把 09/21 两个时点的挽回窗口铺到 10:30 / 22:30，不跨自然日。
+		CheckinRetryAfter: time.Duration(cfg.Schedule.CheckinRetryMinutes) * time.Minute,
+		CheckinRetryMax:   cfg.Schedule.CheckinRetryMax,
+		CheckinDisabled:   !cfg.Schedule.CheckinEnabled,
+		TravelDisabled:    !cfg.Schedule.TravelEnabled,
+		ActivityDisabled:  !cfg.Schedule.ActivityEnabled,
+		KeepaliveDisabled: !cfg.Schedule.KeepaliveEnabled,
+		SchoolDisabled:    !cfg.Schedule.SchoolEnabled,
+		CatDisabled:       !cfg.Schedule.CatEnabled,
 	})
 	switch {
 	case !cfg.Schedule.CheckinEnabled:
 		log.Printf("签到已禁用（schedule.checkin_enabled=false）")
+	case cfg.Schedule.CheckinRetryMax > 0 && cfg.Schedule.CheckinRetryMinutes > 0:
+		log.Printf("签到已启用：%v 点（签到 + 余额查询解冻）；失败后每 %d 分钟重试、每时点最多 %d 次",
+			cfg.Schedule.CheckinHours, cfg.Schedule.CheckinRetryMinutes, cfg.Schedule.CheckinRetryMax)
 	default:
-		log.Printf("签到已启用：%v 点（签到 + 余额查询解冻）", cfg.Schedule.CheckinHours)
+		log.Printf("签到已启用：%v 点（签到 + 余额查询解冻）；失败不重试", cfg.Schedule.CheckinHours)
 	}
 	switch {
 	case !cfg.Schedule.TravelEnabled:

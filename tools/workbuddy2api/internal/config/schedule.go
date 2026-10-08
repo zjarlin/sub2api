@@ -38,6 +38,13 @@ type Schedule struct {
 	// ActivityReportCount 每号每次活跃上报的条数：领猫前置需 5 次对话，
 	// 默认 5 条把 chat_5 刷满；0/缺省=1 兼容旧行为。
 	ActivityReportCount int `json:"activity_report_count"`
+	// CheckinRetryMinutes 签到失败后的重试间隔（分钟）。定时时点签到失败（上游 5xx /
+	// 网络抖动这类瞬时故障）后，隔该间隔再试一次，直到领到或重试次数用尽。
+	// 0 = 显式关闭重试（回到"每个时点只试一次"的旧行为）；缺省见 DefaultSchedule。
+	CheckinRetryMinutes int `json:"checkin_retry_minutes"`
+	// CheckinRetryMax 每个签到时点后允许的最大重试次数。0 = 关闭重试。
+	// 预算按时点独立：09 点失败重试完之后，21 点仍有完整的一份预算。
+	CheckinRetryMax int `json:"checkin_retry_max"`
 	// 猫猫旅行已退役 travel_interval_minutes：旅行现为独立排程（travel_hours）。
 	// 旧 config 里的该键因 JSON 未知字段而自然忽略，不报错。
 }
@@ -52,9 +59,9 @@ func DefaultSchedule() Schedule {
 		CheckinHours:        []int{9, 21},
 		TravelHours:         []int{9, 21},
 		ActivityHours:       []int{10},
-		KeepaliveHours:       []int{22},
-		SchoolHours:          []int{12},
-		CatHours:             []int{1},
+		KeepaliveHours:      []int{22},
+		SchoolHours:         []int{12},
+		CatHours:            []int{1},
 		CheckinEnabled:      true,
 		TravelEnabled:       true,
 		ActivityEnabled:     true,
@@ -62,6 +69,10 @@ func DefaultSchedule() Schedule {
 		SchoolEnabled:       true,
 		CatEnabled:          true,
 		ActivityReportCount: 5, // 领猫前置需 5 次对话，5 连发刷满 chat_5
+		// 签到失败重试：30 分钟 × 3 次。上游 5xx 是分钟级抖动，30 分钟足够错开；
+		// 3 次把 09/21 两个时点的挽回窗口分别铺到 10:30 / 22:30，不跨自然日。
+		CheckinRetryMinutes: 30,
+		CheckinRetryMax:     3,
 	}
 }
 
@@ -95,6 +106,14 @@ func (s *Schedule) Normalize() error {
 	// 0/负数 → 1 条（兼容旧行为：每号每天 1 条上报点亮连登）。
 	if s.ActivityReportCount <= 0 {
 		s.ActivityReportCount = 1
+	}
+	// 签到重试：负值钳 0（= 关闭，等价于旧行为）。0 是合法取值，不回落默认——
+	// 「缺省 = 默认值」由 DefaultSchedule 在 Unmarshal 前置入（与各 *_enabled 同口径）。
+	if s.CheckinRetryMinutes < 0 {
+		s.CheckinRetryMinutes = 0
+	}
+	if s.CheckinRetryMax < 0 {
+		s.CheckinRetryMax = 0
 	}
 	return s.validateHours()
 }

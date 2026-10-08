@@ -749,3 +749,27 @@ func TestPromptInvalidModeStillErrors(t *testing.T) {
 		t.Errorf("error should mention (custom / append / passthrough): %v", err)
 	}
 }
+
+// TestCheckinRetryDefaultsAndEnv 签到重试的缺省值与 env 覆盖入口。
+// 容器内 config.json 是镜像内置产物（不挂载），env 是不重建镜像也能调参/关停的唯一入口。
+func TestCheckinRetryDefaultsAndEnv(t *testing.T) {
+	c, err := Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Schedule.CheckinRetryMinutes != 30 || c.Schedule.CheckinRetryMax != 3 {
+		t.Errorf("default retry=%dmin×%d want 30min×3",
+			c.Schedule.CheckinRetryMinutes, c.Schedule.CheckinRetryMax)
+	}
+
+	t.Setenv("WB2A_CHECKIN_RETRY_MINUTES", "0")
+	t.Setenv("WB2A_CHECKIN_RETRY_MAX", "0")
+	c, err = Load("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Schedule.CheckinRetryMinutes != 0 || c.Schedule.CheckinRetryMax != 0 {
+		t.Errorf("env 0 should disable retry, got %dmin×%d",
+			c.Schedule.CheckinRetryMinutes, c.Schedule.CheckinRetryMax)
+	}
+}

@@ -28,6 +28,8 @@
     "cat_hours": [
       1
     ],
+    "checkin_retry_minutes": 30,
+    "checkin_retry_max": 3,
     "checkin_enabled": true,
     "travel_enabled": true,
     "activity_enabled": true,

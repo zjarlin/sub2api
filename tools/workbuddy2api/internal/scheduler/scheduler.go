@@ -51,6 +51,16 @@ type Config struct {
 	SchoolDisabled bool
 	// CatDisabled 显式关闭夜猫子任务排程（schedule.cat_enabled=false）。
 	CatDisabled bool
+
+	// CheckinRetryAfter 签到失败后的重试间隔（<=0 关闭重试）。
+	//
+	// 起因：上游 5xx（实测 09:00 daily-checkin 返回 10001「签到失败，请稍后重试」）
+	// 是分钟级瞬时故障，旧的「每个时点只试一次」会把当天积分白漏到 21 点，甚至
+	// 整天领不到。失败后隔一段时间重试即可挽回，成本极低（一轮签到只有几秒）。
+	CheckinRetryAfter time.Duration
+	// CheckinRetryMax 每个签到时点后允许的最大重试次数（<=0 关闭重试）。
+	// 预算按时点重置：09 点用完后，21 点仍给满一份。
+	CheckinRetryMax int
 }
 
 // Scheduler 调度器。
@@ -70,6 +80,14 @@ type Scheduler struct {
 
 	// checkinMu 串行化签到：定时入口与手动触发互斥，避免同一时刻重复打上游签到接口。
 	checkinMu sync.Mutex
+
+	// checkinRetryAt 下一次签到重试的唤醒时刻（零值 = 无待重试）；checkinRetryLeft
+	// 是 uid → 该账号仍可重试的次数。两者同受 mu 保护（与 adoptTried/rewardClaimed
+	// 共用一把锁，字段少、临界区极短）。语义：整点批次把预算重置为满，重试批次逐次
+	// 递减并整表重建（重建而非原地改，天然清掉已恢复/已禁用账号的残留条目）。进程
+	// 重启即清零——不持久化是刻意的：下一个整点时点会重新给满，无需跨重启记忆。
+	checkinRetryAt   time.Time
+	checkinRetryLeft map[string]int
 }
 
 // New 构建。
@@ -96,7 +114,17 @@ func New(cfg Config) *Scheduler {
 	if cfg.ActivityReportCount <= 0 {
 		cfg.ActivityReportCount = 1
 	}
-	return &Scheduler{cfg: cfg, adoptTried: make(map[string]string), rewardClaimed: make(map[string]string)}
+	// 签到重试归一：任一项 <=0 即整体关闭重试（零值 Config 落到这里 → 重试关闭，
+	// 与引入前"每时点只试一次"逐字等价，老调用方/老测试零改动）。
+	if cfg.CheckinRetryAfter <= 0 || cfg.CheckinRetryMax <= 0 {
+		cfg.CheckinRetryAfter, cfg.CheckinRetryMax = 0, 0
+	}
+	return &Scheduler{
+		cfg:              cfg,
+		adoptTried:       make(map[string]string),
+		rewardClaimed:    make(map[string]string),
+		checkinRetryLeft: make(map[string]int),
+	}
 }
 
 // checkinRefreshSkew 签到前判定"token 是否临近过期"的时间窗口（10 分钟）。
@@ -150,6 +178,10 @@ const (
 	taskKeepalive
 	taskSchool
 	taskCat
+	// taskCheckinRetry 签到失败后的重试唤醒（非整点槽位）：只跑签到一个任务族，
+	// 沿用本轮剩余预算。追加在末尾：taskKind 是 iota 序号，插在中间会静默改掉
+	// 既有常量的值（跨版本日志/测试对照会错位）。
+	taskCheckinRetry
 )
 
 // nextWake 返回 now 之后最近的唤醒时刻，以及该时刻需要执行的全部任务。
@@ -163,6 +195,11 @@ func (s *Scheduler) nextWake(now time.Time) (time.Time, []taskKind) {
 	var slots []slot
 	if !s.cfg.CheckinDisabled {
 		slots = append(slots, slot{nextFire(now, s.cfg.CheckinHours), taskCheckin})
+		// 签到重试唤醒与整点槽位同权参与"取最近者"：若重试时刻恰好落在整点，
+		// 两个 kind 都会进 kinds，签到由 checkinMu 串行化（后到者拿 ErrBusy）。
+		if at, ok := s.checkinRetryWake(now); ok {
+			slots = append(slots, slot{at, taskCheckinRetry})
+		}
 	}
 	if !s.cfg.TravelDisabled {
 		slots = append(slots, slot{nextFire(now, s.cfg.TravelHours), taskTravel})
@@ -285,14 +322,151 @@ func (s *Scheduler) dispatch(ctx context.Context, k taskKind) {
 		s.RunSchoolNow()
 	case taskCat:
 		s.RunCatNow()
+	case taskCheckinRetry:
+		s.runCheckinRetry()
 	}
 }
 
-// RunCheckinNow 定时触发的立即签到：逐账号结果由 CheckinAll 记日志，此处只兜住"撞车跳过"。
+// RunCheckinNow 整点排程触发的签到（对外的一步式入口：逐账号结果由 CheckinAll 记日志）。
+// 作为"新时点批次"，它会先清掉上一时点残留的重试计划，再据本轮结果重排重试。
 func (s *Scheduler) RunCheckinNow() {
-	if _, err := s.CheckinAll(); err != nil {
-		log.Printf("scheduled checkin skipped: %v", err)
+	s.runCheckinBatch(true)
+}
+
+// runCheckinRetry 签到重试唤醒触发的批次：沿用本轮剩余预算（不重置），逐次递减。
+//
+// 先核对唤醒时刻仍是"到期"的那一个：Run 的 timer 是提前按当时的 nextWake 定好的，
+// 期间若整点时点批次已重置过计划（比如 retry 间隔跨过了下一个整点，05:00 的旧 timer
+// 还在，而计划已被 21:00 批次改到 17:00），此处的唤醒就是过期的——直接丢弃，不去
+// 重复打一遍上游签到。计划空/未到期都视作过期。
+func (s *Scheduler) runCheckinRetry() {
+	if !s.checkinRetryDue(time.Now()) {
+		return
 	}
+	s.runCheckinBatch(false)
+}
+
+// checkinRetryDue 报告 now 是否已到达当前计划的唤醒时刻（过期 timer 的判据，见
+// runCheckinRetry）。无计划 / 计划在未来（被重置过）均返回 false。
+func (s *Scheduler) checkinRetryDue(now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return !s.checkinRetryAt.IsZero() && !s.checkinRetryAt.After(now)
+}
+
+// runCheckinBatch 一次签到批次。fresh=true = 整点时点批次（重试预算重置为满），
+// false = 重试批次（预算递减，耗尽即收口）。撞车（ErrBusy：手动签到正在跑）不视为
+// 失败：整点批次就此作罢（下一个时点接手），重试批次把计划整体后移一次避免同刻空转。
+func (s *Scheduler) runCheckinBatch(fresh bool) {
+	if fresh {
+		s.resetCheckinRetry() // 新时点：上一时点的重试计划作废，预算重新给满
+	}
+	out, err := s.CheckinAll()
+	if err != nil {
+		if !fresh {
+			s.deferCheckinRetry()
+		}
+		log.Printf("scheduled checkin skipped: %v", err)
+		return
+	}
+	s.armCheckinRetry(out, fresh)
+}
+
+// resetCheckinRetry 清空重试计划（无待重试）。
+func (s *Scheduler) resetCheckinRetry() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.checkinRetryLeft = nil
+	s.checkinRetryAt = time.Time{}
+}
+
+// checkinRetryWake 返回下一次重试的唤醒时刻；无待重试、时刻已过期（不该发生，
+// 兜底防忙等）或重试关闭时返回 false。mu 是普通 Mutex（与 adoptTried/rewardClaimed
+// 共用），读路径同样走 Lock——临界区只有两次字段读，不值得为此把 mu 换成 RWMutex。
+func (s *Scheduler) checkinRetryWake(now time.Time) (time.Time, bool) {
+	if s.cfg.CheckinRetryAfter <= 0 || s.cfg.CheckinRetryMax <= 0 {
+		return time.Time{}, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.checkinRetryAt.IsZero() || !s.checkinRetryAt.After(now) {
+		return time.Time{}, false
+	}
+	return s.checkinRetryAt, true
+}
+
+// armCheckinRetry 据本批次结果重排重试计划：只有 fail 的账号进计划（ok/already/
+// skipped 一律出局——已领到、今天已签到、被禁用/无凭证都不该再打上游）。
+//
+// 预算语义：fresh 批次给满 CheckinRetryMax；重试批次把本批次消耗掉的那一次减掉，
+// 减到 0 即出局。整表重建（而非原地增删）顺带清掉本轮未出现在结果里的残留 uid，
+// 杜绝"账号已禁用却仍被重试唤醒拖着空跑"的死循环。
+func (s *Scheduler) armCheckinRetry(out []CheckinOutcome, fresh bool) {
+	if s.cfg.CheckinRetryAfter <= 0 || s.cfg.CheckinRetryMax <= 0 {
+		return
+	}
+	wait := s.cfg.CheckinRetryAfter
+	// 计划计算与落字段都在锁内；汇总日志留到锁外打（临界区只做字段读写，
+	// 不把日志 I/O 压进锁里）。
+	n := s.applyCheckinRetry(out, fresh, wait)
+	if n == 0 {
+		return
+	}
+	if fresh {
+		log.Printf("checkin retry armed: %d 个账号签到失败，%s 后重试（每号最多 %d 次）",
+			n, wait, s.cfg.CheckinRetryMax)
+	} else {
+		log.Printf("checkin retry armed: %d 个账号仍未领到，%s 后继续重试", n, wait)
+	}
+}
+
+// applyCheckinRetry 在锁内重算并落盘重试计划，返回计划内的账号数（0 = 无待重试）。
+func (s *Scheduler) applyCheckinRetry(out []CheckinOutcome, fresh bool, wait time.Duration) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := make(map[string]int)
+	for _, oc := range out {
+		if oc.Status != CheckinFail {
+			continue
+		}
+		if fresh {
+			next[oc.UID] = s.cfg.CheckinRetryMax
+			continue
+		}
+		if left := s.checkinRetryLeft[oc.UID]; left > 1 {
+			next[oc.UID] = left - 1
+		}
+	}
+	s.checkinRetryLeft = next
+	if len(next) == 0 {
+		s.checkinRetryAt = time.Time{}
+		return 0
+	}
+	s.checkinRetryAt = time.Now().Add(wait)
+	return len(next)
+}
+
+// deferCheckinRetry 重试批次撞上正在运行的手动签到：不判定结果，只把计划整体后移
+// 一个间隔并消耗一次预算——既避免同刻忙等重入，又保证计划有界收口（预算耗尽即止）。
+func (s *Scheduler) deferCheckinRetry() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.checkinRetryLeft) == 0 {
+		s.checkinRetryAt = time.Time{}
+		return
+	}
+	for uid, left := range s.checkinRetryLeft {
+		if left-1 > 0 {
+			s.checkinRetryLeft[uid] = left - 1
+		} else {
+			delete(s.checkinRetryLeft, uid)
+		}
+	}
+	if len(s.checkinRetryLeft) == 0 {
+		s.checkinRetryAt = time.Time{}
+		return
+	}
+	s.checkinRetryAt = time.Now().Add(s.cfg.CheckinRetryAfter)
 }
 
 // CheckinAll 全量签到：按需刷新 token → daily-checkin → 查余额 → 解冻冷却账号。

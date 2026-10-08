@@ -89,8 +89,8 @@ func TestNormalizeScheduleEmptyHoursFallback(t *testing.T) {
 // TestNormalizeScheduleInvalidHour 非法小时快速失败并指向正确开关。
 func TestNormalizeScheduleInvalidHour(t *testing.T) {
 	cases := []struct {
-		s           Schedule
-		wantSwitch  string
+		s          Schedule
+		wantSwitch string
 	}{
 		{Schedule{CheckinHours: []int{25}}, "checkin_enabled"},
 		{Schedule{CheckinHours: []int{-1}}, "checkin_enabled"},
@@ -111,5 +111,42 @@ func TestNormalizeScheduleInvalidHour(t *testing.T) {
 		if !strings.Contains(err.Error(), tc.wantSwitch) {
 			t.Errorf("error %q should point at schedule.%s", err.Error(), tc.wantSwitch)
 		}
+	}
+}
+
+// TestDefaultScheduleCheckinRetry 签到失败重试缺省开启：30 分钟 × 3 次。
+// 上游 5xx 是分钟级抖动，30 分钟足够错开；3 次把 09/21 两个时点的挽回窗口
+// 分别铺到 10:30 / 22:30，不跨自然日。
+func TestDefaultScheduleCheckinRetry(t *testing.T) {
+	s := DefaultSchedule()
+	if s.CheckinRetryMinutes != 30 || s.CheckinRetryMax != 3 {
+		t.Errorf("default retry=%dmin×%d want 30min×3", s.CheckinRetryMinutes, s.CheckinRetryMax)
+	}
+}
+
+// TestNormalizeCheckinRetry 重试配置归一：缺省值原样保留、显式 0 保持 0（关闭）、
+// 负值钳 0。0 是「显式关闭」的合法语义，不能像 ActivityReportCount 那样归一成 1。
+func TestNormalizeCheckinRetry(t *testing.T) {
+	cases := []struct {
+		name             string
+		in               Schedule
+		wantMin, wantMax int
+	}{
+		{"absent_keeps_default", DefaultSchedule(), 30, 3},
+		{"explicit_zero_disables", Schedule{CheckinRetryMinutes: 0, CheckinRetryMax: 0}, 0, 0},
+		{"negative_clamped", Schedule{CheckinRetryMinutes: -5, CheckinRetryMax: -2}, 0, 0},
+		{"explicit_n_kept", Schedule{CheckinRetryMinutes: 10, CheckinRetryMax: 6}, 10, 6},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := tc.in
+			if err := s.Normalize(); err != nil {
+				t.Fatalf("normalize: %v", err)
+			}
+			if s.CheckinRetryMinutes != tc.wantMin || s.CheckinRetryMax != tc.wantMax {
+				t.Errorf("retry=%dmin×%d want %dmin×%d",
+					s.CheckinRetryMinutes, s.CheckinRetryMax, tc.wantMin, tc.wantMax)
+			}
+		})
 	}
 }

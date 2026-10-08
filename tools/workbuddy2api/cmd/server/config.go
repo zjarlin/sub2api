@@ -305,6 +305,18 @@ func applyEnv(c *Config) {
 			c.Admin.Enabled = b
 		}
 	}
+	// 签到失败重试的 env 覆盖：容器内 config.json 是镜像内置产物（不挂载），
+	// 给运维一个「不重建镜像也能调参/关停」的入口。0 = 关闭重试。
+	if v := os.Getenv("WB2A_CHECKIN_RETRY_MINUTES"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.Schedule.CheckinRetryMinutes = n
+		}
+	}
+	if v := os.Getenv("WB2A_CHECKIN_RETRY_MAX"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.Schedule.CheckinRetryMax = n
+		}
+	}
 }
 
 func (c *Config) normalize() error {

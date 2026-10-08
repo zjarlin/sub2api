@@ -9,7 +9,9 @@
     "keepalive_enabled": true,
     "school_enabled": true,
     "cat_enabled": true,
-    "activity_report_count": 5
+    "activity_report_count": 5,
+    "checkin_retry_minutes": 30,
+    "checkin_retry_max": 3
   },
   "prompt": {
     "mode": "passthrough"
