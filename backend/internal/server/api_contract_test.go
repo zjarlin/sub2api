@@ -1906,11 +1906,11 @@ func (s *stubAccountRepo) List(ctx context.Context, params pagination.Pagination
 	return nil, nil, errors.New("not implemented")
 }
 
-func (s *stubAccountRepo) ListAllWithFilters(context.Context, string, string, string, string, int64, string) ([]service.Account, error) {
+func (s *stubAccountRepo) ListAllWithFilters(context.Context, string, string, string, string, int64, string, *float64, *float64) ([]service.Account, error) {
 	return nil, nil
 }
 
-func (s *stubAccountRepo) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string) ([]service.Account, *pagination.PaginationResult, error) {
+func (s *stubAccountRepo) ListWithFilters(ctx context.Context, params pagination.PaginationParams, platform, accountType, status, search string, groupID int64, privacyMode string, rateMultiplierMin, rateMultiplierMax *float64) ([]service.Account, *pagination.PaginationResult, error) {
 	return nil, nil, errors.New("not implemented")
 }
 
