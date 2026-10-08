@@ -1686,8 +1686,24 @@ export default {
       contextExternal: 'This service uses deployment settings or upstream credentials from account management.', manageAccounts: 'Account Management',
       fields: {
         q: 'Text array. Responses preserve input order.', target: 'Target language code, such as zh-CN, en or ja.', source: 'Source language code. Omit or use auto for detection.', provider: 'Omit for configured priority; examples: baidu, mymemory, hymt.', format: 'Defaults to text. HTML is available only for supporting adapters.',
-        action: 'Detect, Segment, Pose, Classify or OCR, matching the endpoint.', version: 'API version: 2022-08-31.', image: 'Base64 image content without a data URI prefix.', params: 'Task parameters such as ConfidenceThreshold or classification TopK.', text: 'Text to synthesize.', language: 'Language code, such as zh or en.', audioFormat: 'Audio format: wav, mp3 or ogg.', arkModel: 'A configured Ark model or inference endpoint ID.', content: 'Content objects with type and text fields.', duration: 'Duration in seconds, within the model supported range.', resolution: 'Output resolution, such as 720p.', decisionModel: 'Use laya for Laya or typesafe/jev for JEV.', state: 'Input context for the decision.', questions: 'An object keyed by question ID, with type and instructions.',
+        action: 'Detect, Segment, Pose, Classify or OCR, matching the endpoint.', version: 'API version: 2022-08-31.', image: 'Base64 image content without a data URI prefix.', params: 'Task parameters such as ConfidenceThreshold or classification TopK.', text: 'Text to synthesize, up to 20,000 characters.', language: 'Language code, such as zh or en.', audioFormat: 'Audio format: wav or mp3. Defaults to wav.', speed: 'Speech speed multiplier passed to GPT-SoVITS.', base64: 'Return Base64 audio in JSON when true; defaults to binary audio.', arkModel: 'A configured Ark model or inference endpoint ID.', content: 'Content objects with type and text fields.', duration: 'Duration in seconds, within the model supported range.', resolution: 'Output resolution, such as 720p.', decisionModel: 'Use laya for Laya or typesafe/jev for JEV.', state: 'Input context for the decision.', questions: 'An object keyed by question ID, with type and instructions.',
       },
+    },
+
+    detail: {
+      required: 'Required', noParameters: 'This endpoint takes no request parameters.', requestExample: 'Request example', moreLanguages: 'More languages',
+      audioResponse: 'Returns an audio file for playback or download.', audioLimits: 'Up to 20,000 characters. Save using the response Content-Type; the upstream may return WAV.',
+      errors: 'Common status codes', error400: 'Invalid request', error401: 'Invalid API key', error503: 'Service not ready',
+    },
+    runtime: {
+      accountSource: 'Upstream credentials and models from the connected account pool.', deploymentSource: 'Actual configuration of the running instance.',
+      ready: 'Ready', inactive: 'Not ready', missing: 'Not configured', activeAccount: 'Schedulable', yes: 'Yes', no: 'No',
+      accountsCount: '{count} connected accounts', groupsCount: 'Bound to {count} groups', deploymentManaged: 'Managed by deployment',
+      unavailable: 'The upstream runtime configuration is unavailable. Refresh to retry.', loadFailed: 'Unable to load adapter context',
+      noAccount: 'No upstream account configured', arkRequired: 'Configure an Ark Base URL, API key and model mapping, then enable Seedance capability.', accountRequired: 'Configure a service account and bind the caller group.',
+      addAccount: 'Configure account', keyConfigured: 'Key configured', keyOptional: 'No internal key required', models: 'Model mapping', accountDefaults: 'Account default mapping',
+      saved: 'Account configuration saved', saveFailed: 'Unable to save account configuration', upstreamDefault: 'Upstream default', gatewayAuth: 'Gateway API key; internal upstream requires no key',
+      fields: { base_url: 'Inference upstream', gateway_upstream: 'Media orchestration URL', timeout_seconds: 'Request timeout', protocol: 'Adapter protocol', authentication: 'Authentication', models_loaded: 'Models loaded', language: 'Default language', reference_audio: 'Reference audio', prompt_text: 'Reference transcript', prompt_language: 'Transcript language', command_set: 'Local dubbing command configured', max_upload_bytes: 'Maximum upload size' },
     },
     context: {
       serviceEnabled: 'Enable Translation', adapterEnabled: 'Enable Adapter', configured: 'Configured', keepSecret: 'Leave blank to keep existing secret', toggleSecret: 'Show or hide new secret', defaultAdapter: 'Default Adapter', selector: 'Request Selector', noCredentials: 'This adapter requires no credentials.',

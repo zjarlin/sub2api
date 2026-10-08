@@ -32,6 +32,26 @@ def test_health_reports_capabilities(client: TestClient):
     assert "dubbing" in payload["capabilities"]
 
 
+def test_internal_context_is_a_safe_runtime_snapshot(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    import app.main as main_module
+    from dataclasses import replace
+
+    monkeypatch.setattr(main_module, "config", replace(
+        config,
+        tts_enabled=True,
+        tts_upstream_url="http://user:private@inference:9880/?token=private",
+        dubbing_command="command --key private",
+    ))
+    response = client.get("/internal/context")
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["tts"]["enabled"] is True
+    assert payload["tts"]["upstream_url"] == "http://inference:9880/"
+    assert payload["dub"]["command_set"] is True
+    assert "private" not in response.text
+    assert set(payload) == {"tts", "dub"}
+
+
 def test_tts_requires_configured_upstream(client: TestClient):
     response = client.post("/tts", json={"text": "你好"})
     assert response.status_code == 503

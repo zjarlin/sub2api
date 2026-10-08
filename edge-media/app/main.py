@@ -5,6 +5,7 @@ import logging
 import json
 import os
 from typing import Any
+from urllib.parse import urlsplit, urlunsplit
 
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -60,6 +61,33 @@ async def root() -> dict[str, Any]:
             "/videos/transcode",
             "/tasks/{task_id}/content",
         ],
+    }
+
+
+@app.get("/internal/context", include_in_schema=False)
+async def runtime_context() -> dict[str, Any]:
+    """仅返回运行参数白名单；网关不转发此路径，只供管理员上下文读取。"""
+    def address(value: str) -> str:
+        parsed = urlsplit(value)
+        return urlunsplit((parsed.scheme, parsed.netloc.rsplit("@", 1)[-1], parsed.path, "", ""))
+
+    return {
+        "tts": {
+            "enabled": config.tts_enabled,
+            "upstream_url": address(config.tts_upstream_url),
+            "timeout_seconds": config.tts_timeout_seconds,
+            "language": config.tts_default_language,
+            "reference_audio": str(config.tts_refer_wav or ""),
+            "prompt_text": config.tts_prompt_text,
+            "prompt_language": config.tts_prompt_language,
+        },
+        "dub": {
+            "enabled": config.dubbing_enabled,
+            "upstream_url": address(config.video_upstream_url),
+            "timeout_seconds": config.dubbing_timeout_seconds,
+            "command_set": bool(config.dubbing_command),
+            "max_upload_bytes": config.max_upload_bytes,
+        },
     }
 
 

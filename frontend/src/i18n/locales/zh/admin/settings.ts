@@ -1679,8 +1679,24 @@ export default {
       contextExternal: '此服务沿用部署参数或账号管理中的上游配置。', manageAccounts: '账号管理',
       fields: {
         q: '待翻译文本数组。响应顺序与输入顺序一致。', target: '目标语言代码，例如 zh-CN、en、ja。', source: '源语言代码。省略或使用 auto 时自动识别。', provider: '省略时按配置优先级调用；例如 baidu、mymemory、hymt。', format: '默认 text；html 仅在对应适配器支持时可用。',
-        action: 'Detect、Segment、Pose、Classify 或 OCR，与端点匹配。', version: '接口版本：2022-08-31。', image: '图片的 Base64 内容，不包含 data URI 前缀。', params: '检测阈值 ConfidenceThreshold；分类 TopK 等任务参数。', text: '待合成文本。', language: '语种代码，例如 zh、en。', audioFormat: '音频格式：wav、mp3 或 ogg。', arkModel: '已配置的 Ark 模型或推理接入点 ID。', content: '包含 type 和 text 等字段的内容数组。', duration: '生成时长（秒），以模型支持范围为准。', resolution: '输出分辨率，例如 720p。', decisionModel: 'Laya 使用 laya，JEV 使用 typesafe/jev。', state: '需要判断的输入上下文。', questions: '以问题 ID 为键的对象，包含 type 和 instructions。',
+        action: 'Detect、Segment、Pose、Classify 或 OCR，与端点匹配。', version: '接口版本：2022-08-31。', image: '图片的 Base64 内容，不包含 data URI 前缀。', params: '检测阈值 ConfidenceThreshold；分类 TopK 等任务参数。', text: '待合成文本，最多 20,000 字符。', language: '语种代码，例如 zh、en。', audioFormat: '音频格式：wav 或 mp3，默认 wav。', speed: '语速倍率，传递给 GPT-SoVITS 上游。', base64: '设为 true 时以 JSON 返回 Base64 音频，默认返回二进制音频。', arkModel: '已配置的 Ark 模型或推理接入点 ID。', content: '包含 type 和 text 等字段的内容数组。', duration: '生成时长（秒），以模型支持范围为准。', resolution: '输出分辨率，例如 720p。', decisionModel: 'Laya 使用 laya，JEV 使用 typesafe/jev。', state: '需要判断的输入上下文。', questions: '以问题 ID 为键的对象，包含 type 和 instructions。',
       },
+    },
+
+    detail: {
+      required: '必填', noParameters: '此接口不需要请求参数。', requestExample: '请求示例', moreLanguages: '更多语言',
+      audioResponse: '直接返回音频文件，可播放或下载。', audioLimits: '最多 20,000 字符。以响应 Content-Type 为准保存文件；上游可能返回 WAV。',
+      errors: '常见状态码', error400: '请求参数无效', error401: 'API Key 无效', error503: '服务未就绪',
+    },
+    runtime: {
+      accountSource: '使用账号池中已绑定的上游凭据与模型。', deploymentSource: '当前运行实例的实际配置。',
+      ready: '已就绪', inactive: '未就绪', missing: '未配置', activeAccount: '可调度', yes: '是', no: '否',
+      accountsCount: '{count} 个关联账号', groupsCount: '已绑定 {count} 个分组', deploymentManaged: '由部署配置管理',
+      unavailable: '暂时无法读取上游运行配置，请刷新重试。', loadFailed: '读取适配上下文失败',
+      noAccount: '尚未配置上游账号', arkRequired: '需要配置 Ark Base URL、API Key、模型映射，并启用 Seedance 能力。', accountRequired: '需要配置对应服务账号，并绑定调用分组。',
+      addAccount: '配置服务账号', keyConfigured: '密钥已配置', keyOptional: '内网免密钥', models: '模型映射', accountDefaults: '使用账号默认映射',
+      saved: '账号配置已保存', saveFailed: '保存账号配置失败', upstreamDefault: '使用上游默认值', gatewayAuth: '网关 API Key；内网上游免密钥',
+      fields: { base_url: '推理上游地址', gateway_upstream: '媒体编排地址', timeout_seconds: '请求超时', protocol: '适配协议', authentication: '鉴权方式', models_loaded: '模型已载入', language: '默认语种', reference_audio: '参考音频', prompt_text: '参考音频文本', prompt_language: '参考文本语种', command_set: '已配置本地配音命令', max_upload_bytes: '最大上传大小' },
     },
     context: {
       serviceEnabled: '启用翻译服务', adapterEnabled: '启用适配器', configured: '已配置', keepSecret: '留空保留现有密钥', toggleSecret: '显示或隐藏新密钥', defaultAdapter: '默认适配器', selector: '调用选择器', noCredentials: '此适配器无需凭据。',

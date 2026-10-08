@@ -1,7 +1,7 @@
 <template>
   <AppLayout>
-    <div class="mx-auto min-w-0 max-w-7xl space-y-6 overflow-x-hidden pb-10">
-      <header class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 pb-4 dark:border-dark-700">
+    <div class="edge-console mx-auto min-w-0 max-w-[1600px] pb-10" :class="{ 'edge-detail': selection.service }">
+      <header v-if="!selection.service" class="mb-6 flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 pb-4 dark:border-dark-700">
         <div>
           <h1 class="text-xl font-bold text-gray-950 dark:text-white">{{ t('admin.vision.title') }}</h1>
           <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t('admin.vision.catalog.subtitle') }}</p>
@@ -18,30 +18,28 @@
         <p v-if="error" role="alert" class="w-full text-sm text-red-600">{{ error }}</p>
       </header>
 
-      <EdgeServiceCatalog v-if="!selection.service" :enabled="serviceEnabled" :loading="loading" />
+      <EdgeServiceCatalog v-if="!selection.service" :enabled="serviceEnabled" :loading="loading || contextsLoading" />
 
       <template v-else>
-      <div class="space-y-4" data-testid="edge-service-detail">
+      <div class="edge-detail-heading" data-testid="edge-service-detail">
         <nav class="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400" :aria-label="t('admin.vision.catalog.services')">
           <RouterLink :to="{ query: edgeQuery(route.query) }" class="flex items-center gap-1 hover:text-primary-600" data-testid="edge-back"><Icon name="chevronLeft" size="sm" />{{ t('admin.vision.catalog.services') }}</RouterLink>
           <span>/</span><span class="font-medium text-gray-900 dark:text-white">{{ serviceTitle }}</span>
         </nav>
-        <div class="flex flex-wrap items-center justify-between gap-4">
-          <div><h2 class="text-lg font-semibold text-gray-950 dark:text-white">{{ serviceTitle }}</h2><p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t('admin.vision.catalog.' + selection.service.title + 'Description') }}</p></div>
-          <span class="badge" :class="serviceEnabled(selection.service) ? 'badge-success' : 'badge-gray'">{{ serviceEnabled(selection.service) ? t('admin.vision.statusEnabled') : t('admin.vision.statusDisabled') }}</span>
+        <div class="edge-detail-title">
+          <span class="edge-title-icon" :class="'tone-' + selection.service.tone"><Icon :name="selection.service.icon" size="lg" /></span>
+          <div class="min-w-0 flex-1"><div class="flex flex-wrap items-center gap-3"><h1>{{ serviceTitle }}</h1><span class="edge-state" :class="{ ready: serviceEnabled(selection.service) }"><span />{{ serviceEnabled(selection.service) ? t('admin.vision.runtime.ready') : t('admin.vision.runtime.inactive') }}</span></div><p>{{ t('admin.vision.catalog.' + selection.service.title + 'Description') }}</p></div>
+          <button type="button" class="edge-icon-button" :title="t('common.refresh')" :aria-label="t('common.refresh')" :disabled="loading || contextsLoading" @click="refreshService"><Icon name="refresh" size="sm" /></button>
         </div>
-        <nav class="flex overflow-x-auto border-b border-gray-200 dark:border-dark-700" :aria-label="serviceTitle">
-          <RouterLink v-for="tab in detailTabs" :key="tab.key" :to="{ query: edgeQuery(route.query, selection.service, tab.key, selectedEndpointKey, selection.adapter) }" class="flex shrink-0 items-center gap-2 border-b-2 px-4 py-3 text-sm font-medium" :class="selection.tab === tab.key ? 'border-primary-500 text-primary-700 dark:text-primary-300' : 'border-transparent text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white'" :aria-current="selection.tab === tab.key ? 'page' : undefined" :data-testid="`edge-tab-${tab.key}`"><Icon :name="tab.icon" size="sm" />{{ t('admin.vision.catalog.' + tab.key) }}</RouterLink>
+        <nav class="edge-detail-tabs" :aria-label="serviceTitle">
+          <RouterLink v-for="tab in detailTabs" :key="tab.key" :to="{ query: edgeQuery(route.query, selection.service, tab.key, selectedEndpointKey, selection.adapter) }" :class="{ selected: selection.tab === tab.key }" :aria-current="selection.tab === tab.key ? 'page' : undefined" :data-testid="`edge-tab-${tab.key}`"><Icon :name="tab.icon" size="sm" />{{ t('admin.vision.catalog.' + tab.key) }}</RouterLink>
         </nav>
       </div>
 
-      <EdgeServiceDocs v-if="selection.tab === 'docs'" :service="selection.service" :endpoints="serviceEndpoints" />
-      <TranslateProvidersCard v-if="selection.tab === 'context' && selection.service.key === 'translate'" :adapter="selection.adapter" @select="selectAdapter" @saved="loadStatus" />
-      <section v-else-if="selection.tab === 'context'" class="space-y-4 py-2" data-testid="edge-service-context">
-        <h3 class="text-sm font-semibold">{{ t('admin.vision.catalog.context') }}</h3>
-        <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('admin.vision.catalog.contextExternal') }}</p>
-        <RouterLink to="/admin/accounts" class="btn btn-secondary"><Icon name="cog" size="sm" />{{ t('admin.vision.catalog.manageAccounts') }}</RouterLink>
-      </section>
+      <p v-if="error" role="alert" class="edge-notice error">{{ error }}</p>
+      <EdgeServiceDocs v-if="selection.tab === 'docs'" :service="selection.service" :endpoints="serviceEndpoints" :endpoint="selectedEndpoint" :code="documentationCode" :base-url="baseUrl" :adapter="selection.adapter" />
+      <TranslateProvidersCard v-if="selection.tab === 'context' && selection.service.key === 'translate'" class="edge-translate-context" :adapter="selection.adapter" @select="selectAdapter" @saved="loadStatus" />
+      <EdgeServiceContext v-else-if="selection.tab === 'context'" :key="selection.service.key" :service="selection.service" :context="contexts[selection.service.key]" :loading="contextsLoading" :error="contextsError" @refresh="loadContexts" @saved="loadContexts" />
 
       <section v-if="selection.tab === 'debug'" class="overflow-hidden border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900">
         <div class="flex items-center gap-3 border-b border-gray-200 px-4 py-3 dark:border-dark-700">
@@ -223,7 +221,7 @@
         </div>
       </section>
 
-      <section v-if="selection.tab === 'code'" class="min-w-0 space-y-4 py-2" data-testid="edge-code-panel">
+      <section v-if="selection.tab === 'code'" class="edge-code-view min-w-0 space-y-4" data-testid="edge-code-panel">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 class="text-sm font-semibold text-gray-950 dark:text-white">{{ t('admin.vision.catalog.code') }}</h2>
@@ -335,6 +333,9 @@ import KeyValueEditor from '@/features/edge/KeyValueEditor.vue'
 import EdgeServiceCatalog from '@/features/edge/EdgeServiceCatalog.vue'
 import EdgeServiceDocs from '@/features/edge/EdgeServiceDocs.vue'
 import TranslateProvidersCard from '@/features/edge/TranslateProvidersCard.vue'
+import EdgeServiceContext from '@/features/edge/EdgeServiceContext.vue'
+import type { EdgeContexts } from '@/features/edge/contexts'
+import '@/features/edge/edge-console.css'
 import { EDGE_SERVICES, edgeQuery, edgeSelection, type EdgeAdapter, type EdgeService, type EdgeDetailTab } from '@/features/edge/catalog'
 import {
   applyGatewayPath,
@@ -382,6 +383,9 @@ const { copyToClipboard } = useClipboard()
 const loading = ref(true)
 const error = ref('')
 const status = ref<VisionStatus | null>(null)
+const contexts = ref<EdgeContexts>({})
+const contextsLoading = ref(false)
+const contextsError = ref('')
 const baseUrl = new URL(buildGatewayUrl('/v1/systemone')).origin
 const groups = ref<AdminGroup[]>([])
 const apiKeys = ref<ApiKey[]>([])
@@ -477,8 +481,11 @@ const serviceEndpoints = computed(() => endpoints.value.filter(endpoint => (sele
 const serviceEndpointGroups = computed(() => endpointGroups.value.map(group => ({ ...group, endpoints: group.endpoints.filter(endpoint => serviceEndpoints.value.includes(endpoint)) })).filter(group => group.endpoints.length))
 const selectedAPIKey = computed(() => apiKeys.value.find(apiKey => apiKey.id === selectedAPIKeyID.value) ?? null)
 
-const generatedCode = computed(() => generateEdgeCode({
-  language: codeLanguage.value,
+const generatedCode = computed(() => buildCode(codeLanguage.value))
+const documentationCode = computed(() => buildCode('curl'))
+function buildCode(language: EdgeCodeLanguage) {
+  return generateEdgeCode({
+  language,
   gatewayOrigin: baseUrl,
   method: request.method,
   url: gatewayPath.value ? applyGatewayPath(request.url, baseUrl, gatewayPath.value) : request.url,
@@ -492,13 +499,17 @@ const generatedCode = computed(() => generateEdgeCode({
   ] : undefined,
   outputFile: selectedEndpointKey.value === 'tts' ? 'speech.' + ttsFormat() : undefined,
   apiKeyPlaceholder: '$SUB2API_KEY',
-}))
+  })
+}
 
 const canRegister = computed(() => selectedGroupID.value > 0
   && selectedModel.value.trim() !== ''
   && candidateModels.value.length > 0)
 
 function endpointEnabled(endpoint: EndpointDefinition): boolean {
+  const service = EDGE_SERVICES.find(item => (item.endpoints as readonly string[]).includes(endpoint.key))
+  if (service && contexts.value[service.key]) return contexts.value[service.key]!.enabled
+  if (['generation', 'laya', 'jev'].includes(endpoint.key)) return false
   if (!status.value) return false
   if (endpoint.category === 'vision') return status.value.enabled
   if (endpoint.category === 'media') return status.value.media_enabled
@@ -508,6 +519,7 @@ function endpointEnabled(endpoint: EndpointDefinition): boolean {
 
 
 function serviceEnabled(service: EdgeService) {
+  if (contexts.value[service.key]) return contexts.value[service.key]!.enabled
   const endpoint = endpoints.value.find(item => item.key === service.endpoints[0])
   return !!endpoint && endpointEnabled(endpoint)
 }
@@ -773,6 +785,24 @@ async function loadStatus() {
   }
 }
 
+async function loadContexts() {
+  contextsLoading.value = true
+  contextsError.value = ''
+  try {
+    const { data } = await apiClient.get<EdgeContexts>('/admin/vision/contexts')
+    contexts.value = data
+  } catch (cause) {
+    contextsError.value = extractApiErrorMessage(cause, t('admin.vision.runtime.loadFailed'))
+  } finally {
+    contextsLoading.value = false
+  }
+}
+
+function refreshService() {
+  void loadStatus()
+  void loadContexts()
+}
+
 async function loadGroups() {
   try {
     groups.value = await adminAPI.groups.getAll()
@@ -964,6 +994,6 @@ async function copyGeneratedCode() {
 }
 
 onMounted(async () => {
-  await Promise.all([loadStatus(), loadGroups(), loadAPIKeys()])
+  await Promise.all([loadStatus(), loadContexts(), loadGroups(), loadAPIKeys()])
 })
 </script>

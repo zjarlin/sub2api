@@ -4,6 +4,8 @@
 - `catalog.ts`：服务目录和 URL 契约。`service`、`tab`、`endpoint`、`adapter` 可分享；请求和凭据草稿不写入 URL。
 - `EdgeServiceDocs.vue`：服务专属端点、请求参数、鉴权和响应文档。
 - `TranslateProvidersCard.vue`：翻译适配上下文；服务开关、优先级和脱敏凭据由管理员配置接口保存，运行时立即读取。
+- `EdgeServiceContext.vue` / `contexts.ts`：展示视觉、TTS、配音运行配置及 Ark / Laya / JEV 实际账号。部署参数只读；账号密钥通过专用脱敏接口更新，留空保留原值。
+- `edge-console.css`：仅作用于边缘服务的控制台样式，包含详情文档、请求示例、上下文及移动端布局。
 
 - `DubbingForm.vue`：视频 File、自动/时间轴模式、JSON 参数导入导出。
 - `dubbing.ts`：表单契约及客户端校验；服务端仍做权威校验。

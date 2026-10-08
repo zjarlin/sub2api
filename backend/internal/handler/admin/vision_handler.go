@@ -14,10 +14,11 @@ type VisionHandler struct {
 	cfg        *config.Config
 	translator *translate.Aggregator
 	settings   *service.SettingService
+	accounts   service.AdminService
 }
 
-func NewVisionHandler(cfg *config.Config, translator *translate.Aggregator, settings *service.SettingService) *VisionHandler {
-	return &VisionHandler{cfg: cfg, translator: translator, settings: settings}
+func NewVisionHandler(cfg *config.Config, translator *translate.Aggregator, settings *service.SettingService, accounts service.AdminService) *VisionHandler {
+	return &VisionHandler{cfg: cfg, translator: translator, settings: settings, accounts: accounts}
 }
 
 // translateProviders 返回已配置的翻译服务商，未配置时返回空列表。

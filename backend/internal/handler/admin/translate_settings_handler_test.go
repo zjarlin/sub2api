@@ -59,6 +59,6 @@ func TestTranslateSettingsSavePreservesMaskedSecretsAndRuntimeStatus(t *testing.
 	statusRec := httptest.NewRecorder()
 	statusContext, _ := gin.CreateTestContext(statusRec)
 	statusContext.Request = httptest.NewRequest(http.MethodGet, "/status", nil)
-	NewVisionHandler(&config.Config{}, nil, svc).GetStatus(statusContext)
+	NewVisionHandler(&config.Config{}, nil, svc, nil).GetStatus(statusContext)
 	require.Contains(t, statusRec.Body.String(), `"translate_enabled":false`)
 }

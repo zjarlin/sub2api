@@ -12,7 +12,10 @@
     <p v-if="loading" class="py-8 text-sm text-gray-500">{{ t('common.loading') }}</p>
     <div v-else-if="loaded" class="grid min-w-0 gap-6 lg:grid-cols-[210px_minmax(0,1fr)]">
       <nav class="flex gap-1 overflow-x-auto border-b border-gray-200 pb-3 lg:flex-col lg:border-b-0 lg:border-r lg:pb-0 lg:pr-4 dark:border-dark-700" :aria-label="t('admin.vision.catalog.adapters')">
-        <button v-for="provider in providers" :key="provider.key" type="button" class="flex shrink-0 items-center justify-between gap-3 rounded-md px-3 py-2.5 text-left text-sm" :class="adapter === provider.key ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/30 dark:text-primary-300' : 'text-gray-600 hover:bg-gray-50 dark:text-gray-400 dark:hover:bg-dark-900'" :aria-current="adapter === provider.key ? 'page' : undefined" :data-testid="`translate-adapter-${provider.key}`" @click="emit('select', provider.key)"><span>{{ provider.title }}</span><span class="h-1.5 w-1.5 shrink-0 rounded-full" :class="form[provider.key].enabled ? 'bg-emerald-500' : 'bg-gray-300'" /></button>
+        <button v-for="provider in providers" :key="provider.key" type="button" class="edge-adapter-option flex shrink-0 items-center justify-between gap-3 rounded-md px-3 py-2.5 text-left text-sm" :aria-current="adapter === provider.key ? 'page' : undefined" :data-testid="`translate-adapter-${provider.key}`" @click="emit('select', provider.key)">
+          <span>{{ provider.title }}<small class="mt-1 block text-[11px] text-gray-400">{{ t('admin.vision.runtime.' + providerState(provider.key)) }}</small></span>
+          <span class="h-1.5 w-1.5 shrink-0 rounded-full" :class="providerState(provider.key) === 'ready' ? 'bg-emerald-500' : 'bg-gray-300'" />
+        </button>
       </nav>
       <div class="min-w-0 space-y-6">
         <div class="flex flex-wrap items-start justify-between gap-3 border-b border-gray-200 pb-4 dark:border-dark-700">
@@ -76,6 +79,16 @@ const form = reactive({ enabled: false, priority: [...EDGE_ADAPTERS], ...Object.
 const selected = computed(() => providers.find(provider => provider.key === props.adapter)!)
 const enabledProviders = computed(() => providers.filter(provider => form[provider.key].enabled))
 const defaultAdapter = computed(() => form.priority.find(key => form[key]?.enabled))
+
+function providerState(key: EdgeAdapter) {
+  const context = saved.value[key]
+  const required: Partial<Record<EdgeAdapter, string[]>> = {
+    baidu: ['app_id', 'secret_set'], tencent: ['secret_id', 'secret_key_set'], youdao: ['app_key', 'app_secret_set'],
+    libretranslate: ['base_url'], hymt: ['base_url'],
+  }
+  if ((required[key] || []).some(field => !context?.[field])) return 'missing'
+  return context?.enabled ? 'ready' : 'inactive'
+}
 
 function hydrate(data: Settings) {
   saved.value = data
