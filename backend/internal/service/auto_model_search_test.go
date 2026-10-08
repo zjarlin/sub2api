@@ -158,6 +158,48 @@ func TestSearchFallbackRejectsPlainAnswerAndCachesFailure(t *testing.T) {
 	require.Equal(t, body, nativeBody)
 }
 
+func TestSearchFallbackDoesNotRepeatAcrossToolContinuationRequests(t *testing.T) {
+	primary, helper := visionTestAccount(1, "text-model", "text"), searchTestHelper()
+	svc := &OpenAIGatewayService{cfg: visionTestConfig(),
+		accountRepo: codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{7: {primary, helper}}},
+		httpUpstream: &codexModelsHTTPUpstreamStub{do: func(req *http.Request, _ string, id int64, _ int) (*http.Response, error) {
+			t.Fatal("工具续轮不应重新执行辅助搜索")
+			return nil, nil
+		}},
+	}
+	for _, output := range []string{"read file contents", "command finished"} {
+		body := []byte(`{"model":"text-model","tools":[{"type":"web_search"},{"type":"function","name":"shell","parameters":{"type":"object"}}],"input":[{"role":"user","content":"定位 429 请求对应模型的降级路径"},{"type":"function_call","call_id":"c1","name":"shell","arguments":"{}"},{"type":"function_call_output","call_id":"c1","output":"` + output + `"}]}`)
+		ctx := searchTestRoutingContext(t, body, []Account{primary, helper})
+		c, _ := visionTestContext(body, 9, 7)
+		converted, err := svc.prepareSearchFallback(ctx, c, &primary, body)
+		require.NoError(t, err)
+		require.False(t, modelRequestNeedsNativeSearchTools(converted))
+		require.JSONEq(t, gjson.GetBytes(body, "input").Raw, gjson.GetBytes(converted, "input").Raw)
+		require.Equal(t, "shell", gjson.GetBytes(converted, "tools.0.name").String())
+		require.Empty(t, TakeVisionFallbackUsage(c))
+		nativeBody, err := svc.prepareSearchFallback(ctx, c, &helper, body)
+		require.NoError(t, err)
+		require.Equal(t, body, nativeBody)
+	}
+}
+
+func TestSearchFallbackNewUserAndForcedSearchStillRun(t *testing.T) {
+	for _, body := range []string{
+		`{"input":"Find current API docs"}`,
+		`{"input":[{"type":"function_call_output","output":"done"},{"role":"user","content":"查官方文档"},{"type":"additional_tools","tools":[]}]}`,
+		`{"input":[{"type":"function_call_output","output":"done"}],"tool_choice":"required"}`,
+		`{"input":[{"type":"function_call_output","output":"done"}],"tool_choice":{"type":"web_search_preview"}}`,
+	} {
+		require.True(t, shouldRunSearchFallback([]byte(body)), body)
+	}
+	for _, body := range []string{
+		`{"input":[{"role":"user","content":"fix code"},{"role":"assistant","content":"reading"}]}`,
+		`{"input":[{"role":"user","content":"fix code"},{"type":"function_call_output","output":"done"},{"type":"additional_tools","tools":[]}]}`,
+	} {
+		require.False(t, shouldRunSearchFallback([]byte(body)), body)
+	}
+}
+
 func TestAutoSearchOfficialDeepSeekRequiresHelper(t *testing.T) {
 	helper := searchTestHelper()
 	body := []byte(`{"input":"Find API docs","tools":[{"type":"web_search"}]}`)
