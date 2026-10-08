@@ -1,0 +1,40 @@
+# OpenAI OAuth 专用美国出口，叠加在主编排后。
+#
+# 背景：OpenAI 的 auth.openai.com/oauth/token 会按出口 IP 做地区限制，
+# 中国大陆直连会返回 403 unsupported_country_region_territory。本服务在
+# sub2api-network 内提供一个只走美国节点的 HTTP 代理，供账号/session 选择。
+#
+# 与 Arena 专用代理同构：只做“美国节点 fallback”，节点配置仅保存在私有目录。
+# 使用容器名而非网桥网关 IP，避免 Docker 网段变化导致地址失效。
+services:
+  sub2api-openai-egress:
+    image: ${OPENAI_EGRESS_IMAGE:-sub2api-arena:local}
+    entrypoint: [/usr/bin/tini, --]
+    command: [/usr/local/bin/mihomo, -d, /app/proxy, -f, /app/proxy/config.json]
+    restart: unless-stopped
+    user: "1000:1000"
+    read_only: true
+    volumes:
+      - type: bind
+        source: ${OPENAI_EGRESS_BINARY_PATH:?Set OPENAI_EGRESS_BINARY_PATH to the Linux mihomo binary}
+        target: /usr/local/bin/mihomo
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${OPENAI_EGRESS_STATE_DIR:?Set OPENAI_EGRESS_STATE_DIR to a private proxy state directory}
+        target: /app/proxy
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    networks: [sub2api-network]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 512m
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:9090/version',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

@@ -122,6 +122,24 @@ if [ "$ARENA_ENABLED" = "1" ]; then
   fi
 fi
 
+# OpenAI OAuth 专用美国出口：显式开启后叠加编排文件；缺失立即报错。
+OPENAI_EGRESS_ENABLED="${SUB2API_OPENAI_EGRESS:-}"
+if [ -z "$OPENAI_EGRESS_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
+  OPENAI_EGRESS_ENABLED="$(awk -F= '
+    $1 ~ /^[[:space:]]*(export[[:space:]]+)?SUB2API_OPENAI_EGRESS[[:space:]]*$/ {
+      value=$2
+      sub(/#.*/, "", value)
+      gsub(/[[:space:]"\047]/, "", value)
+      result=value
+    }
+    END { if (result == "1") print "1"; else print "0" }
+  ' "$DEPLOY_DIR/.env")"
+fi
+if [ "$OPENAI_EGRESS_ENABLED" = "1" ]; then
+  test -f "$DEPLOY_DIR/deploy/docker-compose.openai-egress.yml"
+  COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.openai-egress.yml")
+fi
+
 # 只读取编排开关，不执行 .env 中的 shell 内容；显式环境变量优先。
 EDGE_MEDIA_ENABLED="${SUB2API_EDGE_MEDIA:-}"
 if [ -z "$EDGE_MEDIA_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
@@ -387,6 +405,11 @@ if [ "$ARENA_ENABLED" = "1" ]; then
   fi
   echo "Building and starting Arena adapter"
   "${COMPOSE[@]}" up -d --build sub2api-arena
+fi
+
+if [ "$OPENAI_EGRESS_ENABLED" = "1" ]; then
+  echo "Starting OpenAI OAuth US egress proxy"
+  "${COMPOSE[@]}" up -d --wait --wait-timeout 180 sub2api-openai-egress
 fi
 
 # The existing gateway process stays alive. If it is already serving, pin it to

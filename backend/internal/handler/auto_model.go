@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -75,17 +76,61 @@ func isVirtualModelID(model string) bool {
 	return model == autoModelID || model == askModelID || isModelTierVirtualModel(model)
 }
 
-// ask 只调度文本/视觉对话适配器。Codex 会在每个 Responses 请求中注册本地工具，
-// 即使当前回合没有工具意图；移除这些声明后可按 Ask 的对话能力正常路由。
+// ask 只调度文本/视觉对话适配器。客户端函数工具不能交给文本模型，
+// 但托管 web_search 必须保留，供网关搜索辅助流程识别并完成联网闭环。
 func stripAskToolDeclarations(body []byte) ([]byte, error) {
-	for _, field := range []string{"tools", "tool_choice", "parallel_tool_calls"} {
-		var err error
-		body, err = sjson.DeleteBytes(body, field)
-		if err != nil {
-			return nil, err
+	var payload map[string]any
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	stripAskTools(payload)
+	if choice, ok := payload["tool_choice"].(map[string]any); ok {
+		if choiceType, _ := choice["type"].(string); choiceType == "function" {
+			delete(payload, "tool_choice")
 		}
 	}
-	return body, nil
+	if tools, ok := payload["tools"].([]any); !ok || len(tools) == 0 {
+		delete(payload, "tools")
+		delete(payload, "tool_choice")
+		delete(payload, "parallel_tool_calls")
+	}
+	return json.Marshal(payload)
+}
+
+func stripAskTools(payload map[string]any) {
+	var strip func(any) []any
+	strip = func(raw any) []any {
+		tools, ok := raw.([]any)
+		if !ok {
+			return nil
+		}
+		filtered := make([]any, 0, len(tools))
+		for _, rawTool := range tools {
+			tool, ok := rawTool.(map[string]any)
+			if !ok {
+				continue
+			}
+			typeName, _ := tool["type"].(string)
+			switch typeName {
+			case "web_search", "web_search_preview", "web_search_preview_2025_03_11":
+				filtered = append(filtered, tool)
+			case "namespace":
+				tool["tools"] = strip(tool["tools"])
+				if children, _ := tool["tools"].([]any); len(children) > 0 {
+					filtered = append(filtered, tool)
+				}
+			}
+		}
+		return filtered
+	}
+	payload["tools"] = strip(payload["tools"])
+	if input, ok := payload["input"].([]any); ok {
+		for _, rawItem := range input {
+			if item, ok := rawItem.(map[string]any); ok && item["type"] == "additional_tools" {
+				item["tools"] = strip(item["tools"])
+			}
+		}
+	}
 }
 
 // 模型名称不决定协议平台；这里只排除决策模型和专用模型。

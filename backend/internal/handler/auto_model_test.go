@@ -23,6 +23,18 @@ func newAutoModelTestHandler(accounts []service.Account) *GatewayHandler {
 	}})
 }
 
+func TestStripAskToolDeclarationsKeepsHostedSearch(t *testing.T) {
+	body := []byte(`{"model":"ask","tool_choice":{"type":"function","name":"shell"},"parallel_tool_calls":true,"tools":[{"type":"web_search"},{"type":"function","name":"shell","parameters":{"type":"object"}},{"type":"namespace","name":"ns","tools":[{"type":"web_search_preview"},{"type":"function","name":"exec"}]}],"input":[{"type":"additional_tools","tools":[{"type":"web_search_preview_2025_03_11"},{"type":"function","name":"other"}]}]}`)
+	converted, err := stripAskToolDeclarations(body)
+	require.NoError(t, err)
+	require.Equal(t, "web_search", gjson.GetBytes(converted, "tools.0.type").String())
+	require.Equal(t, "web_search_preview", gjson.GetBytes(converted, "tools.1.tools.0.type").String())
+	require.Equal(t, "web_search_preview_2025_03_11", gjson.GetBytes(converted, "input.0.tools.0.type").String())
+	require.False(t, gjson.GetBytes(converted, "tools.1.tools.1").Exists())
+	require.False(t, gjson.GetBytes(converted, "tool_choice").Exists())
+	require.True(t, gjson.GetBytes(converted, "parallel_tool_calls").Bool())
+}
+
 type autoModelAccountRepoStub struct {
 	gatewayModelsAccountRepoStub
 }

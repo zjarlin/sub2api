@@ -934,6 +934,14 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	if s.settingService != nil {
 		if aliases, aliasErr := s.settingService.GetModelAliasPolicy(ctx); aliasErr == nil {
 			testModelID = aliases.Canonicalize(testModelID)
+			// 与网关调度保持一致：把请求级别名快照绑定到 context 并叠加到账号映射。
+			// 透传账号（openai_passthrough）的 credentials model_mapping 可能以 provider
+			// 前缀形式键控（如 deepseek/deepseek-v4.1-flash），仅做 Canonicalize +
+			// GetMappedModel 会因规范名匹配不到而原样透传，上游返回 unsupported_model；
+			// 叠加别名后 globalModelMapping 能把规范名还原为该账号真实的上游模型 ID。
+			ctx = WithModelAliases(ctx, aliases)
+			c.Request = c.Request.WithContext(ctx)
+			account = accountWithModelAliases(ctx, account)
 		}
 	}
 	testModelID = account.GetMappedModel(testModelID)

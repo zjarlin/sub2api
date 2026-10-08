@@ -192,6 +192,52 @@ func TestAccountTestService_OpenAIAccountTestCanonicalizesGlobalAliasBeforeMappi
 	require.Equal(t, "upstream-deepseek-flash", gjson.GetBytes(body, "model").String())
 }
 
+// TestAccountTestService_OpenAIAccountTestPassthroughAppliesGlobalAliasOverlay
+// 回归账号 851（zjarlin_commandcode）的测试路径缺陷：透传账号的 credentials
+// model_mapping 以 provider 前缀形式键控（deepseek/deepseek-v4.1-flash），而
+// 管理员在测试框里选择的是共享规范名（deepseek-v4.1-flash）。仅做 Canonicalize +
+// GetMappedModel 会因规范名匹配不到而原样透传，上游返回 unsupported_model。
+// 测试路径必须像网关调度一样叠加请求级别名快照，把规范名还原为该账号真实的上游
+// 模型 ID（deepseek/deepseek-v4.1-flash）。
+func TestAccountTestService_OpenAIAccountTestPassthroughAppliesGlobalAliasOverlay(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	ctx, _ := newTestContext()
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+		Body:       io.NopCloser(strings.NewReader("data: {\"type\":\"response.completed\"}\n\n")),
+	}}
+	settingsRepo := newMockSettingRepo()
+	settingsRepo.data[SettingKeyModelAliases] = `{"groups":[{"canonical":"deepseek-v4.1-flash","aliases":["deepseek/deepseek-v4.1-flash","cline-pass/deepseek-v4.1-flash"]}]}`
+	svc := &AccountTestService{
+		httpUpstream:   upstream,
+		settingService: NewSettingService(settingsRepo, nil),
+		cfg:            &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+	account := &Account{
+		ID:          851,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":  "sk-test",
+			"base_url": "https://api.commandcode.ai/provider/v1",
+			// 管理员按上游同步的真实 ID 键控，含 provider 前缀。
+			"model_mapping": map[string]any{
+				"deepseek/deepseek-v4.1-flash": "deepseek/deepseek-v4.1-flash",
+				"deepseek/deepseek-v4-pro":     "deepseek/deepseek-v4-pro",
+			},
+		},
+		Extra: map[string]any{"openai_passthrough": true, openai_compat.ExtraKeyResponsesSupported: true},
+	}
+
+	require.NoError(t, svc.testOpenAIAccountConnection(ctx, account, "deepseek-v4.1-flash", "", ""))
+	require.NotNil(t, upstream.lastReq)
+	require.Equal(t, "deepseek/deepseek-v4.1-flash", gjson.GetBytes(upstream.lastBody, "model").String(),
+		"透传账号的测试请求必须叠加别名快照，把规范名还原为上游真实模型 ID")
+}
+
 func TestAccountTestService_OpenAIShadowUsesParentCredentialsAndShadowModel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	ctx, recorder := newTestContext()
