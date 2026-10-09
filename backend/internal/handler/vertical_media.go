@@ -32,13 +32,21 @@ func (h *GatewayHandler) executeVerticalMedia(c *gin.Context, key *service.APIKe
 	endpoint := service.CompositeRouteEndpointImages
 	path := "/v1/images/generations"
 	handler := images
+	dashScopeImage := kind == "image_generation" && service.IsDashScopeChatImageModel(selected)
 	if kind == "video_generation" {
 		endpoint = service.CompositeRouteEndpointAny
 		path = "/v1/videos/generations"
 		handler = videos
+	} else if dashScopeImage {
+		// 百炼图片模型只接受 Chat Completions 的 content 列表格式。
+		endpoint = service.CompositeRouteEndpointChatCompletions
+		path = "/v1/chat/completions"
 	}
 	ctx := service.WithResolvedTargetPlatform(c.Request.Context(), platform)
 	mediaBody := verticalMediaRequest(selected, prompt, kind)
+	if dashScopeImage {
+		mediaBody = verticalDashScopeImageRequest(selected, prompt)
+	}
 	decision, err := resolver.Resolve(ctx, key.Group.ID, selected, endpoint)
 	if err != nil {
 		verticalFailure(c, route, http.StatusServiceUnavailable, "Media route unavailable")
@@ -64,6 +72,11 @@ func (h *GatewayHandler) executeVerticalMedia(c *gin.Context, key *service.APIKe
 		} else {
 			verticalFailure(c, route, http.StatusBadGateway, "Media provider could not complete this request")
 		}
+		return
+	}
+	// 百炼/Wan 图片模型走 Chat Completions 出图，返回体结构与 OpenAI Images 不同。
+	if kind == "image_generation" && service.IsDashScopeChatImageModel(selected) {
+		h.finishVerticalDashScopeImage(c, key, requested, body, route, selected, result)
 		return
 	}
 	route.ResolvedModel = gjson.GetBytes(result, "model").String()
@@ -128,6 +141,39 @@ func (h *GatewayHandler) executeVerticalMedia(c *gin.Context, key *service.APIKe
 	}
 	route.State = "completed"
 	writeVerticalReply(c, body, requested, strings.Join(text, "\n\n"), outputs)
+}
+
+// 解析百炼/Wan Chat Completions 出图响应；只接受 http(s) 图片地址。
+func (h *GatewayHandler) finishVerticalDashScopeImage(c *gin.Context, key *service.APIKey, requested string, body []byte, route *service.AutoModelRouteObservation, selected string, result []byte) {
+	operation := route.Operation
+	route.ResolvedModel = selected
+	if model := gjson.GetBytes(result, "model").String(); model != "" {
+		route.ResolvedModel = model
+	}
+	var text []string
+	for _, content := range gjson.GetBytes(result, "output.choices.0.message.content").Array() {
+		if len(operation.Artifacts) >= 16 {
+			break
+		}
+		if content.Get("type").String() != "image" {
+			continue
+		}
+		location := verticalArtifactURL(content.Get("image").String())
+		if location == "" {
+			location = verticalArtifactURL(content.Get("image_url.url").String())
+		}
+		if location == "" {
+			continue
+		}
+		operation.Artifacts = append(operation.Artifacts, service.RouteArtifact{Kind: "image", URL: location})
+		text = append(text, "![生成图片](<"+location+">)")
+	}
+	if len(text) == 0 {
+		verticalFailure(c, route, http.StatusBadGateway, "Image provider returned no artifact")
+		return
+	}
+	route.State = "completed"
+	writeVerticalReply(c, body, requested, strings.Join(text, "\n\n"), nil)
 }
 
 // 内部请求直接调用现有处理器，沿用用户身份、审计、并发、计费与任务归属。

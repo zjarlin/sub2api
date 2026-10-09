@@ -247,7 +247,8 @@ func (h *GatewayHandler) verticalMediaModel(ctx context.Context, group *service.
 			mediaModel = decision.UpstreamModel
 		}
 		// 目录中的 image 名称不保证支持当前生成端点，复用现有处理器的模型识别。
-		if kind == "image_generation" && platform == service.PlatformOpenAI &&
+		dashScopeImage := kind == "image_generation" && service.IsDashScopeChatImageModel(mediaModel)
+		if kind == "image_generation" && platform == service.PlatformOpenAI && !dashScopeImage &&
 			!service.IsExplicitImageGenerationIntent("/v1/responses", mediaModel, nil) {
 			continue
 		}
@@ -270,6 +271,16 @@ func verticalMediaRequest(model, prompt, kind string) []byte {
 	if kind == "image_generation" {
 		payload["n"] = 1
 		payload["response_format"] = "url"
+	}
+	body, _ := json.Marshal(payload)
+	return body
+}
+
+// 百炼/Wan 图片模型要求 content 为列表，返回 output.choices[].message.content[].image。
+func verticalDashScopeImageRequest(model, prompt string) []byte {
+	payload := map[string]any{
+		"model":    model,
+		"messages": []any{map[string]any{"role": "user", "content": []any{map[string]any{"type": "text", "text": prompt}}}},
 	}
 	body, _ := json.Marshal(payload)
 	return body

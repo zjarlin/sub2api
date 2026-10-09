@@ -19,6 +19,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestVerticalTranslationExtractsOnlyProvidedText(t *testing.T) {
@@ -204,6 +205,39 @@ func TestVerticalMediaDoesNotAllowUnsafeArtifactURLs(t *testing.T) {
 		require.Empty(t, verticalArtifactURL(location))
 	}
 	require.Equal(t, "https://example.com/video.mp4", verticalArtifactURL("https://example.com/video.mp4"))
+}
+
+func TestVerticalDashScopeImageRequestAndRecognition(t *testing.T) {
+	for _, model := range []string{"wan2.7-image", "wan2.7-image-pro", "wanx2.1-image", "vendor/wan2.7-image"} {
+		require.True(t, service.IsDashScopeChatImageModel(model), model)
+	}
+	for _, model := range []string{"gpt-image-2", "grok-imagine-image", "wan2.7-video", "qwen3.8-max", ""} {
+		require.False(t, service.IsDashScopeChatImageModel(model), model)
+	}
+	body := verticalDashScopeImageRequest("wan2.7-image", "一只戴墨镜的柴犬")
+	require.Equal(t, "wan2.7-image", gjson.GetBytes(body, "model").String())
+	require.Equal(t, "text", gjson.GetBytes(body, "messages.0.content.0.type").String())
+	require.Equal(t, "一只戴墨镜的柴犬", gjson.GetBytes(body, "messages.0.content.0.text").String())
+}
+
+func TestVerticalDashScopeImageReplyParsesArtifacts(t *testing.T) {
+	cache := &observationCache{}
+	h := observationHandler(cache)
+	group := &service.Group{ID: 71, Platform: service.PlatformOpenAI}
+	key := &service.APIKey{ID: 81, GroupID: &group.ID, Group: group}
+	response := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(response)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"ask","input":"生成一张图片"}`))
+	c.Set(string(middleware.ContextKeyAPIKey), key)
+	route, finish := h.verticalObservation(c, key, "ask", "wan2.7-image", &service.VerticalOperation{Kind: "image_generation", Provider: service.PlatformOpenAI})
+	defer finish()
+	result := []byte(`{"model":"wan2.7-image","output":{"choices":[{"message":{"content":[{"type":"image","image":"https://cdn.example.com/a.png"}]}}]},"usage":{"image_count":1}}`)
+	h.finishVerticalDashScopeImage(c, key, "ask", []byte(`{"stream":false}`), route, "wan2.7-image", result)
+	require.Equal(t, "completed", route.State)
+	require.Len(t, route.Operation.Artifacts, 1)
+	require.Equal(t, "https://cdn.example.com/a.png", route.Operation.Artifacts[0].URL)
+	require.Contains(t, response.Body.String(), "https://cdn.example.com/a.png")
+	require.NotContains(t, response.Body.String(), "cdn.example.com/a.png?secret")
 }
 
 func TestVerticalMediaModelRequiresInventoryAndHonorsAliasesAndAllowlist(t *testing.T) {

@@ -483,6 +483,18 @@ func isGrokImageGenerationModel(model string) bool {
 		strings.HasPrefix(model, "grok-imagine-image")
 }
 
+// IsDashScopeChatImageModel 识别通过 Chat Completions 出图的百炼/Wan 图片模型，
+// 这类模型不接受 OpenAI Images 端点，必须走 content 列表的对话协议。
+func IsDashScopeChatImageModel(model string) bool {
+	model = strings.ToLower(strings.TrimSpace(model))
+	if model == "" {
+		return false
+	}
+	short := model[strings.LastIndex(model, "/")+1:]
+	return (strings.HasPrefix(short, "wan") || strings.HasPrefix(short, "wanx")) &&
+		strings.Contains(short, "image")
+}
+
 func validateOpenAIImagesModel(model string) error {
 	model = strings.TrimSpace(model)
 	if isOpenAIImageGenerationModel(model) {
