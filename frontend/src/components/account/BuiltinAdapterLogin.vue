@@ -53,8 +53,7 @@
         {{ t(platform === 'cursor' ? 'admin.accounts.builtinLogin.cursorOpen' : platform === 'windsurf' ? 'admin.accounts.builtinLogin.windsurfOpen' : 'admin.accounts.builtinLogin.open') }}
       </a>
       <div v-if="platform === 'deepseek_web' || platform === 'madao'" class="space-y-2">
-        <!-- 用容器承接交互与键盘焦点：截图会周期性替换 <img>，容器本身保持稳定，
-             否则每次刷新都会丢掉键盘焦点、导致输入无效。 -->
+        <!-- 容器映射鼠标坐标，原生输入框接收键盘与输入法；截图刷新不替换输入框。 -->
         <div
           ref="loginViewRef"
           class="relative mx-auto w-fit max-w-full"
@@ -66,6 +65,18 @@
           @keydown="relayKeydown"
           @keydown.stop.esc.prevent
         >
+          <textarea
+            v-if="viewInteractive"
+            ref="loginInputRef"
+            data-testid="builtin-login-input"
+            :aria-label="t('admin.accounts.builtinLogin.madaoViewAlt')"
+            class="absolute left-0 top-0 h-px w-px opacity-0"
+            autocomplete="off"
+            @input="relayTextInput"
+            @compositionstart="composing = true"
+            @compositionend="finishComposition"
+            @click.stop
+          />
           <img
             v-if="loginViewURL"
             :src="loginViewURL"
@@ -117,6 +128,8 @@ const deepseekPassword = ref('')
 const deepseekAutoRelogin = ref(true)
 const loginViewURL = ref('')
 const loginViewRef = ref<HTMLElement | null>(null)
+const loginInputRef = ref<HTMLTextAreaElement | null>(null)
+let composing = false
 const inputQueue: BuiltinLoginInputEvent[] = []
 let inputSending = false
 const error = ref('')
@@ -275,8 +288,8 @@ async function drainInput() {
 
 function relayClick(event: MouseEvent) {
   if (!viewInteractive.value) return
-  // 容器承接键盘焦点（<img> 会周期性重建，容器保持稳定）。
-  loginViewRef.value?.focus()
+  // 原生输入框承接键盘焦点，禁止聚焦时滚动整个登录画面。
+  loginInputRef.value?.focus({ preventScroll: true })
   const point = mappedPoint(event)
   if (!point) return
   enqueueInput({ type: 'click', x: point.x, y: point.y })
@@ -291,15 +304,26 @@ function relayWheel(event: WheelEvent) {
 
 function relayKeydown(event: KeyboardEvent) {
   if (!viewInteractive.value) return
-  const printable = event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey
-  if (printable) {
-    enqueueInput({ type: 'text', text: event.key })
-    return
-  }
+  if (event.isComposing || composing || event.ctrlKey || event.metaKey || event.altKey) return
+  if (event.key.length === 1) return
   const allowed = ['Enter', 'Tab', 'Backspace', 'Escape', 'ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown', 'Delete', ' ']
   if (allowed.includes(event.key)) {
+    event.preventDefault()
     enqueueInput({ type: 'key', key: event.key === ' ' ? 'Space' : event.key })
   }
+}
+
+// 用原生文本输入接收输入法及粘贴，提交后清空本地内容，避免缓存凭据。
+function relayTextInput() {
+  const input = loginInputRef.value
+  if (!input || composing || !input.value) return
+  enqueueInput({ type: 'text', text: input.value })
+  input.value = ''
+}
+
+function finishComposition() {
+  composing = false
+  relayTextInput()
 }
 
 async function refreshLoginView(current: BuiltinLoginSession, version: number) {
@@ -307,14 +331,14 @@ async function refreshLoginView(current: BuiltinLoginSession, version: number) {
   try {
     const blob = await getBuiltinLoginView(props.platform, current.session_id, controller?.signal)
     if (version !== generation) return
-    // 容器本身不随截图变化，焦点通常能保持；若因重渲染丢失则恢复。
-    const hadFocus = typeof document !== 'undefined' && document.activeElement === loginViewRef.value
+    // 输入框不随截图变化；若重渲染影响焦点则恢复。
+    const hadFocus = typeof document !== 'undefined' && document.activeElement === loginInputRef.value
     const nextURL = URL.createObjectURL(blob)
     if (loginViewURL.value) URL.revokeObjectURL(loginViewURL.value)
     loginViewURL.value = nextURL
     if (hadFocus) {
       await nextTick()
-      loginViewRef.value?.focus()
+      loginInputRef.value?.focus({ preventScroll: true })
     }
   } catch {
     // 登录页启动和截图刷新可能短暂重叠，下一次轮询会继续加载。
