@@ -53,18 +53,28 @@
         {{ t(platform === 'cursor' ? 'admin.accounts.builtinLogin.cursorOpen' : platform === 'windsurf' ? 'admin.accounts.builtinLogin.windsurfOpen' : 'admin.accounts.builtinLogin.open') }}
       </a>
       <div v-if="platform === 'deepseek_web' || platform === 'madao'" class="space-y-2">
-        <img
-          v-if="loginViewURL"
+        <!-- 用容器承接交互与键盘焦点：截图会周期性替换 <img>，容器本身保持稳定，
+             否则每次刷新都会丢掉键盘焦点、导致输入无效。 -->
+        <div
           ref="loginViewRef"
-          :src="loginViewURL"
-          :data-testid="platform === 'madao' ? 'madao-login-view' : 'deepseek-login-view'"
-          :alt="t(platform === 'madao' ? 'admin.accounts.builtinLogin.madaoViewAlt' : 'admin.accounts.builtinLogin.deepseekWebQRCodeAlt')"
-          :class="['mx-auto max-h-[520px] w-full rounded-lg border border-gray-200 object-contain dark:border-dark-600', viewInteractive ? 'cursor-text outline-none focus:ring-2 focus:ring-primary-500' : '']"
+          class="relative mx-auto w-fit max-w-full"
+          :class="viewInteractive ? 'cursor-text rounded-lg outline-none focus:ring-2 focus:ring-primary-500' : ''"
           :tabindex="viewInteractive ? 0 : undefined"
+          data-testid="builtin-login-view-surface"
           @click="relayClick"
           @wheel.prevent="relayWheel"
           @keydown="relayKeydown"
-        />
+          @keydown.stop.esc.prevent
+        >
+          <img
+            v-if="loginViewURL"
+            :src="loginViewURL"
+            :data-testid="platform === 'madao' ? 'madao-login-view' : 'deepseek-login-view'"
+            :alt="t(platform === 'madao' ? 'admin.accounts.builtinLogin.madaoViewAlt' : 'admin.accounts.builtinLogin.deepseekWebQRCodeAlt')"
+            class="max-h-[520px] w-full rounded-lg border border-gray-200 object-contain dark:border-dark-600"
+            draggable="false"
+          />
+        </div>
         <p class="input-hint" role="status">{{ t(loginViewURL ? (platform === 'madao' ? 'admin.accounts.builtinLogin.madaoWaiting' : 'admin.accounts.builtinLogin.deepseekWebWaiting') : (platform === 'madao' ? 'admin.accounts.builtinLogin.madaoLoading' : 'admin.accounts.builtinLogin.deepseekWebLoading')) }}</p>
         <p v-if="viewInteractive && loginViewURL" class="input-hint">{{ t('admin.accounts.builtinLogin.viewInteractHint') }}</p>
       </div>
@@ -106,7 +116,7 @@ const deepseekEmail = ref('')
 const deepseekPassword = ref('')
 const deepseekAutoRelogin = ref(true)
 const loginViewURL = ref('')
-const loginViewRef = ref<HTMLImageElement | null>(null)
+const loginViewRef = ref<HTMLElement | null>(null)
 const inputQueue: BuiltinLoginInputEvent[] = []
 let inputSending = false
 const error = ref('')
@@ -212,7 +222,9 @@ async function cancel() {
 // 截图与浏览器视口 1:1（naturalWidth/Height 即视口 CSS 像素），
 // 因此按 object-contain 的显示区域比例还原即可，无需假定固定分辨率。
 function mappedPoint(event: MouseEvent): { x: number; y: number } | null {
-  const el = loginViewRef.value
+  const container = loginViewRef.value
+  if (!container) return null
+  const el = container.querySelector('img')
   if (!el || !el.naturalWidth || !el.naturalHeight) return null
   const box = el.getBoundingClientRect()
   if (!box.width || !box.height) return null
@@ -263,7 +275,7 @@ async function drainInput() {
 
 function relayClick(event: MouseEvent) {
   if (!viewInteractive.value) return
-  // 先让画面获得键盘焦点，这样后续按键能落到浏览器视口里。
+  // 容器承接键盘焦点（<img> 会周期性重建，容器保持稳定）。
   loginViewRef.value?.focus()
   const point = mappedPoint(event)
   if (!point) return
@@ -295,7 +307,7 @@ async function refreshLoginView(current: BuiltinLoginSession, version: number) {
   try {
     const blob = await getBuiltinLoginView(props.platform, current.session_id, controller?.signal)
     if (version !== generation) return
-    // 刷新截图会重建 <img> 并丢失键盘焦点；记录并在更新后恢复，避免连续输入被打断。
+    // 容器本身不随截图变化，焦点通常能保持；若因重渲染丢失则恢复。
     const hadFocus = typeof document !== 'undefined' && document.activeElement === loginViewRef.value
     const nextURL = URL.createObjectURL(blob)
     if (loginViewURL.value) URL.revokeObjectURL(loginViewURL.value)
