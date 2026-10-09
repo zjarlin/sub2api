@@ -42,14 +42,59 @@ type chromiumLoginBrowser struct {
 }
 
 func newChromiumLoginBrowser(executable, profileRoot string) *chromiumLoginBrowser {
-	return &chromiumLoginBrowser{executable: executable, profileRoot: profileRoot}
+	b := &chromiumLoginBrowser{executable: executable, profileRoot: profileRoot}
+	// 进程重启后旧会话的临时 profile 目录与 Chromium 都不会自动清理；
+	// 残留目录会让下次登录误判"已在运行"。启动时先清空登录 profile 根目录。
+	if err := os.MkdirAll(profileRoot, 0700); err == nil {
+		if entries, err := os.ReadDir(profileRoot); err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() && strings.HasPrefix(entry.Name(), "session-") {
+					_ = os.RemoveAll(filepath.Join(profileRoot, entry.Name()))
+				}
+			}
+		}
+	}
+	return b
+}
+
+// forceResetLocked 回收卡住的登录会话：结束残留 Chromium 进程并清空 profile 目录。
+// 调用方需持有 b.mu；用于 active=true 但实际已无可用会话的场景。
+func (b *chromiumLoginBrowser) forceResetLocked() {
+	entries, err := os.ReadDir(b.profileRoot)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() || !strings.HasPrefix(entry.Name(), "session-") {
+			continue
+		}
+		profile := filepath.Join(b.profileRoot, entry.Name())
+		// 结束仍指向该 profile 的 Chromium 进程，再删除目录。
+		terminateProfileProcesses(profile)
+		_ = os.RemoveAll(profile)
+	}
+}
+
+// reapOrphansLocked 删除登录 profile 根目录下的历史 session-* 目录（调用方需持有 b.mu）。
+func (b *chromiumLoginBrowser) reapOrphansLocked() {
+	entries, err := os.ReadDir(b.profileRoot)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), "session-") {
+			_ = os.RemoveAll(filepath.Join(b.profileRoot, entry.Name()))
+		}
+	}
 }
 
 func (b *chromiumLoginBrowser) Start(ctx context.Context) (browserLoginSession, error) {
 	b.mu.Lock()
 	if b.active {
-		b.mu.Unlock()
-		return nil, errors.New("CodeArts browser login is already running")
+		// 上一次登录会话可能因管理页关闭、会话过期或进程异常而没走 Close()，
+		// 留下 active=true 的假状态。这里强制回收：杀掉残留 Chromium 并清空
+		// profile，然后继续新建，避免用户侧一直看到 502。
+		b.forceResetLocked()
 	}
 	b.active = true
 	b.mu.Unlock()
@@ -58,6 +103,8 @@ func (b *chromiumLoginBrowser) Start(ctx context.Context) (browserLoginSession, 
 		b.release()
 		return nil, err
 	}
+	// 没有活跃会话时清理历史残留 profile，避免磁盘堆积与误判。
+	b.reapOrphansLocked()
 	profile, err := os.MkdirTemp(b.profileRoot, "session-")
 	if err != nil {
 		b.release()
