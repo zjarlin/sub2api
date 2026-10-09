@@ -1235,6 +1235,9 @@ type GatewayConfig struct {
 	// CNProviders: 国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）的余额检测配置。
 	// 仅作用于 payg（按量付费）账号：周期探测余额，低于阈值则临时停调。
 	CNProviders GatewayCNProvidersConfig `mapstructure:"cn_providers"`
+
+	// UserAccountRebate: 用户自带账号（「我的账号」）按真实消耗返额的周期结算配置。
+	UserAccountRebate GatewayUserAccountRebateConfig `mapstructure:"user_account_rebate"`
 }
 
 // GatewayVisionFallbackConfig 不另存供应商凭据，复用分组账号及其模型能力快照。
@@ -1338,6 +1341,21 @@ type GatewayCNProvidersConfig struct {
 	BalanceCheckEnabled         bool    `mapstructure:"balance_check_enabled"`
 	BalanceThreshold            float64 `mapstructure:"balance_threshold"`
 	BalanceCheckIntervalMinutes int     `mapstructure:"balance_check_interval_minutes"`
+}
+
+// GatewayUserAccountRebateConfig 控制"自带账号按真实消耗返额"的周期结算。
+//
+// 结算本身受后台设置 user_account_rebate_enabled 总开关约束；这里只控制任务节奏：
+//   - enabled: 是否注册该周期任务（默认 true，实际是否返额仍看后台开关）
+//   - interval_minutes: 结算周期（分钟，默认 10）
+//   - safety_lag_minutes: 结算窗口右边界滞后量（分钟，默认 10），
+//     用量日志是插入时刻落库，留滞后避免批处理迟到导致漏结
+//   - batch_limit: 单轮最多结算的账号数（默认 200）
+type GatewayUserAccountRebateConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	IntervalMinutes  int  `mapstructure:"interval_minutes"`
+	SafetyLagMinutes int  `mapstructure:"safety_lag_minutes"`
+	BatchLimit       int  `mapstructure:"batch_limit"`
 }
 
 type GatewayLiveConfig struct {
@@ -2699,6 +2717,10 @@ func setDefaults() {
 	viper.SetDefault("gateway.cn_providers.balance_check_enabled", true)
 	viper.SetDefault("gateway.cn_providers.balance_threshold", 0.5)
 	viper.SetDefault("gateway.cn_providers.balance_check_interval_minutes", 10)
+	viper.SetDefault("gateway.user_account_rebate.enabled", true)
+	viper.SetDefault("gateway.user_account_rebate.interval_minutes", 10)
+	viper.SetDefault("gateway.user_account_rebate.safety_lag_minutes", 10)
+	viper.SetDefault("gateway.user_account_rebate.batch_limit", 200)
 	viper.SetDefault("gateway.image_concurrency.enabled", false)
 	viper.SetDefault("gateway.image_concurrency.max_concurrent_requests", 0)
 	viper.SetDefault("gateway.image_concurrency.overflow_mode", ImageConcurrencyOverflowModeReject)

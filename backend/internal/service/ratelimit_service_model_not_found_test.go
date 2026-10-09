@@ -20,6 +20,21 @@ type modelNotFoundRateLimitCall struct {
 	reason    string
 }
 
+func TestRetiredModelPersistsOnlyMappedModelCapability(t *testing.T) {
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &RateLimitService{accountRepo: repo}
+	account := openAIModelNotFoundTempAccount()
+	account.Credentials["model_mapping"] = map[string]any{"public-model": "deepseek-ai/deepseek-v4-flash-0731"}
+	body := []byte(`{"detail":"The model 'deepseek-ai/deepseek-v4-flash-0731' has reached its end of life on 2026-09-21T08:00:00Z and is no longer available."}`)
+	require.True(t, svc.HandleUpstreamModelNotFound(context.Background(), account, "public-model", http.StatusGone, body))
+	require.Zero(t, repo.tempCalls)
+	require.Len(t, repo.unsupportedCalls, 1)
+	require.Equal(t, "deepseek-ai/deepseek-v4-flash-0731", repo.unsupportedCalls[0].model)
+	require.Equal(t, http.StatusGone, repo.unsupportedCalls[0].observation.StatusCode)
+	require.False(t, account.IsModelSupported("public-model"))
+	require.False(t, account.IsModelKnownUnsupported("other-model"))
+}
+
 type unsupportedModelCall struct {
 	accountID   int64
 	model       string

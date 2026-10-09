@@ -93,6 +93,20 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	if upstreamModel != originalModel {
 		upstreamBody = ReplaceModelInBody(body, upstreamModel)
 	}
+	// 桌面豆包只接受新版令牌参数；显式新版值优先，其他供应商保持原协议。
+	if account.IsDoubao() && gjson.GetBytes(upstreamBody, "max_tokens").Exists() {
+		var err error
+		if !gjson.GetBytes(upstreamBody, "max_completion_tokens").Exists() {
+			upstreamBody, err = sjson.SetRawBytes(upstreamBody, "max_completion_tokens", []byte(gjson.GetBytes(upstreamBody, "max_tokens").Raw))
+			if err != nil {
+				return nil, fmt.Errorf("normalize doubao token limit: %w", err)
+			}
+		}
+		upstreamBody, err = sjson.DeleteBytes(upstreamBody, "max_tokens")
+		if err != nil {
+			return nil, fmt.Errorf("remove doubao legacy token limit: %w", err)
+		}
+	}
 	if normalizedBody, normalized := NormalizeGLMOpenAIReasoningEffort(upstreamBody, upstreamModel); normalized {
 		upstreamBody = normalizedBody
 	}

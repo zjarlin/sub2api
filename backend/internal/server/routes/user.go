@@ -44,6 +44,9 @@ func RegisterUserRoutes(
 			user.PUT("", h.User.UpdateProfile)
 			user.GET("/aff", h.User.GetAffiliate)
 			user.POST("/aff/transfer", h.User.TransferAffiliateQuota)
+			// 自带账号（「我的账号」）按真实消耗返额
+			user.GET("/account-rebates", h.UserAccountRebate.GetAccountRebates)
+			user.GET("/account-rebates/history", h.UserAccountRebate.ListAccountRebateHistory)
 			user.POST("/account-bindings/email/send-code", h.User.SendEmailBindingCode)
 			user.POST("/account-bindings/email", h.User.BindEmailIdentity)
 			user.DELETE("/account-bindings/:provider", h.User.UnbindIdentity)

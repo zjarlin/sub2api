@@ -93,6 +93,9 @@ var openAIImageTryAgainPattern = regexp.MustCompile(`(?i)try again in\s+([0-9]+(
 
 var openCodeGoUsageLimitResetPattern = regexp.MustCompile(`(?i)\bresets\s+in\s+`)
 
+// 只识别明确的 Clinepass 配额耗尽，避免把普通瞬时限流延长为数周。
+var clinepassUsageLimitResetPattern = regexp.MustCompile(`(?i)^(?:Error 429: )?You have reached your (?:monthly|weekly) Clinepass limit\. The limit resets in ([0-9]+d(?: [0-9]+h)?(?: [0-9]+m)?), please try again later\.?$`)
+
 var openCodeGoUsageLimitDurationPartPattern = regexp.MustCompile(`(?i)^([0-9]+(?:\.[0-9]+)?)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|week|weeks)\b`)
 
 const (
@@ -1820,6 +1823,15 @@ func parseOpenAIRateLimitResetTime(body []byte) *int64 {
 	errObj, ok := parsed["error"].(map[string]any)
 	if !ok {
 		return nil
+	}
+	// Clinepass 兼容代理不保证错误 type，但会给出固定格式的周/月重置时间。
+	message, _ := errObj["message"].(string)
+	if matches := clinepassUsageLimitResetPattern.FindStringSubmatch(strings.TrimSpace(message)); matches != nil {
+		resetAfter := parseOpenCodeGoUsageLimitResetDuration("resets in " + matches[1])
+		if resetAfter > 0 && resetAfter <= 32*24*time.Hour {
+			ts := time.Now().Add(resetAfter).Unix()
+			return &ts
+		}
 	}
 
 	// 检查是否为已知的账号用量限制类型。

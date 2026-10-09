@@ -365,6 +365,18 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.AdminRechargeRebateEnabled != after.AdminRechargeRebateEnabled {
 		changed = append(changed, "affiliate_admin_recharge_enabled")
 	}
+	if before.UserAccountRebateEnabled != after.UserAccountRebateEnabled {
+		changed = append(changed, "user_account_rebate_enabled")
+	}
+	if before.UserAccountRebateRate != after.UserAccountRebateRate {
+		changed = append(changed, "user_account_rebate_rate")
+	}
+	if before.UserAccountRebateSharedOnly != after.UserAccountRebateSharedOnly {
+		changed = append(changed, "user_account_rebate_shared_only")
+	}
+	if before.UserAccountRebateIncludeOwner != after.UserAccountRebateIncludeOwner {
+		changed = append(changed, "user_account_rebate_include_owner")
+	}
 	if !equalDefaultSubscriptions(before.DefaultSubscriptions, after.DefaultSubscriptions) {
 		changed = append(changed, "default_subscriptions")
 	}

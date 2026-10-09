@@ -176,8 +176,14 @@ type SystemSettings struct {
 	AffiliateRebateDurationDays  int
 	AffiliateRebatePerInviteeCap float64
 	AdminRechargeRebateEnabled   bool
-	DefaultUserRPMLimit          int
-	DefaultSubscriptions         []DefaultSubscriptionSetting
+
+	// 用户自带账号（「我的账号」）按真实消耗返额
+	UserAccountRebateEnabled      bool
+	UserAccountRebateRate         float64
+	UserAccountRebateSharedOnly   bool
+	UserAccountRebateIncludeOwner bool
+	DefaultUserRPMLimit           int
+	DefaultSubscriptions          []DefaultSubscriptionSetting
 
 	// Model fallback configuration
 	EnableModelFallback      bool   `json:"enable_model_fallback"`

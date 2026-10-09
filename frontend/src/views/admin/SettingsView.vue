@@ -7464,6 +7464,75 @@
                 </p>
               </div>
 
+              <!-- 自带账号（我的账号）按真实消耗返额 -->
+              <div class="border-t border-gray-100 pt-6 dark:border-dark-700">
+                <div class="mb-4">
+                  <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+                    {{ t('admin.settings.features.affiliate.accountRebate.title') }}
+                  </h3>
+                  <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                    {{ t('admin.settings.features.affiliate.accountRebate.description') }}
+                  </p>
+                </div>
+
+                <div class="flex items-center justify-between gap-4 py-2">
+                  <div>
+                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t('admin.settings.features.affiliate.accountRebate.enabled') }}
+                    </label>
+                    <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t('admin.settings.features.affiliate.accountRebate.enabledHint') }}
+                    </p>
+                  </div>
+                  <Toggle v-model="form.user_account_rebate_enabled" />
+                </div>
+
+                <div class="mt-2">
+                  <label class="input-label">
+                    {{ t('admin.settings.features.affiliate.accountRebate.rate') }}
+                  </label>
+                  <div class="relative">
+                    <input
+                      v-model.number="form.user_account_rebate_rate"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      max="100"
+                      class="input pr-8"
+                      placeholder="100"
+                    />
+                    <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">%</span>
+                  </div>
+                  <p class="mt-1 text-xs text-gray-400">
+                    {{ t('admin.settings.features.affiliate.accountRebate.rateHint') }}
+                  </p>
+                </div>
+
+                <div class="mt-4 flex items-center justify-between gap-4 py-2">
+                  <div>
+                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t('admin.settings.features.affiliate.accountRebate.sharedOnly') }}
+                    </label>
+                    <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t('admin.settings.features.affiliate.accountRebate.sharedOnlyHint') }}
+                    </p>
+                  </div>
+                  <Toggle v-model="form.user_account_rebate_shared_only" />
+                </div>
+
+                <div class="flex items-center justify-between gap-4 py-2">
+                  <div>
+                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t('admin.settings.features.affiliate.accountRebate.includeOwner') }}
+                    </label>
+                    <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t('admin.settings.features.affiliate.accountRebate.includeOwnerHint') }}
+                    </p>
+                  </div>
+                  <Toggle v-model="form.user_account_rebate_include_owner" />
+                </div>
+              </div>
+
               <!-- 专属用户管理 -->
               <div class="border-t border-gray-100 pt-6 dark:border-dark-700">
                 <div class="mb-3 flex items-center justify-between">
@@ -9625,6 +9694,10 @@ const form = reactive<SettingsForm>({
   default_platform_quotas: normalizePlatformQuotasMap() as DefaultPlatformQuotasMap,
   account_scheduling_thresholds: normalizeAccountSchedulingThresholdsMap(),
   affiliate_rebate_rate: 20,
+  user_account_rebate_enabled: false,
+  user_account_rebate_rate: 100,
+  user_account_rebate_shared_only: true,
+  user_account_rebate_include_owner: false,
   affiliate_rebate_freeze_hours: 0,
   affiliate_rebate_duration_days: 0,
   affiliate_rebate_per_invitee_cap: 0,
@@ -10902,6 +10975,14 @@ async function loadSettings() {
       settings.account_scheduling_thresholds,
     );
     form.backend_mode_enabled = settings.backend_mode_enabled;
+    form.user_account_rebate_rate = Math.min(
+      100,
+      Math.max(0, Number(settings.user_account_rebate_rate) || 0),
+    );
+    form.user_account_rebate_shared_only =
+      settings.user_account_rebate_shared_only !== false;
+    form.user_account_rebate_include_owner =
+      settings.user_account_rebate_include_owner === true;
     form.default_subscriptions = normalizeDefaultSubscriptionSettings(
       settings.default_subscriptions,
     );
@@ -11286,6 +11367,10 @@ async function saveSettings() {
       affiliate_rebate_duration_days: Math.max(0, Math.min(3650, Math.floor(Number(form.affiliate_rebate_duration_days) || 0))),
       affiliate_rebate_per_invitee_cap: Math.max(0, Number(form.affiliate_rebate_per_invitee_cap) || 0),
       affiliate_admin_recharge_enabled: form.affiliate_admin_recharge_enabled,
+      user_account_rebate_enabled: form.user_account_rebate_enabled,
+      user_account_rebate_rate: Math.min(100, Math.max(0, Number(form.user_account_rebate_rate) || 0)),
+      user_account_rebate_shared_only: form.user_account_rebate_shared_only,
+      user_account_rebate_include_owner: form.user_account_rebate_include_owner,
       default_concurrency: form.default_concurrency,
       default_subscriptions: normalizedDefaultSubscriptions,
       force_email_on_third_party_signup: form.force_email_on_third_party_signup,

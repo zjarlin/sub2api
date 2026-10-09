@@ -69,3 +69,18 @@ func TestMissingNVIDIAFunctionFailsOver(t *testing.T) {
 	require.False(t, isDeterministicUnsupportedModelError(404, []byte(`{"detail":"Not Found"}`)))
 	require.False(t, isDeterministicUnsupportedModelError(404, []byte(`{"request":{"detail":"Function 'e503b15c-62b0-4d69-b532-a88f0bfa2656': Not found for account 'account-id'"},"detail":"Unknown route"}`)))
 }
+
+func TestRetiredNVIDIAModelFailsOverWithoutTreatingOtherGoneResourcesAsModels(t *testing.T) {
+	body := []byte(`{"detail":"The model 'deepseek-ai/deepseek-v4-flash-0731' has reached its end of life on 2026-09-21T08:00:00Z and is no longer available.","status":410,"title":"Gone"}`)
+	require.True(t, isDeterministicUnsupportedModelError(410, body))
+	svc := &OpenAIGatewayService{}
+	require.True(t, svc.shouldFailoverOpenAIUpstreamResponse(nil, 410, "", body))
+	for _, other := range []string{
+		`{"detail":"Session has expired"}`,
+		`{"detail":"Endpoint is no longer available"}`,
+		`{"request":{"detail":"The model 'x' has reached its end of life on yesterday and is no longer available."}}`,
+	} {
+		require.False(t, isDeterministicUnsupportedModelError(410, []byte(other)))
+	}
+	require.False(t, isDeterministicUnsupportedModelError(500, body))
+}

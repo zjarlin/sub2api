@@ -267,6 +267,7 @@ func TestAutoModelCandidatesExcludeDecisionAndMediaModels(t *testing.T) {
 		"auto", "typesafe/jev", "laya", "gpt-image-1", "text-embedding-3-large", "gpt-4o-audio",
 		"nvidia/riva-translate-4b-instruct-v2", "nvidia/riva-translate-4b-instruct-v1.1",
 		"nvidia/llama-3.1-nemotron-safety-guard-8b-v3", "nvidia/nemotron-3.5-content-safety",
+		"nvidia/embed-qa-4", "nvidia/esmfold", "nvidia/ai-synthetic-video-detector",
 		"gpt-5.5", "deepseek-v4-flash",
 	}
 	require.Equal(t, []string{"gpt-5.5", "deepseek-v4-flash"}, autoModelCandidates(models))

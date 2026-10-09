@@ -352,6 +352,42 @@ func ProvideCNProviderBalanceCheckService(
 	return svc
 }
 
+// ProvideUserAccountRebateService 构造并启动"自带账号按真实消耗返额"的周期结算任务。
+// 结算节奏取自 gateway.user_account_rebate.*；后台设置 user_account_rebate_enabled
+// 才是真正的返额开关（默认关闭，灰度开启）。间隔 <= 0 时只构造不启动。
+func ProvideUserAccountRebateService(
+	repo UserAccountRebateRepository,
+	settingService *SettingService,
+	billingCache *BillingCacheService,
+	authCache APIKeyAuthCacheInvalidator,
+	cfg *config.Config,
+) *UserAccountRebateService {
+	intervalMinutes := 10
+	safetyLagMinutes := 10
+	batchLimit := accountRebateCandidateLimitDefault
+	if cfg != nil {
+		if cfg.Gateway.UserAccountRebate.IntervalMinutes > 0 {
+			intervalMinutes = cfg.Gateway.UserAccountRebate.IntervalMinutes
+		}
+		if cfg.Gateway.UserAccountRebate.SafetyLagMinutes > 0 {
+			safetyLagMinutes = cfg.Gateway.UserAccountRebate.SafetyLagMinutes
+		}
+		if cfg.Gateway.UserAccountRebate.BatchLimit > 0 {
+			batchLimit = cfg.Gateway.UserAccountRebate.BatchLimit
+		}
+	}
+	svc := NewUserAccountRebateService(
+		repo, settingService, billingCache, authCache, cfg,
+		time.Duration(intervalMinutes)*time.Minute,
+		time.Duration(safetyLagMinutes)*time.Minute,
+		batchLimit,
+	)
+	if cfg == nil || cfg.Gateway.UserAccountRebate.Enabled {
+		svc.Start()
+	}
+	return svc
+}
+
 // ProvideGeminiTokenProvider creates GeminiTokenProvider with OAuthRefreshAPI injection
 func ProvideGeminiTokenProvider(
 	accountRepo AccountRepository,
@@ -966,6 +1002,7 @@ var ProviderSet = wire.NewSet(
 	NewModelPlazaService,
 	NewContentModerationService,
 	NewAffiliateService,
+	ProvideUserAccountRebateService,
 	ProvidePaymentConfigService,
 	ProvidePaymentService,
 	ProvidePaymentOrderExpiryService,

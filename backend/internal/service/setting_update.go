@@ -365,6 +365,11 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyDefaultBalance] = strconv.FormatFloat(settings.DefaultBalance, 'f', 8, 64)
 	settings.AffiliateRebateRate = clampAffiliateRebateRate(settings.AffiliateRebateRate)
 	updates[SettingKeyAffiliateRebateRate] = strconv.FormatFloat(settings.AffiliateRebateRate, 'f', 8, 64)
+	settings.UserAccountRebateRate = clampUserAccountRebateRate(settings.UserAccountRebateRate)
+	updates[SettingKeyUserAccountRebateRate] = strconv.FormatFloat(settings.UserAccountRebateRate, 'f', 8, 64)
+	updates[SettingKeyUserAccountRebateEnabled] = strconv.FormatBool(settings.UserAccountRebateEnabled)
+	updates[SettingKeyUserAccountRebateSharedOnly] = strconv.FormatBool(settings.UserAccountRebateSharedOnly)
+	updates[SettingKeyUserAccountRebateIncludeOwner] = strconv.FormatBool(settings.UserAccountRebateIncludeOwner)
 	if settings.AffiliateRebateFreezeHours < 0 {
 		settings.AffiliateRebateFreezeHours = AffiliateRebateFreezeHoursDefault
 	}

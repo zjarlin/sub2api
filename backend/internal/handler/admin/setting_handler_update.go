@@ -173,6 +173,10 @@ type UpdateSettingsRequest struct {
 	DefaultConcurrency                        int                               `json:"default_concurrency"`
 	DefaultBalance                            float64                           `json:"default_balance"`
 	AffiliateRebateRate                       *float64                          `json:"affiliate_rebate_rate"`
+	UserAccountRebateEnabled                  *bool                             `json:"user_account_rebate_enabled"`
+	UserAccountRebateRate                     *float64                          `json:"user_account_rebate_rate"`
+	UserAccountRebateSharedOnly               *bool                             `json:"user_account_rebate_shared_only"`
+	UserAccountRebateIncludeOwner             *bool                             `json:"user_account_rebate_include_owner"`
 	AffiliateRebateFreezeHours                *int                              `json:"affiliate_rebate_freeze_hours"`
 	AffiliateRebateDurationDays               *int                              `json:"affiliate_rebate_duration_days"`
 	AffiliateRebatePerInviteeCap              *float64                          `json:"affiliate_rebate_per_invitee_cap"`
@@ -602,6 +606,23 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	adminRechargeRebateEnabled := previousSettings.AdminRechargeRebateEnabled
 	if req.AdminRechargeRebateEnabled != nil {
 		adminRechargeRebateEnabled = *req.AdminRechargeRebateEnabled
+	}
+	userAccountRebateEnabled := previousSettings.UserAccountRebateEnabled
+	if req.UserAccountRebateEnabled != nil {
+		userAccountRebateEnabled = *req.UserAccountRebateEnabled
+	}
+	userAccountRebateRate := previousSettings.UserAccountRebateRate
+	if req.UserAccountRebateRate != nil {
+		userAccountRebateRate = *req.UserAccountRebateRate
+	}
+	userAccountRebateRate = service.ClampUserAccountRebateRate(userAccountRebateRate)
+	userAccountRebateSharedOnly := previousSettings.UserAccountRebateSharedOnly
+	if req.UserAccountRebateSharedOnly != nil {
+		userAccountRebateSharedOnly = *req.UserAccountRebateSharedOnly
+	}
+	userAccountRebateIncludeOwner := previousSettings.UserAccountRebateIncludeOwner
+	if req.UserAccountRebateIncludeOwner != nil {
+		userAccountRebateIncludeOwner = *req.UserAccountRebateIncludeOwner
 	}
 	// 通用表格配置：兼容旧客户端未传字段时保留当前值。
 	if req.TableDefaultPageSize <= 0 {
@@ -1639,6 +1660,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		AffiliateRebateDurationDays:            affiliateRebateDurationDays,
 		AffiliateRebatePerInviteeCap:           affiliateRebatePerInviteeCap,
 		AdminRechargeRebateEnabled:             adminRechargeRebateEnabled,
+		UserAccountRebateEnabled:               userAccountRebateEnabled,
+		UserAccountRebateRate:                  userAccountRebateRate,
+		UserAccountRebateSharedOnly:            userAccountRebateSharedOnly,
+		UserAccountRebateIncludeOwner:          userAccountRebateIncludeOwner,
 		DefaultUserRPMLimit:                    req.DefaultUserRPMLimit,
 		DefaultSubscriptions:                   defaultSubscriptions,
 		EnableModelFallback:                    req.EnableModelFallback,

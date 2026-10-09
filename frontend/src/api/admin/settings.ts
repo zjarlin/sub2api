@@ -427,6 +427,10 @@ export interface SystemSettings {
   affiliate_rebate_duration_days: number;
   affiliate_rebate_per_invitee_cap: number;
   affiliate_admin_recharge_enabled: boolean;
+  user_account_rebate_enabled: boolean;
+  user_account_rebate_rate: number;
+  user_account_rebate_shared_only: boolean;
+  user_account_rebate_include_owner: boolean;
   default_concurrency: number;
   default_user_rpm_limit: number;
   default_subscriptions: DefaultSubscriptionSetting[];
@@ -772,6 +776,10 @@ export interface UpdateSettingsRequest {
   affiliate_rebate_duration_days?: number;
   affiliate_rebate_per_invitee_cap?: number;
   affiliate_admin_recharge_enabled?: boolean;
+  user_account_rebate_enabled?: boolean;
+  user_account_rebate_rate?: number;
+  user_account_rebate_shared_only?: boolean;
+  user_account_rebate_include_owner?: boolean;
   default_concurrency?: number;
   default_user_rpm_limit?: number;
   default_subscriptions?: DefaultSubscriptionSetting[];

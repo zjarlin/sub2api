@@ -54,5 +54,12 @@ export default {
     invalidCredentialsJson: '凭证 JSON 格式不正确',
     invalidExtraJson: '扩展 JSON 格式不正确',
     redactedNotice: '已保存的敏感字段不会回显；留空表示保留原值。',
+    rebateTitle: '返额统计',
+    rebateTotal: '累计返额',
+    rebateBasis: '已结算消耗',
+    rebateSettleCount: '结算次数',
+    rebateOwnedAccounts: '自有账号数',
+    rebateEmpty: '暂无返额记录',
+    rebateHint: '账号被平台真实消耗后，按后台配置比例返还余额（结算基数取「倍率前成本」与「用户实付」的较小值）。',
   },
 }

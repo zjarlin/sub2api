@@ -34,6 +34,28 @@
         </div>
       </template>
 
+      <template #summary>
+        <div class="mb-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div class="rounded-xl border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-800">
+            <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('myAccounts.rebateTotal') }}</p>
+            <p class="mt-1 text-lg font-semibold text-gray-900 dark:text-white">¥{{ formatRebate(rebate.total_rebated) }}</p>
+          </div>
+          <div class="rounded-xl border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-800">
+            <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('myAccounts.rebateBasis') }}</p>
+            <p class="mt-1 text-lg font-semibold text-gray-900 dark:text-white">¥{{ formatRebate(rebate.total_consumed_basis) }}</p>
+          </div>
+          <div class="rounded-xl border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-800">
+            <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('myAccounts.rebateSettleCount') }}</p>
+            <p class="mt-1 text-lg font-semibold text-gray-900 dark:text-white">{{ rebate.settle_count }}</p>
+          </div>
+          <div class="rounded-xl border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-800">
+            <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('myAccounts.rebateOwnedAccounts') }}</p>
+            <p class="mt-1 text-lg font-semibold text-gray-900 dark:text-white">{{ rebate.owned_account_count }}</p>
+          </div>
+        </div>
+        <p class="mb-4 text-xs text-gray-500 dark:text-gray-400">{{ t('myAccounts.rebateHint') }}</p>
+      </template>
+
       <template #table>
         <DataTable
           :columns="columns"
@@ -234,6 +256,7 @@ const testingId = ref<number | null>(null)
 const sharingId = ref<number | null>(null)
 const editingAccount = ref<Account | null>(null)
 const groups = ref<Group[]>([])
+const rebate = reactive({ total_rebated: 0, total_consumed_basis: 0, settle_count: 0, owned_account_count: 0 })
 const filters = reactive({ search: '', platform: '', type: '', status: '', sort_by: 'created_at', sort_order: 'desc' as 'asc' | 'desc' })
 const pagination = reactive({ page: 1, page_size: 20, total: 0, pages: 0 })
 const columns = computed<Column[]>(() => [
@@ -383,6 +406,24 @@ async function deleteAccount(account: Account) {
   }
 }
 
+function formatRebate(value: number) {
+  if (!value) return '0.00'
+  const formatted = value.toFixed(8).replace(/\.?0+$/, '')
+  const parts = formatted.split('.')
+  if (parts.length === 1) return formatted + '.00'
+  if (parts[1].length === 1) return formatted + '0'
+  return formatted
+}
+
+async function loadRebate() {
+  try {
+    Object.assign(rebate, await userAccountsAPI.getAccountRebateSummary())
+  } catch (err: unknown) {
+    // 返额总开关关闭时该接口始终可用（返回零值）；这里的失败只提示不影响账号列表。
+    console.error('Failed to load account rebate summary:', err)
+  }
+}
+
 async function loadGroups() {
   try {
     groups.value = await userGroupsAPI.getAvailable()
@@ -392,7 +433,7 @@ async function loadGroups() {
 }
 
 onMounted(() => {
-  void Promise.all([loadAccounts(), loadGroups()])
+  void Promise.all([loadAccounts(), loadGroups(), loadRebate()])
 })
 </script>
 

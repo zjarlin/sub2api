@@ -176,7 +176,7 @@ func autoModelTextCandidate(model string) bool {
 	}
 	name := strings.ToLower(model)
 	for _, specialized := range []string{
-		"embedding", "moderation", "image", "audio", "video", "tts-", "whisper", "transcri", "dall-e",
+		"embed", "esmfold", "moderation", "image", "audio", "video", "tts-", "whisper", "transcri", "dall-e",
 		"translate", "translation", "safety", "guard", "calibration", "rerank", "re-rank", "classifier", "reward-model", "parser",
 	} {
 		if strings.Contains(name, specialized) {

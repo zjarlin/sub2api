@@ -215,6 +215,12 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyAffiliateEnabled:              "false",
 		SettingKeyAffiliateAdminRechargeEnabled: strconv.FormatBool(AdminRechargeRebateEnabledDefault),
 
+		// 用户自带账号（「我的账号」）按真实消耗返额（默认关闭，灰度开启）
+		SettingKeyUserAccountRebateEnabled:      "false",
+		SettingKeyUserAccountRebateRate:         strconv.FormatFloat(AccountRebateRateDefault, 'f', 8, 64),
+		SettingKeyUserAccountRebateSharedOnly:   "true",
+		SettingKeyUserAccountRebateIncludeOwner: "false",
+
 		// 风控中心功能（默认关闭，显式启用）
 		SettingKeyRiskControlEnabled: "false",
 
@@ -419,6 +425,14 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		result.AffiliateRebatePerInviteeCap = perInviteeCap
 	}
 	result.AdminRechargeRebateEnabled = settings[SettingKeyAffiliateAdminRechargeEnabled] == "true"
+	result.UserAccountRebateEnabled = settings[SettingKeyUserAccountRebateEnabled] == "true"
+	if rate, err := strconv.ParseFloat(settings[SettingKeyUserAccountRebateRate], 64); err == nil {
+		result.UserAccountRebateRate = clampUserAccountRebateRate(rate)
+	} else {
+		result.UserAccountRebateRate = AccountRebateRateDefault
+	}
+	result.UserAccountRebateSharedOnly = settings[SettingKeyUserAccountRebateSharedOnly] != "false"
+	result.UserAccountRebateIncludeOwner = settings[SettingKeyUserAccountRebateIncludeOwner] == "true"
 	result.DefaultSubscriptions = parseDefaultSubscriptions(settings[SettingKeyDefaultSubscriptions])
 
 	// 敏感信息直接返回，方便测试连接时使用
@@ -994,6 +1008,21 @@ func normalizeOpenAITTFTMode(mode string) string {
 		return OpenAITTFTModeVisible
 	}
 	return OpenAITTFTModeSemantic
+}
+
+// clampUserAccountRebateRate 把返额比例限制在 [AccountRebateRateMin, AccountRebateRateMax]。
+// 100 是硬上限：比例溢出会让平台返出超过实收的余额。
+func clampUserAccountRebateRate(value float64) float64 {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return AccountRebateRateDefault
+	}
+	if value < AccountRebateRateMin {
+		return AccountRebateRateMin
+	}
+	if value > AccountRebateRateMax {
+		return AccountRebateRateMax
+	}
+	return value
 }
 
 func clampAffiliateRebateRate(value float64) float64 {

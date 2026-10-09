@@ -98,6 +98,47 @@ func (s *SettingService) IsAffiliateAdminRechargeEnabled(ctx context.Context) bo
 	return value == "true"
 }
 
+// IsUserAccountRebateEnabled 检查是否启用「自带账号按真实消耗返额」。默认关闭。
+func (s *SettingService) IsUserAccountRebateEnabled(ctx context.Context) bool {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyUserAccountRebateEnabled)
+	if err != nil {
+		return false // 默认关闭
+	}
+	return value == "true"
+}
+
+// GetUserAccountRebateRatePercent 读取并 clamp 返额比例（百分比）。
+// 解析失败、缺失或越界都回退到 AccountRebateRateDefault，从不抛错。
+func (s *SettingService) GetUserAccountRebateRatePercent(ctx context.Context) float64 {
+	raw, err := s.settingRepo.GetValue(ctx, SettingKeyUserAccountRebateRate)
+	if err != nil {
+		return AccountRebateRateDefault
+	}
+	rate, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+	if err != nil || math.IsNaN(rate) || math.IsInf(rate, 0) {
+		return AccountRebateRateDefault
+	}
+	return clampUserAccountRebateRate(rate)
+}
+
+// IsUserAccountRebateSharedOnly 报告是否只结算已开启公共调度共享的自带账号。默认开启。
+func (s *SettingService) IsUserAccountRebateSharedOnly(ctx context.Context) bool {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyUserAccountRebateSharedOnly)
+	if err != nil {
+		return true // 默认只结算共享账号
+	}
+	return value != "false"
+}
+
+// IsUserAccountRebateIncludeOwnerUsage 报告是否把号主自己的消费也计入返额。默认关闭。
+func (s *SettingService) IsUserAccountRebateIncludeOwnerUsage(ctx context.Context) bool {
+	value, err := s.settingRepo.GetValue(ctx, SettingKeyUserAccountRebateIncludeOwner)
+	if err != nil {
+		return false // 默认只结算别人用的量
+	}
+	return value == "true"
+}
+
 // GetAffiliateRebateRatePercent 读取并 clamp 全局返利比例。
 // 解析失败、缺失或越界都回退到 AffiliateRebateRateDefault — 该比例从不抛错，
 // 调用方只关心一个可用的数值。

@@ -241,6 +241,7 @@ var ProviderSet = wire.NewSet(
 	NewAuthHandler,
 	NewUserHandler,
 	NewUserAccountHandler,
+	NewUserAccountRebateHandler,
 	NewAPIKeyHandler,
 	NewUsageHandler,
 	NewRedeemHandler,
@@ -297,6 +298,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewContentModerationHandler,
 	admin.NewPaymentHandler,
 	admin.NewAffiliateHandler,
+	admin.NewUserAccountRebateHandler,
 	admin.NewComplianceHandler,
 	admin.NewAuditLogHandler,
 

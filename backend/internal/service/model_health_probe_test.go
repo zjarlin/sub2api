@@ -15,10 +15,14 @@ func TestCollectModelHealthProbeCandidatesOnlyRechecksObservedModels(t *testing.
 	old := now.Add(-8 * 24 * time.Hour)
 	accounts := []Account{
 		modelHealthProbeAccount(180, []string{"nvidia/embed-qa-4", "zeta", "alpha"}),
+		modelHealthProbeAccount(181, []string{"nvidia/esmfold", "nvidia/ai-synthetic-video-detector"}),
 		modelHealthProbeAccount(287, []string{"agnes-video-v2.0", "agnes-2.5-flash", "agnes-2.0-flash"}),
 	}
 	states := []AccountModelHealthState{
 		{AccountID: 180, Model: "alpha", LastSuccessAt: &old},
+		{AccountID: 180, Model: "nvidia/embed-qa-4", LastSuccessAt: &old},
+		{AccountID: 181, Model: "nvidia/esmfold", LastSuccessAt: &old},
+		{AccountID: 181, Model: "nvidia/ai-synthetic-video-detector", LastSuccessAt: &old},
 		{AccountID: 287, Model: "agnes-2.0-flash", LastSuccessAt: &old},
 	}
 

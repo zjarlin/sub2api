@@ -42,6 +42,19 @@ export async function list(
   return data
 }
 
+export interface AccountRebateSummary {
+  owner_user_id: number
+  total_rebated: number
+  total_consumed_basis: number
+  settle_count: number
+  owned_account_count: number
+}
+
+export async function getAccountRebateSummary(): Promise<AccountRebateSummary> {
+  const { data } = await apiClient.get<AccountRebateSummary>('/user/account-rebates')
+  return data
+}
+
 export async function checkMixedChannelRisk(
   payload: CheckMixedChannelRequest,
 ): Promise<CheckMixedChannelResponse> {
@@ -86,6 +99,7 @@ export async function testAccount(
 
 export const userAccountsAPI = {
   list,
+  getAccountRebateSummary,
   checkMixedChannelRisk,
   syncUpstreamModels,
   getById,

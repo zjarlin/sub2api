@@ -10,6 +10,11 @@
       <slot name="filters" />
     </div>
 
+    <!-- 固定区域：汇总卡片（可选，仅当页面提供 summary 插槽时渲染） -->
+    <div v-if="$slots.summary" class="layout-section-fixed">
+      <slot name="summary" />
+    </div>
+
     <!-- 滚动区域：表格 -->
     <div class="layout-section-scrollable">
       <div class="card liquid-surface table-scroll-container">

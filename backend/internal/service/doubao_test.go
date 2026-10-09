@@ -147,6 +147,31 @@ func TestDoubaoConnectionAndPlatform(t *testing.T) {
 	require.False(t, gjson.GetBytes(body, "max_tokens").Exists())
 }
 
+func TestDoubaoChatNormalizesLegacyTokenLimitAtForwardingBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		limits string
+		want   int64
+	}{
+		{"legacy", `"max_tokens":128`, 128},
+		{"modern", `"max_completion_tokens":256`, 256},
+		{"explicit_modern_wins", `"max_tokens":128,"max_completion_tokens":256`, 256},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			body := []byte(`{"model":"doubao-pro","messages":[{"role":"user","content":"hi"}],"stream":false,` + tc.limits + `}`)
+			c, _ := newTestContext()
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+			upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"id":"chatcmpl-test","object":"chat.completion","model":"doubao-pro","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))}}
+			svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+			_, err := svc.ForwardAsChatCompletions(context.Background(), c, doubaoTestAccount(), body, "", "")
+			require.NoError(t, err)
+			require.False(t, gjson.GetBytes(upstream.lastBody, "max_tokens").Exists())
+			require.Equal(t, tc.want, gjson.GetBytes(upstream.lastBody, "max_completion_tokens").Int())
+			require.Equal(t, "hi", gjson.GetBytes(upstream.lastBody, "messages.0.content").String())
+		})
+	}
+}
+
 func TestDoubaoResponsesToolRoundtrip(t *testing.T) {
 	enableBuiltinAdapterForTest(t)
 	gin.SetMode(gin.TestMode)

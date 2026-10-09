@@ -98,6 +98,16 @@ func (a *Account) rememberUnsupportedModel(model string, observation Unsupported
 }
 
 func isDeterministicUnsupportedModelError(statusCode int, body []byte) bool {
+	// 只有明确的模型退役信息才永久记录能力缺失，普通资源 410 仍原样返回。
+	if statusCode == 410 {
+		for _, path := range []string{"detail", "error.message", "response.error.message", "message"} {
+			message := strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, path).String()))
+			if strings.HasPrefix(message, "the model '") && strings.Contains(message, "' has reached its end of life on ") && strings.HasSuffix(message, " and is no longer available.") {
+				return true
+			}
+		}
+		return false
+	}
 	if statusCode != 400 && statusCode != 404 && statusCode != 422 {
 		return false
 	}

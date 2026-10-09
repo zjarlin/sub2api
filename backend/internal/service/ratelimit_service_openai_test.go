@@ -44,6 +44,31 @@ func TestCalculateOpenAI429ResetTime_7dExhausted(t *testing.T) {
 	}
 }
 
+func TestClinepassQuotaResetUsesReportedDuration(t *testing.T) {
+	for _, tc := range []struct {
+		message string
+		want    time.Duration
+	}{
+		{"Error 429: You have reached your monthly Clinepass limit. The limit resets in 21d 3h, please try again later.", 21*24*time.Hour + 3*time.Hour},
+		{"Error 429: You have reached your weekly Clinepass limit. The limit resets in 2d 2h, please try again later.", 2*24*time.Hour + 2*time.Hour},
+		{"You have reached your monthly Clinepass limit. The limit resets in 18d 3h, please try again later.", 18*24*time.Hour + 3*time.Hour},
+		{"Rate limit reached, retry in 21d 3h", 0},
+		{"You have reached your monthly Clinepass limit. The limit resets in 999999999999999999999d, please try again later.", 0},
+		{"You have reached your monthly Clinepass limit. The limit resets in 33d, please try again later.", 0},
+	} {
+		t.Run(tc.message, func(t *testing.T) {
+			before := time.Now()
+			reset := parseOpenAIRateLimitResetTime([]byte(fmt.Sprintf(`{"error":{"message":%q,"type":"upstream_error"}}`, tc.message)))
+			if tc.want == 0 {
+				require.Nil(t, reset)
+				return
+			}
+			require.NotNil(t, reset)
+			require.WithinDuration(t, before.Add(tc.want), time.Unix(*reset, 0), 2*time.Second)
+		})
+	}
+}
+
 func TestCalculateOpenAI429ResetTime_5hExhausted(t *testing.T) {
 	svc := &RateLimitService{}
 

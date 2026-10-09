@@ -237,7 +237,7 @@ func isTextModelHealthProbeCandidate(model string) bool {
 		return false
 	}
 	for _, marker := range []string{
-		"audio", "embed", "embedding", "image", "moderation", "realtime",
+		"audio", "embed", "esmfold", "image", "moderation", "realtime",
 		"rerank", "reward", "speech", "stt", "transcri", "tts", "video",
 	} {
 		if strings.Contains(model, marker) {

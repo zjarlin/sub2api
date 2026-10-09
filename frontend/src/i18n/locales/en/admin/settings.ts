@@ -212,6 +212,18 @@ export default {
             errorBadRate: 'Please enter a number between 0 and 100',
             errorEmpty: 'Fill at least one: custom invite code or exclusive rebate rate',
           },
+          accountRebate: {
+            title: 'User Account Rebate',
+            description: "Balance is rebated to owners when upstream accounts they contributed via 'My Accounts' are genuinely consumed by the platform. Disabled by default.",
+            enabled: 'Enable User Account Rebate',
+            enabledHint: 'When off, the periodic settlement run is skipped entirely; already-settled rebates and ledger rows are kept.',
+            rate: 'Rebate Rate',
+            rateHint: 'Percentage of genuine consumption rebated to the owner (0-100, e.g. 50 = half). Capped at 100% so rebate never exceeds platform revenue.',
+            sharedOnly: 'Settle Shared Accounts Only',
+            sharedOnlyHint: "When on, only owned accounts with 'participate in public scheduling' enabled accrue rebates; private accounts are never used by others.",
+            includeOwner: 'Include Owner Usage',
+            includeOwnerHint: "When off (recommended), only consumption by other users is settled; turning it on also rebates the owner's own usage.",
+          },
           batchModal: {
             title: 'Batch Set Rate ({count} users selected)',
             hint: 'Apply the same exclusive rebate rate to all selected users.',

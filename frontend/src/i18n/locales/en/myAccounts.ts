@@ -53,6 +53,13 @@ export default {
     testFailed: 'Failed to test account',
     invalidCredentialsJson: 'Credentials JSON is invalid',
     invalidExtraJson: 'Extra JSON is invalid',
+    rebateTitle: 'Rebate summary',
+    rebateTotal: 'Total rebate',
+    rebateBasis: 'Settled consumption',
+    rebateSettleCount: 'Settlements',
+    rebateOwnedAccounts: 'Owned accounts',
+    rebateEmpty: 'No rebate records yet',
+    rebateHint: 'When your account is genuinely consumed, balance is rebated by the configured rate (basis = min(pre-multiplier cost, user-paid amount)).',
     redactedNotice: 'Saved sensitive fields are not shown. Leave empty to keep existing values.',
   },
 }
