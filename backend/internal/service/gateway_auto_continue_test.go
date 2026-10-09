@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -40,12 +41,21 @@ func (r *autoContinueTestStore) ListAutoModelRoutes(context.Context, int64, stri
 	return r.routes, nil
 }
 
+func autoContinueTestContext(body []byte, keyID, groupID int64) (*gin.Context, *httptest.ResponseRecorder) {
+	c, recorder := visionTestContext(body, keyID, groupID)
+	value, _ := c.Get("api_key")
+	key := value.(*APIKey)
+	key.Key = "auto-continue-test-key"
+	return c, recorder
+}
+
 func autoContinueTestService(t *testing.T, basis string, primaryCalls func([]byte, int) (*http.Response, error)) (*OpenAIGatewayService, *Account, *autoContinueTestStore, *int) {
 	t.Helper()
 	decisions := new(int)
 	laya := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		*decisions = *decisions + 1
 		require.Equal(t, "/v1/systemone", r.URL.Path)
+		require.Equal(t, "Bearer auto-continue-test-key", r.Header.Get("Authorization"))
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
 		require.Equal(t, "laya", gjson.GetBytes(body, "model").String())
@@ -64,8 +74,9 @@ func autoContinueTestService(t *testing.T, basis string, primaryCalls func([]byt
 	}))
 	t.Cleanup(laya.Close)
 	cfg := visionTestConfig()
-	cfg.Gateway.AutoContinue = config.GatewayAutoContinueConfig{Enabled: true, MaxRounds: 2, TimeoutSeconds: 1}
-	cfg.Gateway.Laya.URL = laya.URL
+	cfg.Gateway.AutoContinue = config.GatewayAutoContinueConfig{Enabled: true, DecisionModel: "laya", MaxRounds: 2, TimeoutSeconds: 1}
+	cfg.Server.Port = laya.Listener.Addr().(*net.TCPAddr).Port
+	cfg.Gateway.Laya.URL = "http://unreachable-legacy-laya.invalid"
 	cfg.JWT.Secret = "auto-continue-test-secret"
 	primary := visionTestAccount(1, "text-model", "text")
 	store := &autoContinueTestStore{}
@@ -90,7 +101,7 @@ func TestAutoContinueRecommendedChoiceAndDurableReport(t *testing.T) {
 		require.NotContains(t, string(body), `\"selection_0\":\"3\"`)
 		return visionTestResponse("text-model", "已合并并验证"), nil
 	})
-	c, recorder := visionTestContext([]byte(autoContinueTestInput), 9, 7)
+	c, recorder := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
 	result, err := svc.Forward(context.Background(), c, account, []byte(autoContinueTestInput))
 	require.NoError(t, err)
 	require.Equal(t, 1, *decisions)
@@ -121,7 +132,7 @@ func TestAutoContinueDiagnosedDefectImmediatelyRepairs(t *testing.T) {
 		require.Contains(t, string(body), "已经定位的缺陷直接修复")
 		return visionTestResponse("text-model", "已修复协议并通过回归测试"), nil
 	})
-	c, recorder := visionTestContext([]byte(autoContinueTestInput), 9, 7)
+	c, recorder := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
 	_, err := svc.Forward(context.Background(), c, account, []byte(autoContinueTestInput))
 	require.NoError(t, err)
 	require.Contains(t, recorder.Body.String(), "已修复协议并通过回归测试")
@@ -159,7 +170,7 @@ func TestAutoContinueNewProblemUsesOnlyHighestTierArbiter(t *testing.T) {
 	}}
 	ctx, err := (&SettingService{}).BindAutoModelRoutingPolicy(context.Background())
 	require.NoError(t, err)
-	c, recorder := visionTestContext([]byte(autoContinueTestInput), 9, 7)
+	c, recorder := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
 	_, err = svc.Forward(ctx, c, primary, []byte(autoContinueTestInput))
 	require.NoError(t, err)
 	require.Equal(t, []string{"text-model", "gpt-6-astra", "text-model"}, models)
@@ -179,7 +190,7 @@ func TestAutoContinueMissingHighestTierNeverDelegatesToLowerTier(t *testing.T) {
 	})
 	lower := visionTestAccount(3, "gpt-5.6-sol", "text")
 	svc.accountRepo = codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{7: {*primary, lower}}}
-	c, recorder := visionTestContext([]byte(autoContinueTestInput), 9, 7)
+	c, recorder := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
 	_, err := svc.Forward(context.Background(), c, primary, []byte(autoContinueTestInput))
 	require.NoError(t, err)
 	require.Empty(t, store.routes)
@@ -191,7 +202,7 @@ func TestAutoContinueUnavailableLayaEscalatesToHighestTier(t *testing.T) {
 	svc, primary, store, _ := autoContinueTestService(t, "repair", func(_ []byte, _ int) (*http.Response, error) {
 		return visionTestResponse("text-model", "定位到了问题，尚未修复。"), nil
 	})
-	svc.cfg.Gateway.Laya.URL = "http://127.0.0.1:1"
+	svc.cfg.Server.Port = 1
 	judge := visionTestAccount(2, "gpt-6-astra", "text")
 	svc.accountRepo = codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{7: {judge}}}
 	var calls []int64
@@ -205,7 +216,7 @@ func TestAutoContinueUnavailableLayaEscalatesToHighestTier(t *testing.T) {
 		}
 		return visionTestResponse(primary.Name, "已修复并验证"), nil
 	}}
-	c, recorder := visionTestContext([]byte(autoContinueTestInput), 9, 7)
+	c, recorder := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
 	_, err := svc.Forward(context.Background(), c, primary, []byte(autoContinueTestInput))
 	require.NoError(t, err)
 	require.Equal(t, []int64{primary.ID, judge.ID, primary.ID}, calls)
@@ -226,7 +237,7 @@ func TestAutoContinueArbiterRejectsInventedOptions(t *testing.T) {
 		}
 		return visionTestResponse(primary.Name, autoContinueTestQuestion), nil
 	}}
-	c, recorder := visionTestContext([]byte(autoContinueTestInput), 9, 7)
+	c, recorder := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
 	_, err := svc.Forward(context.Background(), c, primary, []byte(autoContinueTestInput))
 	require.NoError(t, err)
 	require.Empty(t, store.routes)
@@ -253,7 +264,7 @@ func TestAutoContinueStructuredQuestionReturnsCorrectToolResult(t *testing.T) {
 		require.False(t, gjson.GetBytes(body, "tool_choice").Exists())
 		return visionTestResponse("text-model", "开始实施"), nil
 	})
-	c, recorder := visionTestContext([]byte(autoContinueTestInput), 9, 7)
+	c, recorder := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
 	_, err := svc.Forward(context.Background(), c, account, []byte(autoContinueTestInput))
 	require.NoError(t, err)
 	require.Contains(t, recorder.Body.String(), "开始实施")
@@ -270,12 +281,12 @@ func TestAutoContinuePreservesQuestionOnDecisionAndPersistenceFailures(t *testin
 				return visionTestResponse("text-model", autoContinueTestQuestion), nil
 			})
 			if failure == "decision" {
-				svc.cfg.Gateway.Laya.URL = "http://127.0.0.1:1"
+				svc.cfg.Server.Port = 1
 			}
 			if failure == "persistence" {
 				store.err = errors.New("database unavailable")
 			}
-			c, recorder := visionTestContext([]byte(autoContinueTestInput), 9, 7)
+			c, recorder := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
 			_, err := svc.Forward(context.Background(), c, account, []byte(autoContinueTestInput))
 			require.NoError(t, err)
 			require.Contains(t, gjson.Get(recorder.Body.String(), "output.0.content.0.text").String(), "选定后我立刻实施")
@@ -288,7 +299,7 @@ func TestAutoContinueBoundedAndSkipsCompletedWork(t *testing.T) {
 	svc, account, store, decisions := autoContinueTestService(t, "repair", func(_ []byte, _ int) (*http.Response, error) {
 		return visionTestResponse("text-model", "已经定位，目前尚未修复。"), nil
 	})
-	c, _ := visionTestContext([]byte(autoContinueTestInput), 9, 7)
+	c, _ := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
 	_, err := svc.Forward(context.Background(), c, account, []byte(autoContinueTestInput))
 	require.NoError(t, err)
 	require.Equal(t, 2, *decisions)
@@ -313,6 +324,7 @@ func TestAutoContinueConfidenceRejectsUncertainAndUncalibratedChoices(t *testing
 		`{"choice":"ask","probabilities":{"continue":0.99}}`,
 		`{"choice":"continue","probabilities":{"continue":0.7}}`,
 		`{"choice":"continue","probabilities":{"continue":0.99},"answer_confidence":0.6}`,
+		`{"choice":"continue","probabilities":{"continue":0.99},"confidence":0.6}`,
 		`{"choice":"continue","probabilities":{"continue":1.5}}`,
 	} {
 		require.False(t, autoContinueConfidentChoice(gjson.Parse(answer), "continue", 0.85))
@@ -343,7 +355,7 @@ func TestAutoContinueUnsignedAndOtherKeyToolOutputsRemainUntrusted(t *testing.T)
 }
 
 func TestAutoContinueStreamWriterImmediatelyReleasesExecutionTools(t *testing.T) {
-	c, recorder := visionTestContext([]byte(autoContinueTestInput), 9, 7)
+	c, recorder := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
 	writer := newAutoContinueWriter(c.Writer)
 	writer.Header().Set("Content-Type", "text/event-stream")
 	_, err := writer.WriteString("event: response.created\ndata: {\"type\":\"response.created\"}\n\n")
@@ -409,7 +421,7 @@ func TestAutoContinueNativeStreamHidesPauseAndPreservesRealFinalResponse(t *test
 	})
 	account.Extra = map[string]any{openai_compat.ExtraKeyResponsesMode: string(openai_compat.ResponsesSupportModeForceResponses)}
 	body := []byte(strings.Replace(autoContinueTestInput, `"stream":false`, `"stream":true`, 1))
-	c, recorder := visionTestContext(body, 9, 7)
+	c, recorder := autoContinueTestContext(body, 9, 7)
 	result, err := svc.Forward(context.Background(), c, account, body)
 	require.NoError(t, err)
 	require.True(t, result.Stream)
@@ -426,7 +438,7 @@ func TestAutoContinueNativeStreamHidesPauseAndPreservesRealFinalResponse(t *test
 }
 
 func TestAutoContinueWriterBoundsMemoryAndNeverCommitsEmptyFailover(t *testing.T) {
-	c, recorder := visionTestContext([]byte(autoContinueTestInput), 9, 7)
+	c, recorder := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
 	writer := newAutoContinueWriter(c.Writer)
 	require.NoError(t, writer.release())
 	require.False(t, c.Writer.Written())
@@ -449,9 +461,9 @@ func TestAutoContinueLeavesRealUserApprovalToHuman(t *testing.T) {
 		_, _ = w.Write([]byte(`{"answers":{"action":{"choice":"ask","probabilities":{"ask":0.99}}}}`))
 	}))
 	defer laya.Close()
-	svc.cfg.Gateway.Laya.URL = laya.URL
+	svc.cfg.Server.Port = laya.Listener.Addr().(*net.TCPAddr).Port
 	body := []byte(strings.Replace(autoContinueTestInput, "请修复这个问题并验证，按已确认的设计选择推荐方案。", "只分析，不修改，需要我确认。", 1))
-	c, recorder := visionTestContext(body, 9, 7)
+	c, recorder := autoContinueTestContext(body, 9, 7)
 	_, err := svc.Forward(context.Background(), c, account, body)
 	require.NoError(t, err)
 	require.Empty(t, store.routes)
@@ -466,7 +478,63 @@ func TestAutoContinueEligibilityRejectsOpaqueAndOrdinaryRequests(t *testing.T) {
 		`{"input":"继续","previous_response_id":"resp_opaque","tools":[{"type":"function","name":"exec_command"}]}`,
 		`{"input":"修复","background":true,"tools":[{"type":"function","name":"exec_command"}]}`,
 	} {
-		c, _ := visionTestContext([]byte(body), 9, 7)
+		c, _ := autoContinueTestContext([]byte(body), 9, 7)
 		require.False(t, svc.autoContinueEligible(context.Background(), c, []byte(body)), fmt.Sprintf("body: %s", body))
 	}
+}
+
+func TestAutoContinueSystemOneUsesAuthenticatedNativeRoute(t *testing.T) {
+	calls := 0
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		require.Equal(t, "/v1/systemone", r.URL.Path)
+		require.Equal(t, "Bearer auto-continue-test-key", r.Header.Get("Authorization"))
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.Equal(t, "typesafe/jev", gjson.GetBytes(body, "model").String())
+		_, _ = w.Write([]byte(`{"model":"typesafe/jev","answers":{"action":{"type":"choice","choice":"continue","probabilities":{"continue":0.98}}}}`))
+	}))
+	defer gateway.Close()
+	svc := &OpenAIGatewayService{cfg: &config.Config{Server: config.ServerConfig{Port: gateway.Listener.Addr().(*net.TCPAddr).Port}}}
+	c, _ := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
+	c.Request.Host = "untrusted-client-host.invalid"
+	request := []byte(`{"model":"typesafe/jev","state":"修复","questions":{}}`)
+	status, response, err := svc.relayAutoContinueSystemOne(context.Background(), c, request)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, "typesafe/jev", gjson.GetBytes(response, "model").String())
+	require.Equal(t, 1, calls)
+	// 缺少原始鉴权时不能借用全局适配器密钥或其他分组的账号。
+	value, _ := c.Get("api_key")
+	value.(*APIKey).Key = ""
+	_, _, err = svc.relayAutoContinueSystemOne(context.Background(), c, request)
+	require.Error(t, err)
+	require.Equal(t, 1, calls)
+}
+
+func TestAutoContinueJevRepairsAndRecordsTheReturnedModel(t *testing.T) {
+	svc, primary, store, _ := autoContinueTestService(t, "repair", func(body []byte, call int) (*http.Response, error) {
+		if call == 1 {
+			return visionTestResponse("text-model", "问题已定位，尚未修复。"), nil
+		}
+		require.Contains(t, string(body), "已经定位的缺陷直接修复")
+		return visionTestResponse("text-model", "已修复并验证"), nil
+	})
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		require.Equal(t, "typesafe/jev", gjson.GetBytes(body, "model").String())
+		require.Equal(t, "Bearer auto-continue-test-key", r.Header.Get("Authorization"))
+		_, _ = w.Write([]byte(`{"model":"jev-test-version","answers":{"action":{"choice":"continue","probabilities":{"continue":0.99},"confidence":0.98},"basis":{"choice":"repair","probabilities":{"repair":0.91},"confidence":0.86}}}`))
+	}))
+	defer gateway.Close()
+	svc.cfg.Gateway.AutoContinue.DecisionModel = "typesafe/jev"
+	svc.cfg.Server.Port = gateway.Listener.Addr().(*net.TCPAddr).Port
+	c, recorder := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
+	_, err := svc.Forward(context.Background(), c, primary, []byte(autoContinueTestInput))
+	require.NoError(t, err)
+	require.Contains(t, recorder.Body.String(), "已修复并验证")
+	require.Len(t, store.routes, 1)
+	require.Equal(t, "repair", store.routes[0].Operation.Decision.Source)
+	require.Equal(t, "jev-test-version", store.routes[0].Operation.Decision.Model)
 }

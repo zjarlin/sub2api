@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,6 +38,9 @@ type autoContinueCandidate struct {
 
 func (s *OpenAIGatewayService) autoContinuePolicy() config.GatewayAutoContinueConfig {
 	p := s.cfg.Gateway.AutoContinue
+	if p.DecisionModel == "" {
+		p.DecisionModel = jev_api.ModelID
+	}
 	if p.MaxRounds <= 0 || p.MaxRounds > 3 {
 		p.MaxRounds = 2
 	}
@@ -264,27 +268,23 @@ func (s *OpenAIGatewayService) decideAutoContinue(ctx context.Context, parent *g
 	for i, q := range candidate.Questions {
 		questions[fmt.Sprintf("selection_%d", i)] = map[string]any{"type": "choice", "instructions": q.Prompt + "。在符合用户目标和现有授权的方案中优先选择明确标注‘推荐/最佳/倾向’的有效方案。没有明确推荐时选择最佳方案。不要因为操作更多就选择‘全部都做’。", "criteria": q.Options}
 	}
-	request, err := json.Marshal(map[string]any{"model": "laya", "state": state, "questions": questions})
+	p := s.autoContinuePolicy()
+	request, err := json.Marshal(map[string]any{"model": p.DecisionModel, "state": state, "questions": questions})
 	if err != nil {
 		return nil, err
 	}
-	p := s.autoContinuePolicy()
 	callCtx, cancel := context.WithTimeout(ctx, time.Duration(p.TimeoutSeconds)*time.Second)
 	defer cancel()
-	baseURL := s.cfg.Gateway.Laya.BaseURL()
-	if configured := builtinAdapterBaseURL(PlatformLaya); strings.TrimSpace(s.cfg.Gateway.Laya.URL) == "" && configured != "" {
-		baseURL = configured
-	}
-	status, response, err := jev_api.RelaySystemOne(callCtx, baseURL, builtinAdapterAPIKey(PlatformLaya), request, http.DefaultClient)
+	status, response, err := s.relayAutoContinueSystemOne(callCtx, parent, request)
 	if err != nil {
 		if ctx.Err() != nil {
 			return nil, ctx.Err()
 		}
-		logger.FromContext(ctx).Warn("gateway.auto_continue_laya_failed_escalate", zap.Error(err))
+		logger.FromContext(ctx).Warn("gateway.auto_continue_decision_failed_escalate", zap.String("model", p.DecisionModel), zap.Error(err))
 		return s.judgeAutoContinue(ctx, parent, primary, candidate, state)
 	}
 	if status != http.StatusOK || !gjson.ValidBytes(response) || gjson.GetBytes(response, "error").Exists() {
-		logger.FromContext(ctx).Warn("gateway.auto_continue_laya_failed_escalate", zap.Int("status", status))
+		logger.FromContext(ctx).Warn("gateway.auto_continue_decision_failed_escalate", zap.String("model", p.DecisionModel), zap.Int("status", status))
 		return s.judgeAutoContinue(ctx, parent, primary, candidate, state)
 	}
 	answers := gjson.GetBytes(response, "answers").Map()
@@ -318,7 +318,32 @@ func (s *OpenAIGatewayService) decideAutoContinue(ctx context.Context, parent *g
 		}
 		plan = strings.Join(selected, "；")
 	}
-	return &AutoContinueDecision{Source: basis, Model: "laya", Selections: selections, Plan: plan, Reason: reason}, nil
+	model := gjson.GetBytes(response, "model").String()
+	if model == "" {
+		model = p.DecisionModel
+	}
+	return &AutoContinueDecision{Source: basis, Model: model, Selections: selections, Plan: plan, Reason: reason}, nil
+}
+
+// 复用本进程的原生 System One 入口，沿用分组账号选择、共享密钥、并发限制和调用记录。
+// 目的地址固定为本机监听端口，绝不根据客户端 Host 将 API Key 转发到外部地址。
+func (s *OpenAIGatewayService) relayAutoContinueSystemOne(ctx context.Context, parent *gin.Context, request []byte) (int, []byte, error) {
+	if _, err := jev_api.ReadModel(request); err != nil {
+		return 0, nil, err
+	}
+	if parent == nil {
+		return 0, nil, errors.New("System One requires the original request context")
+	}
+	value, _ := parent.Get("api_key")
+	key, _ := value.(*APIKey)
+	if key == nil || key.GroupID == nil || strings.TrimSpace(key.Key) == "" {
+		return 0, nil, errors.New("System One requires the original authenticated group key")
+	}
+	if s.cfg.Server.Port < 1 || s.cfg.Server.Port > 65535 {
+		return 0, nil, errors.New("System One requires a valid local gateway port")
+	}
+	baseURL := "http://127.0.0.1:" + strconv.Itoa(s.cfg.Server.Port)
+	return jev_api.RelaySystemOne(ctx, baseURL, key.Key, request, http.DefaultClient)
 }
 
 func autoContinueConfidentChoice(answer gjson.Result, choice string, threshold float64) bool {
@@ -334,10 +359,12 @@ func autoContinueConfidentChoice(answer gjson.Result, choice string, threshold f
 			return false
 		}
 	}
-	// 校准置信度比概率更保守时以校准结果为准，不能只看最大 softmax 值。
-	if calibrated := answer.Get("answer_confidence"); calibrated.Exists() &&
-		(calibrated.Type != gjson.Number || calibrated.Float() < threshold || calibrated.Float() > 1) {
-		return false
+	// 上游提供的置信度比概率更保守时，以更低者为准，不能只看最大 softmax 值。
+	for _, field := range []string{"confidence", "answer_confidence"} {
+		calibrated := answer.Get(field)
+		if calibrated.Exists() && (calibrated.Type != gjson.Number || calibrated.Float() < threshold || calibrated.Float() > 1) {
+			return false
+		}
 	}
 	return true
 }
