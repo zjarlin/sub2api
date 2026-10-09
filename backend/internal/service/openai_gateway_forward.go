@@ -20,6 +20,19 @@ import (
 
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
+	if cleaned, err := s.normalizeAutoContinueReportFeedback(c, body); err != nil {
+		return nil, err
+	} else {
+		body = cleaned
+	}
+	if s.autoContinueEligible(ctx, c, body) {
+		return s.forwardWithAutoContinue(ctx, c, account, body)
+	}
+	return s.forwardOnce(ctx, c, account, body)
+}
+
+// forwardOnce 保留一次完整转发及原有适配、重试和计量逻辑，辅助调用不再嵌套续跑。
+func (s *OpenAIGatewayService) forwardOnce(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
 	needsNativeSearchTools := modelRequestNeedsNativeSearchTools(body)
 	c.Set(deepSeekCompactContextKey, false)
 	beginUpstreamResponseModelObservation(c)

@@ -224,6 +224,15 @@ gateway:
   laya:
     enabled: false
     url: "http://edge-laya:18082"
+  # 助手停在“选方案/继续/定位但未修复”时，完成同一个请求内的自动续跑。
+  # Laya 判断已有设计或明确修复；新方案由 model_fallback_policy 第一档模型裁决。
+  # 裁决必须记录成功；决策服务、最高档或审计不可用时保留原回复。
+  auto_continue:
+    enabled: true
+    max_rounds: 2
+    timeout_seconds: 5
+    min_confidence: 0.85
+    judge_timeout_seconds: 60
   # Timeout for waiting upstream response headers (seconds)
   # 等待上游响应头超时时间（秒）
   response_header_timeout: 600

@@ -30,6 +30,8 @@ type VerticalOperation struct {
 	SourceLanguage string          `json:"source_language,omitempty"`
 	TargetLanguage string          `json:"target_language,omitempty"`
 	Artifacts      []RouteArtifact `json:"artifacts,omitempty"`
+	// Decision 保存网关续跑裁决，复用已有按 API Key 和会话隔离的持久化记录。
+	Decision *AutoContinueDecision `json:"decision,omitempty"`
 }
 
 type RouteArtifact struct {

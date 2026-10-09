@@ -1082,6 +1082,8 @@ type GatewayConfig struct {
 	Media GatewayMediaConfig `mapstructure:"media"`
 	// Laya 是本地 System One 推理服务，复用 /v1/systemone 入口。
 	Laya GatewayLayaConfig `mapstructure:"laya"`
+	// AutoContinue 在助手提前停顿时用 Laya 选择推荐方案并继续已授权任务。
+	AutoContinue GatewayAutoContinueConfig `mapstructure:"auto_continue"`
 	// 等待上游响应头的超时时间（秒），0表示无超时
 	// 注意：这不影响流式数据传输，只控制等待响应头的时间
 	ResponseHeaderTimeout int `mapstructure:"response_header_timeout"`
@@ -1256,6 +1258,15 @@ type GatewayVisionConfig struct {
 type GatewayLayaConfig struct {
 	Enabled bool   `mapstructure:"enabled"`
 	URL     string `mapstructure:"url"`
+}
+
+// GatewayAutoContinueConfig 只控制网关续跑，不扩大原始任务授权范围。
+type GatewayAutoContinueConfig struct {
+	Enabled             bool    `mapstructure:"enabled"`
+	MaxRounds           int     `mapstructure:"max_rounds"`
+	TimeoutSeconds      int     `mapstructure:"timeout_seconds"`
+	MinConfidence       float64 `mapstructure:"min_confidence"`
+	JudgeTimeoutSeconds int     `mapstructure:"judge_timeout_seconds"`
 }
 
 // GatewayMediaConfig 指向边缘配音与视频服务（edge-media）的内部地址。
@@ -2634,6 +2645,11 @@ func setDefaults() {
 	viper.SetDefault("gateway.media.timeout_seconds", 3600)
 	viper.SetDefault("gateway.laya.enabled", false)
 	viper.SetDefault("gateway.laya.url", "")
+	viper.SetDefault("gateway.auto_continue.enabled", true)
+	viper.SetDefault("gateway.auto_continue.max_rounds", 2)
+	viper.SetDefault("gateway.auto_continue.timeout_seconds", 5)
+	viper.SetDefault("gateway.auto_continue.min_confidence", 0.85)
+	viper.SetDefault("gateway.auto_continue.judge_timeout_seconds", 60)
 	viper.SetDefault("gateway.openai_passthrough_allow_timeout_headers", false)
 	viper.SetDefault("gateway.openai_compact_model", "gpt-5.5")
 	viper.SetDefault("gateway.live.max_session_duration_seconds", 3600)
