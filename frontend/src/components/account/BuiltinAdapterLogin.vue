@@ -64,7 +64,6 @@
           @click="relayClick"
           @wheel.prevent="relayWheel"
           @keydown="relayKeydown"
-          @mousedown.prevent
         />
         <p class="input-hint" role="status">{{ t(loginViewURL ? (platform === 'madao' ? 'admin.accounts.builtinLogin.madaoWaiting' : 'admin.accounts.builtinLogin.deepseekWebWaiting') : (platform === 'madao' ? 'admin.accounts.builtinLogin.madaoLoading' : 'admin.accounts.builtinLogin.deepseekWebLoading')) }}</p>
         <p v-if="viewInteractive && loginViewURL" class="input-hint">{{ t('admin.accounts.builtinLogin.viewInteractHint') }}</p>
@@ -90,7 +89,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { cancelBuiltinLogin, completeBuiltinLogin, getBuiltinLoginView, sendBuiltinLoginInput, startBuiltinLogin, type BuiltinLoginInputEvent, type BuiltinLoginPlatform, type BuiltinLoginSession, type DeepseekLoginOptions, type PasswordLoginOptions, type ZcodeLoginOptions } from '@/api/admin/builtinAdapters'
 
@@ -264,6 +263,8 @@ async function drainInput() {
 
 function relayClick(event: MouseEvent) {
   if (!viewInteractive.value) return
+  // 先让画面获得键盘焦点，这样后续按键能落到浏览器视口里。
+  loginViewRef.value?.focus()
   const point = mappedPoint(event)
   if (!point) return
   enqueueInput({ type: 'click', x: point.x, y: point.y })
@@ -294,9 +295,15 @@ async function refreshLoginView(current: BuiltinLoginSession, version: number) {
   try {
     const blob = await getBuiltinLoginView(props.platform, current.session_id, controller?.signal)
     if (version !== generation) return
+    // 刷新截图会重建 <img> 并丢失键盘焦点；记录并在更新后恢复，避免连续输入被打断。
+    const hadFocus = typeof document !== 'undefined' && document.activeElement === loginViewRef.value
     const nextURL = URL.createObjectURL(blob)
     if (loginViewURL.value) URL.revokeObjectURL(loginViewURL.value)
     loginViewURL.value = nextURL
+    if (hadFocus) {
+      await nextTick()
+      loginViewRef.value?.focus()
+    }
   } catch {
     // 登录页启动和截图刷新可能短暂重叠，下一次轮询会继续加载。
   }

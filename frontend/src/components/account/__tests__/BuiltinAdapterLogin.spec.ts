@@ -295,7 +295,7 @@ describe('BuiltinAdapterLogin madao interaction', () => {
 
   it('relays clicks and typed text from the view image to the adapter', async () => {
     start.mockResolvedValue({ ...pending('poll'), auth_url: undefined })
-    const wrapper = mount(BuiltinAdapterLogin, { props: { platform: 'madao' } })
+    const wrapper = mount(BuiltinAdapterLogin, { props: { platform: 'madao' }, attachTo: document.body })
     await wrapper.get('button').trigger('click')
     await flushPromises()
     const img = wrapper.get('[data-testid="madao-login-view"]')
@@ -306,6 +306,8 @@ describe('BuiltinAdapterLogin madao interaction', () => {
     await img.trigger('click', { clientX: 320, clientY: 225 })
     await flushPromises()
     expect(sendInput).toHaveBeenCalledWith('madao', 'abc', { type: 'click', x: 640, y: 380.5 })
+    // 点击后画面必须获得焦点，否则键盘输入无处可落。
+    expect(document.activeElement).toBe(img.element)
     await img.trigger('keydown', { key: '1' })
     await flushPromises()
     expect(sendInput).toHaveBeenCalledWith('madao', 'abc', { type: 'text', text: '1' })
