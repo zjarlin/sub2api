@@ -1,4 +1,4 @@
-// chat.go 把 OpenAI Chat Completions 请求翻译成码道 Agent kernel 会话，
+// chat.go 把 OpenAI Chat Completions 请求翻译成码道 CloudAgent 会话，
 // 再把会话事件流聚合成一次（可选流式）回复。
 //
 // 码道是"带工具的 Agent 会话"，不是纯文本补全接口。适配器为每个请求创建
@@ -12,8 +12,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type chatRequest struct {
@@ -146,37 +148,33 @@ func decodeOne(w http.ResponseWriter, r *http.Request, value any) error {
 	return nil
 }
 
-// generate 执行一次码道会话：创建 → 提交提示 → 收集事件流 → 关闭。
-// onToken 非空时逐段回调文本增量（用于流式转发）。
-func (a *adapter) generate(ctx context.Context, c credential, prompt, model, agent string, onToken func(string) error) (string, error) {
+// generate 创建临时任务并消费消息 POST 的事件流，结束后删除该任务。
+func (a *adapter) generate(ctx context.Context, c credential, prompt, model string, onToken func(string) error) (string, error) {
 	if err := a.acquire(ctx); err != nil {
 		return "", err
 	}
 	defer a.release()
-
-	sessionID, err := a.sessionCreate(ctx, c, agent, model)
+	streamCtx, cancel := context.WithTimeout(ctx, a.streamTimeout)
+	defer cancel()
+	sessionID, err := a.sessionCreate(streamCtx, c)
 	if err != nil {
 		return "", err
 	}
-	defer a.sessionClose(context.WithoutCancel(ctx), c, sessionID)
-
-	if err := a.sessionPrompt(ctx, c, sessionID, prompt, agent); err != nil {
-		return "", err
-	}
-	if onToken == nil {
-		result, err := a.sessionStream(ctx, c, sessionID)
-		if err != nil {
-			return result.Text, err
+	defer func() {
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if err := a.sessionDelete(cleanupCtx, c, sessionID); err != nil {
+			log.Printf("CodeArts temporary session cleanup failed: %v", err)
 		}
-		if strings.TrimSpace(result.Text) == "" {
-			return "", problem(502, "upstream_error", "CodeArts returned an empty response")
-		}
-		return result.Text, nil
+	}()
+	result, err := a.sessionMessages(streamCtx, c, sessionID, prompt, model, onToken)
+	if err != nil {
+		return result.Text, err
 	}
-	// 流式：边解析边回调。
-	streamCtx, cancel := context.WithTimeout(ctx, a.streamTimeout)
-	defer cancel()
-	return a.sessionStreamFunc(streamCtx, c, sessionID, onToken)
+	if strings.TrimSpace(result.Text) == "" {
+		return "", problem(502, "upstream_error", "CodeArts returned an empty response")
+	}
+	return result.Text, nil
 }
 
 func newCompletionID() string {

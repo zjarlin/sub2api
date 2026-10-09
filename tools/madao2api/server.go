@@ -65,10 +65,13 @@ func writeJSON(w http.ResponseWriter, status int, value any) {
 
 func errorValue(err error) map[string]any {
 	var p *upstreamError
+	message := "CodeArts request failed"
 	if !errors.As(err, &p) {
 		p = &upstreamError{status: 502, code: "upstream_error", message: "CodeArts request failed"}
+	} else {
+		message = err.Error()
 	}
-	return map[string]any{"error": map[string]string{"type": "upstream_error", "code": p.code, "message": p.message}}
+	return map[string]any{"error": map[string]string{"type": "upstream_error", "code": p.code, "message": message}}
 }
 
 func writeError(w http.ResponseWriter, err error) {
@@ -136,7 +139,7 @@ func (a *adapter) chat(w http.ResponseWriter, r *http.Request) {
 		a.streamChat(w, r, c, prompt, model, created)
 		return
 	}
-	text, err := a.generate(r.Context(), c, prompt, model, defaultAgent, nil)
+	text, err := a.generate(r.Context(), c, prompt, model, nil)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -172,7 +175,7 @@ func (a *adapter) streamChat(w http.ResponseWriter, r *http.Request, c credentia
 		flusher.Flush()
 		return nil
 	}
-	_, err := a.generate(r.Context(), c, prompt, model, defaultAgent, emit)
+	_, err := a.generate(r.Context(), c, prompt, model, emit)
 	if err != nil {
 		if !wroteHeader {
 			writeError(w, err)
@@ -181,6 +184,9 @@ func (a *adapter) streamChat(w http.ResponseWriter, r *http.Request, c credentia
 		// 已开始输出：以 error 事件收尾，随后发送 [DONE]。
 		data, _ := json.Marshal(map[string]any{"error": errorValue(err)["error"]})
 		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
+		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
+		flusher.Flush()
+		return
 	}
 	if !wroteHeader {
 		w.Header().Set("Content-Type", "text/event-stream")

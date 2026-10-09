@@ -1,7 +1,7 @@
 # 码道（华为云 CodeArts 代码智能体 Web 端）适配器
 
 仓库内的码道 Web 适配器。它复用一次**浏览器登录后的华为云会话**（Cookie + cftk 令牌），
-经由码道站内 Agent kernel 会话协议访问 `https://devcloud.cn-north-4.huaweicloud.com/chat`，
+经由码道站内 CloudAgent 会话协议访问 `https://devcloud.cn-north-4.huaweicloud.com/chat`，
 向 Sub2API 提供 OpenAI 兼容接口。与任何官方华为云模型 API 平台分开，使用独立的 `madao` 平台。
 
 ## 为什么是网页会话适配器
@@ -16,12 +16,13 @@
 - 鉴权：华为云 SSO Cookie（关键 Cookie `devclouddevuibjtcftk`）+ 请求头 `cftk`
 - 会话校验：`GET /rest/me`
 - 模型目录：`GET /PromptCenterService/v1/agent-center/agents/detail?agent_id=...`（失败回退内置目录）
-- 文本对话（Agent kernel）：
-  1. `POST /kernel/sessions/create` → `session_id`
-  2. `POST /kernel/sessions/{id}/prompt`（body `{content, parts:[{type:"text",text}]}`）
-  3. `GET /kernel/sessions/{id}/events`（SSE；文本增量在 `message` / `text_chunk` 事件）
-  4. `POST /kernel/sessions/{id}/close`
-- 请求统一带 `x-codearts-doer-scenario-type: web`；SSE 额外带 `Agent-Type: CodeBase`。
+- 文本对话（与当前网页一致）：
+  1. `POST /v1/cloudagent/sessions`，body `{}` → `result.session_id`
+  2. `POST /codebaseservice/v1/cloudagent/sessions/{id}/messages`，body `{content, model_id, repos:[]}`，该响应直接返回 SSE
+  3. 按 `event: message` 的 `data.content` 转发正文，`event: done` 完成；思考和工具事件不混入正文
+  4. `DELETE /v1/cloudagent/sessions/{id}` 清理本次请求创建的临时任务
+- 请求统一带 `x-codearts-doer-scenario-type: web`；`/v1/cloudagent/` 请求带 `Agent-Type: CodeBase`，模型目录带 `Agent-Type: AgentCenter`。
+- 原 `/kernel/sessions/create` 在当前 Web 部署返回 404，不能用它验证聊天。
 
 ## 登录（网页登录导入）
 
@@ -37,7 +38,7 @@
 
 ## 能力与运行
 
-- 模型：默认 `GLM-5.2`、`GLM-5.1`、`Qwen3-VL-235B`、`maas-glm-4.7`，另支持别名 `madao`、`madao-code`。
+- 模型：从站内目录的 `gpts.models[].model_parameters.model_id` 读取，默认 `GLM-5.2`，另支持别名 `madao`、`madao-code`。
 - 支持纯文本 Chat Completions；工具调用、图片与其他采样参数会被明确拒绝（码道 Agent 自带工具）。
 - 每个请求创建一个一次性会话，把完整对话拼为单条提示；流式响应按文本增量转发 SSE。
 - 环境变量：`MADAO_ADAPTER_KEY`（必填共享密钥）、`MADAO_LISTEN`（默认 `127.0.0.1:7870`）、
@@ -54,3 +55,8 @@
 - 上游为私有 Web 协议，可能随码道前端升级而变动；出现解析失败时需对照新前端 bundle 更新。
 - 会话 Cookie 会过期；过期后需在账号设置中重新登录。
 - 将自动化用于活动抽奖等行为可能违反码道服务条款；本适配器只用于文本对话。
+
+## 验证
+
+`go test ./...` 验证会话创建、消息 POST 流式响应、非流式聚合、模型目录、命名 SSE 事件及失败清理。
+实际验收需要对登录后的账号调用 Sub2API `/api/v1/admin/accounts/{id}/test`，确认 SSE 中出现回复正文和成功结束；HTTP 200 或登录成功都不足以证明聊天可用。

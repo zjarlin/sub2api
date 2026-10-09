@@ -1,4 +1,4 @@
-// client.go 码道站内 HTTP 客户端：会话校验、模型目录、Agent kernel 会话协议
+// client.go 码道站内 HTTP 客户端：会话校验、模型目录、CloudAgent 会话协议
 // 与 SSE 事件流解析，以及错误分类。
 package main
 
@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -83,6 +82,12 @@ func (a *adapter) call(ctx context.Context, c credential, method, path string, b
 		return err
 	}
 	req.Header = a.headers(c)
+	if strings.HasPrefix(path, "/v1/cloudagent/") {
+		req.Header.Set(agentTypeHeaderKey, agentTypeCodeBase)
+	}
+	if strings.HasPrefix(path, "/PromptCenterService/") {
+		req.Header.Set(agentTypeHeaderKey, "AgentCenter")
+	}
 	return a.do(req, out)
 }
 
@@ -97,7 +102,7 @@ func (a *adapter) do(req *http.Request, out any) error {
 		return problem(502, "invalid_upstream_response", "Invalid CodeArts response")
 	}
 	if err := classifyStatus(res.StatusCode, data); err != nil {
-		return err
+		return fmt.Errorf("CodeArts %s %s returned HTTP %d: %w", req.Method, req.URL.Path, res.StatusCode, err)
 	}
 	if out != nil && len(bytes.TrimSpace(data)) > 0 {
 		if json.Unmarshal(data, out) != nil {
@@ -145,41 +150,46 @@ func (a *adapter) verifySession(ctx context.Context, c credential) (meInfo, erro
 
 // listModels 优先读取站内模型目录，失败时回退到内置目录。
 func (a *adapter) listModels(ctx context.Context, c credential) []builtinModel {
-	var detail struct {
-		Data struct {
-			Data struct {
-				Gpts struct {
-					Models []struct {
-						ModelName      string `json:"model_name"`
-						ModelNameAlt   string `json:"modelName"`
-						ModelID        string `json:"model_id"`
-						DisplayName    string `json:"display_name"`
-						DisplayEnabled *bool  `json:"display_enabled"`
-						Enable         *bool  `json:"enable"`
-					} `json:"models"`
-				} `json:"gpts"`
-			} `json:"data"`
-		} `json:"data"`
-	}
+	var raw json.RawMessage
 	query := url.Values{"agent_id": {codebaseAgentID}}
-	if err := a.call(ctx, c, http.MethodGet, epAgentsDetail+"?"+query.Encode(), nil, &detail); err == nil {
+	if err := a.call(ctx, c, http.MethodGet, epAgentsDetail+"?"+query.Encode(), nil, &raw); err != nil {
+		return kernelModels
+	}
+	// 当前网页返回顶层 gpts，部分网关在外层追加 data 包装。
+	for depth := 0; depth < 3; depth++ {
+		var detail struct {
+			Data json.RawMessage `json:"data"`
+			Gpts struct {
+				Models []struct {
+					ModelName  string `json:"model_name"`
+					Parameters struct {
+						ModelID        string `json:"model_id"`
+						Description    string `json:"model_desc"`
+						DisplayEnabled *bool  `json:"display_enabled"`
+					} `json:"model_parameters"`
+				} `json:"models"`
+			} `json:"gpts"`
+		}
+		if json.Unmarshal(raw, &detail) != nil {
+			break
+		}
 		var models []builtinModel
 		seen := map[string]bool{}
-		for _, m := range detail.Data.Data.Gpts.Models {
-			id := firstNonEmpty(m.ModelName, m.ModelNameAlt, m.ModelID)
-			if id == "" || seen[id] {
-				continue
-			}
-			if m.Enable != nil && !*m.Enable {
+		for _, model := range detail.Gpts.Models {
+			id := firstNonEmpty(model.Parameters.ModelID, model.ModelName)
+			if id == "" || seen[id] || (model.Parameters.DisplayEnabled != nil && !*model.Parameters.DisplayEnabled) {
 				continue
 			}
 			seen[id] = true
-			label := firstNonEmpty(m.DisplayName, id)
-			models = append(models, builtinModel{ID: id, Label: label})
+			models = append(models, builtinModel{ID: id, Label: firstNonEmpty(model.ModelName, id), Description: model.Parameters.Description})
 		}
 		if len(models) > 0 {
 			return models
 		}
+		if len(detail.Data) == 0 {
+			break
+		}
+		raw = detail.Data
 	}
 	return kernelModels
 }
@@ -193,74 +203,41 @@ func resolveModel(name string) string {
 	return strings.TrimSpace(name)
 }
 
-// sessionCreate 创建 Agent kernel 会话并返回 sessionId。
-func (a *adapter) sessionCreate(ctx context.Context, c credential, agent, model string) (string, error) {
-	if agent == "" {
-		agent = defaultAgent
+// sessionCreate 创建 CloudAgent 临时任务，模型在发送消息时指定。
+func (a *adapter) sessionCreate(ctx context.Context, c credential) (string, error) {
+	var response struct {
+		Result struct {
+			SessionID string `json:"session_id"`
+		} `json:"result"`
 	}
-	body := map[string]any{"agent": agent}
-	if model != "" {
-		body["model_name"] = model
-	}
-	var raw map[string]json.RawMessage
-	if err := a.call(ctx, c, http.MethodPost, epSessionCreate, body, &raw); err != nil {
+	if err := a.call(ctx, c, http.MethodPost, epSessionCreate, map[string]any{}, &response); err != nil {
 		return "", err
 	}
-	// 兼容 result / data 包装与顶层 session_id / sessionId / id。
-	candidates := []map[string]json.RawMessage{raw}
-	for _, key := range []string{"result", "data"} {
-		if inner, ok := raw[key]; ok {
-			var nested map[string]json.RawMessage
-			if json.Unmarshal(inner, &nested) == nil {
-				candidates = append(candidates, nested)
-			}
-		}
+	if response.Result.SessionID == "" {
+		return "", problem(502, "invalid_upstream_response", "CodeArts did not return a session id")
 	}
-	for _, candidate := range candidates {
-		for _, key := range []string{"session_id", "sessionId", "id", "sid"} {
-			if value, ok := candidate[key]; ok {
-				var id string
-				if json.Unmarshal(value, &id) == nil && strings.TrimSpace(id) != "" {
-					return id, nil
-				}
-			}
-		}
-	}
-	return "", problem(502, "invalid_upstream_response", "CodeArts did not return a session id")
+	return response.Result.SessionID, nil
 }
 
-// sessionPrompt 向会话提交一段文本提示。
-func (a *adapter) sessionPrompt(ctx context.Context, c credential, sessionID, content, agent string) error {
-	body := map[string]any{
-		"content": content,
-		"parts":   []map[string]string{{"type": "text", "text": content}},
-	}
-	if agent != "" {
-		body["agent"] = agent
-	}
-	return a.call(ctx, c, http.MethodPost, fmt.Sprintf(epSessionPrompt, url.PathEscape(sessionID)), body, nil)
+// sessionDelete 只清理本次请求创建的临时任务，避免污染用户工作台。
+func (a *adapter) sessionDelete(ctx context.Context, c credential, sessionID string) error {
+	path := fmt.Sprintf(epSessionDetail, url.PathEscape(sessionID))
+	return a.call(ctx, c, http.MethodDelete, path, nil, nil)
 }
 
-func (a *adapter) sessionClose(ctx context.Context, c credential, sessionID string) {
-	_ = a.call(ctx, c, http.MethodPost, fmt.Sprintf(epSessionClose, url.PathEscape(sessionID)), map[string]any{}, nil)
-}
-
-// streamResult 是一次 SSE 事件流的汇总结果。
-type streamResult struct {
-	Text string
-}
-
-// sessionStream 订阅会话事件流，阻塞直到收到 done / error / 流结束或上下文取消。
-func (a *adapter) sessionStream(ctx context.Context, c credential, sessionID string) (streamResult, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.baseURL()+fmt.Sprintf(epSessionEvents, url.PathEscape(sessionID)), nil)
+// sessionMessages 的 POST 响应直接返回 SSE，不再另外订阅 kernel 事件。
+func (a *adapter) sessionMessages(ctx context.Context, c credential, sessionID, content, model string, onToken func(string) error) (streamResult, error) {
+	body, err := json.Marshal(map[string]any{"content": content, "model_id": model, "repos": []string{}})
 	if err != nil {
 		return streamResult{}, err
 	}
-	headers := a.headers(c)
-	headers.Set("Accept", "text/event-stream")
-	headers.Set(agentTypeHeaderKey, agentTypeCodeBase)
-	req.Header = headers
-
+	path := fmt.Sprintf(epSessionMessages, url.PathEscape(sessionID))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, a.baseURL()+path, bytes.NewReader(body))
+	if err != nil {
+		return streamResult{}, err
+	}
+	req.Header = a.headers(c)
+	req.Header.Set("Accept", "text/event-stream")
 	res, err := a.streamClient.Do(req)
 	if err != nil {
 		if ctx.Err() != nil {
@@ -270,116 +247,119 @@ func (a *adapter) sessionStream(ctx context.Context, c credential, sessionID str
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		data, _ := io.ReadAll(io.LimitReader(res.Body, 64<<10))
-		return streamResult{}, classifyStatus(res.StatusCode, data)
-	}
-	return readEventStream(ctx, res.Body)
-}
-
-// sessionStreamFunc 订阅会话事件流，并对每个文本增量调用 onToken（流式转发用）。
-func (a *adapter) sessionStreamFunc(ctx context.Context, c credential, sessionID string, onToken func(string) error) (string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.baseURL()+fmt.Sprintf(epSessionEvents, url.PathEscape(sessionID)), nil)
-	if err != nil {
-		return "", err
-	}
-	headers := a.headers(c)
-	headers.Set("Accept", "text/event-stream")
-	headers.Set(agentTypeHeaderKey, agentTypeCodeBase)
-	req.Header = headers
-	res, err := a.streamClient.Do(req)
-	if err != nil {
-		if ctx.Err() != nil {
-			return "", ctx.Err()
+		data, err := io.ReadAll(io.LimitReader(res.Body, 64<<10))
+		if err != nil {
+			return streamResult{}, err
 		}
-		return "", problem(502, "upstream_unavailable", "CodeArts stream is unreachable")
+		statusErr := classifyStatus(res.StatusCode, data)
+		if statusErr == nil {
+			statusErr = problem(502, "invalid_upstream_response", "CodeArts did not return an event stream")
+		}
+		return streamResult{}, fmt.Errorf("CodeArts POST %s returned HTTP %d: %w", req.URL.Path, res.StatusCode, statusErr)
 	}
-	defer res.Body.Close()
-	if res.StatusCode != http.StatusOK {
-		data, _ := io.ReadAll(io.LimitReader(res.Body, 64<<10))
-		return "", classifyStatus(res.StatusCode, data)
+	if !strings.HasPrefix(res.Header.Get("Content-Type"), "text/event-stream") {
+		return streamResult{}, problem(502, "invalid_upstream_response", "CodeArts did not return an event stream")
 	}
-	result, err := readEventStreamFunc(ctx, res.Body, onToken)
-	return result.Text, err
+	return readEventStreamFunc(ctx, res.Body, onToken)
 }
 
-// readEventStream 解析码道 SSE：每行 `data: {json}`，其 json 形如
-// {type, properties:{...}}（或部分事件的 {type, content}）。
+type streamResult struct {
+	Text string
+}
+
 func readEventStream(ctx context.Context, body io.Reader) (streamResult, error) {
 	return readEventStreamFunc(ctx, body, nil)
 }
 
+// 按 SSE 帧合并 event/data 行；只把主代理的 message 转成正文。
 func readEventStreamFunc(ctx context.Context, body io.Reader, onToken func(string) error) (streamResult, error) {
 	var result streamResult
+	var eventName string
+	var dataLines []string
+	process := func() (bool, error) {
+		if len(dataLines) == 0 {
+			return false, nil
+		}
+		payload := strings.Join(dataLines, "\n")
+		if payload == "[DONE]" {
+			return true, nil
+		}
+		var event struct {
+			Type         string `json:"type"`
+			Content      string `json:"content"`
+			Message      string `json:"message"`
+			ErrorMessage string `json:"error_msg"`
+			SubagentID   string `json:"subagent_id"`
+			Properties   struct {
+				Content string `json:"content"`
+				Text    string `json:"text"`
+				Delta   string `json:"delta"`
+				Message string `json:"message"`
+			} `json:"properties"`
+		}
+		if json.Unmarshal([]byte(payload), &event) != nil {
+			return false, problem(502, "invalid_upstream_response", "Invalid CodeArts stream event")
+		}
+		switch firstNonEmpty(eventName, event.Type) {
+		case "message", "text_chunk", "text":
+			if event.SubagentID != "" {
+				return false, nil
+			}
+			chunk := event.Content
+			for _, candidate := range []string{event.Properties.Content, event.Properties.Text, event.Properties.Delta} {
+				if chunk == "" {
+					chunk = candidate
+				}
+			}
+			result.Text += chunk
+			if chunk != "" && onToken != nil {
+				return false, onToken(chunk)
+			}
+		case "done":
+			return true, nil
+		case "error":
+			message := firstNonEmpty(event.Message, event.ErrorMessage, event.Properties.Message, "CodeArts stream failed")
+			return false, problem(502, "upstream_error", message)
+		case "tool_authorization", "question":
+			return false, problem(502, "interaction_required", "CodeArts requires interactive tool approval")
+		}
+		return false, nil
+	}
 	scanner := bufio.NewScanner(body)
 	scanner.Buffer(make([]byte, 0, 64<<10), 4<<20)
 	for scanner.Scan() {
 		if err := ctx.Err(); err != nil {
 			return result, err
 		}
-		line := strings.TrimSpace(scanner.Text())
-		if line == "" || strings.HasPrefix(line, ":") || strings.HasPrefix(line, "event:") ||
-			strings.HasPrefix(line, "id:") || strings.HasPrefix(line, "retry:") {
-			continue
-		}
-		if !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if payload == "" || payload == "[DONE]" {
-			if payload == "[DONE]" {
-				return result, nil
+		line := scanner.Text()
+		if line == "" {
+			done, err := process()
+			if done || err != nil {
+				return result, err
 			}
+			eventName = ""
+			dataLines = nil
 			continue
 		}
-		var event struct {
-			Type       string          `json:"type"`
-			Message    string          `json:"message"`
-			Content    string          `json:"content"`
-			Properties json.RawMessage `json:"properties"`
+		if strings.HasPrefix(line, "event:") {
+			eventName = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
 		}
-		if json.Unmarshal([]byte(payload), &event) != nil {
-			continue
+		if strings.HasPrefix(line, "data:") {
+			dataLines = append(dataLines, strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
 		}
-		props := event.Properties
-		var prop struct {
-			Content   string `json:"content"`
-			Text      string `json:"text"`
-			Delta     string `json:"delta"`
-			PartType  string `json:"part_type"`
-			Message   string `json:"message"`
-		}
-		if len(props) > 0 {
-			_ = json.Unmarshal(props, &prop)
-		}
-		switch event.Type {
-		case "message", "text_chunk", "text":
-			chunk := firstNonEmpty(prop.Content, prop.Text, prop.Delta, event.Content)
-			if chunk != "" {
-				result.Text += chunk
-				if onToken != nil {
-					if err := onToken(chunk); err != nil {
-						return result, err
-					}
-				}
-			}
-		case "done", "idle", "step_finish":
-			if event.Type == "done" {
-				return result, nil
-			}
-		case "error":
-			message := firstNonEmpty(prop.Message, event.Message, "CodeArts stream failed")
-			return result, problem(502, "upstream_error", message)
-		}
+	}
+	if err := ctx.Err(); err != nil {
+		return result, err
 	}
 	if err := scanner.Err(); err != nil {
-		if ctx.Err() != nil {
-			return result, ctx.Err()
-		}
-		if errors.Is(err, context.Canceled) {
-			return result, ctx.Err()
-		}
+		return result, fmt.Errorf("CodeArts event stream read failed: %w", err)
 	}
-	return result, nil
+	// 末帧可能没有空行，但缺少 done 的流不应作为成功回复返回。
+	done, err := process()
+	if err != nil || done {
+		return result, err
+	}
+	return result, problem(502, "incomplete_stream", "CodeArts stream ended before completion")
 }
 
 func firstNonEmpty(values ...string) string {
