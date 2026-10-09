@@ -1,4 +1,4 @@
-# 码道（华为云 CodeArts 代码智能体 Web 端）内置适配器。
+# 码道（华为云 CodeArts Ask 纯文本对话）内置适配器。
 # 由 deploy/cluster/deploy-252.sh 在 SUB2API_MADAO=1 时通过 -f 叠加。
 # 适配器进程含独立 Chromium（网页登录用），会话凭据保存在命名卷。
 services:
@@ -23,7 +23,7 @@ services:
       MADAO_ADAPTER_KEY: ${MADAO_ADAPTER_KEY:?Set MADAO_ADAPTER_KEY to a shared adapter key}
       MADAO_STATE_FILE: /app/data/credential.json
       MADAO_BROWSER_EXECUTABLE: /usr/bin/chromium-browser
-      MADAO_BASE_URL: ${MADAO_BASE_URL:-https://devcloud.cn-north-4.huaweicloud.com/chat}
+      MADAO_ASK_BASE_URL: ${MADAO_ASK_BASE_URL:-https://snap-access.cn-north-4.myhuaweicloud.com}
     volumes:
       - "${MADAO_STATE_DIR:-madao-data}:/app/data"
     networks:

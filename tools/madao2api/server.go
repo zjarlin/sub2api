@@ -12,7 +12,6 @@ import (
 	"os"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"sub2api/builtinlogin"
@@ -21,15 +20,16 @@ import (
 type adapter struct {
 	key           string
 	stateFile     string
-	origin        string
+	askOrigin     string
+	tokenURL      string
 	client        *http.Client
 	streamClient  *http.Client
 	streamTimeout time.Duration
 	loginBrowser  loginBrowser
 	mu            sync.RWMutex
+	refreshMu     sync.Mutex
 	credential    credential
 	slots         chan struct{}
-	next          atomic.Uint64
 }
 
 func newAdapter(key, stateFile, origin string) (*adapter, error) {
@@ -38,7 +38,8 @@ func newAdapter(key, stateFile, origin string) (*adapter, error) {
 	}
 	short, stream := newHTTPClients()
 	a := &adapter{
-		key: key, stateFile: stateFile, origin: strings.TrimRight(strings.TrimSpace(origin), "/"),
+		key: key, stateFile: stateFile,
+		askOrigin: strings.TrimRight(strings.TrimSpace(origin), "/"), tokenURL: defaultTokenURL,
 		client: short, streamClient: stream, streamTimeout: 30 * time.Minute,
 		slots: make(chan struct{}, 2),
 	}
@@ -98,7 +99,7 @@ func (a *adapter) handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /livez", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, map[string]bool{"ok": true}) })
 	mux.HandleFunc("GET /healthz", a.auth(func(w http.ResponseWriter, r *http.Request) {
-		if _, err := a.snapshot(); err != nil {
+		if _, err := a.currentCredential(r.Context()); err != nil {
 			writeError(w, err)
 			return
 		}
@@ -111,20 +112,20 @@ func (a *adapter) handler() http.Handler {
 }
 
 func (a *adapter) models(w http.ResponseWriter, r *http.Request) {
-	c, err := a.snapshot()
+	c, err := a.currentCredential(r.Context())
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	items := make([]map[string]any, 0, len(kernelModels))
-	for _, m := range a.listModels(r.Context(), c) {
+	for _, m := range a.listAskModels(r.Context(), c) {
 		items = append(items, map[string]any{"id": m.ID, "object": "model", "created": 0, "owned_by": "madao", "name": m.Label})
 	}
 	writeJSON(w, 200, map[string]any{"object": "list", "data": items})
 }
 
 func (a *adapter) chat(w http.ResponseWriter, r *http.Request) {
-	c, err := a.snapshot()
+	c, err := a.currentCredential(r.Context())
 	if err != nil {
 		writeError(w, err)
 		return
@@ -224,7 +225,7 @@ func (a *adapter) beginLogin(ctx context.Context) (*builtinlogin.Flow, error) {
 		return nil, err
 	}
 	return &builtinlogin.Flow{
-		URL:  webLoginURL,
+		URL:  portalAuthorizeURL,
 		Mode: "poll",
 		View: func(ctx context.Context) (*builtinlogin.View, error) {
 			screenshot, err := session.Screenshot(ctx)

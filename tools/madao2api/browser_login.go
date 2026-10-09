@@ -1,15 +1,11 @@
-// browser_login.go 码道 Web 登录：用独立 Chromium 打开华为云登录页，
-// 用户在浏览器里完成账号登录（可能含验证码 / 短信二次验证），
-// 适配器轮询导出会话 Cookie（含 cftk）并交给 importCredential 校验落盘。
-//
-// 与 DeepSeek 适配器的差别：码道没有可自动化的邮箱密码表单（华为云 SSO 通常
-// 需要验证码 / 二次验证），因此只提供"人工在浏览器里登录 + 截图轮询"的流程。
+// browser_login.go 用独立 Chromium 完成官方插件授权，保留截图和输入转发。
 package main
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,7 +13,6 @@ import (
 	"time"
 
 	"github.com/chromedp/cdproto/input"
-	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/chromedp"
 
 	"sub2api/builtinlogin"
@@ -115,6 +110,12 @@ func (b *chromiumLoginBrowser) Start(ctx context.Context) (browserLoginSession, 
 		b.release()
 		return nil, err
 	}
+	oauth, err := newOAuthLogin()
+	if err != nil {
+		_ = os.RemoveAll(profile)
+		b.release()
+		return nil, err
+	}
 
 	options := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.ExecPath(b.executable),
@@ -136,6 +137,7 @@ func (b *chromiumLoginBrowser) Start(ctx context.Context) (browserLoginSession, 
 		cancelAllocator: allocatorCancel,
 		profile:         profile,
 		release:         b.release,
+		oauth:           oauth,
 	}
 	// 管理页面异常退出后也会主动关闭浏览器，避免占用自动登录的唯一槽位。
 	session.expireAfter(15 * time.Minute)
@@ -143,7 +145,7 @@ func (b *chromiumLoginBrowser) Start(ctx context.Context) (browserLoginSession, 
 	startupDone := make(chan error, 1)
 	go func() {
 		startupDone <- chromedp.Run(browserContext,
-			chromedp.Navigate(webLoginURL),
+			chromedp.Navigate(oauth.authorizeURL),
 			chromedp.WaitReady("body", chromedp.ByQuery),
 			chromedp.Sleep(2*time.Second),
 		)
@@ -180,6 +182,9 @@ type chromiumLoginSession struct {
 	release         func()
 	mu              sync.Mutex
 	closeOnce       sync.Once
+	oauth           *oauthLogin
+	grant           *iamGrant
+	authErr         error
 }
 
 func (s *chromiumLoginSession) expireAfter(lifetime time.Duration) {
@@ -213,43 +218,44 @@ func (s *chromiumLoginSession) Screenshot(ctx context.Context) ([]byte, error) {
 	}
 }
 
-// Credential 导出码道域下的全部 Cookie。cftk 单独抽出，方便运行期拼头。
-// 只有当会话 Cookie 与 cftk 同时存在时才算就绪。
+// Credential 在授权回调后交换 IAM 临时密钥，并保留 PKCE 与 DPoP 刷新上下文。
 func (s *chromiumLoginSession) Credential(ctx context.Context) (credential, bool, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	var raw []*network.Cookie
-	evaluateContext, cancel := context.WithTimeout(s.context, 10*time.Second)
-	defer cancel()
-	stop := context.AfterFunc(ctx, cancel)
-	defer stop()
-	if err := chromedp.Run(evaluateContext, chromedp.ActionFunc(func(ctx context.Context) error {
-		cookies, err := network.GetCookies().WithURLs([]string{loginOrigin + "/"}).Do(ctx)
-		if err != nil {
-			return err
-		}
-		raw = cookies
-		return nil
-	})); err != nil {
-		return credential{}, false, err
+	if s.authErr != nil {
+		return credential{}, false, s.authErr
+	}
+	if s.grant != nil {
+		return credential{IAM: s.grant}, true, nil
 	}
 	select {
+	case <-s.context.Done():
+		return credential{}, false, s.context.Err()
 	case <-ctx.Done():
 		return credential{}, false, ctx.Err()
+	case callback := <-s.oauth.callback:
+		if callback.denied {
+			s.authErr = &builtinlogin.PublicError{Status: 400, Message: "CodeArts Ask authorization was denied; start login again"}
+			return credential{}, false, s.authErr
+		}
+		requestContext, cancel := context.WithTimeout(s.context, 60*time.Second)
+		defer cancel()
+		stop := context.AfterFunc(ctx, cancel)
+		defer stop()
+		client, _ := newHTTPClients()
+		grant, err := requestIAMToken(requestContext, client, defaultTokenURL, s.oauth.grant, url.Values{
+			"client_id": {askOAuthClientID}, "code": {callback.code}, "code_verifier": {s.oauth.grant.CodeVerifier},
+			"grant_type": {"authorization_code"}, "redirect_uri": {s.oauth.redirectURI},
+		})
+		if err != nil {
+			s.authErr = &builtinlogin.PublicError{Status: 400, Message: "CodeArts could not complete Ask authorization; start login again"}
+			return credential{}, false, s.authErr
+		}
+		s.grant = grant
+		return credential{IAM: grant}, true, nil
 	default:
+		return credential{}, false, nil
 	}
-	var result credential
-	for _, item := range raw {
-		if item == nil || strings.TrimSpace(item.Name) == "" || item.Value == "" {
-			continue
-		}
-		result.Cookies = append(result.Cookies, cookiePair{Name: item.Name, Value: item.Value})
-		if item.Name == cftkCookieName {
-			result.Cftk = item.Value
-		}
-	}
-	result.Cookies = normalizeCookies(result.Cookies)
-	return result, result.usable(), nil
 }
 
 // Input 把管理页面的一次交互（鼠标/键盘/滚轮）转发到隔离浏览器，
@@ -314,16 +320,16 @@ func dispatchKey(ctx context.Context, key string) error {
 		vk   int64
 	}
 	specs := map[string]keySpec{
-		"Enter":     {"Enter", "Enter", 13},
-		"Tab":       {"Tab", "Tab", 9},
-		"Backspace": {"Backspace", "Backspace", 8},
-		"Escape":    {"Escape", "Escape", 27},
-		"ArrowLeft": {"ArrowLeft", "ArrowLeft", 37},
-		"ArrowUp":   {"ArrowUp", "ArrowUp", 38},
+		"Enter":      {"Enter", "Enter", 13},
+		"Tab":        {"Tab", "Tab", 9},
+		"Backspace":  {"Backspace", "Backspace", 8},
+		"Escape":     {"Escape", "Escape", 27},
+		"ArrowLeft":  {"ArrowLeft", "ArrowLeft", 37},
+		"ArrowUp":    {"ArrowUp", "ArrowUp", 38},
 		"ArrowRight": {"ArrowRight", "ArrowRight", 39},
-		"ArrowDown": {"ArrowDown", "ArrowDown", 40},
-		"Delete":    {"Delete", "Delete", 46},
-		"Space":     {" ", "Space", 32},
+		"ArrowDown":  {"ArrowDown", "ArrowDown", 40},
+		"Delete":     {"Delete", "Delete", 46},
+		"Space":      {" ", "Space", 32},
 	}
 	spec, ok := specs[key]
 	if !ok {
@@ -339,6 +345,9 @@ func dispatchKey(ctx context.Context, key string) error {
 
 func (s *chromiumLoginSession) Close() {
 	s.closeOnce.Do(func() {
+		if s.oauth != nil {
+			s.oauth.Close()
+		}
 		s.cancelBrowser()
 		s.cancelAllocator()
 		_ = os.RemoveAll(filepath.Clean(s.profile))

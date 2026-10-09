@@ -1,46 +1,7 @@
-// constants.go 码道（华为云 CodeArts 代码智能体，Web 端 /chat）上游常量。
-//
-// 上游是纯 Web 会话：鉴权靠华为云 SSO Cookie（关键 Cookie 为 cftk），
-// 请求额外带 cftk 头与 x-codearts-doer-scenario-type: web。没有公开的
-// OpenAI 兼容端点，因此适配器把码道的 CloudAgent 会话协议翻译为
-// /v1/chat/completions。
+// constants.go 码道 Ask 的默认模型与别名。
 package main
 
-const (
-	// defaultBaseURL 是码道 Web 端的站内根路径（单区域 cn-north-4）。
-	defaultBaseURL = "https://devcloud.cn-north-4.huaweicloud.com/chat"
-	// webLoginURL 是浏览器登录入口；登录完成后站内 Cookie 生效。
-	webLoginURL = "https://devcloud.cn-north-4.huaweicloud.com/chat/login"
-	// loginOrigin 是 SSO 登录域，Cookie 作用域挂在它下面。
-	loginOrigin = "https://devcloud.cn-north-4.huaweicloud.com"
-
-	// cftkCookieName 是码道 cftk 令牌的 Cookie 名（window['cftk_cookie_key_cf2']）。
-	cftkCookieName = "devclouddevuibjtcftk"
-	// codebaseAgentID 是"码道 Work"内置专家 ID（AgentCenter 目录查询用）。
-	codebaseAgentID = "a8bcb36232554267a5142361cc25a393"
-
-	// 站内接口路径。
-	epMe              = "/rest/me"
-	epSSOUser         = "/snap-manager/v1/sso/user"
-	epSessionCreate   = "/v1/cloudagent/sessions"
-	epSessionMessages = "/codebaseservice/v1/cloudagent/sessions/%s/messages"
-	epSessionDetail   = "/v1/cloudagent/sessions/%s"
-	epModelsBuiltin   = "/PromptCenterService/v1/model/builtin"
-	epAgentsDetail    = "/PromptCenterService/v1/agent-center/agents/detail"
-	epPackageOverview = "/snap-manager/v1/package/overview"
-	epBenefitClaim    = "/codebaseservice/v1/cloudagent/benefit/claim"
-
-	// 站内请求统一头。
-	scenarioHeaderKey   = "x-codearts-doer-scenario-type"
-	scenarioHeaderValue = "web"
-	langHeaderKey       = "X-Language"
-	langHeaderValue     = "zh-cn"
-	agentTypeHeaderKey  = "Agent-Type"
-	agentTypeCodeBase   = "CodeBase"
-)
-
-// kernelModels 是 AgentCenter 目录不可用时回退的默认模型目录，
-// 取自码道前端内置 KERNEL_MODELS（provider=inferhub-provider）。
+// kernelModels 是原生 Ask 模型目录暂时不可用时使用的内置目录。
 var kernelModels = []builtinModel{
 	{ID: "GLM-5.2", Label: "GLM-5.2", Description: "深度推理模型，适合复杂任务与深度思考"},
 	{ID: "GLM-5.1", Label: "GLM-5.1", Description: "通用编码模型"},

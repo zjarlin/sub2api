@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -35,32 +34,6 @@ func TestResolveModelAlias(t *testing.T) {
 	}
 	if got := resolveModel("GLM-5.1"); got != "GLM-5.1" {
 		t.Fatalf("unknown model should pass through: %q", got)
-	}
-}
-
-func TestReadEventStreamAggregatesText(t *testing.T) {
-	stream := strings.Join([]string{
-		"data: {\"type\":\"message\",\"properties\":{\"content\":\"Hello\"}}",
-		"",
-		"data: {\"type\":\"text_chunk\",\"content\":\" world\"}",
-		"",
-		"data: {\"type\":\"done\"}",
-		"",
-	}, "\n")
-	result, err := readEventStream(context.Background(), strings.NewReader(stream))
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if result.Text != "Hello world" {
-		t.Fatalf("unexpected text: %q", result.Text)
-	}
-}
-
-func TestReadEventStreamPropagatesError(t *testing.T) {
-	stream := "data: {\"type\":\"error\",\"properties\":{\"message\":\"boom\"}}\n\n"
-	_, err := readEventStream(context.Background(), strings.NewReader(stream))
-	if err == nil || !strings.Contains(err.Error(), "boom") {
-		t.Fatalf("expected upstream error, got %v", err)
 	}
 }
 

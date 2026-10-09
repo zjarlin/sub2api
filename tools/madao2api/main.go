@@ -21,9 +21,9 @@ func run() error {
 	if stateFile == "" {
 		stateFile = "/app/data/credential.json"
 	}
-	origin := os.Getenv("MADAO_BASE_URL")
+	origin := os.Getenv("MADAO_ASK_BASE_URL")
 	if origin == "" {
-		origin = defaultBaseURL
+		origin = defaultAskBaseURL
 	}
 	addr := os.Getenv("MADAO_LISTEN")
 	if addr == "" {

@@ -1,8 +1,4 @@
-// credential.go 码道凭据：一整套华为云 Web 会话 Cookie（含 cftk）。
-//
-// 码道没有 OAuth2 授权码流程，也没有 API Key；授权等价于"浏览器登录后的会话导入"。
-// 适配器用独立 Chromium 打开码道登录页，由用户完成华为云登录（可能含验证码），
-// 登录成功后从浏览器上下文导出 Cookie 落盘。运行时用这些 Cookie + cftk 头访问站内接口。
+// credential.go 保存官方 Ask 授权及刷新上下文，旧网页凭据只保留用于识别重新授权。
 package main
 
 import (
@@ -16,12 +12,13 @@ import (
 	"sub2api/builtinlogin"
 )
 
-// credential 是一次码道 Web 会话的等价物。Cookie 已按名排序，便于稳定比较与落盘。
+// credential 对应一个码道账号，IAM 授权用于纯文本 Ask 对话。
 type credential struct {
 	UID      string       `json:"uid"`
 	Nickname string       `json:"nickname,omitempty"`
-	Cftk     string       `json:"cftk"`
-	Cookies  []cookiePair `json:"cookies"`
+	Cftk     string       `json:"cftk,omitempty"`
+	Cookies  []cookiePair `json:"cookies,omitempty"`
+	IAM      *iamGrant    `json:"iam,omitempty"`
 }
 
 type cookiePair struct {
@@ -40,9 +37,9 @@ func (c credential) cookieHeader() string {
 	return strings.Join(pairs, "; ")
 }
 
-// usable 判断凭据是否具备最小可用信息：cftk 与至少一个会话 Cookie。
+// usable 仅接受官方 Ask 临时凭据，不把旧 Cookie 登录当作 Ask 授权。
 func (c credential) usable() bool {
-	return strings.TrimSpace(c.Cftk) != "" && len(c.Cookies) > 0
+	return c.IAM != nil && c.IAM.Credentials.usable()
 }
 
 func normalizeCookies(cookies []cookiePair) []cookiePair {
@@ -101,32 +98,37 @@ func (a *adapter) snapshot() (credential, error) {
 	c := a.credential
 	a.mu.RUnlock()
 	if !c.usable() {
-		return c, problem(401, "madao_login_required", "Sign in to CodeArts (码道) first")
+		return c, problem(401, "madao_login_required", "Authorize CodeArts Ask again; web cookies cannot access Ask")
 	}
 	return c, nil
 }
 
-// importCredential 用一次真实站内请求（GET /rest/me）验证会话，验证通过才落盘。
+// importCredential 使用签名的当前用户接口验证 Ask 授权，验证通过才落盘。
 func (a *adapter) importCredential(ctx context.Context, imported credential) (*builtinlogin.Account, error) {
 	imported.Cftk = strings.TrimSpace(imported.Cftk)
 	imported.Cookies = normalizeCookies(imported.Cookies)
 	if !imported.usable() {
-		return nil, &builtinlogin.PublicError{Status: 400, Message: "A CodeArts session cookie and cftk token are required"}
+		return nil, &builtinlogin.PublicError{Status: 400, Message: "A CodeArts Ask authorization is required"}
 	}
-	me, err := a.verifySession(ctx, imported)
+	me, err := a.verifyAskSession(ctx, imported)
 	if err != nil {
-		return nil, &builtinlogin.PublicError{Status: 400, Message: "CodeArts could not verify this browser session"}
+		return nil, &builtinlogin.PublicError{Status: 400, Message: "CodeArts could not verify this Ask authorization"}
 	}
 	imported.UID = me.UserID
+	grant := *imported.IAM
+	grant.UserName = me.UserName
+	imported.IAM = &grant
 	if imported.Nickname == "" {
 		imported.Nickname = me.NickName
 	}
 	if imported.Nickname == "" {
 		imported.Nickname = me.UserName
 	}
+	a.refreshMu.Lock()
+	defer a.refreshMu.Unlock()
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	// 同一账号重新登录时以最新 Cookie 覆盖旧值；不同账号则替换当前会话。
+	// 使用最新授权替换当前凭据，保留经上游验证的账号身份。
 	if err := a.save(imported); err != nil {
 		return nil, err
 	}

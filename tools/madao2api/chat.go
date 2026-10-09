@@ -1,8 +1,4 @@
-// chat.go 把 OpenAI Chat Completions 请求翻译成码道 CloudAgent 会话，
-// 再把会话事件流聚合成一次（可选流式）回复。
-//
-// 码道是"带工具的 Agent 会话"，不是纯文本补全接口。适配器为每个请求创建
-// 一个一次性会话，把完整对话历史拍平为单条提示，收集文本增量，最后关闭会话。
+// chat.go 把 OpenAI 文本对话翻译成官方 Ask 请求，并转发正文增量。
 package main
 
 import (
@@ -12,10 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"log"
 	"net/http"
 	"strings"
-	"time"
 )
 
 type chatRequest struct {
@@ -50,7 +44,7 @@ func parseChat(w http.ResponseWriter, r *http.Request) (chatRequest, string, str
 		switch key {
 		case "model", "messages", "stream", "stream_options":
 		case "tools", "tool_choice", "functions", "function_call":
-			// 码道 Agent 自带工具，外部注入的工具协议不受支持。
+			// Ask 仅供对话，不接受外部工具协议。
 			if string(value) != "[]" && string(value) != "null" && string(value) != `"none"` && string(value) != `"auto"` {
 				return req, "", "", problem(400, "unsupported_parameter", "CodeArts adapter does not accept client tools: "+key)
 			}
@@ -148,7 +142,7 @@ func decodeOne(w http.ResponseWriter, r *http.Request, value any) error {
 	return nil
 }
 
-// generate 创建临时任务并消费消息 POST 的事件流，结束后删除该任务。
+// generate 只调用官方 Ask，不创建 CloudAgent 任务。
 func (a *adapter) generate(ctx context.Context, c credential, prompt, model string, onToken func(string) error) (string, error) {
 	if err := a.acquire(ctx); err != nil {
 		return "", err
@@ -156,18 +150,7 @@ func (a *adapter) generate(ctx context.Context, c credential, prompt, model stri
 	defer a.release()
 	streamCtx, cancel := context.WithTimeout(ctx, a.streamTimeout)
 	defer cancel()
-	sessionID, err := a.sessionCreate(streamCtx, c)
-	if err != nil {
-		return "", err
-	}
-	defer func() {
-		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
-		defer cancel()
-		if err := a.sessionDelete(cleanupCtx, c, sessionID); err != nil {
-			log.Printf("CodeArts temporary session cleanup failed: %v", err)
-		}
-	}()
-	result, err := a.sessionMessages(streamCtx, c, sessionID, prompt, model, onToken)
+	result, err := a.askCompletion(streamCtx, c, prompt, model, onToken)
 	if err != nil {
 		return result.Text, err
 	}
