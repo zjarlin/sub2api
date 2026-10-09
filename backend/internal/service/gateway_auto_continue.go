@@ -18,6 +18,10 @@ import (
 // forwardWithAutoContinue 将助手停顿及内部选择隐藏在同一个 HTTP 回合中。
 // 客户端只接收最终真实响应 ID 和工具调用，不需要理解新的事件或伪造用户回复。
 func (s *OpenAIGatewayService) forwardWithAutoContinue(ctx context.Context, c *gin.Context, account *Account, body []byte) (result *OpenAIForwardResult, err error) {
+	body, err = s.restoreDeepSeekCompaction(body)
+	if err != nil {
+		return nil, err
+	}
 	clientWriter, clientRequest := c.Writer, c.Request
 	startedAt := time.Now()
 	var firstClientByte *int
@@ -33,10 +37,12 @@ func (s *OpenAIGatewayService) forwardWithAutoContinue(ctx context.Context, c *g
 	p := s.autoContinuePolicy()
 	var previousWriter *autoContinueWriter
 	var previousResult *OpenAIForwardResult
+	var previousErr error
 	var previousBody []byte
 	var previousPricingAt time.Time
 	var decisions []*AutoContinueDecision
 	rounds := 0
+	compacted := false
 	for {
 		writer := newAutoContinueWriter(clientWriter)
 		writer.onRelease = func() {
@@ -46,17 +52,46 @@ func (s *OpenAIGatewayService) forwardWithAutoContinue(ctx context.Context, c *g
 			}
 		}
 		writer.reportItems = autoContinueReportItems(body, decisions, getAPIKeyIDFromContext(c), s.cfg.JWT.Secret)
-		if rounds > 0 {
+		if rounds > 0 || compacted {
 			writer.Header().Set("X-Sub2API-Auto-Continue", "continued")
+		}
+		if compacted {
+			writer.Header().Set("X-Sub2API-Auto-Compaction", "compacted")
 		}
 		c.Writer = writer
 		request := clientRequest.Clone(ctx)
 		request.Body = io.NopCloser(bytes.NewReader(body))
 		request.ContentLength = int64(len(body))
+		if compacted {
+			// 压缩后的历史不再沿用压缩前的不透明回合游标；会话关联仍保留。
+			request.Header.Del(openAICodexTurnStateHeader)
+			request.Header.Del("x-codex-turn-metadata")
+		}
 		c.Request = request
 		pricingAt := time.Now()
 		result, err := s.forwardOnce(ctx, c, account, body)
-		if err != nil && previousResult != nil && !writer.live && ctx.Err() == nil {
+		contextError := autoContinueContextError(writer)
+		if !compacted && contextError && ctx.Err() == nil {
+			nextBody, decision, compactErr := s.compactAutoContinue(ctx, c, account, body, "")
+			if compactErr == nil {
+				compactErr = s.recordAutoContinueDecision(ctx, c, body, decision)
+			}
+			if compactErr == nil {
+				if previousResult != nil {
+					appendAutoContinueUsage(c, account, previousBody, previousPricingAt, previousResult)
+				}
+				previousWriter, previousResult, previousErr = writer, result, err
+				previousBody, previousPricingAt = body, pricingAt
+				body, compacted = nextBody, true
+				decisions = append(decisions, decision)
+				logger.FromContext(ctx).Info("gateway.auto_compaction", zap.Int64("account_id", account.ID))
+				continue
+			}
+			writer.Header().Set("X-Sub2API-Auto-Compaction", "failed")
+			logger.FromContext(ctx).Warn("gateway.auto_compaction_failed", zap.Int64("account_id", account.ID), zap.Error(compactErr))
+		}
+		failed := err != nil || result == nil || contextError || writer.Status() >= 400
+		if failed && previousWriter != nil && !writer.live && ctx.Err() == nil {
 			// 已有成功结果时，续跑故障不丢掉原来的询问，也不将额外错误发给客户端。
 			if result != nil {
 				appendAutoContinueUsage(c, account, body, pricingAt, result)
@@ -64,15 +99,18 @@ func (s *OpenAIGatewayService) forwardWithAutoContinue(ctx context.Context, c *g
 			logger.FromContext(ctx).Warn("gateway.auto_continue_forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 			previousWriter.reportItems = autoContinueReportItems(previousBody, decisions, getAPIKeyIDFromContext(c), s.cfg.JWT.Secret)
 			previousWriter.Header().Set("X-Sub2API-Auto-Continue", "forward_failed")
+			if compacted {
+				previousWriter.Header().Set("X-Sub2API-Auto-Compaction", "retry_failed")
+			}
 			if flushErr := previousWriter.release(); flushErr != nil {
 				return previousResult, flushErr
 			}
-			return previousResult, nil
+			return previousResult, previousErr
 		}
 		if previousResult != nil {
 			appendAutoContinueUsage(c, account, previousBody, previousPricingAt, previousResult)
 		}
-		if err != nil || result == nil || writer.live || rounds >= p.MaxRounds || ctx.Err() != nil {
+		if failed || writer.live || rounds >= p.MaxRounds || ctx.Err() != nil {
 			if rounds > 0 && !writer.live {
 				writer.Header().Set("X-Sub2API-Auto-Continue", "continued")
 			}
@@ -94,7 +132,15 @@ func (s *OpenAIGatewayService) forwardWithAutoContinue(ctx context.Context, c *g
 		if candidate == nil {
 			return result, writer.release()
 		}
-		decision, decisionErr := s.decideAutoContinue(ctx, c, account, body, candidate)
+		var nextBody []byte
+		var decision *AutoContinueDecision
+		var decisionErr error
+		needsCompaction := !compacted && len(candidate.Questions) == 0 && autoContinueNeedsCompaction(candidate.Text)
+		if needsCompaction {
+			nextBody, decision, decisionErr = s.compactAutoContinue(ctx, c, account, body, candidate.Text)
+		} else {
+			decision, decisionErr = s.decideAutoContinue(ctx, c, account, body, candidate)
+		}
 		if decisionErr != nil {
 			logger.FromContext(ctx).Warn("gateway.auto_continue_decision_failed", zap.Int64("account_id", account.ID), zap.Error(decisionErr))
 			writer.Header().Set("X-Sub2API-Auto-Continue", "decision_unavailable")
@@ -108,14 +154,19 @@ func (s *OpenAIGatewayService) forwardWithAutoContinue(ctx context.Context, c *g
 			writer.Header().Set("X-Sub2API-Auto-Continue", "record_failed")
 			return result, writer.release()
 		}
-		nextBody, buildErr := autoContinueBuildRequest(body, response, candidate, decision)
-		if buildErr != nil {
-			logger.FromContext(ctx).Warn("gateway.auto_continue_replay_failed", zap.Error(buildErr))
-			return result, writer.release()
+		if nextBody == nil {
+			var buildErr error
+			nextBody, buildErr = autoContinueBuildRequest(body, response, candidate, decision)
+			if buildErr != nil {
+				logger.FromContext(ctx).Warn("gateway.auto_continue_replay_failed", zap.Error(buildErr))
+				return result, writer.release()
+			}
 		}
 		previousWriter, previousResult = writer, result
+		previousErr = nil
 		previousBody, previousPricingAt = body, pricingAt
 		body = nextBody
+		compacted = compacted || needsCompaction
 		decisions = append(decisions, decision)
 		rounds++
 		logger.FromContext(ctx).Info("gateway.auto_continue", zap.Int64("account_id", account.ID), zap.Int("round", rounds), zap.Int("questions", len(candidate.Questions)))
@@ -141,6 +192,7 @@ type autoContinueWriter struct {
 	written      bool
 	live         bool
 	inspected    int
+	contentSeen  bool
 	startedAt    time.Time
 	reportItems  []json.RawMessage
 	livePending  bytes.Buffer
@@ -202,7 +254,7 @@ func (w *autoContinueWriter) Write(data []byte) (int, error) {
 		return w.writeLive(data)
 	}
 	w.written = true
-	if w.body.Len()+len(data) > autoContinueBufferLimit || time.Since(w.startedAt) > 15*time.Second {
+	if w.body.Len()+len(data) > autoContinueBufferLimit {
 		if err := w.release(); err != nil {
 			return 0, err
 		}
@@ -222,6 +274,9 @@ func (w *autoContinueWriter) Write(data []byte) (int, error) {
 	}
 	liveTool := false
 	forEachOpenAISSEFrame(string(pending[:boundary+2]), func(eventType string, frame []byte) {
+		if strings.HasSuffix(eventType, ".delta") || eventType == "response.completed" {
+			w.contentSeen = true
+		}
 		if eventType != "response.output_item.added" && eventType != "response.output_item.done" {
 			return
 		}
@@ -238,7 +293,8 @@ func (w *autoContinueWriter) Write(data []byte) (int, error) {
 		}
 	})
 	w.inspected += boundary + 2
-	if liveTool {
+	// created/心跳与半帧不代表已有可见输出；晚到的终态错误仍可先恢复再向客户端提交。
+	if liveTool || (w.contentSeen && time.Since(w.startedAt) > 15*time.Second && !autoContinueContextError(w)) {
 		return n, w.release()
 	}
 	return n, nil

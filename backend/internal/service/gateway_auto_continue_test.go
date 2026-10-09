@@ -477,6 +477,7 @@ func TestAutoContinueEligibilityRejectsOpaqueAndOrdinaryRequests(t *testing.T) {
 		`{"input":"这两个菜单重复吗？"}`,
 		`{"input":"继续","previous_response_id":"resp_opaque","tools":[{"type":"function","name":"exec_command"}]}`,
 		`{"input":"修复","background":true,"tools":[{"type":"function","name":"exec_command"}]}`,
+		`{"input":[{"role":"user","content":"修复"},{"type":"compaction_trigger"}],"tools":[{"type":"function","name":"exec_command"}]}`,
 	} {
 		c, _ := autoContinueTestContext([]byte(body), 9, 7)
 		require.False(t, svc.autoContinueEligible(context.Background(), c, []byte(body)), fmt.Sprintf("body: %s", body))

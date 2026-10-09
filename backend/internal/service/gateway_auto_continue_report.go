@@ -37,10 +37,10 @@ func autoContinueReportItems(body []byte, decisions []*AutoContinueDecision, api
 	var reports []json.RawMessage
 	for _, decision := range decisions {
 		// 直接修复不额外弹卡；有方案裁决时展示来源、方案和理由，并允许人纠正。
-		if decision.Source != "arbiter" && len(decision.Selections) == 0 {
+		if decision.Source != "arbiter" && decision.Source != "compaction" && len(decision.Selections) == 0 {
 			continue
 		}
-		source := map[string]string{"design": "既定设计", "repair": "已定位缺陷的修复", "arbiter": "最高档裁决"}[decision.Source]
+		source := map[string]string{"design": "既定设计", "repair": "已定位缺陷的修复", "arbiter": "最高档裁决", "compaction": "自动上下文压缩"}[decision.Source]
 		text := fmt.Sprintf("已采用以下方案并续跑：%s。依据：%s。决策来源：%s（%s）。记录编号：%s。需要调整时可在此反馈。", decision.Plan, decision.Reason, source, decision.Model, decision.ID)
 		var item map[string]any
 		if name != "" {

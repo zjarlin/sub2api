@@ -53,18 +53,29 @@ func (s *OpenAIGatewayService) autoContinuePolicy() config.GatewayAutoContinueCo
 	if p.JudgeTimeoutSeconds <= 0 || p.JudgeTimeoutSeconds > 120 {
 		p.JudgeTimeoutSeconds = 60
 	}
+	if p.CompactionChunkBytes < 4<<10 || p.CompactionChunkBytes > 512<<10 {
+		p.CompactionChunkBytes = 256 << 10
+	}
+	if p.CompactionMaxChunks < 1 || p.CompactionMaxChunks > 64 {
+		p.CompactionMaxChunks = 32
+	}
+	if p.CompactionTimeoutSeconds < 1 || p.CompactionTimeoutSeconds > 300 {
+		p.CompactionTimeoutSeconds = 120
+	}
 	return p
 }
 
 func (s *OpenAIGatewayService) autoContinueEligible(ctx context.Context, c *gin.Context, body []byte) bool {
 	if s.cfg == nil || !s.cfg.Gateway.AutoContinue.Enabled || c == nil ||
 		c.GetBool(visionFallbackInternalKey) || c.GetBool(searchFallbackInternalKey) ||
-		isOpenAIResponsesCompactPath(c) || GetOpenAIClientTransport(c) == OpenAIClientTransportWS {
+		isOpenAIResponsesCompactPath(c) || isOpenAINativeCompactionV2(c) ||
+		GetOpenAIClientTransport(c) == OpenAIClientTransportWS {
 		return false
 	}
 	// 不透明的服务器历史不足以判断原始目标和授权，后台任务也不在当前请求中续跑。
 	if gjson.GetBytes(body, "previous_response_id").String() != "" ||
 		gjson.GetBytes(body, "conversation").Exists() || gjson.GetBytes(body, "background").Bool() ||
+		gjson.GetBytes(body, `input.#(type=="compaction_trigger")`).Exists() ||
 		ctx.Err() != nil || gjson.GetBytes(body, "n").Int() > 1 {
 		return false
 	}
@@ -159,7 +170,7 @@ func autoContinueExtractCandidate(response []byte) *autoContinueCandidate {
 		return candidate
 	}
 	lower := strings.ToLower(candidate.Text)
-	if !containsAny(lower, "你回", "请选择", "请选", "选定后", "需要你定", "等你", "等待你", "尚未修改", "尚未实施", "尚未修复", "未修复", "是否继续", "要我继续", "回复继续", "choose an option", "which option", "shall i", "would you like me", "let me know", "reply with", "not yet modified", "not yet fixed") {
+	if !autoContinueNeedsCompaction(candidate.Text) && !containsAny(lower, "你回", "请选择", "请选", "选定后", "需要你定", "等你", "等待你", "尚未修改", "尚未实施", "尚未修复", "未修复", "是否继续", "要我继续", "回复继续", "choose an option", "which option", "shall i", "would you like me", "let me know", "reply with", "not yet modified", "not yet fixed") {
 		return nil
 	}
 	options := make(map[string]string)

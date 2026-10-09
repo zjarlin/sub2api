@@ -237,6 +237,9 @@ func isOpenAIContextWindowError(upstreamMsg string, upstreamBody []byte) bool {
 		if lower == "" {
 			return false
 		}
+		if lower == "11115" || strings.Contains(lower, "prompt_too_long") || strings.Contains(lower, "prompt is too long") {
+			return true
+		}
 		if strings.Contains(lower, "context_too_large") || strings.Contains(lower, "context_length_exceeded") {
 			return true
 		}
@@ -283,6 +286,8 @@ func isOpenAIContextWindowError(upstreamMsg string, upstreamBody []byte) bool {
 		"error.code",
 		"response.error.code",
 		"code",
+		"msg",
+		"extError.message",
 	} {
 		if match(gjson.GetBytes(upstreamBody, path).String()) {
 			return true

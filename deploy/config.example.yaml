@@ -234,6 +234,10 @@ gateway:
     timeout_seconds: 5
     min_confidence: 0.85
     judge_timeout_seconds: 60
+    # 上下文超限时分块生成历史摘要，当前 HTTP 请求最多压缩恢复一次。
+    compaction_chunk_bytes: 262144
+    compaction_max_chunks: 32
+    compaction_timeout_seconds: 120
   # Timeout for waiting upstream response headers (seconds)
   # 等待上游响应头超时时间（秒）
   response_header_timeout: 600

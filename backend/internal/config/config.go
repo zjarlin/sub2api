@@ -1262,12 +1262,15 @@ type GatewayLayaConfig struct {
 
 // GatewayAutoContinueConfig 只控制网关续跑，不扩大原始任务授权范围。
 type GatewayAutoContinueConfig struct {
-	Enabled             bool    `mapstructure:"enabled"`
-	DecisionModel       string  `mapstructure:"decision_model"`
-	MaxRounds           int     `mapstructure:"max_rounds"`
-	TimeoutSeconds      int     `mapstructure:"timeout_seconds"`
-	MinConfidence       float64 `mapstructure:"min_confidence"`
-	JudgeTimeoutSeconds int     `mapstructure:"judge_timeout_seconds"`
+	Enabled                  bool    `mapstructure:"enabled"`
+	DecisionModel            string  `mapstructure:"decision_model"`
+	MaxRounds                int     `mapstructure:"max_rounds"`
+	TimeoutSeconds           int     `mapstructure:"timeout_seconds"`
+	MinConfidence            float64 `mapstructure:"min_confidence"`
+	JudgeTimeoutSeconds      int     `mapstructure:"judge_timeout_seconds"`
+	CompactionChunkBytes     int     `mapstructure:"compaction_chunk_bytes"`
+	CompactionMaxChunks      int     `mapstructure:"compaction_max_chunks"`
+	CompactionTimeoutSeconds int     `mapstructure:"compaction_timeout_seconds"`
 }
 
 // GatewayMediaConfig 指向边缘配音与视频服务（edge-media）的内部地址。
@@ -2652,6 +2655,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.auto_continue.timeout_seconds", 5)
 	viper.SetDefault("gateway.auto_continue.min_confidence", 0.85)
 	viper.SetDefault("gateway.auto_continue.judge_timeout_seconds", 60)
+	viper.SetDefault("gateway.auto_continue.compaction_chunk_bytes", 256<<10)
+	viper.SetDefault("gateway.auto_continue.compaction_max_chunks", 32)
+	viper.SetDefault("gateway.auto_continue.compaction_timeout_seconds", 120)
 	viper.SetDefault("gateway.openai_passthrough_allow_timeout_headers", false)
 	viper.SetDefault("gateway.openai_compact_model", "gpt-5.5")
 	viper.SetDefault("gateway.live.max_session_duration_seconds", 3600)
