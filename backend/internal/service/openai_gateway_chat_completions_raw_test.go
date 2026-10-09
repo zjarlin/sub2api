@@ -53,6 +53,28 @@ func TestBuildOpenAIChatCompletionsURL(t *testing.T) {
 	}
 }
 
+func TestForwardAsChatCompletionsDashScopeImagePreservesEnvelopeAndBillsImages(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	body := []byte(`{"model":"wan2.7-image","messages":[{"role":"user","content":[{"type":"text","text":"a cat"}]}],"stream":false}`)
+	response := `{"model":"wan2.7-image","output":{"choices":[{"message":{"content":[{"type":"image","image":"https://cdn.example.com/cat.png"}]}}]},"usage":{"image_count":50,"size":"2048*2048"}}`
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+	upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(response))}}
+	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+	account := rawChatCompletionsTestAccount()
+	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 1, result.ImageCount)
+	require.Equal(t, ImageBillingSize2K, result.ImageSize)
+	require.Equal(t, ImageSizeSourceOutput, result.ImageSizeSource)
+	require.Equal(t, "2048x2048", result.ImageOutputSize)
+	require.Equal(t, map[string]int{ImageBillingSize2K: 1}, result.ImageSizeBreakdown)
+	require.JSONEq(t, response, recorder.Body.String())
+	require.Equal(t, "/v1/chat/completions", upstream.lastReq.URL.Path)
+}
+
 // TestBuildOpenAIResponsesURL_ProbeURL 锁定 probe/测试端点使用的 URL 构建逻辑，
 // 确保 buildOpenAIResponsesURL 对标准 OpenAI base_url 格式均拼出 `/v1/responses`。
 func TestBuildOpenAIResponsesURL_ProbeURL(t *testing.T) {

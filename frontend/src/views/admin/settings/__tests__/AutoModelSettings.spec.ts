@@ -23,6 +23,17 @@ beforeEach(() => {
 })
 
 describe('AutoModelSettings', () => {
+  it('保存图片降级顺序并拒绝重复模型', async () => {
+    const wrapper = await render()
+    await wrapper.get('[data-testid="image-fallback-models"]').setValue('wan2.7-image\ngpt-image-1')
+    await wrapper.get('.btn-primary').trigger('click')
+    await flushPromises()
+    expect(updateAutoModelPolicy).toHaveBeenLastCalledWith(expect.objectContaining({
+      vertical_routing: expect.objectContaining({ image_fallback_models: ['wan2.7-image', 'gpt-image-1'] }),
+    }))
+    await wrapper.get('[data-testid="image-fallback-models"]').setValue('wan2.7-image\nwan2.7-image')
+    expect(wrapper.get('.btn-primary').attributes('disabled')).toBeDefined()
+  })
   it('保存所有模型适用的垂直路由开关和媒体模型', async () => {
     const wrapper = await render()
     await wrapper.get('[data-testid="vertical-enabled"]').setValue(false)
@@ -32,7 +43,7 @@ describe('AutoModelSettings', () => {
     await wrapper.get('.btn-primary').trigger('click')
     await flushPromises()
     expect(updateAutoModelPolicy).toHaveBeenLastCalledWith(expect.objectContaining({
-      vertical_routing: { enabled: false, min_confidence: 0.8, timeout_ms: 1500, image_model: 'gpt-image-2', video_model: 'grok-imagine-video' },
+      vertical_routing: { enabled: false, min_confidence: 0.8, timeout_ms: 1500, image_model: 'gpt-image-2', video_model: 'grok-imagine-video', image_fallback_models: [] },
     }))
   })
   it('展示默认黑名单并保存修改，允许显式清空', async () => {

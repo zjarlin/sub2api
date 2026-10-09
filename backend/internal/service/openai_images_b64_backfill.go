@@ -24,6 +24,23 @@ const AccountExtraImagesURLToB64JSON = "images_url_to_b64_json"
 // openAIImageURLDownloadTimeout 是单张图片 url 下载的超时上限。
 const openAIImageURLDownloadTimeout = 60 * time.Second
 
+// Responses 图片适配复用受限下载器，不向图片地址发送上游凭据。
+func (s *OpenAIGatewayService) FetchResponseImage(ctx context.Context, rawURL string) (string, string, error) {
+	encoded, err := s.fetchOpenAIImageURLBase64(ctx, &Account{Concurrency: 1}, rawURL)
+	if err != nil {
+		return "", "", err
+	}
+	data, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil || !isBackfillImageContent(data) {
+		return "", "", errors.New("invalid generated image content")
+	}
+	format := strings.TrimPrefix(detectedImageContentType(data), "image/")
+	if format == "gif" {
+		return "", "", errors.New("unsupported Responses image format")
+	}
+	return encoded, format, nil
+}
+
 // ImagesURLToB64JSONEnabled 返回账户是否开启了 url 转 b64_json 回填。
 func ImagesURLToB64JSONEnabled(account *Account) bool {
 	return account != nil && account.getExtraBool(AccountExtraImagesURLToB64JSON)

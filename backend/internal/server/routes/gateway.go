@@ -163,7 +163,13 @@ func RegisterGatewayRoutes(
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "Videos API is not supported for this platform"}})
 	}
-	verticalIntent := h.Gateway.VerticalIntentMiddleware(compositeResolver, imagesHandler, videoGenerationHandler)
+	verticalIntent := h.Gateway.VerticalIntentMiddleware(compositeResolver, imagesHandler, videoGenerationHandler, func(c *gin.Context) {
+		if isOpenAIResponsesCompatibleGatewayPlatform(c) {
+			h.OpenAIGateway.ChatCompletions(c)
+			return
+		}
+		h.Gateway.ChatCompletions(c)
+	})
 	autoRoutesHandler := h.Gateway.AutoModelRoutesWithMedia(videoStatusHandler)
 	// /responses/*subpath 的子路径会被转发到上游同名端点之后，因此在入口就拒掉
 	// 不可转发的子路径，不让它进入调度与转发流程。可转发的判定见

@@ -19,6 +19,7 @@
             <label class="block text-sm">{{ t('admin.settings.autoModel.decisionTimeout') }}<input v-model.number="verticalRouting.timeout_ms" type="number" min="200" max="5000" step="100" class="input mt-1 w-full" /></label>
             <label class="block text-sm">{{ t('admin.settings.autoModel.imageModel') }}<input v-model.trim="verticalRouting.image_model" class="input mt-1 w-full" spellcheck="false" /></label>
             <label class="block text-sm">{{ t('admin.settings.autoModel.videoModel') }}<input v-model.trim="verticalRouting.video_model" class="input mt-1 w-full" spellcheck="false" /></label>
+            <label class="block text-sm sm:col-span-2">{{ t('admin.settings.autoModel.imageFallbackModels') }}<textarea v-model="imageFallbackText" data-testid="image-fallback-models" class="input mt-1 w-full font-mono text-sm" rows="3" spellcheck="false" /></label>
           </div>
         </div>
         <p v-if="validationError" role="alert" class="text-sm text-amber-700 dark:text-amber-300">{{ validationError }}</p>
@@ -37,6 +38,7 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 
 const { t } = useI18n()
 const blacklistText = ref('')
+const imageFallbackText = ref('')
 const loading = ref(false)
 const saving = ref(false)
 const loaded = ref(false)
@@ -46,7 +48,7 @@ const defaultVerticalRouting = { enabled: true, min_confidence: 0.8, timeout_ms:
 const verticalRouting = ref({ ...defaultVerticalRouting })
 const policy = computed<AutoModelPolicy>(() => ({
   blacklist: blacklistText.value.split(/[\s,，]+/).filter(Boolean),
-  vertical_routing: { ...verticalRouting.value },
+  vertical_routing: { ...verticalRouting.value, image_fallback_models: imageFallbackText.value.split(/[\s,，]+/).filter(Boolean) },
 }))
 const validationError = computed(() => {
   const rules = policy.value.blacklist
@@ -55,6 +57,11 @@ const validationError = computed(() => {
     return t('admin.settings.autoModel.invalidRules')
   }
   const vertical = verticalRouting.value
+  const fallbacks = policy.value.vertical_routing?.image_fallback_models ?? []
+  if (fallbacks.length > 4 || new Set(fallbacks).size !== fallbacks.length
+    || fallbacks.some(model => model.length > 512 || /[\s*]/.test(model))) {
+    return t('admin.settings.autoModel.invalidImageFallbacks')
+  }
   if (!Number.isFinite(vertical.min_confidence) || vertical.min_confidence < 0.8 || vertical.min_confidence > 1
     || !Number.isInteger(vertical.timeout_ms) || vertical.timeout_ms < 200 || vertical.timeout_ms > 5000
     || [vertical.image_model, vertical.video_model].some(model => model.length > 512 || /[\s*]/.test(model))) {
@@ -64,6 +71,7 @@ const validationError = computed(() => {
 })
 
 watch(blacklistText, () => { saved.value = false }, { flush: 'sync' })
+watch(imageFallbackText, () => { saved.value = false }, { flush: 'sync' })
 watch(verticalRouting, () => { saved.value = false }, { deep: true, flush: 'sync' })
 
 async function load() {
@@ -73,6 +81,7 @@ async function load() {
     const result = await getAutoModelPolicy()
     blacklistText.value = result.blacklist.join('\n')
     verticalRouting.value = { ...defaultVerticalRouting, ...result.vertical_routing }
+    imageFallbackText.value = (result.vertical_routing?.image_fallback_models ?? []).join('\n')
     loaded.value = true
   } catch (err) {
     error.value = extractApiErrorMessage(err, t('common.error'))
@@ -92,6 +101,7 @@ async function save() {
     const result = await updateAutoModelPolicy(policy.value)
     blacklistText.value = result.blacklist.join('\n')
     verticalRouting.value = { ...defaultVerticalRouting, ...result.vertical_routing }
+    imageFallbackText.value = (result.vertical_routing?.image_fallback_models ?? []).join('\n')
     saved.value = true
   } catch (err) {
     error.value = extractApiErrorMessage(err, t('common.error'))

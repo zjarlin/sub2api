@@ -21,7 +21,7 @@ import (
 )
 
 // 垂直能力在 Auto 选模前运行，显式模型 ID 也使用同一条能力路由。
-func (h *GatewayHandler) VerticalIntentMiddleware(resolver *service.CompositeRouteResolver, images, videos gin.HandlerFunc) gin.HandlerFunc {
+func (h *GatewayHandler) VerticalIntentMiddleware(resolver *service.CompositeRouteResolver, images, videos gin.HandlerFunc, chats ...gin.HandlerFunc) gin.HandlerFunc {
 	if resolver == nil {
 		resolver = service.NewCompositeRouteResolver(nil)
 	}
@@ -45,6 +45,10 @@ func (h *GatewayHandler) VerticalIntentMiddleware(resolver *service.CompositeRou
 		modelField := gjson.GetBytes(body, "model")
 		model := modelField.String()
 		explicitKind := verticalExplicitKind(text)
+		forcedImage := verticalForcedImageTool(body)
+		if forcedImage {
+			explicitKind = "image_generation"
+		}
 		names := requestmodel.FromBodyCandidates(c.FullPath(), c.GetHeader("Content-Type"), body)
 		if text == "" || len(text) > 16*1024 || model == "" || modelField.Type != gjson.String ||
 			len(names) != 1 || names[0] != model || explicitKind == "" {
@@ -57,6 +61,17 @@ func (h *GatewayHandler) VerticalIntentMiddleware(resolver *service.CompositeRou
 			return
 		}
 		vertical := policy.VerticalPolicy()
+		for _, tool := range gjson.GetBytes(body, "tools").Array() {
+			if explicitKind == "image_generation" && tool.Get("type").String() == "image_generation" {
+				if tool.Get("action").String() == "edit" {
+					c.Next()
+					return
+				}
+				if selected := tool.Get("model").String(); selected != "" {
+					vertical.ImageModel = selected
+				}
+			}
+		}
 		subject, ok := middleware2.GetAuthSubjectFromContext(c)
 		if !ok {
 			c.Next()
@@ -73,7 +88,7 @@ func (h *GatewayHandler) VerticalIntentMiddleware(resolver *service.CompositeRou
 			return
 		}
 		kind := explicitKind
-		if kind != "translation" {
+		if kind != "translation" && !forcedImage {
 			payload, err := verticalDecisionRequest(text)
 			if err != nil {
 				c.Next()
@@ -104,11 +119,33 @@ func (h *GatewayHandler) VerticalIntentMiddleware(resolver *service.CompositeRou
 			return
 		}
 		selected, platform, err := h.verticalMediaModel(c.Request.Context(), key.Group, resolver, kind, vertical)
+		if kind == "image_generation" && !service.GroupAllowsImageGeneration(key.Group) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": gin.H{"type": "permission_error", "message": service.ImageGenerationPermissionMessage()}})
+			return
+		}
+		if err == nil && selected == "" && kind == "image_generation" {
+			candidates := append([]string{policy.VerticalPolicy().ImageModel}, vertical.ImageFallbackModels...)
+			for _, candidate := range candidates {
+				if candidate == vertical.ImageModel {
+					continue
+				}
+				fallback := vertical
+				fallback.ImageModel = candidate
+				selected, platform, err = h.verticalMediaModel(c.Request.Context(), key.Group, resolver, kind, fallback)
+				if err != nil || selected != "" {
+					break
+				}
+			}
+		}
 		if err != nil || selected == "" || (kind == "image_generation" && images == nil) || (kind == "video_generation" && videos == nil) {
+			if forcedImage {
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "vertical_service_error", "message": "No image generation route is available"}})
+				return
+			}
 			c.Next()
 			return
 		}
-		h.executeVerticalMedia(c, key, model, body, text, kind, selected, platform, resolver, images, videos)
+		h.executeVerticalMedia(c, key, model, body, text, kind, selected, platform, resolver, images, videos, chats...)
 		c.Abort()
 	}
 }
@@ -226,7 +263,11 @@ func (h *GatewayHandler) verticalMediaModel(ctx context.Context, group *service.
 		if strings.ContainsAny(name, "*") || (group.ModelAllowlistEnabled() && !group.ModelAllowlist.Allows(model)) {
 			continue
 		}
-		decision, err := resolver.Resolve(ctx, group.ID, model, endpoint)
+		modelEndpoint := endpoint
+		if kind == "image_generation" && service.IsDashScopeChatImageModel(model) {
+			modelEndpoint = service.CompositeRouteEndpointChatCompletions
+		}
+		decision, err := resolver.Resolve(ctx, group.ID, model, modelEndpoint)
 		if err != nil {
 			return "", "", err
 		}

@@ -56,6 +56,22 @@ func TestImagesURLToB64JSONEnabled(t *testing.T) {
 	require.True(t, ImagesURLToB64JSONEnabled(&Account{Extra: map[string]any{AccountExtraImagesURLToB64JSON: true}}))
 }
 
+func TestFetchResponseImageRejectsInvalidContentAndPrivateHosts(t *testing.T) {
+	var svc *OpenAIGatewayService
+	encoded := base64.StdEncoding.EncodeToString(b64BackfillPNGBytes)
+	got, format, err := svc.FetchResponseImage(context.Background(), "data:image/png;base64,"+encoded)
+	require.NoError(t, err)
+	require.Equal(t, encoded, got)
+	require.Equal(t, "png", format)
+	for _, content := range []string{"data:image/png;base64,aGVsbG8=", "data:image/png;base64,invalid"} {
+		_, _, err := svc.FetchResponseImage(context.Background(), content)
+		require.Error(t, err)
+	}
+	for _, location := range []string{"http://127.0.0.1/image", "http://192.168.1.1/image", "http://localhost/image", "http://169.254.169.254/image"} {
+		require.Error(t, rejectPrivateImageHost(location))
+	}
+}
+
 func TestBackfillOpenAIImagesB64JSON(t *testing.T) {
 	wantB64 := base64.StdEncoding.EncodeToString(b64BackfillPNGBytes)
 

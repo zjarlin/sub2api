@@ -223,6 +223,8 @@ func TestVerticalDashScopeImageRequestAndRecognition(t *testing.T) {
 func TestVerticalDashScopeImageReplyParsesArtifacts(t *testing.T) {
 	cache := &observationCache{}
 	h := observationHandler(cache)
+	upstream := &codexModelsPinnedHTTPUpstream{bodies: map[int64]string{0: "\x89PNG\r\n\x1a\n\x00\x00\x00\x00"}}
+	h.openAIGatewayService = newPinnedCodexTestHandler(nil, upstream, 1).gatewayService
 	group := &service.Group{ID: 71, Platform: service.PlatformOpenAI}
 	key := &service.APIKey{ID: 81, GroupID: &group.ID, Group: group}
 	response := httptest.NewRecorder()
@@ -237,6 +239,8 @@ func TestVerticalDashScopeImageReplyParsesArtifacts(t *testing.T) {
 	require.Len(t, route.Operation.Artifacts, 1)
 	require.Equal(t, "https://cdn.example.com/a.png", route.Operation.Artifacts[0].URL)
 	require.Contains(t, response.Body.String(), "https://cdn.example.com/a.png")
+	require.Equal(t, "image_generation_call", gjson.Get(response.Body.String(), "output.1.type").String())
+	require.NotEmpty(t, gjson.Get(response.Body.String(), "output.1.result").String())
 	require.NotContains(t, response.Body.String(), "cdn.example.com/a.png?secret")
 }
 

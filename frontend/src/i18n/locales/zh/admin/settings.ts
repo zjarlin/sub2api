@@ -7,6 +7,8 @@ export default {
         decisionTimeout: '意图判断超时（毫秒）',
         imageModel: '图片生成模型 ID（空则自动选择）',
         videoModel: '视频生成模型 ID（空则自动选择）',
+        imageFallbackModels: '图片降级模型 ID（按顺序，每行一个，最多四个）',
+        invalidImageFallbacks: '图片降级模型最多四个，不能重复，ID 不得包含空白或通配符。',
         invalidVertical: '置信度须为 0.8 至 1，超时须为 200 至 5000 毫秒，媒体模型 ID 不得包含空白或通配符。',
         description: '黑名单仅约束 auto 选模、映射和降级；手动指定模型不受黑名单影响。垂直意图优先路由独立生效，适用于所有模型 ID。',
         blacklist: '模型黑名单',

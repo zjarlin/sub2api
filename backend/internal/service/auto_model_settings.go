@@ -16,11 +16,12 @@ type AutoModelPolicy struct {
 }
 
 type VerticalRoutingPolicy struct {
-	Enabled       bool    `json:"enabled"`
-	MinConfidence float64 `json:"min_confidence"`
-	TimeoutMS     int     `json:"timeout_ms"`
-	ImageModel    string  `json:"image_model"`
-	VideoModel    string  `json:"video_model"`
+	Enabled             bool     `json:"enabled"`
+	MinConfidence       float64  `json:"min_confidence"`
+	TimeoutMS           int      `json:"timeout_ms"`
+	ImageModel          string   `json:"image_model"`
+	ImageFallbackModels []string `json:"image_fallback_models,omitempty"`
+	VideoModel          string   `json:"video_model"`
 }
 
 func (p *AutoModelPolicy) VerticalPolicy() VerticalRoutingPolicy {
@@ -51,7 +52,17 @@ func (p *AutoModelPolicy) Validate() error {
 		if v.MinConfidence < 0.8 || v.MinConfidence > 1 || v.TimeoutMS < 200 || v.TimeoutMS > 5000 {
 			return fmt.Errorf("vertical routing confidence must be 0.8..1 and timeout must be 200..5000 ms")
 		}
-		for _, model := range []string{v.ImageModel, v.VideoModel} {
+		if len(v.ImageFallbackModels) > 4 {
+			return fmt.Errorf("vertical routing supports at most four image fallback models")
+		}
+		fallbacks := map[string]bool{}
+		for _, model := range v.ImageFallbackModels {
+			if model == "" || fallbacks[model] {
+				return fmt.Errorf("image fallback models must be nonempty and unique")
+			}
+			fallbacks[model] = true
+		}
+		for _, model := range append([]string{v.ImageModel, v.VideoModel}, v.ImageFallbackModels...) {
 			if len(model) > 512 || strings.ContainsAny(model, " \t\r\n*") {
 				return fmt.Errorf("vertical routing requires an exact media model ID")
 			}

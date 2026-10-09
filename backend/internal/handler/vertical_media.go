@@ -25,14 +25,92 @@ func persistVerticalState(c *gin.Context) {
 	}
 }
 
-func (h *GatewayHandler) executeVerticalMedia(c *gin.Context, key *service.APIKey, requested string, body []byte, prompt, kind, selected, platform string, resolver *service.CompositeRouteResolver, images, videos gin.HandlerFunc) {
+// 图片选项只取协议字段，不改写输入和系统提示；不支持的供应商参数明确报错。
+func verticalImageOptions(mediaBody, original []byte, dashScope bool) ([]byte, error) {
+	for _, tool := range gjson.GetBytes(original, "tools").Array() {
+		if tool.Get("type").String() != "image_generation" {
+			continue
+		}
+		for _, field := range []string{"size", "quality", "background", "output_format", "output_compression", "moderation"} {
+			value := tool.Get(field)
+			if !value.Exists() || value.String() == "auto" {
+				continue
+			}
+			if dashScope {
+				return nil, errors.New("Requested image options are not supported by the chat image adapter")
+			}
+			var err error
+			mediaBody, err = sjson.SetBytes(mediaBody, field, value.Value())
+			if err != nil {
+				return nil, err
+			}
+		}
+		break
+	}
+	return mediaBody, nil
+}
+
+func (h *GatewayHandler) executeVerticalMedia(c *gin.Context, key *service.APIKey, requested string, body []byte, prompt, kind, selected, platform string, resolver *service.CompositeRouteResolver, images, videos gin.HandlerFunc, chats ...gin.HandlerFunc) {
 	operation := &service.VerticalOperation{Kind: kind, Provider: platform}
 	route, finish := h.verticalObservation(c, key, requested, selected, operation)
 	defer finish()
+	route.State = "responding"
+	persistVerticalState(c)
+	status, result, err := h.requestVerticalMedia(c, key, body, prompt, kind, selected, platform, resolver, images, videos, chats...)
+	// 只对明确失败的生图请求降级；视频提交及成功出图后的下载不重复计费调用。
+	if kind == "image_generation" && err == nil && (status == 429 || status >= 500) && h.settingService != nil {
+		policy, policyErr := h.settingService.GetAutoModelPolicy(c.Request.Context())
+		if policyErr == nil {
+			seen := map[string]bool{selected: true}
+			for _, candidate := range policy.VerticalPolicy().ImageFallbackModels {
+				if c.Request.Context().Err() != nil || seen[candidate] {
+					continue
+				}
+				seen[candidate] = true
+				model, target, resolveErr := h.verticalMediaModel(c.Request.Context(), key.Group, resolver, kind, service.VerticalRoutingPolicy{ImageModel: candidate})
+				if resolveErr != nil || model == "" || seen[model] && model != candidate {
+					continue
+				}
+				seen[model] = true
+				selected, platform = model, target
+				route.SelectedModel, operation.Provider = selected, platform
+				route.AttemptedModels = append(route.AttemptedModels, selected)
+				c.Header("X-Sub2API-Selected-Model", selected)
+				persistVerticalState(c)
+				status, result, err = h.requestVerticalMedia(c, key, body, prompt, kind, selected, platform, resolver, images, videos, chats...)
+				if err != nil || (status != 429 && status < 500) {
+					break
+				}
+			}
+		}
+	}
+	if err != nil {
+		verticalFailure(c, route, status, err.Error())
+		return
+	}
+	h.finishVerticalMedia(c, key, requested, body, route, kind, selected, status, result)
+}
+
+func (h *GatewayHandler) requestVerticalMedia(c *gin.Context, key *service.APIKey, body []byte, prompt, kind, selected, platform string, resolver *service.CompositeRouteResolver, images, videos gin.HandlerFunc, chats ...gin.HandlerFunc) (int, []byte, error) {
 	endpoint := service.CompositeRouteEndpointImages
+	if kind == "video_generation" {
+		endpoint = service.CompositeRouteEndpointAny
+	} else if service.IsDashScopeChatImageModel(selected) {
+		endpoint = service.CompositeRouteEndpointChatCompletions
+	}
+	ctx := service.WithResolvedTargetPlatform(c.Request.Context(), platform)
+	decision, err := resolver.Resolve(ctx, key.Group.ID, selected, endpoint)
+	if err != nil {
+		return http.StatusServiceUnavailable, nil, errors.New("Media route unavailable")
+	}
+	mediaModel := selected
+	if decision.Matched && decision.UpstreamModel != "" {
+		mediaModel = decision.UpstreamModel
+	}
 	path := "/v1/images/generations"
 	handler := images
-	dashScopeImage := kind == "image_generation" && service.IsDashScopeChatImageModel(selected)
+	endpoint = service.CompositeRouteEndpointImages
+	dashScopeImage := kind == "image_generation" && service.IsDashScopeChatImageModel(mediaModel)
 	if kind == "video_generation" {
 		endpoint = service.CompositeRouteEndpointAny
 		path = "/v1/videos/generations"
@@ -41,30 +119,35 @@ func (h *GatewayHandler) executeVerticalMedia(c *gin.Context, key *service.APIKe
 		// 百炼图片模型只接受 Chat Completions 的 content 列表格式。
 		endpoint = service.CompositeRouteEndpointChatCompletions
 		path = "/v1/chat/completions"
+		if len(chats) == 0 || chats[0] == nil {
+			return http.StatusServiceUnavailable, nil, errors.New("Chat image adapter is unavailable")
+		}
+		handler = chats[0]
 	}
-	ctx := service.WithResolvedTargetPlatform(c.Request.Context(), platform)
-	mediaBody := verticalMediaRequest(selected, prompt, kind)
+	mediaBody := verticalMediaRequest(mediaModel, prompt, kind)
 	if dashScopeImage {
-		mediaBody = verticalDashScopeImageRequest(selected, prompt)
+		mediaBody = verticalDashScopeImageRequest(mediaModel, prompt)
 	}
-	decision, err := resolver.Resolve(ctx, key.Group.ID, selected, endpoint)
-	if err != nil {
-		verticalFailure(c, route, http.StatusServiceUnavailable, "Media route unavailable")
-		return
-	}
-	if decision.Matched {
-		ctx = service.WithCompositeRouteDecision(ctx, decision)
-		if decision.UpstreamModel != "" {
-			mediaBody, err = sjson.SetBytes(mediaBody, "model", decision.UpstreamModel)
-			if err != nil {
-				verticalFailure(c, route, http.StatusInternalServerError, "Unable to prepare media request")
-				return
-			}
+	if kind == "image_generation" {
+		var err error
+		mediaBody, err = verticalImageOptions(mediaBody, body, dashScopeImage)
+		if err != nil {
+			return http.StatusBadRequest, nil, err
 		}
 	}
-	route.State = "responding"
-	persistVerticalState(c)
+	if decision.Matched {
+		decision.Endpoint = endpoint
+		ctx = service.WithCompositeRouteDecision(ctx, decision)
+	}
+	if handler == nil {
+		return http.StatusServiceUnavailable, nil, errors.New("Media adapter is unavailable")
+	}
 	status, result := verticalInternalRequest(c, ctx, http.MethodPost, path, mediaBody, nil, handler)
+	return status, result, nil
+}
+
+func (h *GatewayHandler) finishVerticalMedia(c *gin.Context, key *service.APIKey, requested string, body []byte, route *service.AutoModelRouteObservation, kind, selected string, status int, result []byte) {
+	operation := route.Operation
 	if status < 200 || status >= 300 {
 		route.State = "failed"
 		if gjson.ValidBytes(result) && gjson.GetBytes(result, "error").Exists() {
@@ -75,11 +158,14 @@ func (h *GatewayHandler) executeVerticalMedia(c *gin.Context, key *service.APIKe
 		return
 	}
 	// 百炼/Wan 图片模型走 Chat Completions 出图，返回体结构与 OpenAI Images 不同。
-	if kind == "image_generation" && service.IsDashScopeChatImageModel(selected) {
+	if kind == "image_generation" && (service.IsDashScopeChatImageModel(selected) || gjson.GetBytes(result, "output.choices").IsArray()) {
 		h.finishVerticalDashScopeImage(c, key, requested, body, route, selected, result)
 		return
 	}
 	route.ResolvedModel = gjson.GetBytes(result, "model").String()
+	if route.ResolvedModel == "" {
+		route.ResolvedModel = selected
+	}
 	if kind == "video_generation" {
 		applyVerticalVideoResult(route, result)
 		if route.State == "responding" {
@@ -102,13 +188,25 @@ func (h *GatewayHandler) executeVerticalMedia(c *gin.Context, key *service.APIKe
 	}
 	var outputs []map[string]any
 	var text []string
-	for _, item := range gjson.GetBytes(result, "data").Array() {
-		if len(outputs)+len(operation.Artifacts) >= 16 {
+	for index, item := range gjson.GetBytes(result, "data").Array() {
+		if index >= 16 {
 			break
 		}
-		if location := verticalArtifactURL(item.Get("url").String()); location != "" {
+		if location := verticalArtifactURL(item.Get("url").String()); location != "" && item.Get("b64_json").String() == "" {
 			operation.Artifacts = append(operation.Artifacts, service.RouteArtifact{Kind: "image", URL: location})
 			text = append(text, "![生成图片](<"+location+">)")
+			if !strings.HasSuffix(c.Request.URL.Path, "/chat/completions") {
+				image, err := h.verticalResponseImage(c, location)
+				if err != nil {
+					verticalFailure(c, route, http.StatusBadGateway, "Unable to retrieve generated image")
+					return
+				}
+				outputs = append(outputs, image)
+				if verticalImagePayloadTooLarge(outputs) {
+					verticalFailure(c, route, http.StatusBadGateway, "Generated images exceed response size limit")
+					return
+				}
+			}
 		} else {
 			encoded := item.Get("b64_json").String()
 			format := "png"
@@ -126,7 +224,16 @@ func (h *GatewayHandler) executeVerticalMedia(c *gin.Context, key *service.APIKe
 				}
 			}
 			if decoded, err := base64.StdEncoding.DecodeString(encoded); err == nil && len(decoded) > 0 {
+				format = strings.TrimPrefix(http.DetectContentType(decoded), "image/")
+				if format != "png" && format != "jpeg" && format != "webp" {
+					verticalFailure(c, route, http.StatusBadGateway, "Image provider returned invalid image data")
+					return
+				}
 				outputs = append(outputs, map[string]any{"type": "image_generation_call", "status": "completed", "result": encoded, "output_format": format})
+				if verticalImagePayloadTooLarge(outputs) {
+					verticalFailure(c, route, http.StatusBadGateway, "Generated images exceed response size limit")
+					return
+				}
 				if strings.HasSuffix(c.Request.URL.Path, "/chat/completions") {
 					text = append(text, "![生成图片](data:image/"+format+";base64,"+encoded+")")
 				} else {
@@ -151,6 +258,7 @@ func (h *GatewayHandler) finishVerticalDashScopeImage(c *gin.Context, key *servi
 		route.ResolvedModel = model
 	}
 	var text []string
+	var outputs []map[string]any
 	for _, content := range gjson.GetBytes(result, "output.choices.0.message.content").Array() {
 		if len(operation.Artifacts) >= 16 {
 			break
@@ -167,13 +275,42 @@ func (h *GatewayHandler) finishVerticalDashScopeImage(c *gin.Context, key *servi
 		}
 		operation.Artifacts = append(operation.Artifacts, service.RouteArtifact{Kind: "image", URL: location})
 		text = append(text, "![生成图片](<"+location+">)")
+		if !strings.HasSuffix(c.Request.URL.Path, "/chat/completions") {
+			image, err := h.verticalResponseImage(c, location)
+			if err != nil {
+				verticalFailure(c, route, http.StatusBadGateway, "Unable to retrieve generated image")
+				return
+			}
+			outputs = append(outputs, image)
+			if verticalImagePayloadTooLarge(outputs) {
+				verticalFailure(c, route, http.StatusBadGateway, "Generated images exceed response size limit")
+				return
+			}
+		}
 	}
 	if len(text) == 0 {
 		verticalFailure(c, route, http.StatusBadGateway, "Image provider returned no artifact")
 		return
 	}
 	route.State = "completed"
-	writeVerticalReply(c, body, requested, strings.Join(text, "\n\n"), nil)
+	writeVerticalReply(c, body, requested, strings.Join(text, "\n\n"), outputs)
+}
+
+func (h *GatewayHandler) verticalResponseImage(c *gin.Context, location string) (map[string]any, error) {
+	encoded, format, err := h.openAIGatewayService.FetchResponseImage(c.Request.Context(), location)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{"type": "image_generation_call", "status": "completed", "result": encoded, "output_format": format}, nil
+}
+
+func verticalImagePayloadTooLarge(images []map[string]any) bool {
+	bytes := 0
+	for _, image := range images {
+		encoded, _ := image["result"].(string)
+		bytes += len(encoded)
+	}
+	return bytes > 64<<20
 }
 
 // 内部请求直接调用现有处理器，沿用用户身份、审计、并发、计费与任务归属。
@@ -211,7 +348,8 @@ func (w *verticalResultWriter) WriteHeaderNow() { w.written = true }
 func (w *verticalResultWriter) Write(body []byte) (int, error) {
 	w.written = true
 	if w.body.Len()+len(body) > 64<<20 {
-		w.status = http.StatusBadGateway
+		// 本地大小限制不能伪装成上游 5xx，否则会重复提交已成功的生成任务。
+		w.status = http.StatusRequestEntityTooLarge
 		return 0, errors.New("media response too large")
 	}
 	return w.body.Write(body)
@@ -287,7 +425,7 @@ func (h *GatewayHandler) refreshVerticalVideos(c *gin.Context, key *service.APIK
 		}
 		count++
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 2*time.Second)
-		ctx = service.WithResolvedTargetPlatform(ctx, service.PlatformGrok)
+		ctx = service.WithResolvedTargetPlatform(ctx, operation.Provider)
 		code, body := verticalInternalRequest(c, ctx, http.MethodGet, "/v1/videos/"+url.PathEscape(operation.TaskID), nil,
 			gin.Params{{Key: "request_id", Value: operation.TaskID}}, status)
 		cancel()

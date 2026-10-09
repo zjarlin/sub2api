@@ -91,6 +91,10 @@ func TestVerticalRoutingPolicyDefaultsAndValidation(t *testing.T) {
 		func(v *VerticalRoutingPolicy) { v.TimeoutMS = 0 },
 		func(v *VerticalRoutingPolicy) { v.ImageModel = "gpt-image-*" },
 		func(v *VerticalRoutingPolicy) { v.VideoModel = "invalid model" },
+		func(v *VerticalRoutingPolicy) { v.ImageFallbackModels = []string{""} },
+		func(v *VerticalRoutingPolicy) { v.ImageFallbackModels = []string{"wan2.7-image", "wan2.7-image"} },
+		func(v *VerticalRoutingPolicy) { v.ImageFallbackModels = []string{"gpt-image-*"} },
+		func(v *VerticalRoutingPolicy) { v.ImageFallbackModels = []string{"a", "b", "c", "d", "e"} },
 	} {
 		invalid := defaults
 		mutate(&invalid)

@@ -1624,6 +1624,7 @@ export interface AutoModelPolicy {
     min_confidence: number;
     timeout_ms: number;
     image_model: string;
+    image_fallback_models?: string[];
     video_model: string;
   };
 }

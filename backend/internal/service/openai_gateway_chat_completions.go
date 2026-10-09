@@ -106,6 +106,10 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 		return nil, visionErr
 	}
 	body = visionBody
+	// Wan 生图使用原生 Chat 请求和图片返回结构，不能转换到文本 Responses。
+	if IsDashScopeChatImageModel(resolveOpenAIForwardModel(account, gjson.GetBytes(body, "model").String(), defaultMappedModel)) {
+		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+	}
 
 	if account.Platform == PlatformGrok {
 		if account.IsGrokOAuth() {

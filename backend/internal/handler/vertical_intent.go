@@ -19,7 +19,7 @@ func verticalUserText(body []byte) string {
 	toolChoice := gjson.GetBytes(body, "tool_choice")
 	if !gjson.ValidBytes(body) || gjson.GetBytes(body, "previous_response_id").String() != "" ||
 		gjson.GetBytes(body, "response_format.type").String() != "" ||
-		(format != "" && format != "text") || (toolChoice.Exists() && toolChoice.String() != "auto" && toolChoice.String() != "none") {
+		(format != "" && format != "text") || (toolChoice.Exists() && toolChoice.String() != "auto" && toolChoice.String() != "none" && !verticalForcedImageTool(body)) {
 		return ""
 	}
 	for _, field := range []string{"input", "messages"} {
@@ -49,6 +49,22 @@ func verticalUserText(body []byte) string {
 		return strings.Join(messageContentText(content), "\n")
 	}
 	return ""
+}
+
+// 仅声明可用工具不能触发生图，显式强制生成工具才绕过分类。
+func verticalForcedImageTool(body []byte) bool {
+	choice := gjson.GetBytes(body, "tool_choice")
+	tools := gjson.GetBytes(body, "tools").Array()
+	forced := choice.Get("type").String() == "image_generation" || (choice.String() == "required" && len(tools) == 1)
+	if !forced {
+		return false
+	}
+	for _, tool := range tools {
+		if tool.Get("type").String() == "image_generation" && tool.Get("action").String() != "edit" {
+			return true
+		}
+	}
+	return false
 }
 
 func verticalDecisionRequest(text string) ([]byte, error) {

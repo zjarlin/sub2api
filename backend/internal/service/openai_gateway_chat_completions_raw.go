@@ -611,7 +611,11 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		observer = beginUpstreamResponseModelObservation(c)
 	}
 	respBody = unwrapOpenAIChatCompletionEnvelope(respBody)
-	if !gjson.ValidBytes(respBody) || !gjson.GetBytes(respBody, "choices").IsArray() {
+	imageCount := 0
+	if IsDashScopeChatImageModel(upstreamModel) && !gjson.GetBytes(respBody, "error").Exists() {
+		imageCount = dashScopeChatImageCount(respBody)
+	}
+	if !gjson.ValidBytes(respBody) || (!gjson.GetBytes(respBody, "choices").IsArray() && imageCount == 0) {
 		return nil, newOpenAIInvalidChatCompletionFailoverError(c, account, requestID, respBody)
 	}
 	observer.ObserveOpenAI(respBody, strings.TrimSpace(gjson.GetBytes(respBody, "type").String()))
@@ -642,7 +646,7 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	c.Writer.WriteHeader(http.StatusOK)
 	_, _ = c.Writer.Write(respBody)
 
-	return &OpenAIForwardResult{
+	result := &OpenAIForwardResult{
 		RequestID:                     requestID,
 		UpstreamHeaders:               resp.Header,
 		Usage:                         usage,
@@ -656,7 +660,28 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 		ServiceTier:                   resolvedOpenAIUpstreamServiceTier(c, serviceTier),
 		Stream:                        false,
 		Duration:                      time.Since(startTime),
-	}, nil
+	}
+	if imageCount > 0 {
+		size := strings.ReplaceAll(gjson.GetBytes(respBody, "usage.size").String(), "*", "x")
+		resolution := ResolveImageBillingSize("", []string{size})
+		result.ImageCount = imageCount
+		result.ImageSize = resolution.BillingSize
+		result.ImageOutputSize = resolution.OutputSize
+		result.ImageSizeSource = resolution.Source
+		result.ImageSizeBreakdown = map[string]int{resolution.BillingSize: imageCount}
+	}
+	return result, nil
+}
+
+// 按真实图片条目计数，避免将供应商声明的数量当成已生成结果。
+func dashScopeChatImageCount(body []byte) int {
+	count := 0
+	for _, content := range gjson.GetBytes(body, "output.choices.0.message.content").Array() {
+		if content.Get("type").String() == "image" && (content.Get("image").String() != "" || content.Get("image_url.url").String() != "") {
+			count++
+		}
+	}
+	return count
 }
 
 // buildOpenAIChatCompletionsURL 拼接上游 Chat Completions 端点 URL。

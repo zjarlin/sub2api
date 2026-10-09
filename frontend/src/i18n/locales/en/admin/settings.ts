@@ -7,6 +7,8 @@ export default {
         decisionTimeout: 'Decision timeout (milliseconds)',
         imageModel: 'Image model ID (empty for automatic selection)',
         videoModel: 'Video model ID (empty for automatic selection)',
+        imageFallbackModels: 'Image fallback model IDs (in order, one per line, up to four)',
+        invalidImageFallbacks: 'Use up to four unique image fallback IDs without whitespace or wildcards.',
         invalidVertical: 'Confidence must be 0.8 to 1, timeout 200 to 5000 ms, and media model IDs must not contain whitespace or wildcards.',
         description: 'The blacklist applies only to Auto selection, mappings and fallback retries. Vertical intent routing applies independently to every model ID.',
         blacklist: 'Model blacklist',

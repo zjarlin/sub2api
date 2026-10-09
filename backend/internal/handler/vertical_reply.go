@@ -79,8 +79,15 @@ func writeVerticalReply(c *gin.Context, body []byte, model, text string, images 
 		}
 	}
 	for index, image := range images {
-		for _, kind := range []string{"response.output_item.added", "response.output_item.done"} {
-			if !emit(kind, map[string]any{"type": kind, "sequence_number": sequence, "output_index": index + 1, "item": image}) {
+		pending := map[string]any{"id": image["id"], "type": "image_generation_call", "status": "in_progress", "result": ""}
+		for _, kind := range []string{"response.output_item.added", "response.image_generation_call.in_progress", "response.image_generation_call.generating", "response.image_generation_call.completed", "response.output_item.done"} {
+			value := map[string]any{"type": kind, "sequence_number": sequence, "output_index": index + 1, "item_id": image["id"]}
+			if kind == "response.output_item.added" {
+				value["item"] = pending
+			} else if kind == "response.output_item.done" {
+				value["item"] = image
+			}
+			if !emit(kind, value) {
 				return
 			}
 			sequence++
