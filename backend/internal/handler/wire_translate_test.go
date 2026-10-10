@@ -40,7 +40,7 @@ func TestProvideTranslateAggregatorPublicProviders(t *testing.T) {
 	t.Setenv("TRANSLATE_LIBRETRANSLATE_URL", "http://libretranslate:5000")
 	t.Setenv("TRANSLATE_HYMT_URL", "http://hymt:8080")
 	got := ProvideTranslateAggregator().AvailableProviders()
-	if !reflect.DeepEqual(got, []string{"baidu", "mymemory", "libretranslate", "hymt"}) {
+	if !reflect.DeepEqual(got, []string{"mymemory", "libretranslate", "hymt", "baidu"}) {
 		t.Fatalf("providers = %v", got)
 	}
 }

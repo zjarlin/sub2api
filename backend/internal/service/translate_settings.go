@@ -65,7 +65,7 @@ func DefaultTranslateProviderSettings() *TranslateProviderSettings {
 	cfg := translate.ConfigFromEnvironment()
 	s := &TranslateProviderSettings{
 		Enabled:  true,
-		Priority: []string{"caiyun", "google_web", "tencent", "baidu", "youdao", "mymemory", "libretranslate", "hymt"},
+		Priority: []string{"caiyun", "google_web", "mymemory", "libretranslate", "hymt", "tencent", "youdao", "baidu"},
 	}
 	s.Caiyun.Enabled = cfg.EnableFreeProviders || cfg.Caiyun != nil
 	if cfg.Caiyun != nil {
@@ -157,7 +157,7 @@ func (s *TranslateProviderSettings) ToTranslateConfig() *translate.Config {
 	if s == nil || !s.Enabled {
 		return cfg
 	}
-	cfg.Priority = append([]string(nil), s.Priority...)
+	cfg.Priority = translate.OrderPriority(s.Priority)
 	if s.Caiyun.Enabled {
 		cfg.EnableFreeProviders = true
 		cfg.Caiyun = &translate.CaiyunConfig{Token: s.Caiyun.Token}
@@ -199,7 +199,7 @@ func (s *TranslateProviderSettings) Masked() map[string]any {
 	}
 	return map[string]any{
 		"enabled":        s.Enabled,
-		"priority":       s.Priority,
+		"priority":       translate.OrderPriority(s.Priority),
 		"caiyun":         map[string]any{"enabled": s.Caiyun.Enabled, "token_set": s.Caiyun.Token != ""},
 		"tencent":        map[string]any{"enabled": s.Tencent.Enabled, "secret_id": mask(s.Tencent.SecretID), "secret_key_set": s.Tencent.SecretKey != "", "region": s.Tencent.Region},
 		"baidu":          map[string]any{"enabled": s.Baidu.Enabled, "app_id": s.Baidu.AppID, "secret_set": s.Baidu.Secret != ""},

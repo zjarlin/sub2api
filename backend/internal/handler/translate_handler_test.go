@@ -56,6 +56,11 @@ func TestTranslateHandlerUsesUpdatedSettingsWithoutRestart(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.Contains(t, rec.Body.String(), `"text":"Hello"`)
+	require.Contains(t, rec.Body.String(), `"status":"success"`)
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/providers", nil))
+	require.Contains(t, rec.Body.String(), `"health":[`)
+	require.Contains(t, rec.Body.String(), `"successes":1`)
 	settings.Enabled = false
 	require.NoError(t, svc.SetTranslateProviderSettings(context.Background(), settings))
 	rec = httptest.NewRecorder()

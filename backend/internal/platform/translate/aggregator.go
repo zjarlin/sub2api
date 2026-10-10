@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"log"
 	"sort"
+	"sync"
+	"time"
 )
 
 var ErrProviderUnavailable = errors.New("translate: provider is not configured")
@@ -13,6 +15,8 @@ var ErrProviderUnavailable = errors.New("translate: provider is not configured")
 // Aggregator 翻译服务聚合器，按优先级调用多个 Translator，失败自动回退
 type Aggregator struct {
 	translators []Translator
+	mu          sync.Mutex
+	health      map[string]*providerHealth
 }
 
 // NewAggregator 保留既有上游顺序，新接入服务追加为备用。
@@ -71,7 +75,7 @@ func NewAggregator(cfg *Config) *Aggregator {
 		}
 		sort.SliceStable(translators, func(i, j int) bool { return priority(translators[i].Name()) < priority(translators[j].Name()) })
 	}
-	return &Aggregator{translators: translators}
+	return &Aggregator{translators: translators, health: make(map[string]*providerHealth)}
 }
 
 // Translate 按优先级尝试翻译，首个成功即返回
@@ -79,29 +83,58 @@ func (a *Aggregator) Translate(ctx context.Context, req *TranslateRequest) (*Tra
 	if req == nil {
 		return nil, fmt.Errorf("translate: request is required")
 	}
+	if len(req.Text) == 0 || req.TargetLang == "" {
+		return nil, fmt.Errorf("translate: text and target language are required")
+	}
+	candidates := a.rankedProviders(time.Now())
 	if req.Provider != "" {
+		candidates = nil
 		for _, t := range a.translators {
 			if t.Name() == req.Provider {
-				return t.Translate(ctx, req)
+				candidates = append(candidates, t)
+				break
 			}
 		}
-		return nil, ErrProviderUnavailable
+		if len(candidates) == 0 {
+			return nil, ErrProviderUnavailable
+		}
 	}
-	if len(a.translators) == 0 {
-		return nil, fmt.Errorf("translate: no providers configured")
-	}
-
-	var lastErr error
-	for _, t := range a.translators {
-		resp, err := t.Translate(ctx, req)
-		if err != nil {
-			log.Printf("[translate] %s failed: %v", t.Name(), err)
-			lastErr = err
+	attempts := make([]TranslationAttempt, 0, len(candidates))
+	for _, t := range candidates {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		if req.Provider == "" && a.cooling(t.Name(), time.Now()) {
+			attempts = append(attempts, TranslationAttempt{Provider: t.Name(), Status: "cooldown", Reason: "temporarily unavailable after previous failures; recovery pending"})
 			continue
 		}
+		started := time.Now()
+		attemptCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		resp, err := t.Translate(attemptCtx, req)
+		cancel()
+		elapsed := time.Since(started)
+		if ctx.Err() != nil {
+			a.releaseProbe(t.Name())
+			return nil, ctx.Err()
+		}
+		if err == nil {
+			err = validateTranslation(req, resp)
+		}
+		score := a.record(t.Name(), elapsed, err == nil, time.Now())
+		status := "success"
+		if err != nil {
+			status = "failed"
+		}
+		attempts = append(attempts, TranslationAttempt{Provider: t.Name(), Status: status, LatencyMS: elapsed.Milliseconds(), Score: score, Reason: failureReason(err, req.Text)})
+		if err != nil {
+			log.Printf("[translate] provider=%s status=failed latency_ms=%d score=%.1f", t.Name(), elapsed.Milliseconds(), score)
+			continue
+		}
+		resp.Provider = t.Name()
+		resp.Attempts = attempts
 		return resp, nil
 	}
-	return nil, fmt.Errorf("translate: all providers failed, last error: %w", lastErr)
+	return nil, &ChainError{Attempts: attempts}
 }
 
 // DetectLanguage 使用最高优先级的可用服务商检测语言
@@ -114,8 +147,9 @@ func (a *Aggregator) DetectLanguage(ctx context.Context, text string) (string, e
 
 // AvailableProviders 返回已注册的服务商名称列表
 func (a *Aggregator) AvailableProviders() []string {
-	names := make([]string, len(a.translators))
-	for i, t := range a.translators {
+	providers := a.rankedProviders(time.Now())
+	names := make([]string, len(providers))
+	for i, t := range providers {
 		names[i] = t.Name()
 	}
 	return names

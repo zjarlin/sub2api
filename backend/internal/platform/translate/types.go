@@ -13,8 +13,9 @@ type TranslateRequest struct {
 
 // TranslateResponse 统一翻译响应
 type TranslateResponse struct {
-	Translations []TranslationResult `json:"translations"`
-	Provider     string              `json:"provider"` // 实际使用的服务商名称
+	Translations []TranslationResult  `json:"translations"`
+	Attempts     []TranslationAttempt `json:"attempts,omitempty"`
+	Provider     string               `json:"provider"` // 实际使用的服务商名称
 }
 
 // TranslationResult 单条翻译结果

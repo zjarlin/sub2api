@@ -3,6 +3,8 @@ package handler
 import (
 	"context"
 	"errors"
+	"net/http"
+
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/platform/translate"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -57,6 +59,14 @@ func (h *TranslateHandler) Translate(c *gin.Context) {
 			response.BadRequest(c, "Unknown or unavailable translation provider")
 			return
 		}
+		var chain *translate.ChainError
+		if errors.As(err, &chain) {
+			c.JSON(http.StatusBadGateway, response.Response{
+				Code: http.StatusBadGateway, Message: chain.Error(), Reason: "translation_providers_failed",
+				Data: gin.H{"attempts": chain.Attempts},
+			})
+			return
+		}
 		response.InternalError(c, err.Error())
 		return
 	}
@@ -74,5 +84,6 @@ func (h *TranslateHandler) Providers(c *gin.Context) {
 	}
 	response.Success(c, gin.H{
 		"providers": aggregator.AvailableProviders(),
+		"health":    aggregator.ProviderHealth(),
 	})
 }

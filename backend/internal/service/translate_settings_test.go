@@ -25,7 +25,7 @@ func TestTranslateSettingsPreserveEnvironmentAndMaskSecrets(t *testing.T) {
 	require.NotContains(t, string(data), "hymt-private")
 	require.Contains(t, string(data), `"secret_set":true`)
 	providers := translate.NewAggregator(s.ToTranslateConfig()).AvailableProviders()
-	require.Equal(t, "baidu", providers[0])
+	require.Equal(t, "hymt", providers[0])
 	s.Enabled = false
 	require.Empty(t, translate.NewAggregator(s.ToTranslateConfig()).AvailableProviders())
 }
@@ -46,4 +46,13 @@ func TestTranslateSettingsPriorityAndValidation(t *testing.T) {
 	s.HyMT.BaseURL = "http://inference:8000"
 	s.Priority[1] = "hymt"
 	require.Error(t, s.Validate())
+}
+
+func TestTranslateSettingsMaskedPriorityKeepsBaiduLast(t *testing.T) {
+	s := DefaultTranslateProviderSettings()
+	s.Priority = []string{"baidu", "tencent", "hymt", "mymemory", "youdao", "libretranslate", "caiyun", "google_web"}
+	want := []string{"hymt", "mymemory", "libretranslate", "caiyun", "google_web", "tencent", "youdao", "baidu"}
+	require.Equal(t, want, s.Masked()["priority"])
+	require.Equal(t, want, s.ToTranslateConfig().Priority)
+	require.Equal(t, "baidu", s.Priority[0])
 }
