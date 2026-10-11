@@ -24,7 +24,7 @@ func isDeepSeekNativeCompaction(c *gin.Context) bool {
 
 // 按最终上游模型识别兼容账号，避免平台标签为 openai 时漏掉 DeepSeek/GLM。
 func shouldBridgeDeepSeekCompaction(c *gin.Context, account *Account, body []byte) bool {
-	if account == nil || account.Type != AccountTypeAPIKey || account.IsOpenAIPassthroughEnabled() ||
+	if account == nil || account.Type != AccountTypeAPIKey ||
 		!isOpenAINativeCompactionV2(c) || account.IsAnthropicProtocol() {
 		return false
 	}

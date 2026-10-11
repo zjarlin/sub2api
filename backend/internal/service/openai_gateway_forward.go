@@ -335,7 +335,8 @@ func (s *OpenAIGatewayService) forwardOnce(ctx context.Context, c *gin.Context, 
 		}
 		return nil, errors.New("openai ws v1 is temporarily unsupported; use ws v2")
 	}
-	if passthroughEnabled {
+	// 压缩桥接必须同时转换请求和响应，不能再进入原样透传的响应处理。
+	if passthroughEnabled && !isDeepSeekNativeCompaction(c) {
 		attemptImageIntentInvalidated := false
 		if isCodexCLI && codexImageGenerationExplicitToolPolicy == codexImageGenerationExplicitToolPolicyStrip {
 			strippedBody, changed, stripErr := stripOpenAIImageGenerationToolsFromRawPayload(body)

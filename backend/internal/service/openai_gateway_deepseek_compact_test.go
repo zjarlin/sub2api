@@ -134,15 +134,15 @@ func TestDeepSeekCompactionRejectsTamperedToken(t *testing.T) {
 
 // 复现 openai 平台第三方账号的完整压缩与下一轮回放，而非只测试转换函数。
 func TestForwardDeepSeekCompatibleCompactionAndReplay(t *testing.T) {
-	for _, mode := range []string{"json", "sse", "sse_output_in_done"} {
+	for _, mode := range []string{"json", "sse", "sse_output_in_done", "passthrough_json", "passthrough_sse", "passthrough_sse_output_in_done"} {
 		t.Run(mode, func(t *testing.T) {
-			body := []byte(`{"model":"deepseek-v4-flash","stream":true,"input":[{"role":"user","content":"remember COMPACT-728"},{"type":"compaction_trigger"}],"tools":[{"type":"function","name":"shell","parameters":{"type":"object"}}],"tool_choice":"auto"}`)
+			body := []byte(`{"model":"deepseek-v4.1-flash","stream":true,"input":[{"role":"user","content":"remember COMPACT-728"},{"type":"compaction_trigger"}],"tools":[{"type":"function","name":"shell","parameters":{"type":"object"}}],"tool_choice":"auto"}`)
 			response := `{"id":"resp_summary","object":"response","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"The marker is COMPACT-728"}]}],"usage":{"input_tokens":10,"output_tokens":8,"total_tokens":18}}`
 			resp := newOpenAIRejectedFieldTestResponse(http.StatusOK, response)
-			if mode != "json" {
+			if strings.HasSuffix(mode, "sse") || strings.HasSuffix(mode, "sse_output_in_done") {
 				resp.Header.Set("Content-Type", "text/event-stream")
 				streamBody := "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":" + response + "}\n\n"
-				if mode == "sse_output_in_done" {
+				if strings.HasSuffix(mode, "sse_output_in_done") {
 					item := gjson.Get(response, "output.0").Raw
 					output := gjson.Get(response, "output").Raw
 					terminal := strings.Replace(response, output, "[]", 1)
@@ -154,6 +154,7 @@ func TestForwardDeepSeekCompatibleCompactionAndReplay(t *testing.T) {
 			service := newOpenAIRejectedFieldTestService(upstream)
 			service.cfg.JWT.Secret = "compact-regression-test-secret"
 			account := newOpenAIRejectedFieldTestAccount()
+			account.Extra["openai_passthrough"] = strings.HasPrefix(mode, "passthrough_")
 			recorder := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(recorder)
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
@@ -169,7 +170,7 @@ func TestForwardDeepSeekCompatibleCompactionAndReplay(t *testing.T) {
 			require.Equal(t, "compaction", gjson.Get(events[0][1], "item.type").String())
 			token := gjson.Get(events[0][1], "item.encrypted_content").String()
 			// 模拟 Codex 仅持久化标准压缩字段，摘要不得依赖自定义 summary 字段。
-			replay, err := json.Marshal(map[string]any{"model": "deepseek-v4-flash", "stream": false, "input": []any{
+			replay, err := json.Marshal(map[string]any{"model": "deepseek-v4.1-flash", "stream": false, "input": []any{
 				map[string]any{"type": "compaction", "encrypted_content": token},
 				map[string]any{"role": "user", "content": "what was the marker?"},
 			}})
@@ -191,5 +192,16 @@ func TestDeepSeekCompactBridgeUsesUpstreamModel(t *testing.T) {
 	require.False(t, shouldBridgeDeepSeekCompaction(c, account, []byte(`{"model":"deepseek-label"}`)))
 	require.False(t, shouldBridgeDeepSeekCompaction(c, account, []byte(`{"model":"gpt-5.5"}`)))
 	account.Extra["openai_passthrough"] = true
-	require.False(t, shouldBridgeDeepSeekCompaction(c, account, []byte(`{"model":"alias"}`)))
+	require.True(t, shouldBridgeDeepSeekCompaction(c, account, []byte(`{"model":"alias"}`)))
+}
+
+// 普通透传聊天和原生支持压缩的模型不应进入国产模型摘要桥接。
+func TestDeepSeekCompactBridgePassthroughScope(t *testing.T) {
+	account := newOpenAIRejectedFieldTestAccount()
+	account.Extra["openai_passthrough"] = true
+	c := newOpenAIRejectedFieldTestContext(nil)
+	require.False(t, shouldBridgeDeepSeekCompaction(c, account, []byte(`{"model":"deepseek-v4.1-flash"}`)))
+	MarkOpenAINativeCompactionV2(c)
+	require.True(t, shouldBridgeDeepSeekCompaction(c, account, []byte(`{"model":"deepseek-v4.1-flash"}`)))
+	require.False(t, shouldBridgeDeepSeekCompaction(c, account, []byte(`{"model":"gpt-6-astra"}`)))
 }
