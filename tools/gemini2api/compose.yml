@@ -1,0 +1,29 @@
+services:
+  gemini2api:
+    build: .
+    image: sub2api-gemini-qa:local
+    restart: unless-stopped
+    environment:
+      G2A_API_KEY: ${G2A_API_KEY:?set adapter key}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:?set Gemini API key}
+      G2A_MODELS: ${G2A_MODELS:?set comma-separated model IDs}
+      G2A_LISTEN: 0.0.0.0:7877
+      G2A_UPSTREAM_PROXY: ${G2A_UPSTREAM_PROXY:-http://sub2api-openai-egress:7890}
+    networks:
+      - gateway
+    ports:
+      - "127.0.0.1:7877:7877"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7877/livez', timeout=5).read()"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+networks:
+  gateway:
+    external: true
+    name: ${G2A_DOCKER_NETWORK:-sub2api_sub2api-network}

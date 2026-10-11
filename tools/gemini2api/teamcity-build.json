@@ -1,0 +1,71 @@
+{
+  "id": "GeminiQA_Deploy252",
+  "name": "Deploy Gemini Q&A",
+  "project": {
+    "id": "GeminiQA"
+  },
+  "description": "部署独立 Gemini 文本问答适配器，真实验收后切换账号 885，不重启主网关。",
+  "parameters": {
+    "property": [
+      {
+        "name": "env.GEMINI_QA_SOURCE_DIR",
+        "value": ""
+      },
+      {
+        "name": "env.GEMINI_QA_REVISION",
+        "value": ""
+      },
+      {
+        "name": "env.GEMINI_QA_ACCOUNT_ID",
+        "value": "885"
+      },
+      {
+        "name": "env.DEPLOY_DIR",
+        "value": "/opt/sub2api"
+      },
+      {
+        "name": "teamcity.build.parallelBuildsCount",
+        "value": "1"
+      }
+    ]
+  },
+  "steps": {
+    "step": [
+      {
+        "name": "Validate and deploy Gemini Q&A",
+        "type": "simpleRunner",
+        "properties": {
+          "property": [
+            {
+              "name": "use.custom.script",
+              "value": "true"
+            },
+            {
+              "name": "script.content",
+              "value": "set -euo pipefail\ntest -n \"$GEMINI_QA_REVISION\"\ntest -n \"$GEMINI_QA_SOURCE_DIR\"\ncd \"$GEMINI_QA_SOURCE_DIR\"\ntest \"$(cat .revision)\" = \"$GEMINI_QA_REVISION\"\npython3 -m unittest -v\npython3 -m py_compile server.py deploy.py verify_runtime.py\npython3 deploy.py\n"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "agentRequirements": {
+    "agent-requirement": [
+      {
+        "type": "equals",
+        "properties": {
+          "property": [
+            {
+              "name": "property-name",
+              "value": "teamcity.agent.name"
+            },
+            {
+              "name": "property-value",
+              "value": "ip_172.19.0.1"
+            }
+          ]
+        }
+      }
+    ]
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "Gemini Q&A",
+  "platform": "openai",
+  "type": "apikey",
+  "group_ids": [
+    6
+  ],
+  "concurrency": 2,
+  "credentials": {
+    "base_url": "http://gemini2api:7877",
+    "api_key": "REPLACE_WITH_G2A_API_KEY",
+    "model_mapping": {
+      "gemini-2.5-flash": "gemini-2.5-flash"
+    }
+  },
+  "extra": {
+    "openai_apikey_responses_websockets_v2_enabled": false,
+    "openai_responses_supported": true,
+    "openai_responses_mode": "force_responses"
+  }
+}
