@@ -49,7 +49,7 @@
       }
     ]
   },
-  "agentRequirements": {
+  "agent-requirements": {
     "agent-requirement": [
       {
         "type": "equals",
