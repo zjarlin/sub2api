@@ -178,6 +178,9 @@ func autoModelTextCandidate(model string) bool {
 	for _, specialized := range []string{
 		"embed", "esmfold", "moderation", "image", "audio", "video", "tts-", "whisper", "transcri", "dall-e",
 		"translate", "translation", "safety", "guard", "calibration", "rerank", "re-rank", "classifier", "reward-model", "parser",
+		// 决策/分类模型只做单次前向判定，不产出文本；供应商聚合目录常把它
+		// 当作普通聊天模型登记，纳入 Auto 只会把文本请求打到不支持的端点。
+		"decision-model",
 	} {
 		if strings.Contains(name, specialized) {
 			return false
