@@ -2971,6 +2971,19 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
+	if account.Platform == service.PlatformModel3D {
+		provider, err := service.Model3DAccountProvider(account)
+		if err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		}
+		models := make([]gin.H, 0)
+		for _, model := range provider.Info().Models {
+			models = append(models, gin.H{"id": model.ID, "display_name": model.DisplayName, "type": "model"})
+		}
+		response.Success(c, models)
+		return
+	}
 	// Handle Antigravity accounts: return Claude + Gemini models
 	if account.Platform == service.PlatformAntigravity {
 		// 直接复用 antigravity.DefaultModels()，与 /v1/models 端点保持同步

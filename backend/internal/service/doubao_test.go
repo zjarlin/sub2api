@@ -55,6 +55,13 @@ func TestDoubaoCredentialValidation(t *testing.T) {
 	}
 	account := doubaoTestAccount()
 	require.NoError(t, validateDoubaoCredentials(account.Platform, account.Type, account.Credentials))
+	account.Credentials["desktop_session"] = "team_2"
+	require.NoError(t, validateDoubaoCredentials(account.Platform, account.Type, account.Credentials))
+	account.Credentials["desktop_session"] = "../session"
+	require.Error(t, validateDoubaoCredentials(account.Platform, account.Type, account.Credentials))
+	account.Credentials["desktop_session"] = 123
+	require.Error(t, validateDoubaoCredentials(account.Platform, account.Type, account.Credentials))
+	delete(account.Credentials, "desktop_session")
 	require.Error(t, validateDoubaoCredentials(account.Platform, AccountTypeOAuth, account.Credentials))
 	// 内置模式下地址由后端注入，账号不存默认公网端点。
 	delete(account.Credentials, "base_url")
@@ -126,12 +133,14 @@ func TestDoubaoCreateDuplicateAndUpdate(t *testing.T) {
 func TestDoubaoConnectionAndPlatform(t *testing.T) {
 	enableBuiltinAdapterForTest(t)
 	account := doubaoTestAccount()
+	account.Credentials["desktop_session"] = "alice"
 	svc, upstream := adaptiveCNAccountTestService(account, adaptiveCNChatTestResponse())
 	c, recorder := newTestContext()
 	require.NoError(t, svc.TestAccountConnection(c, account.ID, "", "hi", AccountTestModeDefault))
 	require.Len(t, upstream.requests, 1)
 	require.Equal(t, "http://upstream.example/v1/chat/completions", upstream.requests[0].URL.String())
 	require.Equal(t, "Bearer adapter-test-key", upstream.requests[0].Header.Get("Authorization"))
+	require.Equal(t, "alice", upstream.requests[0].Header.Get("X-Desktop-Profile"))
 	require.Equal(t, DefaultDoubaoTestModel, gjson.GetBytes(upstream.lastBody, "model").String())
 	require.Contains(t, recorder.Body.String(), `"type":"test_complete"`)
 	for _, model := range []string{"doubao-chat-turbo", "doubao/custom"} {
@@ -145,6 +154,21 @@ func TestDoubaoConnectionAndPlatform(t *testing.T) {
 	body, err := providerDoubaoChatAdapter.buildBody(DefaultDoubaoTestModel, "hi")
 	require.NoError(t, err)
 	require.False(t, gjson.GetBytes(body, "max_tokens").Exists())
+}
+
+func TestDoubaoModelCatalogUsesSelectedSession(t *testing.T) {
+	enableBuiltinAdapterForTest(t)
+	account := doubaoTestAccount()
+	account.Credentials["desktop_session"] = "alice"
+	svc := &AccountTestService{cfg: upstreamModelSyncTestConfig()}
+	svc.cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	req, err := svc.buildOpenAIUpstreamModelsRequest(context.Background(), account)
+	require.NoError(t, err)
+	require.Equal(t, "alice", req.Header.Get("X-Desktop-Profile"))
+	delete(account.Credentials, "desktop_session")
+	req, err = svc.buildOpenAIUpstreamModelsRequest(context.Background(), account)
+	require.NoError(t, err)
+	require.Equal(t, "default", req.Header.Get("X-Desktop-Profile"))
 }
 
 func TestDoubaoChatNormalizesLegacyTokenLimitAtForwardingBoundary(t *testing.T) {
@@ -163,8 +187,13 @@ func TestDoubaoChatNormalizesLegacyTokenLimitAtForwardingBoundary(t *testing.T) 
 			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 			upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"id":"chatcmpl-test","object":"chat.completion","model":"doubao-pro","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))}}
 			svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
-			_, err := svc.ForwardAsChatCompletions(context.Background(), c, doubaoTestAccount(), body, "", "")
+			account := doubaoTestAccount()
+			account.Credentials["desktop_session"] = "alice"
+			c.Request.Header.Set("X-Desktop-Profile", "bob")
+			_, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "")
 			require.NoError(t, err)
+			require.Equal(t, "alice", upstream.lastReq.Header.Get("X-Desktop-Profile"))
+			require.NotEmpty(t, upstream.lastReq.Header.Get("X-Desktop-Session"))
 			require.False(t, gjson.GetBytes(upstream.lastBody, "max_tokens").Exists())
 			require.Equal(t, tc.want, gjson.GetBytes(upstream.lastBody, "max_completion_tokens").Int())
 			require.Equal(t, "hi", gjson.GetBytes(upstream.lastBody, "messages.0.content").String())
@@ -181,11 +210,15 @@ func TestDoubaoResponsesToolRoundtrip(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
 	upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"id":"resp_doubao","object":"response","created_at":1,"status":"completed","model":"doubao-pro","output":[{"id":"fc_status","type":"function_call","call_id":"call-status","namespace":"local","name":"read_status","arguments":"{}","status":"completed"}]}`))}}
 	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
-	_, err := svc.Forward(context.Background(), c, doubaoTestAccount(), body)
+	account := doubaoTestAccount()
+	account.Credentials["desktop_session"] = "bob"
+	c.Request.Header.Set("X-Desktop-Profile", "alice")
+	_, err := svc.Forward(context.Background(), c, account, body)
 	require.NoError(t, err)
 	require.Equal(t, "http://upstream.example/v1/responses", upstream.lastReq.URL.String())
 	require.False(t, gjson.GetBytes(upstream.lastBody, "messages").Exists())
 	require.NotEmpty(t, upstream.lastReq.Header.Get("X-Desktop-Session"))
+	require.Equal(t, "bob", upstream.lastReq.Header.Get("X-Desktop-Profile"))
 	require.Equal(t, "namespace", gjson.GetBytes(upstream.lastBody, "tools.0.type").String())
 	require.Equal(t, "read_status", gjson.GetBytes(upstream.lastBody, "tools.0.tools.0.name").String())
 	require.Equal(t, "function_call", gjson.Get(rec.Body.String(), "output.0.type").String())
@@ -199,6 +232,7 @@ func TestDoubaoResponsesToolRoundtrip(t *testing.T) {
 	upstream.resp.Body = io.NopCloser(strings.NewReader(`{"id":"resp_doubao_2","object":"response","created_at":1,"status":"completed","model":"doubao-pro","output":[{"id":"msg_ready","type":"message","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ready","annotations":[]}]}]}`))
 	_, err = svc.Forward(context.Background(), c, doubaoTestAccount(), body)
 	require.NoError(t, err)
+	require.Equal(t, "default", upstream.lastReq.Header.Get("X-Desktop-Profile"))
 	require.Equal(t, "http://upstream.example/v1/responses", upstream.lastReq.URL.String())
 	require.Equal(t, "function_call_output", gjson.GetBytes(upstream.lastBody, "input.2.type").String())
 	require.Equal(t, "call-status", gjson.GetBytes(upstream.lastBody, "input.2.call_id").String())

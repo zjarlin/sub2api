@@ -61,6 +61,7 @@ const (
 	PlatformZcode       = domain.PlatformZcode
 	PlatformQoder       = domain.PlatformQoder
 	PlatformSystemOne   = domain.PlatformSystemOne
+	PlatformModel3D     = domain.PlatformModel3D
 	PlatformLaya        = domain.PlatformLaya
 	PlatformJev         = domain.PlatformJev
 	PlatformOpenCodeGo  = domain.PlatformOpenCodeGo
@@ -165,6 +166,7 @@ var AllowedQuotaPlatforms = []string{
 	PlatformVibex,
 	PlatformZcode,
 	PlatformSystemOne,
+	PlatformModel3D,
 	PlatformLaya,
 	PlatformJev,
 }

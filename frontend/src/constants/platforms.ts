@@ -33,7 +33,8 @@ export const CONCRETE_PLATFORM_OPTIONS = [
   { value: 'qoder', label: 'Qoder' },
   { value: 'cursor', label: 'Cursor' },
   { value: 'windsurf', label: 'Windsurf' },
-  { value: 'systemone', label: 'System One' }
+  { value: 'systemone', label: 'System One' },
+  { value: 'model3d', label: '3D (Meshy / Tripo / Hi3D)' }
 ] as const satisfies readonly PlatformOption<AccountPlatform>[]
 
 /** Platforms that can own a group. */

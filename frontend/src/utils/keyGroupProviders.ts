@@ -23,6 +23,7 @@ const PROVIDER_BY_PLATFORM: Record<GroupPlatform, KeyGroupProvider> = {
   zcode: 'domestic',
   qoder: 'domestic',
   systemone: 'domestic',
+  model3d: 'other',
   laya: 'domestic',
   jev: 'domestic',
   minimax: 'domestic',

@@ -76,6 +76,11 @@ vi.mock('vue-i18n', async () => {
 
 import CreateAccountModal from '../CreateAccountModal.vue'
 
+vi.mock('@/api/admin/builtinAdapters', async importOriginal => ({
+  ...await importOriginal<typeof import('@/api/admin/builtinAdapters')>(),
+  listDoubaoSessionProfiles: vi.fn().mockResolvedValue({ profiles: ['default', 'alice', 'bob'] }),
+}))
+
 const BaseDialogStub = defineComponent({
   name: 'BaseDialog',
   props: { show: { type: Boolean, default: false } },
@@ -366,6 +371,27 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(payload).toMatchObject({ platform: 'doubao', type: 'apikey', concurrency: 1 })
     expect(payload.credentials.base_url).toBeUndefined()
     expect(payload.credentials.api_key).toBeUndefined()
+    expect(payload.credentials.desktop_session).toBeUndefined()
+  })
+
+  it('saves only the selected Doubao session alias and resets it when reopened', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="platform-doubao"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="doubao-session-profile"]').setValue('bob')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Doubao Bob')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const payload = createAccountMock.mock.calls[0]?.[0]
+    expect(payload.credentials.desktop_session).toBe('bob')
+    expect(payload.credentials.cookies).toBeUndefined()
+    expect(payload.credentials.sessionid).toBeUndefined()
+    await wrapper.setProps({ show: false })
+    await wrapper.setProps({ show: true })
+    await wrapper.get('[data-testid="platform-doubao"]').trigger('click')
+    await flushPromises()
+    expect((wrapper.get('[data-testid="doubao-session-profile"]').element as HTMLSelectElement).value).toBe('default')
+    wrapper.unmount()
   })
 
   it('creates ZCode through the built-in adapter and exposes web authorization', async () => {
@@ -381,6 +407,27 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(payload.credentials.api_protocol).toBe('chat_completions')
     expect(payload.credentials.base_url).toBeUndefined()
     expect(payload.credentials.api_key).toBeUndefined()
+  })
+
+  it.each(['meshy', 'tripo', 'hi3d'])('creates a 3D %s account with provider credentials', async provider => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="platform-model3d"]').trigger('click')
+    await wrapper.get('[data-testid="model3d-provider"]').setValue(provider)
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('3D account')
+    if (provider === 'hi3d') await wrapper.get('[data-testid="model3d-client-id"]').setValue('client-id')
+    await wrapper.get('[data-testid="model3d-secret"]').setValue('private-secret')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const payload = createAccountMock.mock.calls[0]?.[0]
+    expect(payload).toMatchObject({ platform: 'model3d', type: 'apikey' })
+    expect(payload.credentials.model3d_provider).toBe(provider)
+    expect(payload.credentials.default_model).toBeTruthy()
+    if (provider === 'hi3d') {
+      expect(payload.credentials).toMatchObject({ client_id: 'client-id', client_secret: 'private-secret' })
+      expect(payload.credentials.api_key).toBeUndefined()
+    } else expect(payload.credentials.api_key).toBe('private-secret')
+    expect(payload.credentials.base_url).not.toContain('anthropic')
+    wrapper.unmount()
   })
 
   it('creates a System One account with the selected Laya upstream', async () => {

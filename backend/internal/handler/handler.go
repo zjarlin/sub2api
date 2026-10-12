@@ -74,6 +74,7 @@ type Handlers struct {
 	AsyncImage        *AsyncImageHandler
 	BatchImage        *BatchImageHandler
 	Translate         *TranslateHandler
+	Model3D           *Model3DHandler
 }
 
 // BuildInfo contains build-time information

@@ -1,6 +1,8 @@
 package service
 
 import (
+	"net/http"
+	"regexp"
 	"strings"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -8,6 +10,8 @@ import (
 
 // 豆包平台连接桌面会话适配器，不把凭据发送到火山方舟或其他默认地址。
 const DefaultDoubaoTestModel = "doubao-chat-turbo"
+
+var doubaoSessionProfilePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`)
 
 func DefaultDoubaoModelIDs() []string {
 	return []string{DefaultDoubaoTestModel, "doubao-auto", "doubao-pro"}
@@ -32,8 +36,26 @@ func validateDoubaoCredentials(platform, accountType string, credentials map[str
 	if strings.TrimSpace(key) == "" {
 		return infraerrors.BadRequest("INVALID_DOUBAO_CREDENTIALS", "doubao requires the built-in desktop adapter API key")
 	}
+	if value, exists := credentials["desktop_session"]; exists {
+		profile, ok := value.(string)
+		if !ok || (profile != "" && !doubaoSessionProfilePattern.MatchString(profile)) {
+			return infraerrors.BadRequest("INVALID_DOUBAO_CREDENTIALS", "doubao desktop_session must contain only letters, numbers, hyphens, or underscores")
+		}
+	}
 	if c, ok := credentials["api_protocol"].(string); ok && c != "" && c != APIProtocolChatCompletions && c != APIProtocolResponses && c != APIProtocolAdaptive {
 		return infraerrors.BadRequest("INVALID_DOUBAO_CREDENTIALS", "doubao supports responses and chat_completions through the desktop adapter")
 	}
 	return nil
+}
+
+// 会话选择只来自账号凭据，不能由调用方请求头覆盖。
+func setDoubaoProfileHeader(header http.Header, account *Account) {
+	if !account.IsDoubao() {
+		return
+	}
+	profile := strings.TrimSpace(account.GetCredential("desktop_session"))
+	if profile == "" {
+		profile = "default"
+	}
+	header.Set("X-Desktop-Profile", profile)
 }

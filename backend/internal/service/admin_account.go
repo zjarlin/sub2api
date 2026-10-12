@@ -495,6 +495,9 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 }
 
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
+	if err := ValidateModel3DAccount(input.Platform, input.Type, input.Credentials); err != nil {
+		return nil, err
+	}
 	applyBuiltinAdapterCredentials(input.Platform, input.Credentials)
 	normalizeFreeLaneCredentials(input.Platform, input.Credentials)
 	if err := validateDoubaoCredentials(input.Platform, input.Type, input.Credentials); err != nil {
@@ -661,6 +664,22 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		if len(shadows) > 0 {
 			return nil, infraerrors.New(http.StatusBadRequest, "SPARK_SHADOW_PARENT_IMMUTABLE_TYPE",
 				"cannot change account type while it has a spark shadow; delete the shadow first")
+		}
+	}
+	if account.Platform == PlatformModel3D {
+		effectiveType := account.Type
+		if input.Type != "" {
+			effectiveType = input.Type
+		}
+		credentials := account.Credentials
+		if input.Credentials != nil {
+			credentials = MergePreservingSensitiveCreds(credentials, input.Credentials)
+		}
+		if credentials["model3d_provider"] != account.Credentials["model3d_provider"] {
+			return nil, infraerrors.BadRequest("MODEL3D_ACCOUNT_INVALID", "Create a new account to change the 3D provider")
+		}
+		if err := ValidateModel3DAccount(account.Platform, effectiveType, credentials); err != nil {
+			return nil, err
 		}
 	}
 	wasOveragesEnabled := account.IsOveragesEnabled()
@@ -1046,6 +1065,15 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	}
 	// 批量路径直接合并数据库字段，需在首次写入前保护豆包协议与并发约束。
 	for _, account := range cachedTargets {
+		if account.Platform == PlatformModel3D && len(input.Credentials) > 0 {
+			credentials := mergeMap(account.Credentials, input.Credentials)
+			if credentials["model3d_provider"] != account.Credentials["model3d_provider"] {
+				return nil, infraerrors.BadRequest("MODEL3D_ACCOUNT_INVALID", "Changing 3D provider requires a new account")
+			}
+			if err := ValidateModel3DAccount(account.Platform, account.Type, credentials); err != nil {
+				return nil, err
+			}
+		}
 		if !account.IsDoubao() && !account.IsTraework() && !account.IsWorkbuddy() && !account.IsVibex() && !account.IsZcode() && !account.IsDeepseekWeb() && !account.IsMadao() && !account.IsLaya() && !account.IsJev() {
 			continue
 		}

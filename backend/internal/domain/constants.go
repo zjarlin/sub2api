@@ -35,6 +35,8 @@ const (
 	PlatformQoder = "qoder"
 	// System One 决策协议的统一账号平台。具体上游由 credentials.systemone_provider 区分。
 	PlatformSystemOne = "systemone"
+	// 3D 生成平台，服务商由账号凭据 model3d_provider 指定。
+	PlatformModel3D = "model3d"
 	// 保留旧值用于读取尚未迁移的历史账号。
 	PlatformLaya = "laya"
 	PlatformJev  = "jev"

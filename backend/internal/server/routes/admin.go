@@ -366,6 +366,10 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 	login.POST("/:session/:action", h.Admin.Account.BuiltinAdapterLogin)
 	login.GET("/:session/view", h.Admin.Account.BuiltinAdapterLogin)
 	login.DELETE("/:session", h.Admin.Account.BuiltinAdapterLogin)
+	doubaoProfiles := admin.Group("/builtin-adapters/doubao/profiles")
+	doubaoProfiles.GET("", h.Admin.Account.ListDoubaoSessionProfiles)
+	doubaoProfiles.POST("", gin.HandlerFunc(stepUpAuth), h.Admin.Account.UploadDoubaoSessionProfile)
+	doubaoProfiles.DELETE("/:profile", gin.HandlerFunc(stepUpAuth), h.Admin.Account.DeleteDoubaoSessionProfile)
 	accounts := admin.Group("/accounts")
 	{
 		accounts.GET("", h.Admin.Account.List)

@@ -2,6 +2,7 @@
 import hmac
 import json
 import os
+import re
 import threading
 import time
 import traceback
@@ -9,7 +10,7 @@ import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from api import completion, encode_stream, parse_request
-from client import DesktopClient
+from client import DesktopClient, validate_context
 from conversations import ConversationStore
 from reply import UpstreamError
 from structured_output import OutputValidationError
@@ -28,11 +29,17 @@ UPSTREAM_MESSAGES = {
 
 class Adapter:
     def __init__(self, session_file, key_file, max_request_body_bytes=DEFAULT_MAX_REQUEST_BODY_BYTES,
-                 state_file=None):
+                 state_file=None, profile_state_dir=None, profile_dir=None):
         self.max_request_body_bytes = int(max_request_body_bytes)
         if self.max_request_body_bytes <= 0:
             raise ValueError('DESKTOP_MAX_REQUEST_BODY_BYTES must be positive')
         self.session_file = Path(session_file)
+        self.profile_dir = Path(profile_dir) if profile_dir else self.session_file.parent / 'profiles'
+        self.default_state_file = Path(state_file) if state_file else None
+        self.profile_state_dir = Path(profile_state_dir) if profile_state_dir else (Path(state_file).parent / 'profile-state' if state_file else self.session_file.parent / 'profile-state')
+        self.profile_states = {}
+        self.profile_versions = {}
+        self.loaded_profile = None
         self.key = Path(key_file).read_text().strip()
         if len(self.key) < 32:
             raise ValueError('Adapter API key must have at least 32 characters')
@@ -43,18 +50,31 @@ class Adapter:
         self.client, self.version, self.blocked = None, None, False
         self.reload()
 
-    def reload(self):
-        version = self.session_file.stat().st_mtime_ns
-        if self.version != version:
-            raw = self.session_file.read_bytes()
+    def reload(self, profile='default'):
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', profile):
+            raise ValueError('Invalid desktop session profile')
+        session_file = self.session_file if profile == 'default' else self.profile_dir / (profile + '.json')
+        if not session_file.is_file():
+            raise ValueError('Unknown desktop session profile')
+        version = session_file.stat().st_mtime_ns
+        cached = self.profile_states.get(profile)
+        if cached is None or self.profile_versions.get(profile) != version:
+            raw = session_file.read_bytes()
             if len(raw) > 65536:
                 raise ValueError('Session snapshot exceeded limit')
             context = json.loads(raw)
-            self.client = DesktopClient(context)
-            self.conversations.bind_session(context)
-            self.responses.bind_session(context)
-            self.version, self.blocked = version, False
-            self.capacity_until.clear()
+            client = DesktopClient(context)
+            state_file = (self.default_state_file if profile == 'default' else
+                          self.profile_state_dir / (profile + '.json'))
+            conversations = ConversationStore(state_file)
+            response_store = ResponsesStore(str(state_file) + '.responses' if state_file else None)
+            conversations.bind_session(context)
+            response_store.bind_session(context)
+            self.profile_states[profile] = (client, conversations, response_store, False, {})
+            self.profile_versions[profile] = version
+        self.client, self.conversations, self.responses, self.blocked, self.capacity_until = self.profile_states[profile]
+        self.version = version
+        self.loaded_profile = profile
 
     def complete(self, request, scope=''):
         model = self.client.resolve_model(request.model)['id']
@@ -93,6 +113,60 @@ class Adapter:
         result = responses.completion(request, model, reply)
         self.responses.commit(request, model, scope, reply, result, plan)
         return result
+
+    def list_profiles(self):
+        names = ['default']
+        if self.profile_dir.is_dir():
+            names.extend(sorted(path.stem for path in self.profile_dir.glob('*.json')
+                                if path.is_file() and path.stem != 'default' and
+                                re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', path.stem)))
+        return names
+
+    def save_profile(self, profile, raw):
+        if not isinstance(profile, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', profile) or profile == 'default':
+            raise ValueError('Choose a profile name other than default')
+        if len(raw) > 65536:
+            raise ValueError('Session snapshot must not exceed 64 KiB')
+        context = json.loads(raw)
+        validate_context(context)
+        self.profile_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(self.profile_dir, 0o700)
+        self.profile_state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
+        os.chmod(self.profile_state_dir, 0o700)
+        target = self.profile_dir / (profile + '.json')
+        temporary = self.profile_dir / ('.' + profile + '.' + uuid.uuid4().hex + '.tmp')
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with os.fdopen(descriptor, 'wb') as output:
+                output.write(raw)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(temporary, target)
+        finally:
+            if temporary.exists():
+                temporary.unlink()
+        self.profile_states.pop(profile, None)
+        self.profile_versions.pop(profile, None)
+        self.clear_profile_state(profile)
+        return profile
+
+    def clear_profile_state(self, profile):
+        # 登录态替换或删除后，旧的会话游标与响应缓存也必须一起失效。
+        for suffix in ('.json', '.json.responses'):
+            path = self.profile_state_dir / (profile + suffix)
+            if path.exists():
+                path.unlink()
+
+    def delete_profile(self, profile):
+        if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', profile) or profile == 'default':
+            raise ValueError('The default profile cannot be deleted')
+        target = self.profile_dir / (profile + '.json')
+        if not target.is_file():
+            raise ValueError('Unknown desktop session profile')
+        target.unlink()
+        self.profile_states.pop(profile, None)
+        self.profile_versions.pop(profile, None)
+        self.clear_profile_state(profile)
 
 
 def handler_for(adapter):
@@ -154,17 +228,64 @@ def handler_for(adapter):
                 self.respond(200, {'status': 'verification_required' if adapter.blocked else 'ready',
                                    'needs_verification': adapter.blocked})
             elif self.authorize():
-                if self.path == '/v1/models':
-                    self.respond(200, {'object': 'list', 'data': [
-                        {'id': model['id'], 'object': 'model', 'created': 0, 'owned_by': 'doubao-desktop',
-                         'name': model['name']}
-                        for model in adapter.client.models.values()]})
+                if self.path == '/internal/profiles':
+                    self.respond(200, {'profiles': adapter.list_profiles()})
+                elif self.path == '/v1/models':
+                    if not adapter.lock.acquire(blocking=False):
+                        self.error(429, 'desktop_busy', 'One request is already running')
+                        return
+                    self.owns_lock = True
+                    try:
+                        adapter.reload(self.headers.get('X-Desktop-Profile') or 'default')
+                        self.respond(200, {'object': 'list', 'data': [
+                            {'id': model['id'], 'object': 'model', 'created': 0, 'owned_by': 'doubao-desktop',
+                             'name': model['name']}
+                            for model in adapter.client.models.values()]})
+                    except ValueError:
+                        self.error(400, 'invalid_session_profile', 'Desktop session profile is missing or invalid')
+                    except Exception:
+                        self.error(502, 'upstream_unavailable', 'Desktop session or model catalog unavailable')
+                    finally:
+                        if self.owns_lock:
+                            self.owns_lock = False
+                            adapter.lock.release()
                 else:
                     self.error(404, 'not_found', 'Endpoint not supported')
 
         def do_POST(self):
             self.request_id = uuid.uuid4().hex
             if not self.authorize():
+                return
+            if self.path.startswith('/internal/profiles/'):
+                profile = self.path[len('/internal/profiles/'):]
+                if not profile or '/' in profile:
+                    self.error(404, 'not_found', 'Endpoint not supported')
+                    return
+                if not adapter.lock.acquire(blocking=False):
+                    self.error(429, 'desktop_busy', 'One request is already running')
+                    return
+                self.owns_lock = True
+                try:
+                    if len(self.headers.get_all('Content-Length', [])) != 1:
+                        raise ValueError('Send exactly one Content-Length header')
+                    if self.headers.get('Transfer-Encoding'):
+                        raise ValueError('Transfer-Encoding is not supported')
+                    length = int(self.headers.get('Content-Length', '0'))
+                    if length <= 0 or length > 65536:
+                        raise ValueError('Session snapshot must be between 1 byte and 64 KiB')
+                    raw = self.rfile.read(length)
+                    if len(raw) != length:
+                        raise ValueError('Session snapshot body was incomplete')
+                    adapter.save_profile(profile, raw)
+                    self.respond(201, {'profile': profile})
+                except (ValueError, TypeError):
+                    self.error(400, 'invalid_session_profile', 'Upload a valid Doubao desktop session snapshot (up to 64 KiB) and profile name')
+                except OSError:
+                    self.error(500, 'profile_storage_error', 'Unable to save desktop session profile')
+                finally:
+                    if self.owns_lock:
+                        self.owns_lock = False
+                        adapter.lock.release()
                 return
             if self.path not in ('/v1/chat/completions', '/v1/responses'):
                 self.error(404, 'not_found', 'Use /v1/responses or /v1/chat/completions')
@@ -191,11 +312,14 @@ def handler_for(adapter):
                     raise ValueError('Request body does not match Content-Length')
                 is_responses = self.path == '/v1/responses'
                 request = (responses.parse_request if is_responses else parse_request)(json.loads(raw))
-                model = adapter.client.resolve_model(request.model)['id']
                 phase = 'session'
-                adapter.reload()
+                profile = self.headers.get('X-Desktop-Profile') or 'default'
+                adapter.reload(profile)
+                phase = 'request'
+                model = adapter.client.resolve_model(request.model)['id']
                 if adapter.blocked:
                     raise UpstreamError(710022004, 503)
+                # 存储已按账号隔离；保留空 scope 语义，避免把相同首问当作重试。
                 scope = (self.headers.get('X-Desktop-Session') or self.headers.get('session_id') or
                          self.headers.get('conversation_id') or '')
                 if len(scope) > 256:
@@ -233,6 +357,9 @@ def handler_for(adapter):
                 failure = error
                 if error.code == '710022004':
                     adapter.blocked = True
+                    if adapter.loaded_profile in adapter.profile_states:
+                        adapter.profile_states[adapter.loaded_profile] = (adapter.client, adapter.conversations,
+                            adapter.responses, adapter.blocked, adapter.capacity_until)
                 self.error(error.status, error.code, 'Desktop verification required; refresh session' if
                            adapter.blocked else UPSTREAM_MESSAGES.get(error.code, 'Desktop reply failed validation'))
             except (BrokenPipeError, ConnectionResetError) as error:
@@ -247,6 +374,32 @@ def handler_for(adapter):
                 finally:
                     if self.owns_lock:
                         adapter.lock.release()
+
+        def do_DELETE(self):
+            if not self.authorize():
+                return
+            if not self.path.startswith('/internal/profiles/'):
+                self.error(404, 'not_found', 'Endpoint not supported')
+                return
+            profile = self.path[len('/internal/profiles/'):]
+            if not profile or '/' in profile:
+                self.error(404, 'not_found', 'Endpoint not supported')
+                return
+            if not adapter.lock.acquire(blocking=False):
+                self.error(429, 'desktop_busy', 'One request is already running')
+                return
+            self.owns_lock = True
+            try:
+                adapter.delete_profile(profile)
+                self.respond(200, {'profile': profile, 'deleted': True})
+            except ValueError:
+                self.error(400, 'invalid_session_profile', 'Choose an existing named profile other than default')
+            except OSError:
+                self.error(500, 'profile_storage_error', 'Unable to delete desktop session profile')
+            finally:
+                if self.owns_lock:
+                    self.owns_lock = False
+                    adapter.lock.release()
     return Handler
 
 
@@ -254,7 +407,9 @@ if __name__ == '__main__':
     adapter = Adapter(os.environ.get('DOUBAO_SESSION_FILE', '/run/secrets/session.json'),
                       os.environ.get('DOUBAO_API_KEY_FILE', '/run/secrets/api_key'),
                       os.environ.get('DESKTOP_MAX_REQUEST_BODY_BYTES', DEFAULT_MAX_REQUEST_BODY_BYTES),
-                      os.environ.get('DESKTOP_STATE_FILE'))
+                      os.environ.get('DESKTOP_STATE_FILE'),
+                      os.environ.get('DESKTOP_PROFILE_STATE_DIR'),
+                      os.environ.get('DESKTOP_PROFILE_DIR'))
     server = ThreadingHTTPServer(('0.0.0.0', 8080), handler_for(adapter))
     server.daemon_threads = True
     print('Desktop subscription adapter listening on :8080', flush=True)

@@ -3,6 +3,8 @@ package middleware
 import (
 	"bytes"
 	"context"
+	"io"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -57,6 +59,40 @@ func TestBuiltinLoginCallbackBodyOmitted(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	require.Equal(t, http.StatusOK, w.Code)
+	auditService.Stop()
+	require.Len(t, repository.logs, 1)
+	require.Equal(t, "<credential-bearing body omitted>", repository.logs[0].RequestBody)
+}
+
+// 上传文件携带完整登录态，审计仅保留操作记录，不能保存文件内容。
+func TestDoubaoProfileUploadBodyOmitted(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repository := &auditCaptureRepository{}
+	auditService := service.NewAuditLogService(repository, nil)
+	auditService.Start()
+	router := gin.New()
+	router.Use(gin.HandlerFunc(NewAuditLogMiddleware(auditService)))
+	router.POST("/api/v1/admin/builtin-adapters/doubao/profiles", func(c *gin.Context) {
+		file, _, err := c.Request.FormFile("session")
+		require.NoError(t, err)
+		defer file.Close()
+		raw, err := io.ReadAll(file)
+		require.NoError(t, err)
+		require.Contains(t, string(raw), "audit-canary")
+		c.Status(http.StatusCreated)
+	})
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	part, err := writer.CreateFormFile("session", "session.json")
+	require.NoError(t, err)
+	_, err = io.WriteString(part, `{"cookies":{"sessionid":"audit-canary"}}`)
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/builtin-adapters/doubao/profiles", &body)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, req)
+	require.Equal(t, http.StatusCreated, recorder.Code)
 	auditService.Stop()
 	require.Len(t, repository.logs, 1)
 	require.Equal(t, "<credential-bearing body omitted>", repository.logs[0].RequestBody)

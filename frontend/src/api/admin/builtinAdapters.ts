@@ -70,6 +70,34 @@ export async function getBuiltinLoginView(platform: BuiltinLoginPlatform, id: st
   return data
 }
 
+export interface DoubaoSessionProfiles {
+  profiles: string[]
+}
+
+/** 返回已上传的豆包会话别名，不返回 Cookie 或快照内容。 */
+export async function listDoubaoSessionProfiles(signal?: AbortSignal) {
+  const { data } = await apiClient.get<DoubaoSessionProfiles>('/admin/builtin-adapters/doubao/profiles', { signal })
+  return data
+}
+
+/** 将 Mac 导出的 session.json 通过管理端上传到内置适配器。 */
+export async function uploadDoubaoSessionProfile(profile: string, session: File, signal?: AbortSignal) {
+  const form = new FormData()
+  form.append('profile', profile)
+  form.append('session', session, session.name || 'session.json')
+  const { data } = await apiClient.post<{ name: string }>('/admin/builtin-adapters/doubao/profiles', form, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+    signal,
+    timeout: 60000,
+  })
+  return data
+}
+
+/** 删除一个已上传的豆包会话快照。 */
+export async function deleteDoubaoSessionProfile(profile: string, signal?: AbortSignal) {
+  await apiClient.delete(`/admin/builtin-adapters/doubao/profiles/${encodeURIComponent(profile)}`, { signal })
+}
+
 export interface VibexUsage {
   wallet: { wallet_balance: number | null; min_balance_yuan: number | null }
   lite: { tokens: number | null; daily_token_limit: number | null; cost_yuan: number | null; daily_cost_limit_yuan: number | null }

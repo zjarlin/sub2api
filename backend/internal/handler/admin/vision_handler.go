@@ -55,6 +55,7 @@ func (h *VisionHandler) GetStatus(c *gin.Context) {
 		"enabled":             vision.Enabled,
 		"laya_enabled":        h.cfg.Gateway.Laya.Enabled,
 		"media_enabled":       h.cfg.Gateway.Media.Enabled,
+		"model3d_enabled":     h.cfg.Gateway.Model3D.Enabled,
 		"translate_enabled":   len(providers) > 0,
 		"translate_providers": providers,
 	})

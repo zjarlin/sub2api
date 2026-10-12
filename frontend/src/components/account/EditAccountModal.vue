@@ -245,7 +245,14 @@
           </div>
           <p class="input-hint mt-2">{{ t('admin.accounts.cnProviders.zhipuTeam.hint') }}</p>
         </div>
-        <div v-if="!isBuiltinAdapterAccount">
+        <DoubaoSessionProfiles
+          v-if="show && account.platform === 'doubao'"
+          :key="account.id"
+          v-model="doubaoSessionProfile"
+          @busy="doubaoSessionBusy = $event"
+        />
+        <Model3DAccountFields v-if="account.platform === 'model3d'" editing v-model:provider="model3dProvider" v-model:client-id="model3dClientId" v-model:secret="editApiKey" v-model:model="model3dDefaultModel" />
+        <div v-if="!isBuiltinAdapterAccount && account.platform !== 'model3d'">
           <label class="input-label">{{ t(account.platform === 'cursor' ? 'admin.accounts.cursor.apiKey' : account.platform === 'windsurf' ? 'admin.accounts.windsurf.apiKey' : 'admin.accounts.apiKey') }}</label>
           <input
             v-model="editApiKey"
@@ -3068,7 +3075,7 @@
         <button
           type="submit"
           form="edit-account-form"
-          :disabled="submitting"
+          :disabled="submitting || (account.platform === 'doubao' && doubaoSessionBusy)"
           class="btn btn-primary"
           data-tour="account-form-submit"
         >
@@ -3112,6 +3119,8 @@
 </template>
 
 <script setup lang="ts">
+import Model3DAccountFields from './Model3DAccountFields.vue'
+import DoubaoSessionProfiles from './DoubaoSessionProfiles.vue'
 import {
   requiresMixedSchedulingOptIn,
   usesAutomaticMixedScheduling
@@ -3309,6 +3318,11 @@ interface TempUnschedRuleForm {
 const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
+const model3dProvider = ref<'meshy' | 'tripo' | 'hi3d'>('meshy')
+const model3dClientId = ref('')
+const model3dDefaultModel = ref('')
+const doubaoSessionProfile = ref('default')
+const doubaoSessionBusy = ref(false)
 
 // ── 国产供应商（Kimi / Zhipu / DeepSeek）account_mode / api_protocol 编辑 ──
 // account_mode 决定额度/余额监控路径，api_protocol 决定转发端点与格式；
@@ -4100,6 +4114,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 
   // Load intercept warmup requests setting (applies to all account types)
   const credentials = newAccount.credentials as Record<string, unknown> | undefined
+  doubaoSessionProfile.value = typeof credentials?.desktop_session === 'string' && credentials.desktop_session
+    ? credentials.desktop_session : 'default'
   interceptWarmupRequests.value = credentials?.intercept_warmup_requests === true
   autoPauseOnExpired.value = newAccount.auto_pause_on_expired === true
   editVertexProjectId.value = ''
@@ -4338,6 +4354,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   // Initialize API Key fields for apikey type
   if (newAccount.type === 'apikey' && newAccount.credentials) {
     const credentials = newAccount.credentials as Record<string, unknown>
+    model3dProvider.value = credentials.model3d_provider === 'hi3d' ? 'hi3d' : credentials.model3d_provider === 'tripo' ? 'tripo' : 'meshy'
+    model3dClientId.value = String(credentials.client_id || '')
+    model3dDefaultModel.value = String(credentials.default_model || '')
     // 国产供应商：读取 account_mode 与 api_protocol 作为可编辑初始值
     // （编辑弹窗允许修正两者，用于修复早期存错默认值的账号）。
     if (isCNProviderPlatform(newAccount.platform) || newAccount.platform === 'opencode_go') {
@@ -4400,7 +4419,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       }
     }
     const platformDefaultUrl =
-      (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'madao', 'cursor', 'windsurf'].includes(newAccount.platform))
+      (['model3d', 'doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'madao', 'cursor', 'windsurf'].includes(newAccount.platform))
         ? ''
         : newAccount.platform === 'openai'
         ? 'https://api.openai.com'
@@ -5129,6 +5148,9 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
 
 const handleSubmit = async () => {
   if (!props.account) return
+  if (props.account.platform === 'doubao' && doubaoSessionBusy.value) {
+    return
+  }
   const accountID = props.account.id
 
   if (form.status !== 'active' && form.status !== 'inactive' && form.status !== 'error') {
@@ -5174,6 +5196,10 @@ const handleSubmit = async () => {
       // Always update credentials for apikey type to handle model mapping changes
       const newCredentials: Record<string, unknown> = {
         ...currentCredentials
+      }
+      if (props.account.platform === 'doubao') {
+        // 更新接口合并凭据，显式清空别名才能回到默认会话。
+        newCredentials.desktop_session = doubaoSessionProfile.value === 'default' ? '' : doubaoSessionProfile.value
       }
       // 内置适配器平台允许留空地址，交由后端注入内置地址。
       if (newBaseUrl) {
@@ -5239,14 +5265,19 @@ const handleSubmit = async () => {
       // 若后端尚未升级（无 credentials_status），回退读旧结构 currentCredentials.api_key。
       // 两者都无才报错。
       const hasExistingApiKey =
-        props.account.credentials_status?.has_api_key ?? Boolean(currentCredentials.api_key)
+        (props.account.platform === 'model3d' && model3dProvider.value === 'hi3d' ? props.account.credentials_status?.has_client_secret : props.account.credentials_status?.has_api_key) ?? Boolean(currentCredentials.api_key)
       if (editApiKey.value.trim()) {
-        newCredentials.api_key = editApiKey.value.trim()
+        newCredentials[props.account.platform === 'model3d' && model3dProvider.value === 'hi3d' ? 'client_secret' : 'api_key'] = editApiKey.value.trim()
       } else if (!hasExistingApiKey && props.account.platform !== 'kilo') {
         appStore.showError(t('admin.accounts.apiKeyIsRequired'))
         return
       }
 
+      if (props.account.platform === 'model3d') {
+        newCredentials.model3d_provider = model3dProvider.value
+        newCredentials.default_model = model3dDefaultModel.value.trim() || ({ meshy: 'meshy-5', tripo: 'v2.5-20250123', hi3d: 'hi3dv3.0' })[model3dProvider.value]
+        if (model3dProvider.value === 'hi3d') newCredentials.client_id = model3dClientId.value.trim()
+      }
       // 透传账号也保存模型调度白名单。
       const modelMapping = buildModelRestrictionMapping()
       if (modelMapping) {

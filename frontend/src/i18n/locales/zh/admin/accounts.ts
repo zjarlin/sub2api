@@ -1,5 +1,12 @@
 export default {
+
+
     accounts: {
+  model3d: {
+    title: '3D 生成', provider: '服务商', clientId: '客户端 ID', clientSecret: '客户端密钥', defaultModel: '默认模型',
+    keepSecret: '留空保留已保存的凭据。', authorization: 'Meshy、Tripo 使用官方 API Key；Hi3D 使用客户端凭据，令牌由服务端自动管理。',
+    billingHint: '绑定 3D 分组并开启图片生成权限；为模型配置按次定价。任务受理后收取一次提交费，查询和下载不收费。', clientIdRequired: '请输入 Hi3D 客户端 ID。'
+  },
       arena: {
         modelsHint: '模型列表来自已登录账号的专属会话。可重新登录创建新会话，或同步已有会话列表；会话别名不代表已确认的底层模型身份。',
         modelsEmpty: '暂无可用会话。请在账号编辑页登录 Arena，系统会自动创建会话；完成后刷新模型列表。',
@@ -164,6 +171,28 @@ export default {
       },
       doubao: {
         title: '豆包',
+        sessionLabel: '豆包会话',
+        defaultSession: '默认会话（default）',
+        missingSession: '{name}（会话不存在，请重新上传或选择）',
+        sessionHint: '每个账号选择对应的登录会话；多个账号可以接入同一个内置适配器。',
+        addSession: '添加会话',
+        updateSession: '更新登录态',
+        profileName: '会话名称',
+        profileNameHint: '1–64 个字母、数字、短横线或下划线，以字母或数字开头，不能使用 default。',
+        sessionFile: '会话文件（session.json）',
+        uploadHint: '在已登录豆包桌面版的 Mac 上运行 tools/desktop_session/prepare.py，再选择生成的 runtime/session.json。文件不超过 64 KiB；上传后即可选择，无需 SSH 或修改服务器文件。',
+        uploadSession: '上传并选中',
+        uploading: '正在上传…',
+        uploadSuccess: '豆包会话已保存并选中',
+        uploadFailed: '上传失败，请检查会话文件后重试',
+        fileSizeError: '请选择非空且不超过 64 KiB 的会话文件',
+        loadFailed: '无法加载豆包会话，请确认内置适配器可用后刷新',
+        replaceSessionTitle: '更新豆包会话',
+        replaceSessionMessage: '将替换“{name}”的登录态。使用该会话的账号都会生效，旧对话状态将被清除。',
+        deleteSessionTitle: '删除豆包会话',
+        deleteSessionMessage: '将删除“{name}”的登录态和对话状态。使用该会话的账号将无法请求，直到重新上传或选择其他会话。',
+        deleteSuccess: '豆包会话已删除',
+        deleteFailed: '删除会话失败，请重试',
         connectionHint: '使用随 Sub2API 部署自动启动的豆包桌面适配器。支持普通对话 Turbo、自动和 Pro；工具由调用方执行。',
         baseUrlHint: '可选。默认使用内置适配器地址，留空即可。',
         apiKeyHint: '可选。留空时使用内置适配器共享密钥。',

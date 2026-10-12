@@ -8,6 +8,7 @@ export const EDGE_SERVICES = [
   { key: 'generation', icon: 'sparkles', tone: 'amber', endpoints: ['generation'], title: 'generation', category: 'media', tags: ['Seedance', 'Ark'] },
   { key: 'laya', icon: 'cpu', tone: 'teal', endpoints: ['laya'], title: 'laya', category: 'decision', tags: ['Laya', 'System One'] },
   { key: 'jev', icon: 'bolt', tone: 'blue', endpoints: ['jev'], title: 'jev', category: 'decision', tags: ['TypeSafe', 'JEV'] },
+  { key: 'model3d', icon: 'cube', tone: 'amber', endpoints: ['model3d', 'model3d-providers'], title: 'model3d', category: 'media', tags: ['Meshy', 'Tripo', 'Hi3D'] },
 ] as const
 
 export type EdgeService = typeof EDGE_SERVICES[number]

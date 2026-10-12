@@ -397,6 +397,20 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.sendErrorAndEnd(c, "Account not found")
 	}
 
+	if account.Platform == PlatformModel3D {
+		s.sendEvent(c, TestEvent{Type: "test_start", Model: account.GetCredential("default_model")})
+		provider, err := Model3DAccountProvider(account)
+		if err != nil {
+			return s.sendErrorAndEnd(c, err.Error())
+		}
+		balance, err := provider.Balance(ctx)
+		if err != nil {
+			return s.sendErrorAndEnd(c, err.Error())
+		}
+		s.sendEvent(c, TestEvent{Type: "content", Text: fmt.Sprintf("%s credentials verified; balance %.4f. No generation task created.", provider.Key(), balance)})
+		s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+		return nil
+	}
 	// Synthetic UI load-test accounts exercise the real SSE parsing and modal
 	// interactions, but intentionally do not send their placeholder credentials
 	// to an upstream provider.
@@ -2310,6 +2324,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	// 账号级请求头覆写：测试请求与真实转发保持一致的最终头
 	account.ApplyHeaderOverrides(req.Header)
 	applyOpenCodeSessionHeader(c, account, apiURL, req.Header, payloadBytes)
+	setDoubaoProfileHeader(req.Header, account)
 	applyFreeLaneRequestHeaders(account, req.Header, resolveFreeLaneSessionSeed(c, payloadBytes))
 
 	proxyURL := ""

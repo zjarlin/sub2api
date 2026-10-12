@@ -74,6 +74,7 @@ const responseExample = computed(() => {
     vision: { ResponseMetadata: { Action: props.endpoint.key, Version: '2022-08-31' }, Result: {} },
     dub: { task_id: 'dub_...', status: 'succeeded', output: { path: '/media/tasks/dub_.../content' } },
     generation: { id: 'task_...' },
+    model3d: { code: 0, data: { task_id: 'v1.xxx.signature', mode: 'text-to-3d', provider: 'meshy', status: 'queued', progress: 0 } },
   }
   return JSON.stringify(examples[props.service.key] || { model: props.service.key === 'jev' ? 'typesafe/jev' : 'laya', answers: { urgent: { answer: 'yes' } }, usage: { input_tokens: 12, output_tokens: 0 } }, null, 2)
 })
@@ -83,6 +84,7 @@ const fields = computed(() => {
     translate: [{ name: 'q', type: 'string[]', required: true, description: 'q' }, { name: 'target', type: 'string', required: true, description: 'target' }, { name: 'source', type: 'string', description: 'source' }, { name: 'provider', type: 'string', description: 'provider' }, { name: 'format', type: 'string', description: 'format' }],
     vision: [{ name: 'Action', type: 'string', required: true, description: 'action' }, { name: 'Version', type: 'string', required: true, description: 'version' }, { name: 'ImageBase64', type: 'string', required: true, description: 'image' }, { name: 'Params', type: 'object', description: 'params' }],
     tts: [{ name: 'text', type: 'string', required: true, description: 'text' }, { name: 'language', type: 'string', description: 'language' }, { name: 'response_format', type: 'string', description: 'audioFormat' }, { name: 'speed', type: 'number', description: 'speed' }, { name: 'return_base64', type: 'boolean', description: 'base64' }],
+    model3d: [{ name: 'provider', type: 'string', description: 'provider' }, { name: 'mode', type: 'string', required: true, description: 'mode3d' }, { name: 'prompt', type: 'string', description: 'prompt3d' }, { name: 'image_url', type: 'string', description: 'imageUrl3d' }, { name: 'format', type: 'string', description: 'format3d' }, { name: 'options.preview_task_id', type: 'string', description: 'previewTask3d' }],
     generation: [{ name: 'model', type: 'string', required: true, description: 'arkModel' }, { name: 'content', type: 'object[]', required: true, description: 'content' }, { name: 'duration', type: 'number', description: 'duration' }, { name: 'resolution', type: 'string', description: 'resolution' }],
   }
   return schemas[props.service.key] ?? [{ name: 'model', type: 'string', required: true, description: 'decisionModel' }, { name: 'state', type: 'string', required: true, description: 'state' }, { name: 'questions', type: 'object', required: true, description: 'questions' }]

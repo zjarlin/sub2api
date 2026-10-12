@@ -204,6 +204,7 @@ func ProvideHandlers(
 	asyncImageHandler *AsyncImageHandler,
 	batchImageHandler *BatchImageHandler,
 	translateHandler *TranslateHandler,
+	model3DHandler *Model3DHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 	_ *service.OpenAIQuotaAutoResetService,
@@ -232,6 +233,7 @@ func ProvideHandlers(
 		AsyncImage:       asyncImageHandler,
 		BatchImage:       batchImageHandler,
 		Translate:        translateHandler,
+		Model3D:          model3DHandler,
 	}
 }
 
@@ -261,6 +263,8 @@ var ProviderSet = wire.NewSet(
 	NewAsyncImageHandler,
 	ProvideBatchImageHandler,
 	NewTranslateHandler,
+	ProvideModel3DHandler,
+	service.NewModel3DAccountPool,
 	ProvideTranslateAggregator,
 
 	// Admin handlers
@@ -310,4 +314,15 @@ var ProviderSet = wire.NewSet(
 // ProvideTranslateAggregator 从环境变量构建翻译聚合器
 func ProvideTranslateAggregator() *translate.Aggregator {
 	return translate.NewAggregator(translate.ConfigFromEnvironment())
+}
+
+// ProvideModel3DHandler 将官方 3D 接口接入账号池与统一计费。
+func ProvideModel3DHandler(cfg *config.Config, pool *service.Model3DAccountPool, gateway *service.GatewayService, billing *service.BillingCacheService, apiKeys *service.APIKeyService) *Model3DHandler {
+	h := NewModel3DHandler(cfg)
+	pool.SetTimeoutSeconds(cfg.Gateway.Model3D.TimeoutSeconds)
+	h.accounts = pool
+	h.gateway = gateway
+	h.billing = billing
+	h.apiKeys = apiKeys
+	return h
 }

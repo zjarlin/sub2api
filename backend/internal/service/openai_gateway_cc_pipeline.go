@@ -259,6 +259,14 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	// 账号级请求头覆写：放在所有内置默认头（含 Grok CLI 身份头）之后应用，
 	// 使配置值获得除共享传输层强制头之外的最高优先级。
 	account.ApplyHeaderOverrides(upstreamReq.Header)
+	setDoubaoProfileHeader(upstreamReq.Header, account)
+	if account.IsDoubao() {
+		scope := c.GetHeader("session_id")
+		if scope == "" {
+			scope = c.GetHeader("conversation_id")
+		}
+		upstreamReq.Header.Set("X-Desktop-Session", isolateOpenAISessionID(getAPIKeyIDFromContext(c), "doubao:"+scope))
+	}
 	applyOpenCodeSessionHeader(c, account, targetURL, upstreamReq.Header, body)
 	applyFreeLaneRequestHeaders(account, upstreamReq.Header, resolveFreeLaneSessionSeed(c, body))
 	applyArenaSessionHeaders(c, account, upstreamReq.Header, body)

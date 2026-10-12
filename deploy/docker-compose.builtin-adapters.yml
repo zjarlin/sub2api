@@ -75,6 +75,8 @@ services:
     environment:
       DESKTOP_MAX_REQUEST_BODY_BYTES: "${DESKTOP_MAX_REQUEST_BODY_BYTES:-33554432}"
       DESKTOP_STATE_FILE: /var/lib/desktop-session/conversations.json
+      DESKTOP_PROFILE_STATE_DIR: /var/lib/desktop-session/profile-state
+      DESKTOP_PROFILE_DIR: /var/lib/desktop-session/profiles
       DESKTOP_UPSTREAM_TIMEOUT_SECONDS: "${DESKTOP_UPSTREAM_TIMEOUT_SECONDS:-120}"
       DESKTOP_GENERATION_TIMEOUT_SECONDS: "${DESKTOP_GENERATION_TIMEOUT_SECONDS:-600}"
     volumes:

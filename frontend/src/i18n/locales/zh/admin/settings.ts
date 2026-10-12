@@ -1679,7 +1679,10 @@ export default {
     endpointManboTts: '曼波/GPT-SoVITS 文本转语音',
     endpointVideoDub: '视频配音任务（语音识别、TTS、音轨混音）',
     endpointVideoGeneration: 'Seedance / Ark 网络视频生成任务',
+    endpointModel3D: 'Meshy / Tripo / Hi3D 3D 生成任务',
+    endpointModel3DProviders: '3D 服务商与能力',
     catalog: {
+      model3dTitle: '3D 生成', model3dDescription: '统一 3D 生成接口，支持文生 3D、图生 3D 与多视角生成。',
       subtitle: '边缘 API 服务', services: '服务目录', categories: '服务分类', all: '全部服务', language: '语言服务', vision: '视觉智能', media: '音视频', decision: '决策模型', search: '搜索服务或适配器', noResults: '没有匹配的服务',
       translationTitle: '文本翻译', translationDescription: '统一翻译接口，在线服务与离线模型按需选择。',
       visionTitle: '图像识别', visionDescription: '目标检测、实例分割、姿态估计、分类与文字识别。',
@@ -1720,7 +1723,7 @@ export default {
       loadFailed: '读取翻译配置失败', saveFailed: '保存翻译配置失败', saved: '翻译配置已保存并生效',
       baiduHint: '百度通用翻译 API，配置 APP_ID 和 SECURITY_KEY。', tencentHint: '腾讯云机器翻译，配置 SecretId、SecretKey 和区域。', youdaoHint: '有道智云翻译，配置应用凭据。', mymemoryHint: '公开 REST 接口；Email 和 API Key 均为可选配置。', libretranslateHint: '自部署翻译实例，按实例要求配置 API Key。', hymtHint: 'Hy-MT2 私有推理实例，兼容 llama.cpp / vLLM。', caiyunHint: '彩云小译适配器，可配置自有 Token。', google_webHint: 'Google 网页翻译兼容接口，可配置独立出网代理。',
     },
-    endpointTranslate: '统一翻译（在线适配器与离线模型）',
+    prompt3d: '3D 提示词，文生 3D 时必填。描述越具体结果越稳定。', mode3d: '生成模式：text-to-3d 或 image-to-3d。', imageUrl3d: '参考图片 URL 或 base64，图生 3D 时必填；内网地址会被拒绝。', format3d: '产物格式，例如 glb、fbx、obj、usdz、stl，以服务商支持为准。', previewTask3d: 'Meshy 预览任务 ID，用于提交纹理精修。', endpointTranslate: '统一翻译（在线适配器与离线模型）',
     endpointTranslateProviders: '查询已配置的翻译服务商',
   }
 }

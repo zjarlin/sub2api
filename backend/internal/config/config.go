@@ -1082,6 +1082,9 @@ type GatewayConfig struct {
 	Media GatewayMediaConfig `mapstructure:"media"`
 	// Laya 是本地 System One 推理服务，复用 /v1/systemone 入口。
 	Laya GatewayLayaConfig `mapstructure:"laya"`
+	// Model3D 是第三方 3D 生成服务（Meshy / Tripo / Hi3D）的接入开关。
+	// 服务商凭据只从环境变量读取（MESHY_API_KEY / TRIPO_API_KEY / HI3D_CLIENT_ID + HI3D_CLIENT_SECRET）。
+	Model3D GatewayModel3DConfig `mapstructure:"model3d"`
 	// AutoContinue 在助手提前停顿时用 System One 判断并继续已授权任务。
 	AutoContinue GatewayAutoContinueConfig `mapstructure:"auto_continue"`
 	// Degeneration 遏制上游"退化重复"流：模型卡在短周期复读直到输出上限。
@@ -1254,6 +1257,48 @@ type GatewayVisionConfig struct {
 	TimeoutSeconds int `mapstructure:"timeout_seconds"`
 	// Enabled 控制 /v1/vision/* 端点是否开放。默认关闭，避免未部署服务时暴露空端点。
 	Enabled bool `mapstructure:"enabled"`
+}
+
+// GatewayModel3DConfig 控制网关的 3D 生成端点（/api/v1/3d）。
+//
+// 与 vision/media 一样默认关闭：未部署或未配置服务商凭据时不应暴露空端点。
+// 打开后仍需至少配置一个服务商凭据，聚合器才会注册对应服务商。
+type GatewayModel3DConfig struct {
+	// Enabled 控制 /api/v1/3d/* 是否开放。
+	Enabled bool `mapstructure:"enabled"`
+	// DefaultProvider 指定自动选择时优先使用的服务商；留空按优先顺序的第一个。
+	DefaultProvider string `mapstructure:"default_provider"`
+	// Priority 是逗号分隔的服务商优先顺序，例如 "meshy,tripo,hi3d"。
+	Priority string `mapstructure:"priority"`
+	// TimeoutSeconds 是单次上游请求（创建/查询/取消/余额）的等待上限（秒）。
+	TimeoutSeconds int `mapstructure:"timeout_seconds"`
+	// TaskHandleTTLHours 是网关签发给客户端的任务句柄有效期（小时）。
+	// 3D 任务耗时较长，默认 168 小时（7 天）以覆盖典型的排队与重试窗口。
+	TaskHandleTTLHours int `mapstructure:"task_handle_ttl_hours"`
+}
+
+// TaskHandleTTL 返回任务句柄有效期，未配置时使用 7 天。
+func (c GatewayModel3DConfig) TaskHandleTTL() time.Duration {
+	if c.TaskHandleTTLHours <= 0 {
+		return 168 * time.Hour
+	}
+	return time.Duration(c.TaskHandleTTLHours) * time.Hour
+}
+
+// PriorityList 解析逗号分隔的优先级列表，忽略空白项。
+func (c GatewayModel3DConfig) PriorityList() []string {
+	raw := strings.TrimSpace(c.Priority)
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	keys := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if key := strings.ToLower(strings.TrimSpace(part)); key != "" {
+			keys = append(keys, key)
+		}
+	}
+	return keys
 }
 
 // GatewayLayaConfig 配置内部 Laya 推理地址，默认关闭。
@@ -2675,6 +2720,11 @@ func setDefaults() {
 	viper.SetDefault("gateway.media.timeout_seconds", 3600)
 	viper.SetDefault("gateway.laya.enabled", false)
 	viper.SetDefault("gateway.laya.url", "")
+	viper.SetDefault("gateway.model3d.enabled", false)
+	viper.SetDefault("gateway.model3d.default_provider", "")
+	viper.SetDefault("gateway.model3d.priority", "")
+	viper.SetDefault("gateway.model3d.timeout_seconds", 60)
+	viper.SetDefault("gateway.model3d.task_handle_ttl_hours", 168)
 	viper.SetDefault("gateway.degeneration.enabled", true)
 	viper.SetDefault("gateway.degeneration.min_total_runes", 12000)
 	viper.SetDefault("gateway.degeneration.window_runes", 2048)

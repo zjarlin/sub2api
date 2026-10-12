@@ -324,6 +324,18 @@ func (s *AccountTestService) FetchUpstreamSupportedModels(ctx context.Context, a
 // snapshot. When no model is complete, the existing account snapshot is left
 // untouched.
 func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, account *Account) (*UpstreamModelCatalog, error) {
+	// 3D 官方接口没有聊天模型列表，使用适配器目录，避免误探测 /models。
+	if account != nil && account.Platform == PlatformModel3D {
+		provider, err := Model3DAccountProvider(account)
+		if err != nil {
+			return nil, err
+		}
+		models := make([]string, 0, len(provider.Info().Models))
+		for _, model := range provider.Info().Models {
+			models = append(models, model.ID)
+		}
+		return &UpstreamModelCatalog{Models: models, Metadata: make(map[string]UpstreamModelMetadata)}, nil
+	}
 	models, body, err := s.fetchUpstreamModelList(ctx, account)
 	liveListAvailable := err == nil
 	if err != nil {
@@ -1270,6 +1282,7 @@ func buildOpenAIAPIKeyModelsRequest(ctx context.Context, account *Account, valid
 	}
 	// 账号级请求头覆写：模型列表探测与真实转发保持一致的最终头
 	account.ApplyHeaderOverrides(req.Header)
+	setDoubaoProfileHeader(req.Header, account)
 	return req, nil
 }
 

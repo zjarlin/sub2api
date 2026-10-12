@@ -357,10 +357,11 @@ interface VisionStatus {
   laya_enabled: boolean
   media_enabled: boolean
   translate_enabled?: boolean
+  model3d_enabled?: boolean
   translate_providers?: string[]
 }
 
-type Preset = 'vision' | 'jev' | 'laya' | 'manbo' | 'video-dub' | 'video-generation' | 'translate' | 'translate-providers'
+type Preset = 'model3d' | 'model3d-providers' | 'vision' | 'jev' | 'laya' | 'manbo' | 'video-dub' | 'video-generation' | 'translate' | 'translate-providers'
 type EndpointCategory = 'vision' | 'media' | 'decision' | 'translate'
 
 interface EndpointDefinition {
@@ -449,6 +450,8 @@ const request = reactive<{
 })
 
 const endpoints = computed<EndpointDefinition[]>(() => [
+  { key: 'model3d', path: '/api/v1/3d/generations', method: 'POST', description: t('admin.vision.endpointModel3D'), category: 'media', preset: 'model3d' },
+  { key: 'model3d-providers', path: '/api/v1/3d/providers', method: 'GET', description: t('admin.vision.endpointModel3DProviders'), category: 'media', preset: 'model3d-providers' },
   { key: 'detect', path: '/vision/volcengine/detect', method: 'POST', description: t('admin.vision.endpointDetect'), category: 'vision', preset: 'vision' },
   { key: 'segment', path: '/vision/volcengine/segment', method: 'POST', description: t('admin.vision.endpointSegment'), category: 'vision', preset: 'vision' },
   { key: 'pose', path: '/vision/volcengine/pose', method: 'POST', description: t('admin.vision.endpointPose'), category: 'vision', preset: 'vision' },
@@ -511,6 +514,7 @@ function endpointEnabled(endpoint: EndpointDefinition): boolean {
   if (service && contexts.value[service.key]) return contexts.value[service.key]!.enabled
   if (['generation', 'laya', 'jev'].includes(endpoint.key)) return false
   if (!status.value) return false
+  if (endpoint.key.startsWith('model3d')) return !!status.value.model3d_enabled
   if (endpoint.category === 'vision') return status.value.enabled
   if (endpoint.category === 'media') return status.value.media_enabled
   if (endpoint.category === 'translate') return !!status.value.translate_enabled
@@ -607,6 +611,11 @@ function presetRequest(preset: Preset) {
       bodyMode: 'json' as EdgeBodyMode,
       model: '',
     }
+  }
+  if (preset === 'model3d' || preset === 'model3d-providers') {
+    const discovery = preset === 'model3d-providers'
+    gatewayPath.value = discovery ? '/api/v1/3d/providers' : '/api/v1/3d/generations'
+    return { method: (discovery ? 'GET' : 'POST') as EdgeRequestMethod, url: buildGatewayUrl(gatewayPath.value), headers: [{ name: 'Content-Type', value: 'application/json' }], query: [] as EdgeKeyValue[], body: discovery ? '' : JSON.stringify({ provider: 'meshy', mode: 'text-to-3d', prompt: 'A small wooden house' }, null, 2), bodyMode: (discovery ? 'none' : 'json') as EdgeBodyMode, model: '' }
   }
   if (preset === 'manbo') {
     gatewayPath.value = '/media/tts'

@@ -1685,8 +1685,11 @@ export default {
     endpointManboTts: 'Manbo/GPT-SoVITS text-to-speech',
     endpointVideoDub: 'Video dubbing task (ASR, TTS, and audio mix)',
     endpointVideoGeneration: 'Seedance / Ark network video generation',
-    endpointTranslate: 'Unified translation (Tencent / Baidu / Youdao fallback)',
+    prompt3d: '3D prompt; required for text-to-3D. Specific descriptions produce steadier results.', mode3d: 'Generation mode: text-to-3d or image-to-3d.', imageUrl3d: 'Reference image URL or base64; required for image-to-3D. Private addresses are rejected.', format3d: 'Asset format such as glb, fbx, obj, usdz or stl, subject to provider support.', previewTask3d: 'Meshy preview task ID used to submit a texture refinement.', endpointTranslate: 'Unified translation (Tencent / Baidu / Youdao fallback)',
+    endpointModel3D: 'Meshy / Tripo / Hi3D 3D generation',
+    endpointModel3DProviders: '3D providers and capabilities',
     catalog: {
+      model3dTitle: '3D Generation', model3dDescription: 'A unified 3D API with text-to-3D, image-to-3D and multi-view generation.',
       subtitle: 'Edge API services', services: 'Service Catalog', categories: 'Service Categories', all: 'All Services', language: 'Language', vision: 'Vision', media: 'Audio & Video', decision: 'Decision Models', search: 'Search services or adapters', noResults: 'No matching services',
       translationTitle: 'Text Translation', translationDescription: 'A unified translation API with online providers and offline models.',
       visionTitle: 'Image Recognition', visionDescription: 'Object detection, segmentation, pose estimation, classification and OCR.',

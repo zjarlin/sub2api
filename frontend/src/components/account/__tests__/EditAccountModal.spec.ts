@@ -56,6 +56,11 @@ vi.mock('vue-i18n', async () => {
 
 import EditAccountModal from '../EditAccountModal.vue'
 
+vi.mock('@/api/admin/builtinAdapters', async importOriginal => ({
+  ...await importOriginal<typeof import('@/api/admin/builtinAdapters')>(),
+  listDoubaoSessionProfiles: vi.fn().mockResolvedValue({ profiles: ['default', 'alice', 'bob'] }),
+}))
+
 const BaseDialogStub = defineComponent({
   name: 'BaseDialog',
   props: {
@@ -325,6 +330,28 @@ function mountModal(account = buildAccount(), renderGroupSelector = false) {
 }
 
 describe('EditAccountModal', () => {
+  it('preserves a redacted Hi3D client secret and supports rotating it', async () => {
+    const account = buildAccount()
+    account.platform = 'model3d'
+    account.credentials = { model3d_provider: 'hi3d', client_id: 'client-id', default_model: 'hi3dv3.0', base_url: '' }
+    account.credentials_status = { has_client_secret: true }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    expect(wrapper.get('[data-testid="model3d-provider"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.lastCall?.[1]?.credentials).toMatchObject({ model3d_provider: 'hi3d', client_id: 'client-id' })
+    expect(updateAccountMock.mock.lastCall?.[1]?.credentials.client_secret).toBeUndefined()
+    wrapper.unmount()
+    const rotating = mountModal(account)
+    await rotating.get('[data-testid="model3d-secret"]').setValue('new-secret')
+    await rotating.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.lastCall?.[1]?.credentials.client_secret).toBe('new-secret')
+    rotating.unmount()
+  })
+
   it('edits Cursor with a redacted stored key and clears its optional adapter URL', async () => {
     const account = buildAccount()
     account.platform = 'cursor'
@@ -430,10 +457,31 @@ describe('EditAccountModal', () => {
     updateAccountMock.mockReset().mockResolvedValue(account)
     const wrapper = mountModal(account)
     expect(wrapper.find('input[placeholder="http://sub2api-desktop:8080/v1"]').exists()).toBe(false)
+    await flushPromises()
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     expect(updateAccountMock.mock.lastCall?.[1]).toMatchObject({ concurrency: 1, credentials: {
       base_url: 'http://adapter.example/v1', api_key: 'adapter-key', api_protocol: 'responses', openai_capabilities: ['responses', 'chat_completions'],
     } })
+  })
+
+  it('selects a different Doubao session and explicitly clears an existing alias for default', async () => {
+    const account = buildAccount()
+    account.platform = 'doubao'
+    account.type = 'apikey'
+    account.credentials = { api_key: 'adapter-key', desktop_session: 'alice' }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    await flushPromises()
+    expect((wrapper.get('[data-testid="doubao-session-profile"]').element as HTMLSelectElement).value).toBe('alice')
+    await wrapper.get('[data-testid="doubao-session-profile"]').setValue('bob')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.lastCall?.[1].credentials.desktop_session).toBe('bob')
+    await wrapper.get('[data-testid="doubao-session-profile"]').setValue('default')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.lastCall?.[1].credentials.desktop_session).toBe('')
+    wrapper.unmount()
   })
 
   it('hides the mixed scheduling toggle for Kimi and preserves legacy extra fields', async () => {

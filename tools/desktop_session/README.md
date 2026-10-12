@@ -154,10 +154,25 @@ Linux 部署只需服务代码/镜像及上述两份私密文件；无需复制�
 - 对话末条可以是 assistant、system、developer、user 或已完成的 tool 结果；空文本末条也可继续。assistant 末条按继续未完成的回答或任务处理，完整保留角色和历史，不伪造 user 消息。单条 system / developer / assistant 消息同样保留角色；未完成的工具调用仍须先返回结果。
 - 单账号仅允许一个在途生成；并发请求返回 429，不排队积压。响应读取有大小和超时限制。
 - 不伪造 token 用量，不根据 HTTP 200 或流结束信号单独判断成功。
-- 若再出现 `710022004`，本进程标记需要验证并停止后续生成重试，返回 503。完成正常验证或刷新桌面登录态后重新执行 `prepare.py`，将新快照同步到服务器；服务在下一次请求时重新加载。没有无需人工介入的验证恢复承诺。
+- 若再出现 `710022004`，本进程标记需要验证并停止后续生成重试，返回 503。完成正常验证或刷新桌面登录态后重新执行 `prepare.py`，命名会话可在网页点“更新登录态”上传新快照；服务在下一次请求时重新加载。没有无需人工介入的验证恢复承诺。
 - 断开客户端连接不会实现已验证的上游任务取消；后台读取最多持续到本次有界请求结束。
 
 ## 接入已有 Sub2API
+
+### 在网页添加和管理多个账号
+
+多账号接入使用桌面登录会话快照，尚未实现豆包 OAuth2 授权登录。现有默认会话保持可用；其他账号可直接在 Sub2API 网页上传、选择、更新和删除，无需 SSH 或逐账号修改服务器文件。
+
+1. 账号持有人在自己的 Mac 上正常登录豆包桌面版，在本仓库的 `tools/desktop_session` 目录运行 `python3 prepare.py`，得到 `runtime/session.json`。
+2. 打开 Sub2API「账号管理 → 添加账号 → 豆包」，在「豆包会话」中点「添加会话」，填写唯一名称（如 `alice`），选择上一步的文件，点「上传并选中」。文件限制为 64 KiB；名称为 1–64 位字母、数字、短横线或下划线，以字母或数字开头，`default` 保留。
+3. 填写账号名称和分组并创建；第二个账号重复上传并选择不同名称即可。地址和共享密钥由内置配置注入，无需在网页填写。
+4. 在编辑豆包账号时也可切换会话或点「更新登录态」上传新快照。更新同名会话会影响所有引用它的账号，并清除该会话的旧对话状态。删除前会显示确认，删除后引用该会话的账号不会自动改用其他账号。
+
+会话列表只返回名称。快照仅存适配器的私有可写目录 `DESKTOP_PROFILE_DIR`（Compose 默认 `/var/lib/desktop-session/profiles`），目录权限 0700、文件 0600；对话和 Responses 缓存另存 `DESKTOP_PROFILE_STATE_DIR`（默认 `/var/lib/desktop-session/profile-state`）。两个目录均在已有的持久卷中。`default` 继续读取原来的只读 `session.json`，不能通过网页覆盖或删除。
+
+Sub2API 账号数据只保存 `desktop_session` 别名，不保存快照或 Cookie。网关转发、模型同步和账号测试都根据该别名设置 `X-Desktop-Profile`；各账号的登录态、对话缓存、模型冷却和验证失败状态互相隔离。当前适配器仍共用一个生成锁，同一时刻最多处理一个生成请求；忙时生成与会话写操作返回 429。
+
+网页管理接口为 `/api/v1/admin/builtin-adapters/doubao/profiles`：GET 列举、POST multipart 上传（`profile` 与 `session` 字段）、DELETE `/:profile` 删除。需要管理员登录，上传和删除沿用站点的二次验证设置。升级网关与桌面适配器后才有此入口；以下是运维首次启用内置适配器的步骤，并非每次添加账号都要执行。
 
 平台已提供独立的 **豆包（doubao）** 类型。账号为 `apikey` 类型，Responses 直接转发，Chat 保留兼容入口，并发固定为 1；创建后自动同步 `/v1/models`。
 
@@ -178,18 +193,9 @@ Linux 部署只需服务代码/镜像及上述两份私密文件；无需复制�
    DESKTOP_STATE_DIR=<本目录>/state
    ```
 
-3. 用内置适配器 overlay 启动：
+3. 252 集群按工作区 `AGENTS.md`，在获得部署授权后通过 TeamCity `sub2api / Deploy 252 Cluster` 或集群部署脚本启用；禁止用缺少集群覆盖层的 compose 命令替换线上服务。部署脚本在 `SUB2API_BUILTIN_ADAPTERS=1` 时会自动叠加内置适配器配置。
 
-   ```sh
-   docker compose \
-     -f deploy/docker-compose.yml \
-     -f deploy/docker-compose.builtin-adapters.yml \
-     up -d --build
-   ```
-
-   252 集群部署脚本在 `SUB2API_BUILTIN_ADAPTERS=1` 时会自动叠加该文件。
-
-4. 在「添加账号」选择豆包，填名称即可；模型默认 `doubao-chat-turbo`。
+4. 在「添加账号」选择豆包，选择默认会话或按上文上传新会话；模型默认 `doubao-chat-turbo`。
 
 如需把适配器单独部署到已有 Docker 网络（不使用内置 overlay）：
 

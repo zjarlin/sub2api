@@ -8,7 +8,9 @@ OpenAI API Key 账号没有目录且未配置模型时，不参与模型调度�
 每个账号和模型的自动探测至少间隔 168 小时，更长配置保留；成功、失败或中断均进入冷却。每 15 分钟最多处理 10 个到期模型；近期真实调用会推迟对应模型的额外探测。GPT 系列（含映射目标）不参与自动测试。
 真实请求的健康记录会推迟自动测试；关闭探测不会关闭业务调度、模型目录读取或管理员手动测试。
 
-豆包、TRAE Work、WorkBuddy 使用随部署启动的内置 HTTP 适配器。表单隐藏地址和共享密钥，由后端配置注入；保存时固定 Chat Completions 上游，创建后自动同步模型。TRAE Work 并发默认 1，可按已验证的上游容量调整；豆包与 WorkBuddy 保持单并发。
+豆包、TRAE Work、WorkBuddy 使用随部署启动的内置 HTTP 适配器。表单隐藏地址和共享密钥，由后端配置注入；豆包支持 Responses 与 Chat Completions，其余固定 Chat Completions 上游，创建后自动同步模型。TRAE Work 并发默认 1，可按已验证的上游容量调整；豆包与 WorkBuddy 保持单并发。
+
+`DoubaoSessionProfiles.vue` 在新建和编辑豆包账号时列举、选择、上传、替换或删除命名会话。Mac 导出的 `session.json` 通过受管理员鉴权与可选二次验证保护的 multipart 接口上传，名称与文件大小由两端校验；覆盖和删除需要确认。上传草稿或在途操作会阻止提交账号，关闭表单取消请求。账号凭据只保存 `desktop_session` 别名，默认会话创建时省略此字段、更新时显式置空；Cookie 不进入账号表单数据。管理接口只服务内置适配器。
 
 Grok、Kimi、智谱、DeepSeek、MiniMax、OpenCode Go、豆包、TRAE Work、WorkBuddy、Zcode 按协议自动兼容 OpenAI/Codex 分组，不需要写入或开启 `mixed_scheduling`。账号只有在用户显式选择并绑定分组后才参与该分组调度。Antigravity 仍需显式开启混合调度后，才可选择 Anthropic/Gemini 分组。
 

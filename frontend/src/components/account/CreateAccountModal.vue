@@ -349,6 +349,7 @@
             <PlatformIcon platform="arena" size="sm" />
             Arena
           </button>
+          <button type="button" data-testid="platform-model3d" @click="selectModel3DPlatform" class="flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium" :class="form.platform === 'model3d' ? 'bg-white text-amber-600 shadow-sm dark:bg-dark-600' : 'text-gray-600 dark:text-gray-400'">{{ t('admin.accounts.model3d.title') }}</button>
           <button type="button" data-testid="platform-systemone" @click="selectSystemOnePlatform"
             :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'systemone' ? 'bg-white text-violet-600 shadow-sm dark:bg-dark-600 dark:text-violet-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
             <PlatformIcon platform="systemone" size="sm" />
@@ -360,6 +361,11 @@
       <p v-if="form.platform === 'doubao'" class="input-hint" data-testid="doubao-connection-hint">
         {{ t('admin.accounts.doubao.connectionHint') }}
       </p>
+      <DoubaoSessionProfiles
+        v-if="show && form.platform === 'doubao' && form.type === 'apikey'"
+        v-model="doubaoSessionProfile"
+        @busy="doubaoSessionBusy = $event"
+      />
       <p v-if="form.platform === 'traework'" class="input-hint" data-testid="traework-connection-hint">
         {{ t('admin.accounts.traework.connectionHint') }}
       </p>
@@ -1637,12 +1643,13 @@
             {{ t('admin.accounts.cnProviders.apiProtocol.responsesFallbackDesc') }}
           </p>
         </div>
+        <Model3DAccountFields v-if="form.platform === 'model3d'" v-model:provider="model3dProvider" v-model:client-id="model3dClientId" v-model:secret="apiKeyValue" v-model:model="model3dDefaultModel" />
         <OpenCodeGoProtocolRulesEditor
           v-if="isOpenCodeGoPlatform && apiProtocol === 'adaptive'"
           v-model:rows="openCodeGoProtocolRules"
           :plan="openCodeAccountMode"
         />
-        <div v-if="!isBuiltinAdapterPlatform">
+        <div v-if="!isBuiltinAdapterPlatform && form.platform !== 'model3d'">
           <label class="input-label">{{ t('admin.accounts.apiKeyRequired') }}</label>
           <input
             v-model="apiKeyValue"
@@ -3858,7 +3865,7 @@
         <button
           type="submit"
           form="create-account-form"
-          :disabled="submitting"
+          :disabled="submitting || (form.platform === 'doubao' && doubaoSessionBusy)"
           class="btn btn-primary"
           data-tour="account-form-submit"
         >
@@ -4164,6 +4171,8 @@
 
 <script setup lang="ts">
 import BuiltinAdapterLogin from './BuiltinAdapterLogin.vue'
+import Model3DAccountFields from './Model3DAccountFields.vue'
+import DoubaoSessionProfiles from './DoubaoSessionProfiles.vue'
 import type { BuiltinLoginSession } from '@/api/admin/builtinAdapters'
 import { ref, reactive, computed, watch, onBeforeUnmount } from 'vue'
 import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
@@ -4341,6 +4350,7 @@ const apiKeyHint = computed(() => {
 
 // Base URL / API Key 占位符：国产供应商随账号类型变化。
 const apiKeyBaseUrlPlaceholder = computed(() => {
+  if (form.platform === 'model3d') return ({ meshy: 'https://api.meshy.ai/openapi', tripo: 'https://api.tripo3d.ai/v2/openapi', hi3d: 'https://api.hitem3d.ai' })[model3dProvider.value]
   if (form.platform === 'cursor') return t('admin.accounts.cursor.baseUrlPlaceholder')
   if (form.platform === 'windsurf') return t('admin.accounts.windsurf.baseUrlPlaceholder')
   if (form.platform === 'arena') return 'http://sub2api-arena:7867/v1'
@@ -4488,6 +4498,11 @@ const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_acco
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
+const model3dProvider = ref<'meshy' | 'tripo' | 'hi3d'>('meshy')
+const model3dClientId = ref('')
+const model3dDefaultModel = ref('')
+const doubaoSessionProfile = ref('default')
+const doubaoSessionBusy = ref(false)
 const systemOneProvider = ref<'laya' | 'jev'>('laya')
 const quickOpenAIInput = ref('')
 const quickOpenAIDefaultGroupId = ref<number | null>(null)
@@ -4624,7 +4639,7 @@ function selectKiloPlatform() {
   form.concurrency = 1
 }
 
-// 豆包使用已部署适配器的密钥，只支持 Chat Completions 上游和单并发。
+// 豆包通过内置桌面适配器处理 Responses 和 Chat，每个账号固定单并发。
 function selectDoubaoPlatform() {
   upstreamBillingAutoProbeEnabled.value = false
   form.platform = 'doubao'
@@ -4730,6 +4745,24 @@ function selectWindsurfPlatform() {
 // Laya / JEV 是 System One 决策模型：属内置适配器平台，地址与共享密钥由后端注入。
 // 协议由平台固定为 systemone（见 buildCredentials），表单不提供协议选择——
 // 决策模型不生成文本，不存在 chat / anthropic / responses 变体。
+function selectModel3DPlatform() {
+  upstreamBillingAutoProbeEnabled.value = false
+  form.platform = 'model3d'
+  accountCategory.value = 'apikey'
+  form.type = 'apikey'
+  apiKeyBaseUrl.value = ''
+  apiKeyValue.value = ''
+  model3dClientId.value = ''
+  model3dDefaultModel.value = ''
+  form.concurrency = 1
+}
+watch(model3dProvider, () => {
+  if (form.platform !== 'model3d') return
+  apiKeyBaseUrl.value = ''
+  apiKeyValue.value = ''
+  model3dClientId.value = ''
+  model3dDefaultModel.value = ''
+})
 function selectSystemOnePlatform() {
   upstreamBillingAutoProbeEnabled.value = false
   form.platform = 'systemone'
@@ -5425,7 +5458,7 @@ watch(
     // Reset base URL based on platform.
     // 内置适配器平台（豆包 / TRAE / WorkBuddy / ZCode / Laya / JEV）地址由后端注入，
     // 必须清空 base_url，否则会保留上一个平台的默认值（例如 Anthropic）而打到错误上游。
-    if (newPlatform === 'cursor' || newPlatform === 'windsurf') {
+    if (newPlatform === 'model3d' || newPlatform === 'cursor' || newPlatform === 'windsurf') {
       apiKeyBaseUrl.value = ''
       accountCategory.value = 'apikey'
       apiProtocol.value = 'chat_completions'
@@ -5878,7 +5911,7 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
       )
     const needsModelCatalog = (payload.platform === 'openai' || usesAutomaticMixedScheduling(payload.platform)) &&
       (payload.type === 'apikey' || payload.extra?.openai_passthrough === true)
-    if (upstreamModelsPreviewed.value || hasConcreteMappedTarget || needsModelCatalog) {
+    if (payload.platform !== 'model3d' && (upstreamModelsPreviewed.value || hasConcreteMappedTarget || needsModelCatalog)) {
       try {
         const result = typeof accountAPI.value.syncUpstreamModels === 'function'
           ? await accountAPI.value.syncUpstreamModels(account.id)
@@ -5975,6 +6008,8 @@ const handleQuickOpenAIAdd = async () => {
 
 // Methods
 const resetForm = () => {
+  doubaoSessionProfile.value = 'default'
+  doubaoSessionBusy.value = false
   arenaLoginReady.value = false
   step.value = 1
   form.name = ''
@@ -6305,6 +6340,9 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
 }
 
 const handleSubmit = async () => {
+  if (form.platform === 'doubao' && doubaoSessionBusy.value) {
+    return
+  }
   if (form.platform === 'arena' && !arenaLoginReady.value) {
     appStore.showError(t('admin.accounts.arena.loginRequired'))
     return
@@ -6466,7 +6504,7 @@ const handleSubmit = async () => {
   // Determine default base URL based on platform.
   // 内置适配器平台（含 Laya / JEV）地址由后端按平台注入，不能落到 Anthropic 默认值，
   // 否则会把决策请求发到错误的上游。
-  const defaultBaseUrl = isBuiltinAdapterPlatform.value || form.platform === 'windsurf'
+  const defaultBaseUrl = form.platform === 'model3d' ? '' : isBuiltinAdapterPlatform.value || form.platform === 'windsurf'
     ? ''
     : form.platform === 'openai'
       ? 'https://api.openai.com'
@@ -6508,6 +6546,19 @@ const handleSubmit = async () => {
   if (form.platform === 'doubao' || form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'vibex' || form.platform === 'zcode' || form.platform === 'deepseek_web' || form.platform === 'arena' || form.platform === 'qoder') {
     credentials.api_protocol = form.platform === 'doubao' ? 'responses' : 'chat_completions'
     credentials.openai_capabilities = form.platform === 'doubao' ? ['responses', 'chat_completions'] : ['chat_completions']
+  }
+  if (form.platform === 'doubao' && doubaoSessionProfile.value !== 'default') {
+    credentials.desktop_session = doubaoSessionProfile.value
+  }
+  if (form.platform === 'model3d') {
+    credentials.model3d_provider = model3dProvider.value
+    credentials.default_model = model3dDefaultModel.value.trim() || ({ meshy: 'meshy-5', tripo: 'v2.5-20250123', hi3d: 'hi3dv3.0' })[model3dProvider.value]
+    if (model3dProvider.value === 'hi3d') {
+      if (!model3dClientId.value.trim()) { appStore.showError(t('admin.accounts.model3d.clientIdRequired')); return }
+      credentials.client_id = model3dClientId.value.trim()
+      credentials.client_secret = apiKeyValue.value.trim()
+      delete credentials.api_key
+    }
   }
   // System One 决策模型：协议固定 systemone，不生成文本，不声明 chat/responses 能力。
   if (form.platform === 'systemone') {

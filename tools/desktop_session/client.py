@@ -20,9 +20,10 @@ def timeout_setting(name, default):
 
 
 def validate_context(context):
-    if (context.get('desktop_version') != TESTED_VERSION or
+    if (not isinstance(context, dict) or context.get('desktop_version') != TESTED_VERSION or
             not isinstance(context.get('cookies'), dict) or
-            not context['cookies'].get('sessionid') or
+            not isinstance(context['cookies'].get('sessionid'), str) or
+            not context['cookies']['sessionid'].strip() or
             not isinstance(context.get('params'), dict)):
         raise ValueError('Invalid desktop session snapshot')
     if set(context['params']) & (set(PARAMS) | {'a_bogus'}):

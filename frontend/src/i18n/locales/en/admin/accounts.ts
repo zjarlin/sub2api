@@ -1,5 +1,12 @@
 export default {
+
+
     accounts: {
+  model3d: {
+    title: '3D Generation', provider: 'Provider', clientId: 'Client ID', clientSecret: 'Client secret', defaultModel: 'Default model',
+    keepSecret: 'Leave blank to keep the saved credential.', authorization: 'Meshy and Tripo use official API keys. Hi3D uses client credentials; access tokens are managed by the server.',
+    billingHint: 'Bind a 3D group, enable image generation, and configure per-request model pricing. Accepted tasks incur one submission fee; queries and downloads are free.', clientIdRequired: 'Enter the Hi3D client ID.'
+  },
       arena: {
         modelsHint: 'Models are dedicated sessions for logged-in accounts. Log in again to create a new session or sync existing sessions; aliases do not verify the underlying model identity.',
         modelsEmpty: 'No sessions are available. Log in to Arena on the account edit page to create one automatically, then reload this list.',
@@ -163,6 +170,28 @@ export default {
       },
       doubao: {
         title: 'Doubao',
+        sessionLabel: 'Doubao session',
+        defaultSession: 'Default session (default)',
+        missingSession: '{name} (missing; upload again or select another)',
+        sessionHint: 'Select the login session for this account. Multiple accounts can share the built-in adapter.',
+        addSession: 'Add session',
+        updateSession: 'Update login session',
+        profileName: 'Session name',
+        profileNameHint: 'Use 1–64 letters, digits, hyphens or underscores, starting with a letter or digit. The name default is reserved.',
+        sessionFile: 'Session file (session.json)',
+        uploadHint: 'Run tools/desktop_session/prepare.py on a Mac signed in to Doubao Desktop, then choose the generated runtime/session.json (up to 64 KiB). Upload and select it here; no SSH or server file edits are needed.',
+        uploadSession: 'Upload and select',
+        uploading: 'Uploading…',
+        uploadSuccess: 'Doubao session saved and selected',
+        uploadFailed: 'Upload failed. Check the session file and retry.',
+        fileSizeError: 'Choose a non-empty session file up to 64 KiB',
+        loadFailed: 'Unable to load sessions. Check that the built-in adapter is available and refresh.',
+        replaceSessionTitle: 'Update Doubao session',
+        replaceSessionMessage: 'Replace the login session for “{name}”? This affects every account using it and clears its previous conversation state.',
+        deleteSessionTitle: 'Delete Doubao session',
+        deleteSessionMessage: 'Delete the login and conversation state for “{name}”? Accounts using it will stop working until it is uploaded again or another session is selected.',
+        deleteSuccess: 'Doubao session deleted',
+        deleteFailed: 'Unable to delete the session. Please retry.',
         connectionHint: 'Uses the Doubao desktop adapter started with this Sub2API deployment. Supports chat Turbo, Auto and Pro; the caller executes tools.',
         baseUrlHint: 'Optional. Leave blank to use the built-in adapter URL.',
         apiKeyHint: 'Optional. Leave blank to use the built-in adapter key.',

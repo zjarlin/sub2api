@@ -51,7 +51,7 @@ func (h *VisionHandler) GetContexts(c *gin.Context) {
 		return
 	}
 	contexts := map[string]*edgeServiceContext{}
-	for key, adapter := range map[string]string{"vision": "YOLO / RapidOCR", "tts": "GPT-SoVITS", "dub": "Whisper / GPT-SoVITS", "generation": "Seedance / Ark", "laya": "Laya", "jev": "TypeSafe / JEV"} {
+	for key, adapter := range map[string]string{"vision": "YOLO / RapidOCR", "tts": "GPT-SoVITS", "dub": "Whisper / GPT-SoVITS", "generation": "Seedance / Ark", "model3d": "Meshy / Tripo / Hi3D", "laya": "Laya", "jev": "TypeSafe / JEV"} {
 		contexts[key] = &edgeServiceContext{Adapter: adapter, Source: "deployment", Fields: []edgeContextField{}, Accounts: []edgeAccountContext{}}
 	}
 	vision := contexts["vision"]
@@ -100,7 +100,7 @@ func (h *VisionHandler) GetContexts(c *gin.Context) {
 	dub.Configured = media.Dub.URL != "" || media.Dub.CommandSet
 	dub.Enabled = h.cfg.Gateway.Media.Enabled && media.Dub.Enabled && dub.Configured
 	dub.Fields = append(dub.Fields, []edgeContextField{{"base_url", safeEdgeURL(media.Dub.URL)}, {"timeout_seconds", media.Dub.Timeout}, {"command_set", media.Dub.CommandSet}, {"max_upload_bytes", media.Dub.MaxUpload}}...)
-	for _, platform := range []string{service.PlatformSystemOne, service.PlatformOpenAI} {
+	for _, platform := range []string{service.PlatformSystemOne, service.PlatformOpenAI, service.PlatformModel3D} {
 		accounts, err := h.accounts.ListAccountsForSchedulerScoreFilter(c.Request.Context(), platform, "", "", "", 0, "", service.AccountListFilters{})
 		if err != nil {
 			response.InternalError(c, "Unable to load edge accounts")
@@ -114,18 +114,22 @@ func (h *VisionHandler) GetContexts(c *gin.Context) {
 			}
 			item := h.maskEdgeAccount(account)
 			contexts[key].Accounts = append(contexts[key].Accounts, item)
-			configured := item.BaseURL != "" && (key == "laya" || item.APIKeySet)
+			configured := (item.BaseURL != "" || key == "model3d") && (key == "laya" || item.APIKeySet)
 			contexts[key].Configured = contexts[key].Configured || configured
 			contexts[key].Enabled = contexts[key].Enabled || (configured && account.IsSchedulable() && len(account.GroupIDs) > 0)
 		}
 	}
-	for _, key := range []string{"generation", "laya", "jev"} {
+	for _, key := range []string{"generation", "laya", "jev", "model3d"} {
 		contexts[key].Source = "account"
 	}
+	contexts["model3d"].Enabled = h.cfg.Gateway.Model3D.Enabled && contexts["model3d"].Enabled
 	response.Success(c, contexts)
 }
 
 func edgeAccountService(account *service.Account) string {
+	if account.Platform == service.PlatformModel3D {
+		return "model3d"
+	}
 	if account.Platform == service.PlatformSystemOne {
 		return account.SystemOneProvider()
 	}
@@ -141,14 +145,21 @@ func (h *VisionHandler) maskEdgeAccount(account *service.Account) edgeAccountCon
 		models = append(models, model)
 	}
 	sort.Strings(models)
-	editable := true
+	editable := account.Platform != service.PlatformModel3D
 	if account.IsLaya() {
 		editable = h.cfg.BuiltinAdapter.LayaKey == ""
 	}
 	if account.IsJev() {
 		editable = h.cfg.BuiltinAdapter.JevKey == ""
 	}
-	return edgeAccountContext{ID: account.ID, Name: account.Name, BaseURL: safeEdgeURL(account.GetOpenAIBaseURL()), APIKeySet: account.GetCredential("api_key") != "", APIKeyEditable: editable, Status: account.Status, Schedulable: account.IsSchedulable(), Models: models, GroupIDs: account.GroupIDs}
+	baseURL := account.GetOpenAIBaseURL()
+	if account.Platform == service.PlatformModel3D {
+		baseURL = account.GetCredential("base_url")
+		if provider, err := service.Model3DAccountProvider(account); err == nil {
+			baseURL = provider.Info().BaseURL
+		}
+	}
+	return edgeAccountContext{ID: account.ID, Name: account.Name, BaseURL: safeEdgeURL(baseURL), APIKeySet: account.GetCredential("api_key") != "" || account.GetCredential("client_secret") != "", APIKeyEditable: editable, Status: account.Status, Schedulable: account.IsSchedulable(), Models: models, GroupIDs: account.GroupIDs}
 }
 
 // UpdateContextAccount 复用账号更新校验和缓存失效，仅允许编辑该服务自己的地址与密钥。
