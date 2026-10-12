@@ -80,12 +80,15 @@ python3 -m unittest -v
 用量、Chat/Responses SSE、终止事件、token 截断和失败边界。
 独立适配器部署及 codex 分组端到端验收需在账号切换后完成。
 
-## TeamCity 独立部署
+## 独立部署（不走流水线）
 
-`teamcity-build.json` 保存独立流水线 **Gemini Q&A / Deploy Gemini Q&A** 的配置。
-该流水线没有 VCS 自动触发器；收到部署授权且项目其他会话结束、编译通过后手动触发。
-运行时必须提供 `env.GEMINI_QA_REVISION`（完整 Git SHA）和 `env.GEMINI_QA_SOURCE_DIR`
-（从该提交导出的适配器目录，内含同值 `.revision` 标记）。
+2026-10-12 起，适配器部署**不再使用 TeamCity 流水线**：`GeminiQA` 项目及
+`GeminiQA_Deploy252` 构建配置已从 TeamCity 删除，`teamcity-build.json` 也已移除，
+避免流水线被重新导入或被自动触发。部署仅在获得明确授权后，由人工在源码目录执行：
+
+    python3 -m unittest -v
+    python3 -m py_compile server.py deploy.py verify_runtime.py
+    python3 deploy.py
 
 `deploy.py` 读取既有账号 885 的上游凭证并保存权限 0600 的回退记录，生成独立适配器密钥，
 构建提交专属镜像并启动无宿主端口的候选容器。候选通过真实 SSE 问答和工具/图片拒绝验收后，

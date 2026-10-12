@@ -1,4 +1,4 @@
-"""TeamCity 部署 Gemini 问答适配器，验收后切换既有账号。"""
+"""人工部署 Gemini 问答适配器，真实验收后切换既有账号（不经流水线）。"""
 import fcntl
 import json
 import os
