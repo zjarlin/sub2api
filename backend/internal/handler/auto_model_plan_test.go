@@ -536,3 +536,38 @@ func TestAutoModelPlanFiltersDecisionOnlyDiscoveryAndExplicitRoutes(t *testing.T
 	require.Contains(t, ordinary, service.DefaultJevModel, "the original decision catalog remains available in the same context")
 	require.Contains(t, ordinary, "decision-only-chat", "the Auto projection must not mutate the saved account snapshot")
 }
+
+// Auto 预检曾把带服务端引用条目（item_reference / input_file / input_audio /
+// video_url …）的请求判成整池 no_compatible_account，导致 /v1/responses
+// 对 model=auto 一律 503「Auto model routing has no eligible model」。
+func TestAutoModelPlanKeepsCandidatesForReferenceInput(t *testing.T) {
+	accounts := autoModelTestAccounts()
+	for i := range accounts {
+		accounts[i].Extra = map[string]any{"openai_responses_supported": true}
+	}
+	h := newAutoModelTestHandler(accounts)
+	ctx, err := h.settingService.BindAutoModelRoutingPolicy(context.Background())
+	require.NoError(t, err)
+	ctx, models, err := h.gatewayService.BindAutoModelInventory(ctx, 71)
+	require.NoError(t, err)
+	group := &service.Group{ID: 71, Platform: service.PlatformOpenAI}
+	plainRoutes, _, err := h.autoModelPlan(ctx, group, nil, "/v1/responses", []byte(`{"model":"auto","input":"hello"}`), models)
+	require.NoError(t, err)
+	require.NotEmpty(t, plainRoutes)
+	for _, body := range []string{
+		`{"model":"auto","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]},{"type":"item_reference","id":"rs_1"}]}`,
+		`{"model":"auto","input":[{"type":"message","role":"user","content":[{"type":"input_file","file_id":"file-1"}]}]}`,
+		`{"model":"auto","input":[{"type":"message","role":"user","content":[{"type":"input_audio","input_audio":{"data":"aGk=","format":"wav"}}]}]}`,
+		`{"model":"auto","input":[{"type":"message","role":"user","content":[{"type":"video_url","video_url":"https://example.com/a.mp4"}]}]}`,
+	} {
+		routes, plan, err := h.autoModelPlan(ctx, group, nil, "/v1/responses", []byte(body), models)
+		require.NoError(t, err, body)
+		require.NotEmpty(t, routes, "Auto must not exclude every candidate for %s", body)
+		require.Equal(t, len(plainRoutes), len(routes), body)
+		for _, candidate := range plan {
+			if !candidate.Eligible {
+				require.NotEqual(t, "no_compatible_account", candidate.Reason, body)
+			}
+		}
+	}
+}
