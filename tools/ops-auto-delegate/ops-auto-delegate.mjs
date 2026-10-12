@@ -46,7 +46,18 @@ const DEFAULTS = {
   backend: 'auto', // auto | codexhost | codex-exec
   harness: 'codex',
   parentThread: '',
-  model: '',
+  model: 'auto', // 网关 Auto Router；置空字符串则用 harness 原生默认模型
+  fallbackModel: 'deepseek-v4.1-flash', // 委托失败（如 auto 路由对带工具的 responses 报 503）时的重试模型
+  selfNoise: true, // 过滤「委托自己产生的」错误，避免自激循环
+  hostIps: [], // 留空自动探测本机 IP / docker 网关
+  worktree: false, // codexhost 的 Harness 不认 --worktree，默认关闭
+  codexBin: '', // 留空自动定位官方 codex 二进制（绕开 codexhost shim）
+  // 被测方若直接在共享检出上切分支/改文件会污染工作区（实测发生过两次），
+  // 所以每次委托都自建一个独立 git worktree，让 Codex 只在那里动手。
+  worktreesDir: path.join(os.tmpdir(), 'sub2api-ops-fix'),
+  gitBin: '', // 留空自动挑选 >= 2.5 的 git（/usr/bin/git 是 1.8，不支持 worktree）
+  baseRef: '', // 首次运行自动记录 cfg.workdir 当时的 HEAD 作为基线
+  keepWorktrees: 5,
   statePath: path.join(
     process.env.XDG_STATE_HOME || path.join(os.homedir(), '.local', 'state'),
     'sub2api-ops-auto-delegate',
@@ -92,6 +103,16 @@ function parseArgs(argv) {
       case '--harness': cfg.harness = next(); break
       case '--parent-thread': cfg.parentThread = next(); break
       case '--model': cfg.model = next(); break
+      case '--codex-bin': cfg.codexBin = next(); break
+      case '--worktrees-dir': cfg.worktreesDir = path.resolve(next()); break
+      case '--git-bin': cfg.gitBin = next(); break
+      case '--fallback-model': cfg.fallbackModel = next(); break
+      case '--no-self-noise-filter': cfg.selfNoise = false; break
+      case '--host-ip': cfg.hostIps.push(next()); break
+      case '--base-ref': cfg.baseRef = next(); break
+      case '--keep-worktrees': cfg.keepWorktrees = num(next(), a); break
+      case '--no-worktree': cfg.worktree = false; break
+      case '--worktree': cfg.worktree = true; break
       case '--state': cfg.statePath = path.resolve(next()); break
       case '--reports-dir': cfg.reportsDir = path.resolve(next()); break
       case '--workdir': cfg.workdir = path.resolve(next()); break
@@ -125,7 +146,16 @@ const HELP = `ops-auto-delegate —— 请求错误攒批自动委托 Codex 评�
   --backend auto|codexhost|codex-exec   默认 auto
   --harness <id>            codexhost harness，默认 codex
   --parent-thread <ref>     codexhost 父线程；默认取 $CODEX_THREAD_ID
-  --model <m>               透传给 Codex 的模型（默认用 harness 原生默认）
+  --model <m>               透传给 Codex 的模型（默认 auto=网关 Auto Router；传空串则用 harness 原生默认）
+  --codex-bin <path>        codex-exec 后端使用的官方 codex 二进制（默认自动定位，避开 codexhost shim）
+  --worktrees-dir <path>    每次委托自建 worktree 的父目录，默认 $TMPDIR/sub2api-ops-fix
+  --git-bin <path>          使用的 git 可执行文件（默认自动挑 >= 2.5；1.8 不支持 worktree）
+  --fallback-model <m>      委托失败（如 auto 路由 503）时重试一次用的模型，默认空=harness 原生默认
+  --no-self-noise-filter    不过滤「本次委托自己产生的」错误（默认过滤，防自激循环）
+  --host-ip <ip>            额外视为本机的 IP（可重复；默认自动探测）
+  --base-ref <ref>          worktree 的基线 ref，默认首次运行时记录的工作区 HEAD
+  --keep-worktrees <n>      保留最近 n 个 worktree，其余自动清理，默认 5
+  --no-worktree             不要求 Harness 使用独立 worktree（默认即关闭；Harness 支持时可用 --worktree 打开）
   --state <path>            状态文件，默认 $XDG_STATE_HOME/sub2api-ops-auto-delegate/state.json
   --reports-dir <path>      报告目录，默认 tools/ops-auto-delegate/reports
   --workdir <path>          委托给 Codex 的工作目录，默认仓库根
@@ -186,10 +216,26 @@ function withLock(statePath, fn) {
   }
 }
 
+// 从历史委托记录推导「委托窗口」，用于识别委托自身产生的错误
+function collectDelegationWindows(state) {
+  const out = []
+  for (const d of state.delegated || []) {
+    const start = Date.parse(d.startedAt || d.at)
+    const end = Date.parse(d.at)
+    if (Number.isFinite(start) && Number.isFinite(end)) out.push({ start, end })
+  }
+  return out
+}
+
 function loadState(statePath) {
-  if (!fs.existsSync(statePath)) return { lastId: 0, delegated: [] }
+  if (!fs.existsSync(statePath)) return { lastId: 0, delegated: [], worktrees: [], baseRef: '' }
   const s = JSON.parse(fs.readFileSync(statePath, 'utf8'))
-  return { lastId: s.lastId || 0, delegated: Array.isArray(s.delegated) ? s.delegated : [] }
+  return {
+    lastId: s.lastId || 0,
+    delegated: Array.isArray(s.delegated) ? s.delegated : [],
+    worktrees: Array.isArray(s.worktrees) ? s.worktrees : [],
+    baseRef: s.baseRef || '',
+  }
 }
 
 function saveState(statePath, state) {
@@ -230,6 +276,8 @@ FROM (
     COALESCE(e.inbound_endpoint, '')       AS inbound_endpoint,
     COALESCE(e.upstream_endpoint, '')      AS upstream_endpoint,
     COALESCE(e.request_id, '')             AS request_id,
+    COALESCE(e.client_ip::text, '')        AS client_ip,
+    COALESCE(e.user_agent, '')             AS user_agent,
     COALESCE(e.duration_ms, 0)             AS duration_ms
   FROM ops_error_logs e
   WHERE e.id > ${Number(sinceId)}
@@ -306,6 +354,8 @@ function fetchFromApi(cfg, sinceId) {
       inbound_endpoint: e.inbound_endpoint || '',
       upstream_endpoint: e.upstream_endpoint || '',
       request_id: e.request_id || '',
+      client_ip: e.client_ip || '',
+      user_agent: e.user_agent || '',
       duration_ms: Number(e.duration_ms || 0),
     }))
     .sort((a, b) => a.id - b.id)
@@ -389,22 +439,28 @@ function renderError(e, i) {
   return lines.join('\n')
 }
 
-function buildPrompt(cfg, batch) {
+function buildPrompt(cfg, batch, ctx) {
   const { errors, clusters, reasons, batchKey } = batch
   const batchId = batchKey.slice(0, 12)
+  const workdir = ctx.workdir
+  const branch = ctx.branch
+  const base = ctx.base
+  const reportsDir = path.join(cfg.workdir, 'tools', 'ops-auto-delegate', 'reports')
   const lines = []
   lines.push(
     '你是资深后端工程师。运维监控已累积一批 sub2api 网关的「请求错误」日志，请对每一批错误先评估、再按需修复。',
     '',
-    '【第一步：先读仓库根目录 AGENTS.md】',
-    `工作目录（代码工作区）：${cfg.workdir}`,
+    '【第一步：先读工作区根目录 AGENTS.md】',
+    `工作目录（独立 worktree，已切到分支 ${branch}）：${workdir}`,
+    `- 这是一个 **临时 git worktree**，基线为 ${base}；请在当前分支上提交改动，不要切换/删除分支。`,
+    `- **绝对不要**操作 /opt/sub2api 或共享检出 ${cfg.workdir} 的 git 状态，也不要 push。`,
     '',
     '【硬性禁令（来自该仓库 AGENTS.md，必须遵守）】',
     '- 禁止执行任何 `docker compose up ... sub2api`（含 -d / --no-deps / --force-recreate）与任何等价写法。',
     '- 禁止重启、重建、替换任何容器；禁止自行部署镜像或改动生产 Compose/环境变量。',
     '- 需要部署才能验证时：只在报告里给出建议与理由，等用户明确同意后走 TeamCity 流水线 `sub2api / Deploy 252 Cluster` 或 `/opt/sub2api/deploy/cluster/deploy-252.sh`。',
     '- 只读排查不受限：docker ps/logs/inspect、curl 127.0.0.1:18080/health、git、读日志。',
-    '- 不要 push 到主分支；改动放在新分支 `ops-fix/<批次ID>` 上提交即可，是否合并/发布由用户决定。',
+    `- 不要 push；改动就在当前 worktree 的 ${branch} 分支上提交，是否合并/发布由用户决定。`,
     '',
     '【本批触发信息】',
     `- 批次ID：${batchId}`,
@@ -428,7 +484,8 @@ function buildPrompt(cfg, batch) {
     '   - C 信息不足：说明还需要什么证据（具体查询/日志/复现步骤）。',
     '2. 对 A 类：直接实现修复并补上对应测试；遵循现有架构与代码风格，避免无关改动。',
     '3. 不要执行任何部署/发布/容器重建动作。',
-    '4. 在 `tools/ops-auto-delegate/reports/' + batchId + '.md` 写入结构化报告：',
+    `4. 在 \`${reportsDir}/${batchId}.md\` 写入结构化报告。注意该目录已被 .gitignore 忽略，` +
+      `提交时用 \`git add -f\` 显式加入，保证报告随分支留档：`,
     '   - 表格：id / 结论(A|B|C) / 一句话根因 / 依据 / 建议动作',
     '   - A 类的补丁摘要与验证方式（跑过哪些测试/命令及结果）',
     '   - B 类汇总（可合并为「环境问题清单」）',
@@ -440,14 +497,143 @@ function buildPrompt(cfg, batch) {
 // ---------------------------------------------------------------------------
 // 委托
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// 自激循环防护：委托过程中被委托方自己发出的请求也会写 ops_error_logs，
+// 若不排除，下一轮会把这些「自己造的错误」当成新错误再委托，形成无限循环。
+// 判据（时间窗 + 来源）：落在已记录的委托窗口内，且来源是本机 IP 或 codex 客户端 UA。
+// ---------------------------------------------------------------------------
+function detectHostIps() {
+  const ips = new Set(['127.0.0.1', '::1'])
+  const res = spawnSync('hostname', ['-I'], { encoding: 'utf8' })
+  if (res.status === 0) {
+    for (const ip of (res.stdout || '').trim().split(/\s+/)) if (ip) ips.add(ip)
+  }
+  // docker 网桥网关（容器内探测打到宿主时的常见来源）
+  ips.add('172.17.0.1')
+  ips.add('172.21.0.1')
+  return [...ips]
+}
+
+const CODEX_UA_RE = /codex[_-]?(exec|cli|vscode|app)|curl\//i
+
+function isSelfNoise(e, cfg, hostIps, windows) {
+  if (!cfg.selfNoise) return false
+  const ua = String(e.user_agent || '')
+  const ip = String(e.client_ip || '')
+  const fromHost = hostIps.includes(ip) || hostIps.some((h) => h && ip.startsWith(h))
+  if (!fromHost || !CODEX_UA_RE.test(ua)) return false
+  // 只有落在某次委托的时间窗内才算「委托自身的噪音」；
+  // 窗口之外的本机 codex 流量（例如用户自己的 Codex 会话）仍按真实错误处理。
+  if (!windows || !windows.length) return false
+  const t = Date.parse(String(e.at || '').replace(' ', 'T') + '+08:00')
+  if (!Number.isFinite(t)) return false
+  return windows.some((w) => t >= w.start - 60_000 && t <= w.end + 300_000)
+}
+
+// ---------------------------------------------------------------------------
+// 独立 worktree：让被委托的 Codex 只在自己的分支/目录里动手
+// ---------------------------------------------------------------------------
+// 本机 /usr/bin/git 是 1.8.x（无 git worktree、无 -C），现代 git 在 /opt/cloud-dev/bin。
+// systemd 的 PATH 通常不含它，所以这里显式挑一个 >= 2.5 的 git。
+function resolveGitBin(cfg) {
+  if (cfg.gitBin) return cfg.gitBin
+  const candidates = [
+    '/opt/cloud-dev/bin/git',
+    '/usr/local/bin/git',
+    '/usr/bin/git',
+    'git',
+  ]
+  for (const c of candidates) {
+    const res = spawnSync(c, ['--version'], { encoding: 'utf8' })
+    if (res.status !== 0) continue
+    const m = /git version (\d+)\.(\d+)/.exec(res.stdout || '')
+    if (!m) continue
+    const major = Number(m[1])
+    const minor = Number(m[2])
+    if (major > 2 || (major === 2 && minor >= 5)) return c
+  }
+  return 'git'
+}
+
+// 注意：老版本 git 不支持 git -C，统一用 cwd 选项。
+let GIT_BIN = 'git'
+
+function git(cwd, args, { allowFail = false } = {}) {
+  const res = spawnSync(GIT_BIN, args, { cwd, encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
+  if (res.status !== 0 && !allowFail) {
+    throw new Error(`${GIT_BIN} ${args.join(' ')} 失败：${(res.stderr || res.stdout || '').trim()}`)
+  }
+  return { ok: res.status === 0, out: (res.stdout || '').trim(), err: (res.stderr || '').trim() }
+}
+
+function currentHead(workdir) {
+  const r = git(workdir, ['rev-parse', '--abbrev-ref', 'HEAD'], { allowFail: true })
+  return r.ok ? r.out : ''
+}
+
+/** 建 worktree，返回其路径与分支名。 */
+function createWorktree(cfg, batchId, branch) {
+  const dir = path.join(cfg.worktreesDir, batchId)
+  fs.mkdirSync(cfg.worktreesDir, { recursive: true })
+  // 复用已存在的同名 worktree（重试场景）
+  if (fs.existsSync(dir)) return dir
+  const base = cfg.baseRef || currentHead(cfg.workdir)
+  const r = git(cfg.workdir, ['worktree', 'add', '-b', branch, dir, base], { allowFail: true })
+  if (!r.ok) {
+    // 分支已存在（重试/历史遗留）时改用该分支
+    const r2 = git(cfg.workdir, ['worktree', 'add', dir, branch], { allowFail: true })
+    if (!r2.ok) throw new Error(`创建 worktree 失败：${r.err || r2.err}`)
+  }
+  return dir
+}
+
+/** 保留最近 keepWorktrees 个，其余清理（不动用户手工创建的其他 worktree）。 */
+function pruneWorktrees(cfg, state) {
+  const mine = state.worktrees || []
+  if (mine.length <= cfg.keepWorktrees) return []
+  const removed = []
+  for (const wt of mine.slice(0, mine.length - cfg.keepWorktrees)) {
+    if (fs.existsSync(wt.path)) {
+      git(cfg.workdir, ['worktree', 'remove', '--force', wt.path], { allowFail: true })
+      removed.push(wt.path)
+    }
+  }
+  git(cfg.workdir, ['worktree', 'prune'], { allowFail: true })
+  state.worktrees = mine.filter((wt) => !removed.includes(wt.path))
+  return removed
+}
+
+// PATH 里的 codex 是 codexhost shim（依赖 CODEXHOST_* 环境，systemd/cron 下不可用）。
+// 这里显式定位官方 codex 二进制，保证 headless 环境也能跑。
+function resolveCodexBin() {
+  const candidates = [
+    process.env.CODEXHOST_STOCK_CODEX_PATH,
+    '/opt/node-v22.23.1-linux-x64-glibc-217/lib/node_modules/@openai/codex/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex',
+    '/opt/node-v22.23.1-linux-x64-glibc-217/bin/codex',
+    '/usr/local/bin/codex',
+    '/usr/bin/codex',
+  ].filter(Boolean)
+  for (const c of candidates) {
+    try { if (fs.existsSync(c)) return c } catch {}
+  }
+  return 'codex'
+}
+
+function safePath(current) {
+  const base = '/root/.codexhost/remote/bin:/usr/local/bin:/usr/bin:/bin'
+  return current ? `${current}:${base}` : base
+}
+
 function pickBackend(cfg) {
   if (cfg.backend !== 'auto') return cfg.backend
   const parent = cfg.parentThread || process.env.CODEX_THREAD_ID
   return parent ? 'codexhost' : 'codex-exec'
 }
 
-function delegate(cfg, prompt, batchId) {
+function delegate(cfg, prompt, batchId, workdir, forcedModel) {
   const backend = pickBackend(cfg)
+  const model = forcedModel !== undefined ? forcedModel : cfg.model
+  const targetDir = workdir || cfg.workdir
   fs.mkdirSync(cfg.reportsDir, { recursive: true })
   const requestId = `ops-auto-${batchId}`
   const promptFile = path.join(cfg.reportsDir, `${batchId}.prompt.md`)
@@ -456,16 +642,19 @@ function delegate(cfg, prompt, batchId) {
   if (backend === 'codexhost') {
     const parent = cfg.parentThread || process.env.CODEX_THREAD_ID
     if (!parent) throw new Error('codexhost 后端需要 --parent-thread 或 $CODEX_THREAD_ID')
+    // 被委托方若直接在共享检出上改代码/切分支会污染本工作区（实测发生过），
+    // 默认要求 Harness 用独立 worktree；harness 不支持时自动降级并记录。
     const args = [
       'delegate', 'start',
       '--harness', cfg.harness,
       '--parent-thread', parent,
-      '--cwd', cfg.workdir,
+      '--cwd', targetDir,
       '--request-id', requestId,
       '--task', prompt,
       '--format', 'compact',
     ]
-    if (cfg.model) args.push('--model', cfg.model)
+    if (cfg.worktree) args.push('--worktree')
+    if (model) args.push('--model', model)
     const res = spawnSync('codexhost', args, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
     if (res.error) throw new Error(`codexhost 调用失败：${res.error.message}`)
     if (res.status !== 0) throw new Error(`codexhost 失败（exit ${res.status}）：${(res.stderr || res.stdout || '').trim()}`)
@@ -474,20 +663,28 @@ function delegate(cfg, prompt, batchId) {
     return { backend, requestId, promptFile, ...parsed }
   }
 
-  // codex-exec：headless，无需 Desktop Runtime，适合 systemd/cron
-  const args = ['exec', '-C', cfg.workdir, '-s', 'danger-full-access', '-']
-  if (cfg.model) args.push('-m', cfg.model)
+  // codex-exec：headless，无需 Desktop Runtime，适合 systemd/cron。
+  // 注意 PATH 上的 codex 是 codexhost shim，脱离 Desktop Runtime 时会因缺少
+  // CODEXHOST_* 环境而失败，所以这里优先用官方 codex 二进制。
+  const exe = cfg.codexBin || resolveCodexBin()
+  const args = ['exec', '-C', targetDir, '-s', 'danger-full-access', '-']
+  if (model) args.push('-m', model)
   const outFile = path.join(cfg.reportsDir, `${batchId}.last-message.md`)
   args.push('-o', outFile)
-  const res = spawnSync('codex', args, {
+  const res = spawnSync(exe, args, {
     input: prompt,
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
-    env: process.env,
+    env: { ...process.env, PATH: safePath(process.env.PATH) },
   })
-  if (res.error) throw new Error(`codex exec 调用失败：${res.error.message}`)
+  if (res.error) throw new Error(`codex exec 调用失败（${exe}）：${res.error.message}`)
   if (res.status !== 0) throw new Error(`codex exec 失败（exit ${res.status}）：${(res.stderr || res.stdout || '').slice(-2000)}`)
-  return { backend, requestId, promptFile, outputFile: outFile, status: 'completed' }
+  const out = res.stdout || ''
+  // 网关自身故障（例如 auto 路由 503 no eligible model）会让 codex 反复重连后只输出 ERROR：
+  // 此时"命令成功"但没有任何评估产出，必须识别出来，否则会被当成完成而静默丢批次。
+  const failed = /ERROR: (Reconnecting\.\.\.|unexpected status)/.test(out) ||
+    /unexpected status 5\d\d/.test(out)
+  return { backend, requestId, promptFile, outputFile: outFile, status: failed ? 'failed' : 'completed', upstreamFailed: failed }
 }
 
 // ---------------------------------------------------------------------------
@@ -512,6 +709,7 @@ function main() {
   let cfg = parseArgs(process.argv.slice(2))
   if (cfg.help) { process.stdout.write(HELP); return 0 }
   cfg = loadConfig(cfg)
+  GIT_BIN = resolveGitBin(cfg)
 
   if (cfg.source === 'sql') {
     // 首次运行不回溯历史：默认从当前最大 id 开始
@@ -537,8 +735,12 @@ function main() {
   for (const d of state.delegated) for (const id of d.errorIds || []) delegatedIds.add(Number(id))
 
   const ignoreRes = cfg.ignorePatterns.map((p) => new RegExp(p))
+  const hostIps = [...new Set([...detectHostIps(), ...cfg.hostIps])]
+  const windows = collectDelegationWindows(state)
+  const selfNoise = errors.filter((e) => isSelfNoise(e, cfg, hostIps, windows))
   const pending = errors
     .filter((e) => !delegatedIds.has(Number(e.id)))
+    .filter((e) => !isSelfNoise(e, cfg, hostIps))
     .filter((e) => !ignoreRes.some((re) => re.test(signatureOf(e))))
 
   const clusters = clusterErrors(pending)
@@ -553,6 +755,7 @@ function main() {
     source: cfg.source,
     sinceId: cfg.sinceId,
     scanned: errors.length,
+    selfNoiseFiltered: selfNoise.length,
     pending: pending.length,
     signatures: clusters.length,
     trigger: reasons.length > 0 && !cooldownActive,
@@ -563,7 +766,12 @@ function main() {
   }
 
   if (!decision.trigger) {
-    if (!cooldownActive && pending.length) decision.reasons = [`未达阈值（待处理 ${pending.length} 条 / 签名 ${clusters.length} 个）`]
+    if (!cooldownActive && pending.length) {
+      decision.reasons = [`未达阈值（待处理 ${pending.length} 条 / 签名 ${clusters.length} 个）`]
+    }
+    if (!cooldownActive && !pending.length && selfNoise.length) {
+      decision.reasons = [`待处理 0 条（其中 ${selfNoise.length} 条为本次委托自身的噪音，已过滤）`]
+    }
     if (cooldownActive) decision.reasons = [`冷却中（距上次委托不足 ${cfg.cooldownMinutes} 分钟）`]
     if (cfg.json) process.stdout.write(JSON.stringify(decision, null, 2) + '\n')
     else process.stdout.write(`[ops-auto-delegate] 不委托：${decision.reasons.join('；')}\n`)
@@ -575,7 +783,10 @@ function main() {
     .update(batch.map((e) => e.id).join(',') + '|' + reasons.join(';'))
     .digest('hex')
   const batchId = `${new Date().toISOString().slice(0, 10)}-${batchKey.slice(0, 12)}`
-  const prompt = buildPrompt(cfg, { errors: batch, clusters, reasons, batchKey })
+  const branch = `ops-fix/${batchKey.slice(0, 12)}`
+  const base = cfg.baseRef || currentHead(cfg.workdir)
+  const workdir = cfg.dryRun ? cfg.workdir : createWorktree(cfg, batchId, branch)
+  const prompt = buildPrompt(cfg, { errors: batch, clusters, reasons, batchKey }, { workdir, branch, base })
 
   if (cfg.printPrompt) process.stdout.write(prompt + '\n\n=== END OF PROMPT ===\n\n')
 
@@ -596,6 +807,7 @@ function main() {
     return 0
   }
 
+  const runStartedAt = new Date().toISOString()
   const result = withLock(cfg.statePath, () => {
     const fresh = loadState(cfg.statePath)
     for (const id of batch.map((e) => e.id)) {
@@ -603,21 +815,36 @@ function main() {
         throw new Error(`批次包含已委托错误 id=${id}，放弃本次以避免重复委托`)
       }
     }
-    const res = delegate(cfg, prompt, batchId)
+    let res = delegate(cfg, prompt, batchId, workdir)
+    if (res.status === 'failed' && cfg.model !== cfg.fallbackModel) {
+      process.stderr.write(
+        `[ops-auto-delegate] 委托失败（模型 ${cfg.model || 'harness 默认'} 无产出，疑似网关自身故障），` +
+        `改用回退模型 ${cfg.fallbackModel || 'harness 默认'} 重试一次\n`
+      )
+      res = delegate(cfg, prompt, batchId, workdir, cfg.fallbackModel)
+      res.retriedWithFallback = true
+    }
     let resolvedCount = 0
     if (cfg.autoResolve) resolvedCount = autoResolve(cfg, batch.map((e) => e.id))
     fresh.lastId = Math.max(fresh.lastId, ...batch.map((e) => Number(e.id)))
     fresh.delegated.push({
       at: new Date().toISOString(),
+      startedAt: runStartedAt,
       batchId,
       errorIds: batch.map((e) => Number(e.id)),
       signatures: clusters.map((c) => c.signature),
       thread: res.thread || null,
       backend: res.backend,
       autoResolved: resolvedCount,
+      worktree: workdir,
+      branch,
+      base,
     })
+    fresh.baseRef = fresh.baseRef || base
+    fresh.worktrees = [...(fresh.worktrees || []), { path: workdir, branch, batchId, at: new Date().toISOString() }]
+    const pruned = pruneWorktrees(cfg, fresh)
     saveState(cfg.statePath, fresh)
-    return { ...res, resolvedCount }
+    return { ...res, resolvedCount, worktree: workdir, branch, pruned }
   })
 
   decision.delegated = true
@@ -628,6 +855,7 @@ function main() {
   else {
     process.stdout.write(`[ops-auto-delegate] 已委托 ${batch.length} 条错误 → ${result.thread || result.outputFile || result.backend}\n`)
     process.stdout.write(`[ops-auto-delegate] 批次ID=${batchId} 提示词=${result.promptFile}\n`)
+    process.stdout.write(`[ops-auto-delegate] 独立工作区=${result.worktree}（分支 ${result.branch}）\n`)
   }
   return 0
 }

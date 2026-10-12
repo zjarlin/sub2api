@@ -17,9 +17,12 @@ ops_error_logs (只读)  →  攒批/聚类  →  结构化提示词  →  codex
 2. **攒批**：按 `平台|阶段|类型|模型族|归一化消息` 聚成「错误签名」，累计未委托的错误条数/签名数。
 3. **触发**：满足任一条件即委托一批（默认）：累计新错误 ≥ 5 条；或签名 ≥ 3 个且至少 3 条；
    或最早待处理错误已等待 ≥ 30 分钟。两次委托之间有 20 分钟冷却，避免批量风暴。
-4. **委托**：把整批错误渲染成结构化提示词，交给 Codex。提示词里明确写死：
+4. **隔离**：每次委托前自建一个**独立 git worktree**（`$TMPDIR/sub2api-ops-fix/<批次ID>`，
+   分支 `ops-fix/<批次ID>`），Codex 只在那里动手。此前直接在共享检出上委托，
+   被委托方会切换共享检出的分支、把工作区搞脏（实测两次），现已从机制上杜绝。
+5. **委托**：把整批错误渲染成结构化提示词，交给 Codex。提示词里明确写死：
 
-   - **工作目录**：`/opt/cloud-dev/zjarlin/aio/workspace/zjarlin/sub2api-chat-playground`
+   - **工作目录**：该批次专属的 worktree（并声明"不要碰共享检出、不要 push"）
    - **硬性禁令**（来自本仓库 `AGENTS.md`）：禁止 `docker compose up ... sub2api`、禁止重启/重建容器、
      禁止自行部署；需要部署时只给建议，等用户确认后走 TeamCity 或 `deploy-252.sh`
    - **评估契约**：每条错误必须归入 `A 需改代码 / B 无需改代码 / C 信息不足` 之一并写判据；
@@ -37,6 +40,7 @@ node ops-auto-delegate.mjs --dry-run --since-id 195900 --json
 node ops-auto-delegate.mjs --dry-run --print-prompt --since-id 195900
 
 # 3) 真委托（在 Codex 会话内跑会自动用 codexhost delegate，线程出现在侧边栏）
+#    模型默认 auto（网关 Auto Router 自动选模），可用 --model 覆盖
 node ops-auto-delegate.mjs
 
 # 4) 无 Desktop 场景（systemd/cron）用 headless codex exec
@@ -45,6 +49,19 @@ node ops-auto-delegate.mjs --backend codex-exec
 
 首次运行不会倒灌历史：默认从当前 `MAX(id)` 之后开始采集（`--since-id` 可覆盖）。
 想补跑某段时间的积压就显式给 `--since-id`（如 `--since-id 195686 --lookback-minutes 240`）。
+
+## 已内建的两个「自保」机制
+
+1. **委托失败自动回退模型**：默认 `--model auto`（网关 Auto Router）。但网关自身出故障时
+   （例如 Auto 路由对带工具的 `responses` 请求报 `503 no eligible model`），
+   委托方 Codex 会 `Reconnecting... 5/5` 后只输出 `ERROR:` 而没有产出。
+   工具会识别这种"命令成功但零产出"，改用 `--fallback-model`（默认 `deepseek-v4.1-flash`）**重试一次**，
+   并在日志里说明是网关自身故障。
+2. **自激循环过滤**：被委托方为了排查会去打网关，产生的请求错误同样会写进 `ops_error_logs`。
+   工具按 **「委托时间窗 + 本机来源 IP + codex/curl 客户端 UA」** 三重条件把这些噪音排除，
+   避免"自己的错误 → 再委托 → 产生更多错误"的无限循环。
+   仅看时间窗之外、非本机的错误，用户自己 Codex 会话的真实错误不会被误删。
+   `--no-self-noise-filter` 可关闭。
 
 ### 定时运行
 
@@ -76,8 +93,14 @@ systemctl start ops-auto-delegate.service           # 手动跑一次，journalc
 | `--backend auto\|codexhost\|codex-exec` | `auto` | `auto`：有 `$CODEX_THREAD_ID` 用 codexhost，否则 codex-exec |
 | `--harness <id>` | `codex` | codexhost harness |
 | `--parent-thread <ref>` | `$CODEX_THREAD_ID` | codexhost 父线程 |
-| `--model <m>` | harness 原生默认 | 指定委托使用的模型 |
-| `--workdir <path>` | 仓库根 | 委托给 Codex 的工作目录 |
+| `--model <m>` | `auto`（网关 Auto Router） | 指定委托使用的模型；传空串 `--model ''` 用 harness 原生默认 |
+| `--workdir <path>` | 仓库根 | 共享检出路径（仅用于建 worktree 与采集基线） |
+| `--worktrees-dir <path>` | `$TMPDIR/sub2api-ops-fix` | 每次委托自建 worktree 的父目录 |
+| `--base-ref <ref>` | 首次运行时的 HEAD | worktree 基线 |
+| `--keep-worktrees <n>` | 5 | 保留最近 n 个 worktree，其余自动清理 |
+| `--fallback-model <m>` | `deepseek-v4.1-flash` | 委托失败时重试用的模型 |
+| `--no-self-noise-filter` | — | 关闭自激噪音过滤 |
+| `--git-bin <path>` | 自动挑 ≥2.5 | 使用的 git（`/usr/bin/git` 是 1.8，不支持 worktree） |
 | `--ignore <regex>` | 无 | 忽略匹配的错误签名（可重复） |
 | `--auto-resolve` | 关 | 委托后把本批标记为已解决（**写生产库**，默认关闭） |
 | `--dry-run` / `--print-prompt` / `--json` | — | 只出决策 / 打印提示词 / JSON 输出 |
@@ -92,11 +115,21 @@ systemctl start ops-auto-delegate.service           # 手动跑一次，journalc
   - `<批次ID>.md`：被委托的 Codex 写入的评估/修复报告
   - `<批次ID>.last-message.md`：`codex-exec` 模式的最后一条回复
 
+## 环境依赖（实测踩过的坑）
+
+- PATH 上的 `codex` 是 **codexhost shim**，脱离 Desktop Runtime 时会报
+  `codexhost shim: CODEXHOST_STOCK_CODEX_PATH is required`。`codex-exec` 后端因此
+  **直接调用官方 codex 二进制**（自动定位，可用 `--codex-bin` 指定）。
+- `/usr/bin/git` 是 1.8.3.1，**没有 `git worktree`、也不支持 `-C`**；现代 git 在
+  `/opt/cloud-dev/bin/git`（2.43.7）。systemd 的 PATH 不含它，工具会自动挑 `>= 2.5` 的版本。
+- 因此 systemd 单元的 PATH 需要显式带上 `/opt/cloud-dev/bin`（见 `deploy/*.service`）。
+
 ## 安全边界
 
 - 脚本自身**只读**：只查 `ops_error_logs`，不写库、不动容器；只有显式 `--auto-resolve` 才写生产库。
 - 提示词里写死 `AGENTS.md` 的硬性禁令，被委托的 Codex 不许部署/重启/重建容器。
-- 被委托的 Codex 只在分支 `ops-fix/<批次ID>` 上提交改动，不 push 主分支、不发布。
+- 被委托的 Codex 只在**独立 worktree** 的 `ops-fix/<批次ID>` 分支上提交改动，
+  不 push、不发布、不碰共享检出。
 
 ## 说明与边界
 

@@ -14,9 +14,11 @@ Wants=docker.service
 Type=oneshot
 # systemd 环境下没有 Desktop Runtime，自动回退 codex exec（headless）
 Environment=HOME=/root
-Environment=PATH=/root/.codexhost/remote/bin:/usr/local/bin:/usr/bin:/bin
+# 需要 /opt/cloud-dev/bin 才能在 systemd 内拿到支持 worktree 的 git(2.43.7)；
+# 不要在这里放 codexhost 的 shim 目录，codex-exec 会自动定位官方 codex 二进制。
+Environment=PATH=/opt/cloud-dev/bin:/usr/local/bin:/usr/bin:/bin
 WorkingDirectory=/opt/cloud-dev/zjarlin/aio/workspace/zjarlin/sub2api-chat-playground
-ExecStart=/usr/bin/node /opt/cloud-dev/zjarlin/aio/workspace/zjarlin/sub2api-chat-playground/tools/ops-auto-delegate/ops-auto-delegate.mjs --backend codex-exec --max-batch 8 --cooldown-minutes 45
+ExecStart=/usr/bin/node /opt/cloud-dev/zjarlin/aio/workspace/zjarlin/sub2api-chat-playground/tools/ops-auto-delegate/ops-auto-delegate.mjs --backend codex-exec --model auto --fallback-model deepseek-v4.1-flash --max-batch 8 --cooldown-minutes 45
 # 需要写生产库的 --auto-resolve 默认不要打开；如需打开，单独确认后再改这里
 Nice=10
 TimeoutStartSec=1800

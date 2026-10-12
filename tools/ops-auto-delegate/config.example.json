@@ -10,8 +10,16 @@
   "backend": "auto",
   "harness": "codex",
   "parentThread": "",
-  "model": "",
+  "model": "auto",
   "workdir": "/opt/cloud-dev/zjarlin/aio/workspace/zjarlin/sub2api-chat-playground",
   "ignorePatterns": [],
-  "autoResolve": false
+  "autoResolve": false,
+  "worktree": false,
+  "codexBin": "",
+  "fallbackModel": "deepseek-v4.1-flash",
+  "selfNoise": true,
+  "gitBin": "",
+  "worktreesDir": "/tmp/sub2api-ops-fix",
+  "keepWorktrees": 5,
+  "baseRef": ""
 }
