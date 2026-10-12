@@ -272,8 +272,9 @@ function fetchFromApi(cfg, sinceId) {
   url.searchParams.set('page_size', '200')
   url.searchParams.set('view', 'errors')
   url.searchParams.set('resolved', '0')
-  const res = spawnSync('curl', ['-sS', '-H', `x-api-key: ${key}`,
-    '-H', `x-api-key: ${key}`, url.toString()], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
+  const res = spawnSync('curl', [
+    '-sS', '-H', `x-api-key: ${key}`, '-H', `Authorization: Bearer ${key}`, url.toString(),
+  ], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 })
   if (res.status !== 0) throw new Error(`curl 失败：${(res.stderr || '').trim()}`)
   const body = JSON.parse(res.stdout)
   if (body.code && body.code !== 'OK' && !Array.isArray(body.items)) {
