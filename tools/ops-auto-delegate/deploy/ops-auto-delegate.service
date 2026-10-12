@@ -1,0 +1,22 @@
+# 安装：
+#   cp deploy/ops-auto-delegate.service /etc/systemd/system/
+#   cp deploy/ops-auto-delegate.timer  /etc/systemd/system/
+#   systemctl daemon-reload && systemctl enable --now ops-auto-delegate.timer
+# 只读 dry-run 验证：
+#   systemctl start ops-auto-delegate.service && journalctl -u ops-auto-delegate -n 50
+[Unit]
+Description=sub2api 请求错误自动委托（ops-auto-delegate）
+Documentation=file:///opt/cloud-dev/zjarlin/aio/workspace/zjarlin/sub2api-chat-playground/tools/ops-auto-delegate/README.md
+After=docker.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+# systemd 环境下没有 Desktop Runtime，自动回退 codex exec（headless）
+Environment=HOME=/root
+Environment=PATH=/root/.codexhost/remote/bin:/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/opt/cloud-dev/zjarlin/aio/workspace/zjarlin/sub2api-chat-playground
+ExecStart=/usr/bin/node /opt/cloud-dev/zjarlin/aio/workspace/zjarlin/sub2api-chat-playground/tools/ops-auto-delegate/ops-auto-delegate.mjs --backend codex-exec --max-batch 8 --cooldown-minutes 45
+# 需要写生产库的 --auto-resolve 默认不要打开；如需打开，单独确认后再改这里
+Nice=10
+TimeoutStartSec=1800

@@ -1,0 +1,17 @@
+{
+  "source": "sql",
+  "dbContainer": "sub2api-postgres",
+  "lookbackMinutes": 180,
+  "minEvents": 5,
+  "minSignatures": 3,
+  "maxWaitMinutes": 30,
+  "maxBatch": 20,
+  "cooldownMinutes": 20,
+  "backend": "auto",
+  "harness": "codex",
+  "parentThread": "",
+  "model": "",
+  "workdir": "/opt/cloud-dev/zjarlin/aio/workspace/zjarlin/sub2api-chat-playground",
+  "ignorePatterns": [],
+  "autoResolve": false
+}

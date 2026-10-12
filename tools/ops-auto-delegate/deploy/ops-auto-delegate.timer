@@ -1,0 +1,12 @@
+[Unit]
+Description=定时运行 sub2api 请求错误自动委托（每 10 分钟）
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=10min
+AccuracySec=30s
+Persistent=true
+Unit=ops-auto-delegate.service
+
+[Install]
+WantedBy=timers.target
