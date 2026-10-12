@@ -92,6 +92,10 @@ func (h *GatewayHandler) autoModelPlan(ctx context.Context, group *service.Group
 				entry.Reason = "source_missing"
 			case !autoModelTextCandidate(model) || !autoModelTextCandidate(upstream):
 				entry.Reason = "not_text_generation"
+			case service.AutoModelPolicyExcluded(ctx, model, upstream):
+				entry.Reason = "auto_policy_excluded"
+			case !service.AutoModelWhitelisted(ctx, model) || !service.AutoModelWhitelisted(ctx, upstream):
+				entry.Reason = "auto_policy_not_whitelisted"
 			case !h.autoModelTargetAllowed(ctx, group.ID, model) || !h.autoModelTargetAllowed(ctx, group.ID, upstream):
 				entry.Reason = "auto_policy_excluded"
 			case !autoModelTextPlatform(platform):

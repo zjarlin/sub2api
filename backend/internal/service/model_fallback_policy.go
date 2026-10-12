@@ -61,9 +61,23 @@ type autoModelToolCapabilityBlock struct {
 type autoModelRoutingPolicy struct {
 	highestExcluded map[string]struct{}
 	excluded        map[string]struct{}
-	ranks           map[string]int
-	aliases         *ModelAliasPolicy
-	policy          *AutoModelPolicy
+	// whitelisted 用别名组补齐白名单，命中任一别名的规范模型同样允许；空白名单时为空。
+	whitelisted map[string]struct{}
+	ranks       map[string]int
+	aliases     *ModelAliasPolicy
+	policy      *AutoModelPolicy
+}
+
+// allows 实现白名单判定：空白名单不限制，命中规则或命中别名组即允许。
+func (s *autoModelRoutingPolicy) allows(model string) bool {
+	if s == nil {
+		return true
+	}
+	canonical := s.aliases.Canonicalize(model)
+	if _, whitelisted := s.whitelisted[canonical]; whitelisted {
+		return true
+	}
+	return s.policy.Allows(model) || (canonical != model && s.policy.Allows(canonical))
 }
 
 // 采用公开榜单最高已测推理强度的粗粒度分段，依据和局限见 docs/model-fallback-tiers.md。
@@ -199,7 +213,16 @@ func (s *SettingService) BindAutoModelRoutingPolicy(ctx context.Context) (contex
 			ranks[aliasSnapshot.Canonicalize(model)] = rank*1000 + index
 		}
 	}
-	snapshot := &autoModelRoutingPolicy{highestExcluded: highestExcluded, excluded: excluded, aliases: aliasSnapshot, policy: autoPolicy, ranks: ranks}
+	// 白名单同样按别名组生效：请求用别名或规范 ID 都能通过，未列出的模型一律不可选。
+	whitelisted := make(map[string]struct{})
+	if len(autoPolicy.Whitelist) > 0 {
+		for _, group := range aliasSnapshot.Groups {
+			if autoPolicy.Allows(group.Canonical) || slices.ContainsFunc(group.Aliases, autoPolicy.Allows) {
+				whitelisted[group.Canonical] = struct{}{}
+			}
+		}
+	}
+	snapshot := &autoModelRoutingPolicy{highestExcluded: highestExcluded, excluded: excluded, whitelisted: whitelisted, aliases: aliasSnapshot, policy: autoPolicy, ranks: ranks}
 	ctx = WithModelAliases(ctx, aliasSnapshot)
 	return context.WithValue(ctx, autoModelRoutingPolicyContextKey{}, snapshot), nil
 }
@@ -334,7 +357,58 @@ func AutoModelAllowed(ctx context.Context, models ...string) bool {
 			}
 			continue
 		}
+		if !snapshot.allows(model) {
+			return false
+		}
 		if _, excluded := snapshot.excluded[canonical]; excluded || snapshot.policy.excludes(model) || snapshot.policy.excludes(canonical) {
+			return false
+		}
+	}
+	return true
+}
+
+// AutoModelPolicyExcluded 报告已绑定 Auto 请求是否被黑名单或最高档排除；ask 仍只受最高档约束，不含白名单判定。
+func AutoModelPolicyExcluded(ctx context.Context, models ...string) bool {
+	if ctx == nil {
+		return false
+	}
+	snapshot, _ := ctx.Value(autoModelRoutingPolicyContextKey{}).(*autoModelRoutingPolicy)
+	if snapshot == nil {
+		return false
+	}
+	ask := false
+	if capabilities, ok := ctx.Value(autoModelRequestCapabilitiesContextKey{}).(autoModelRequestCapabilities); ok {
+		ask = capabilities.ask
+	}
+	for _, model := range models {
+		canonical := snapshot.aliases.Canonicalize(model)
+		if _, excluded := snapshot.highestExcluded[canonical]; excluded {
+			return true
+		}
+		if ask {
+			continue
+		}
+		if _, excluded := snapshot.excluded[canonical]; excluded || snapshot.policy.excludes(model) || snapshot.policy.excludes(canonical) {
+			return true
+		}
+	}
+	return false
+}
+
+// AutoModelWhitelisted 报告已绑定的 Auto 请求是否全部命中白名单；ask 与未绑定请求不受白名单限制，空白名单表示不限制。
+func AutoModelWhitelisted(ctx context.Context, models ...string) bool {
+	if ctx == nil {
+		return true
+	}
+	snapshot, _ := ctx.Value(autoModelRoutingPolicyContextKey{}).(*autoModelRoutingPolicy)
+	if snapshot == nil {
+		return true
+	}
+	if capabilities, _ := ctx.Value(autoModelRequestCapabilitiesContextKey{}).(autoModelRequestCapabilities); capabilities.ask {
+		return true
+	}
+	for _, model := range models {
+		if !snapshot.allows(model) {
 			return false
 		}
 	}

@@ -11,7 +11,9 @@ import (
 const SettingKeyAutoModelPolicy = "auto_model_policy"
 
 type AutoModelPolicy struct {
-	Blacklist       []string               `json:"blacklist"`
+	Blacklist []string `json:"blacklist"`
+	// 白名单为空表示不限制；非空时只有命中的模型允许参与 Auto 选模。
+	Whitelist       []string               `json:"whitelist,omitempty"`
 	VerticalRouting *VerticalRoutingPolicy `json:"vertical_routing,omitempty"`
 }
 
@@ -39,14 +41,15 @@ func (p *AutoModelPolicy) Validate() error {
 	if p == nil || p.Blacklist == nil || len(p.Blacklist) > 128 {
 		return fmt.Errorf("blacklist must be an array with at most 128 patterns")
 	}
-	seen := make(map[string]bool)
-	for _, pattern := range p.Blacklist {
-		normalized := strings.ToLower(pattern)
-		if pattern == "" || len(pattern) > 200 || strings.ContainsAny(pattern, " \t\r\n?[]\\") ||
-			strings.Contains(strings.TrimSuffix(pattern, "*"), "*") || seen[normalized] {
-			return fmt.Errorf("blacklist patterns must be unique model IDs with an optional trailing *: %q", pattern)
-		}
-		seen[normalized] = true
+	if err := validateAutoModelRules("blacklist", p.Blacklist); err != nil {
+		return err
+	}
+	// 空白名单表示不限制，仅校验非空列表，保证既有配置继续可用。
+	if len(p.Whitelist) > 128 {
+		return fmt.Errorf("whitelist must be an array with at most 128 patterns")
+	}
+	if err := validateAutoModelRules("whitelist", p.Whitelist); err != nil {
+		return err
 	}
 	if v := p.VerticalRouting; v != nil {
 		if v.MinConfidence < 0.8 || v.MinConfidence > 1 || v.TimeoutMS < 200 || v.TimeoutMS > 5000 {
@@ -71,10 +74,50 @@ func (p *AutoModelPolicy) Validate() error {
 	return nil
 }
 
+func validateAutoModelRules(field string, patterns []string) error {
+	seen := make(map[string]bool, len(patterns))
+	for _, pattern := range patterns {
+		normalized := strings.ToLower(pattern)
+		if pattern == "" || len(pattern) > 200 || strings.ContainsAny(pattern, " \t\r\n?[]\\") ||
+			strings.Contains(strings.TrimSuffix(pattern, "*"), "*") || seen[normalized] {
+			return fmt.Errorf("%s patterns must be unique model IDs with an optional trailing *: %q", field, pattern)
+		}
+		seen[normalized] = true
+	}
+	return nil
+}
+
 // 不带供应商前缀的规则也匹配最后一个斜杠后的模型名，覆盖供应商命名空间。
 func (p *AutoModelPolicy) excludes(model string) bool {
+	return matchAutoModelRules(p.blacklistRules(), model)
+}
+
+// Allows 返回空白名单（不限制）或命中白名单规则；白名单与黑名单共用匹配语义。
+func (p *AutoModelPolicy) Allows(model string) bool {
+	rules := p.whitelistRules()
+	if len(rules) == 0 {
+		return true
+	}
+	return matchAutoModelRules(rules, model)
+}
+
+func (p *AutoModelPolicy) blacklistRules() []string {
+	if p == nil {
+		return nil
+	}
+	return p.Blacklist
+}
+
+func (p *AutoModelPolicy) whitelistRules() []string {
+	if p == nil {
+		return nil
+	}
+	return p.Whitelist
+}
+
+func matchAutoModelRules(patterns []string, model string) bool {
 	model = strings.ToLower(model)
-	for _, pattern := range p.Blacklist {
+	for _, pattern := range patterns {
 		pattern = strings.ToLower(pattern)
 		if matchWildcard(pattern, model) {
 			return true

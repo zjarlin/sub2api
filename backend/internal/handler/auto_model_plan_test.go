@@ -206,6 +206,48 @@ func TestAutoModelPlanIncludesEveryConfiguredCandidateWithoutHealthHistory(t *te
 	}
 }
 
+func TestAutoModelPlanReportsWhitelistExclusions(t *testing.T) {
+	accounts := []service.Account{{
+		ID: 1, Platform: service.PlatformOpenAI, Status: service.StatusActive, Schedulable: true,
+		Credentials: map[string]any{"model_mapping": map[string]any{
+			"gpt-5.5": "gpt-5.5", "glm-5.3": "glm-5.3", "doubao-pro": "doubao-pro",
+		}},
+	}}
+	h := newAutoModelTestHandler(accounts)
+	h.settingService = service.NewSettingService(&contentModerationHandlerSettingRepo{values: map[string]string{
+		service.SettingKeyAutoModelPolicy: `{"blacklist":["doubao*"],"whitelist":["gpt-5.5"]}`,
+	}}, nil)
+	ctx, err := h.settingService.BindAutoModelRoutingPolicy(context.Background())
+	require.NoError(t, err)
+	ctx, models, err := h.gatewayService.BindAutoModelInventory(ctx, 71)
+	require.NoError(t, err)
+	group := &service.Group{ID: 71, Platform: service.PlatformOpenAI}
+	body := []byte(`{"model":"auto","input":"hello"}`)
+	routes, plan, err := h.autoModelPlan(ctx, group, nil, "/v1/responses", body, models)
+	require.NoError(t, err)
+	require.Len(t, routes, 1)
+	require.Equal(t, "gpt-5.5", routes[0].model)
+	reasons := map[string]string{}
+	for _, candidate := range plan {
+		if !candidate.Eligible {
+			reasons[candidate.Model] = candidate.Reason
+		}
+	}
+	require.Equal(t, "auto_policy_not_whitelisted", reasons["glm-5.3"])
+	// 黑名单与最高档排除沿用原有原因，便于区分“未列入白名单”和“被策略排除”。
+	require.Equal(t, "auto_policy_excluded", reasons["doubao-pro"])
+	// ask 不受白名单与黑名单限制，只有最高档继续排除。
+	askBody := []byte(`{"model":"ask","input":"hello"}`)
+	askCtx := service.WithAutoModelRequestCapabilities(ctx, askBody)
+	_, askPlan, err := h.autoModelPlan(askCtx, group, nil, "/v1/responses", askBody, models)
+	require.NoError(t, err)
+	for _, candidate := range askPlan {
+		if candidate.Model == "glm-5.3" || candidate.Model == "doubao-pro" {
+			require.True(t, candidate.Eligible, candidate.Model)
+		}
+	}
+}
+
 func TestAutoModelPlanKeepsProviderAlternativesAndExhaustsFiniteChain(t *testing.T) {
 	accounts := []service.Account{autoModelTestAccounts()[0], autoModelTestAccounts()[1]}
 	accounts[0].Credentials = map[string]any{"model_mapping": map[string]any{

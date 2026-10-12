@@ -69,6 +69,30 @@ describe('AutoModelSettings', () => {
     expect(updateAutoModelPolicy).not.toHaveBeenCalled()
   })
 
+  it('默认白名单为空表示不限制，保存后只保留命中模型', async () => {
+    const wrapper = await render()
+    expect(wrapper.get('[data-testid="auto-model-whitelist"]').element.value).toBe('')
+    await wrapper.get('[data-testid="auto-model-whitelist"]').setValue('gpt-5.5\nprovider/private*')
+    await wrapper.get('.btn-primary').trigger('click')
+    await flushPromises()
+    expect(updateAutoModelPolicy).toHaveBeenLastCalledWith(expect.objectContaining({ whitelist: ['gpt-5.5', 'provider/private*'] }))
+    await wrapper.get('[data-testid="auto-model-whitelist"]').setValue('')
+    expect(wrapper.text()).not.toContain('admin.settings.autoModel.saved')
+    await wrapper.get('.btn-primary').trigger('click')
+    await flushPromises()
+    expect(updateAutoModelPolicy).toHaveBeenLastCalledWith(expect.objectContaining({ whitelist: [] }))
+  })
+
+  it('回填已保存的白名单并拒绝无效规则', async () => {
+    vi.mocked(getAutoModelPolicy).mockResolvedValueOnce({ blacklist: ['doubao*'], whitelist: ['gpt-5.5'] })
+    const wrapper = await render()
+    expect(wrapper.get('[data-testid="auto-model-whitelist"]').element.value).toBe('gpt-5.5')
+    await wrapper.get('[data-testid="auto-model-whitelist"]').setValue('gpt-5.5\nGPT-5.5')
+    expect(wrapper.get('.btn-primary').attributes('disabled')).toBeDefined()
+    expect(wrapper.text()).toContain('admin.settings.autoModel.invalidRules')
+    expect(updateAutoModelPolicy).not.toHaveBeenCalled()
+  })
+
   it('读取失败时显示错误并支持重试', async () => {
     vi.mocked(getAutoModelPolicy).mockRejectedValueOnce(new Error('offline'))
     const wrapper = await render()

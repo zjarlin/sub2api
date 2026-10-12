@@ -1619,6 +1619,8 @@ export interface ModelFallbackPolicy {
 
 export interface AutoModelPolicy {
   blacklist: string[];
+  // 空白名单表示不限制；非空时只有命中的模型参与 Auto 选模。
+  whitelist?: string[];
   vertical_routing?: {
     enabled: boolean;
     min_confidence: number;

@@ -12,6 +12,9 @@
         <label for="auto-model-blacklist" class="block text-sm font-medium">{{ t('admin.settings.autoModel.blacklist') }}</label>
         <textarea id="auto-model-blacklist" v-model="blacklistText" class="input w-full font-mono text-sm" rows="4" spellcheck="false" aria-describedby="auto-model-blacklist-hint" />
         <p id="auto-model-blacklist-hint" class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.autoModel.hint') }}</p>
+        <label for="auto-model-whitelist" class="block text-sm font-medium">{{ t('admin.settings.autoModel.whitelist') }}</label>
+        <textarea id="auto-model-whitelist" v-model="whitelistText" data-testid="auto-model-whitelist" class="input w-full font-mono text-sm" rows="4" spellcheck="false" aria-describedby="auto-model-whitelist-hint" />
+        <p id="auto-model-whitelist-hint" class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.autoModel.whitelistHint') }}</p>
         <div class="border-t border-gray-100 pt-4 dark:border-dark-700">
           <label class="flex items-center gap-2"><input v-model="verticalRouting.enabled" type="checkbox" data-testid="vertical-enabled" />{{ t('admin.settings.autoModel.verticalEnabled') }}</label>
           <div class="mt-3 grid gap-3 sm:grid-cols-2">
@@ -38,6 +41,7 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 
 const { t } = useI18n()
 const blacklistText = ref('')
+const whitelistText = ref('')
 const imageFallbackText = ref('')
 const loading = ref(false)
 const saving = ref(false)
@@ -48,12 +52,16 @@ const defaultVerticalRouting = { enabled: true, min_confidence: 0.8, timeout_ms:
 const verticalRouting = ref({ ...defaultVerticalRouting })
 const policy = computed<AutoModelPolicy>(() => ({
   blacklist: blacklistText.value.split(/[\s,，]+/).filter(Boolean),
+  whitelist: whitelistText.value.split(/[\s,，]+/).filter(Boolean),
   vertical_routing: { ...verticalRouting.value, image_fallback_models: imageFallbackText.value.split(/[\s,，]+/).filter(Boolean) },
 }))
+// 黑名单与白名单共用同一套规则语法，因此共用同一个校验。
+function hasInvalidRules(rules: string[]): boolean {
+  return rules.length > 128 || new Set(rules.map(rule => rule.toLowerCase())).size !== rules.length
+    || rules.some(rule => rule.length > 200 || /[?\[\]\\]/.test(rule) || rule.replace(/\*$/, '').includes('*'))
+}
 const validationError = computed(() => {
-  const rules = policy.value.blacklist
-  if (rules.length > 128 || new Set(rules.map(rule => rule.toLowerCase())).size !== rules.length
-    || rules.some(rule => rule.length > 200 || /[?\[\]\\]/.test(rule) || rule.replace(/\*$/, '').includes('*'))) {
+  if (hasInvalidRules(policy.value.blacklist) || hasInvalidRules(policy.value.whitelist ?? [])) {
     return t('admin.settings.autoModel.invalidRules')
   }
   const vertical = verticalRouting.value
@@ -71,6 +79,7 @@ const validationError = computed(() => {
 })
 
 watch(blacklistText, () => { saved.value = false }, { flush: 'sync' })
+watch(whitelistText, () => { saved.value = false }, { flush: 'sync' })
 watch(imageFallbackText, () => { saved.value = false }, { flush: 'sync' })
 watch(verticalRouting, () => { saved.value = false }, { deep: true, flush: 'sync' })
 
@@ -80,6 +89,7 @@ async function load() {
   try {
     const result = await getAutoModelPolicy()
     blacklistText.value = result.blacklist.join('\n')
+    whitelistText.value = (result.whitelist ?? []).join('\n')
     verticalRouting.value = { ...defaultVerticalRouting, ...result.vertical_routing }
     imageFallbackText.value = (result.vertical_routing?.image_fallback_models ?? []).join('\n')
     loaded.value = true
@@ -100,6 +110,7 @@ async function save() {
   try {
     const result = await updateAutoModelPolicy(policy.value)
     blacklistText.value = result.blacklist.join('\n')
+    whitelistText.value = (result.whitelist ?? []).join('\n')
     verticalRouting.value = { ...defaultVerticalRouting, ...result.vertical_routing }
     imageFallbackText.value = (result.vertical_routing?.image_fallback_models ?? []).join('\n')
     saved.value = true
