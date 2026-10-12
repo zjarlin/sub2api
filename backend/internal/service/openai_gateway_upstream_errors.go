@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -353,6 +354,11 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(account *Acc
 	return isOpenAITransientProcessingError(statusCode, upstreamMsg, upstreamBody)
 }
 
+// 部分文本适配器用自然语言直接拒绝工具，例如 "This adapter only supports Q&A; tools are unsupported"。
+// 上方的固定短语匹配不到这类说法，这里按单词边界补充工具名词；边界可避免
+// "toolset"/"functionality" 等同前缀词被误判为工具能力缺失。
+var openAIToolCapabilityTermPattern = regexp.MustCompile(`\b(?:tools?|tool_calls?|tool_calling|function_calls?|function_calling|functions?)\b`)
+
 // 工具能力错误只对 Auto 请求触发换模型；显式模型请求仍保留原始客户端错误。
 func isOpenAIToolCapabilityError(statusCode int, upstreamMsg string, upstreamBody []byte) bool {
 	if statusCode != http.StatusBadRequest && statusCode != http.StatusUnprocessableEntity {
@@ -367,7 +373,8 @@ func isOpenAIToolCapabilityError(statusCode int, upstreamMsg string, upstreamBod
 		strings.Contains(message, "tool-call-parser") ||
 		strings.Contains(message, "function call") ||
 		strings.Contains(message, "function_call") ||
-		strings.Contains(message, "parameter tools")
+		strings.Contains(message, "parameter tools") ||
+		openAIToolCapabilityTermPattern.MatchString(message)
 	capabilityMiss := strings.Contains(message, "not supported") ||
 		strings.Contains(message, "does not support") ||
 		strings.Contains(message, "unsupported") ||

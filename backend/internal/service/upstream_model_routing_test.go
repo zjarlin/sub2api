@@ -168,6 +168,32 @@ func TestDeterministicUnsupportedModelManagedAccountFailsOver(t *testing.T) {
 	))
 }
 
+// 文本适配器用自然语言直接拒绝工具时，Auto 必须识别为工具能力缺失并换候选。
+func TestAutoModelToolCapabilityErrorMatchesAdapterRejection(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+		want bool
+	}{
+		{"gemini_qa_adapter", `{"error":{"message":"This adapter only supports Q&A; tools are unsupported","type":"invalid_request_error"}}`, true},
+		{"tool_choice_unsupported", `{"error":{"message":"tool_choice is not supported"}}`, true},
+		{"function_calls_unsupported", `{"error":{"message":"Function calls are unsupported by this model"}}`, true},
+		{"plural_tool", `{"error":{"message":"Tools are not supported"}}`, true},
+		{"toolset_not_a_tool_rejection", `{"error":{"message":"toolset is not supported"}}`, false},
+		{"functionality_not_a_tool_rejection", `{"error":{"message":"functionality is not supported"}}`, false},
+		{"missing_capability_phrase", `{"error":{"message":"tools list is malformed"}}`, false},
+		{"unsupported_model", `{"error":{"code":"unsupported_model","message":"The model is not supported"}}`, false},
+		{"unrelated_400", `{"error":{"message":"input is required"}}`, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := []byte(tc.body)
+			require.Equal(t, tc.want, isOpenAIToolCapabilityError(http.StatusBadRequest, extractUpstreamErrorMessage(body), body))
+		})
+	}
+	require.False(t, isOpenAIToolCapabilityError(http.StatusInternalServerError, "", []byte(`{"error":{"message":"tools are unsupported"}}`)))
+}
+
 func TestAutoModelToolCapabilityFailureExcludesNextToolRequest(t *testing.T) {
 	account := Account{
 		ID:          42,
