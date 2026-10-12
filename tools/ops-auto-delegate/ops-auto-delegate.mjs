@@ -455,6 +455,13 @@ function buildPrompt(cfg, batch, ctx) {
     `- 这是一个 **临时 git worktree**，基线为 ${base}；请在当前分支上提交改动，不要切换/删除分支。`,
     `- **绝对不要**操作 /opt/sub2api 或共享检出 ${cfg.workdir} 的 git 状态，也不要 push。`,
     '',
+    ...(ctx.openBranches && ctx.openBranches.length
+      ? [
+          '【已在办的修复分支（不要重复排查，先看是否已覆盖本批，必要时补充/纠正）】',
+          ...ctx.openBranches.map((b) => `- ${b.name}：${b.subject || '(无提交信息)'}`),
+          '',
+        ]
+      : []),
     '【硬性禁令（来自该仓库 AGENTS.md，必须遵守）】',
     '- 禁止执行任何 `docker compose up ... sub2api`（含 -d / --no-deps / --force-recreate）与任何等价写法。',
     '- 禁止重启、重建、替换任何容器；禁止自行部署镜像或改动生产 Compose/环境变量。',
@@ -571,6 +578,21 @@ function currentHead(workdir) {
   return r.ok ? r.out : ''
 }
 
+/** 列出仍存在的 ops-fix 分支（含最新提交），避免被委托方重复排查同一问题。 */
+function listOpenFixBranches(cfg, excludeBranch) {
+  const r = git(cfg.workdir, ['branch', '--list', 'ops-fix/*', '--format=%(refname:short)|%(subject)'], { allowFail: true })
+  if (!r.ok || !r.out) return []
+  return r.out
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .map((l) => {
+      const [name, ...rest] = l.split('|')
+      return { name, subject: rest.join('|') }
+    })
+    .filter((b) => b.name && b.name !== excludeBranch)
+}
+
 /** 建 worktree，返回其路径与分支名。 */
 function createWorktree(cfg, batchId, branch) {
   const dir = path.join(cfg.worktreesDir, batchId)
@@ -587,19 +609,25 @@ function createWorktree(cfg, batchId, branch) {
   return dir
 }
 
-/** 保留最近 keepWorktrees 个，其余清理（不动用户手工创建的其他 worktree）。 */
+/** 保留最近 keepWorktrees 个，其余清理（不动用户手工创建的其他 worktree）。
+ *  已不存在的路径视为已清理，一并从状态里剔除。 */
 function pruneWorktrees(cfg, state) {
   const mine = state.worktrees || []
-  if (mine.length <= cfg.keepWorktrees) return []
-  const removed = []
-  for (const wt of mine.slice(0, mine.length - cfg.keepWorktrees)) {
-    if (fs.existsSync(wt.path)) {
+  const gone = []
+  const alive = []
+  for (const wt of mine) {
+    if (fs.existsSync(wt.path)) alive.push(wt)
+    else gone.push(wt.path)
+  }
+  const removed = [...gone]
+  if (alive.length > cfg.keepWorktrees) {
+    for (const wt of alive.slice(0, alive.length - cfg.keepWorktrees)) {
       git(cfg.workdir, ['worktree', 'remove', '--force', wt.path], { allowFail: true })
       removed.push(wt.path)
     }
   }
   git(cfg.workdir, ['worktree', 'prune'], { allowFail: true })
-  state.worktrees = mine.filter((wt) => !removed.includes(wt.path))
+  state.worktrees = alive.filter((wt) => !removed.includes(wt.path))
   return removed
 }
 
@@ -785,8 +813,14 @@ function main() {
   const batchId = `${new Date().toISOString().slice(0, 10)}-${batchKey.slice(0, 12)}`
   const branch = `ops-fix/${batchKey.slice(0, 12)}`
   const base = cfg.baseRef || currentHead(cfg.workdir)
-  const workdir = cfg.dryRun ? cfg.workdir : createWorktree(cfg, batchId, branch)
-  const prompt = buildPrompt(cfg, { errors: batch, clusters, reasons, batchKey }, { workdir, branch, base })
+  // dry-run 不建 worktree，但要展示将来会用的路径
+  const workdir = cfg.dryRun ? path.join(cfg.worktreesDir, batchId) : createWorktree(cfg, batchId, branch)
+  const openBranches = listOpenFixBranches(cfg, branch)
+  const prompt = buildPrompt(
+    cfg,
+    { errors: batch, clusters, reasons, batchKey },
+    { workdir, branch, base, openBranches }
+  )
 
   if (cfg.printPrompt) process.stdout.write(prompt + '\n\n=== END OF PROMPT ===\n\n')
 
