@@ -67,6 +67,24 @@ if [ "$MADAO_ENABLED" = "1" ]; then
   COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.madao.yml")
 fi
 
+# Gemini AI Studio text Q&A adapter.
+GEMINI_ENABLED="${SUB2API_GEMINI:-}"
+if [ -z "$GEMINI_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
+  GEMINI_ENABLED="$(awk -F= '
+    $1 ~ /^[[:space:]]*(export[[:space:]]+)?SUB2API_GEMINI[[:space:]]*$/ {
+      value=$2
+      sub(/#.*/, "", value)
+      gsub(/[[:space:]"\047]/, "", value)
+      result=value
+    }
+    END { if (result == "1") print "1"; else print "0" }
+  ' "$DEPLOY_DIR/.env")"
+fi
+if [ "$GEMINI_ENABLED" = "1" ]; then
+  test -f "$DEPLOY_DIR/deploy/docker-compose.gemini.yml"
+  COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.gemini.yml")
+fi
+
 # Cursor 独立启用，真实账号 Key 在管理页面保存，部署仅生成内部共享密钥。
 CURSOR_ENABLED="${SUB2API_CURSOR:-}"
 if [ -z "$CURSOR_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
@@ -229,6 +247,9 @@ if [ "$DEEPSEEK_WEB_ENABLED" = "1" ]; then
 fi
 if [ "$MADAO_ENABLED" = "1" ]; then
   ensure_adapter_key MADAO_ADAPTER_KEY
+fi
+if [ "$GEMINI_ENABLED" = "1" ]; then
+  ensure_adapter_key GEMINI_ADAPTER_KEY
 fi
 if [ "$CURSOR_ENABLED" = "1" ]; then
   ensure_adapter_key CURSOR_ADAPTER_KEY
@@ -414,6 +435,10 @@ fi
 if [ "$MADAO_ENABLED" = "1" ]; then
   echo "Building and starting CodeArts (码道) adapter"
   "${COMPOSE[@]}" up -d --build --wait --wait-timeout 180 sub2api-madao
+fi
+if [ "$GEMINI_ENABLED" = "1" ]; then
+  echo "Building and starting Gemini Q&A adapter"
+  "${COMPOSE[@]}" up -d --build --wait --wait-timeout 180 sub2api-gemini
 fi
 if [ "$CURSOR_ENABLED" = "1" ]; then
   echo "Building and starting Cursor SDK adapter"
