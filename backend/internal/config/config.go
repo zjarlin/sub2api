@@ -1084,6 +1084,8 @@ type GatewayConfig struct {
 	Laya GatewayLayaConfig `mapstructure:"laya"`
 	// AutoContinue 在助手提前停顿时用 System One 判断并继续已授权任务。
 	AutoContinue GatewayAutoContinueConfig `mapstructure:"auto_continue"`
+	// Degeneration 遏制上游"退化重复"流：模型卡在短周期复读直到输出上限。
+	Degeneration GatewayDegenerationConfig `mapstructure:"degeneration"`
 	// 等待上游响应头的超时时间（秒），0表示无超时
 	// 注意：这不影响流式数据传输，只控制等待响应头的时间
 	ResponseHeaderTimeout int `mapstructure:"response_header_timeout"`
@@ -1271,6 +1273,30 @@ type GatewayAutoContinueConfig struct {
 	CompactionChunkBytes     int     `mapstructure:"compaction_chunk_bytes"`
 	CompactionMaxChunks      int     `mapstructure:"compaction_max_chunks"`
 	CompactionTimeoutSeconds int     `mapstructure:"compaction_timeout_seconds"`
+}
+
+// GatewayDegenerationConfig 控制上游"退化重复"流的检测与防御。
+//
+// 背景：部分第三方 relay 转发的 DeepSeek flash 兼容模型会卡在短周期复读（例如
+// `我输出工具调用。\n\n写。\n\n（写。）`反复数千次），一路跑到 max_output_tokens 才停，
+// 单次可消耗数分钟与数万输出 token。检测命中后网关以 response.failed 显式中止，
+// 不再把复读文本当作回答下发。
+type GatewayDegenerationConfig struct {
+	// Enabled 控制流式退化检测熔断，默认开启。
+	Enabled bool `mapstructure:"enabled"`
+	// MinTotalRunes 是启动检测的最小累积长度（rune）。
+	MinTotalRunes int `mapstructure:"min_total_runes"`
+	// WindowRunes 是尾部检测窗口长度（rune）。
+	WindowRunes int `mapstructure:"window_runes"`
+	// MinPeriod / MaxPeriod 是接受的重复周期范围（rune）。
+	MinPeriod int `mapstructure:"min_period"`
+	MaxPeriod int `mapstructure:"max_period"`
+	// MinRepeats 是窗口内需要完整重复的最少次数。
+	MinRepeats int `mapstructure:"min_repeats"`
+	// MaxOutputTokensModels 是施加输出上限钳制的模型前缀（大小写不敏感）。
+	MaxOutputTokensModels []string `mapstructure:"max_output_tokens_models"`
+	// MaxOutputTokensCap 是上述模型出站输出 token 的钳制上限，<=0 表示不钳制。
+	MaxOutputTokensCap int `mapstructure:"max_output_tokens_cap"`
 }
 
 // GatewayMediaConfig 指向边缘配音与视频服务（edge-media）的内部地址。
@@ -2649,6 +2675,16 @@ func setDefaults() {
 	viper.SetDefault("gateway.media.timeout_seconds", 3600)
 	viper.SetDefault("gateway.laya.enabled", false)
 	viper.SetDefault("gateway.laya.url", "")
+	viper.SetDefault("gateway.degeneration.enabled", true)
+	viper.SetDefault("gateway.degeneration.min_total_runes", 12000)
+	viper.SetDefault("gateway.degeneration.window_runes", 2048)
+	viper.SetDefault("gateway.degeneration.min_period", 4)
+	viper.SetDefault("gateway.degeneration.max_period", 48)
+	viper.SetDefault("gateway.degeneration.min_repeats", 40)
+	// 实测只在 deepseek flash 兼容路径（cline-pass 转发）出现过跑到 65536 输出上限的
+	// 纯复读，所以默认只钳制该族模型，并把上限砍半。
+	viper.SetDefault("gateway.degeneration.max_output_tokens_models", []string{"deepseek-v4.1-flash"})
+	viper.SetDefault("gateway.degeneration.max_output_tokens_cap", 32768)
 	viper.SetDefault("gateway.auto_continue.enabled", true)
 	viper.SetDefault("gateway.auto_continue.decision_model", "typesafe/jev")
 	viper.SetDefault("gateway.auto_continue.max_rounds", 2)

@@ -1722,6 +1722,14 @@ type ChatCompletionsToResponsesStreamState struct {
 
 	FinishReason string
 	Usage        *ResponsesUsage
+
+	// DegenerationGuard 非 nil 时开启"退化重复"检测（见 DetectDegeneration）。
+	// 由调用方按配置注入；nil 表示不检测。
+	DegenerationGuard *ChatDegenerationGuard
+	// Degeneration 记录本次流被判定为退化重复的结果，nil 表示未命中。
+	Degeneration *ChatDegeneration
+	// degLastTotalBytes 是上次检测时的累积字节数，用于按 CheckEveryBytes 节流。
+	degLastTotalBytes int
 }
 
 // NewChatCompletionsToResponsesStreamState returns an initialized stream state.
@@ -1765,6 +1773,30 @@ func (state *ChatCompletionsToResponsesStreamState) ValidateToolCallArguments() 
 		}
 	}
 	return nil
+}
+
+// DetectDegeneration 检查累积输出是否退化成短周期重复，命中后记住结果并一直返回它。
+//
+// 退化通常发生在 thinking 通道（DeepSeek 式上游把整段重复文本放在 reasoning_content
+// 里），所以取累积更长的那个通道做判定。为控制开销，只有累积长度比上次检测增长超过
+// CheckEveryBytes 时才复制并分析文本。
+func (state *ChatCompletionsToResponsesStreamState) DetectDegeneration() *ChatDegeneration {
+	if state == nil || state.Degeneration != nil || state.DegenerationGuard == nil {
+		return state.Degeneration
+	}
+	total := state.Text.Len() + state.Reasoning.Len()
+	guard := state.DegenerationGuard.Normalize()
+	if total-state.degLastTotalBytes < guard.CheckEveryBytes {
+		return nil
+	}
+	state.degLastTotalBytes = total
+
+	channel, text := "message", state.Text.String()
+	if state.Reasoning.Len() > state.Text.Len() {
+		channel, text = "reasoning", state.Reasoning.String()
+	}
+	state.Degeneration = guard.Detect(text, channel)
+	return state.Degeneration
 }
 
 func (state *ChatCompletionsToResponsesStreamState) allocOutputIndex() int {
@@ -1942,7 +1974,12 @@ func FinalizeChatCompletionsResponsesStream(state *ChatCompletionsToResponsesStr
 	// Close a reasoning item that never transitioned to content (reasoning-only
 	// or empty completion).
 	events = append(events, closeChatReasoningItem(state)...)
-	events = append(events, synthesizeChatReasoningFallbackMessage(state)...)
+	// 退化重复流（上游卡在短周期复读、通常只落在 reasoning 通道）绝不兜底成正文：
+	// 否则会把数十万字符的复读文本当成"回答"下发给客户端。命中时只保留 reasoning
+	// 项，真正的失败由调用方以 response.failed 显式上报。
+	if state.Degeneration == nil {
+		events = append(events, synthesizeChatReasoningFallbackMessage(state)...)
+	}
 
 	if state.MessageItemID != "" {
 		if state.TextPartOpen {

@@ -105,6 +105,9 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	// /v1/responses 降级到 raw CC 的出站与 forwardAsRawChatCompletions 共用同一个
 	// 独立 Ollama Cloud token 钩子；chatReq.Model 已是模型映射后的 upstreamModel。
 	chatBody = clampOllamaCloudUpstreamMaxTokens(account, chatBody)
+	// 易退化模型的出站输出上限兜底钳制（见 gateway.degeneration.*）：检测熔断是主防线，
+	// 这里保证即使退化不是严格周期性的也仍然有界。
+	chatBody, _ = s.clampDegenerationProneUpstreamMaxTokens([]string{originalModel, billingModel, upstreamModel}, chatBody)
 	chatBody, kimiEffort, err := normalizeNVIDIAKimiK3ReasoningEffort(ctx, c, account, upstreamModel, chatBody)
 	if err != nil {
 		if IsReasoningEffortPolicyDenied(err) {
@@ -250,6 +253,8 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 	state.FunctionTools = functionTools
 	state.ToolSearchDeclared = toolSearch
 	state.NamespaceTools = namespaceTools
+	// 退化重复检测熔断：模型卡在短周期复读时中止本次响应，而不是让它跑满输出上限。
+	state.DegenerationGuard = s.chatDegenerationGuard()
 	clientDisconnected := false
 	eventWriter, _ := c.Writer.(responsesStreamEventWriter)
 	var totalUsage OpenAIUsage
@@ -290,18 +295,72 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		c.Writer.Flush()
 	}
 
+	// degenerated 记录退化重复熔断的判定结果；命中后立刻关闭上游响应体停止读取，
+	// 避免继续烧 token 与时长，并在扫描结束后以 response.failed 显式上报。
+	var degenerated *apicompat.ChatDegeneration
+	emitChunk := func(chunk *apicompat.ChatCompletionsChunk) {
+		events := apicompat.ChatCompletionsChunkToResponsesEvents(chunk, state)
+		if detected := state.DetectDegeneration(); detected != nil {
+			degenerated = detected
+			if currentResp != nil && currentResp.Body != nil {
+				_ = currentResp.Body.Close()
+			}
+			return
+		}
+		s.cacheReasoningItemsFromEvents(events)
+		writeEvents(events)
+	}
+
 	var scan ccStreamScanState
 	scanSawDone := false
 	for continuation := 0; ; continuation++ {
-		scan = s.scanCCStream(c, currentResp, "openai responses chat fallback", requestID, startTime, func(chunk *apicompat.ChatCompletionsChunk) {
-			events := apicompat.ChatCompletionsChunkToResponsesEvents(chunk, state)
-			s.cacheReasoningItemsFromEvents(events)
-			writeEvents(events)
-		})
+		scan = s.scanCCStream(c, currentResp, "openai responses chat fallback", requestID, startTime, emitChunk)
 		scanSawDone = scanSawDone || scan.SawDone
 		addOpenAIUsage(&totalUsage, scan.Usage)
 		if firstTokenMs == nil {
 			firstTokenMs = scan.FirstTokenMs
+		}
+		// 退化重复优先于读取错误：上游响应体是我们主动关闭的，那不是上游故障。
+		if degenerated != nil {
+			var accountID int64
+			if account != nil {
+				accountID = account.ID
+			}
+			message := fmt.Sprintf(
+				"Upstream output degenerated into a repeated loop (%s channel, repeating period %d runes, >=%d repeats); aborted instead of streaming it to the output limit",
+				degenerated.Channel, degenerated.PeriodRunes, degenerated.Repeats,
+			)
+			writeEvents([]apicompat.ResponsesStreamEvent{{
+				Type: "response.failed", SequenceNumber: state.SequenceNumber,
+				Response: &apicompat.ResponsesResponse{
+					ID: state.ResponseID, Object: "response", CreatedAt: state.Created,
+					Model: originalModel, Status: "failed", Output: []apicompat.ResponsesOutput{},
+					Error: &apicompat.ResponsesError{Code: "upstream_degenerate_repetition", Message: message},
+				},
+			}})
+			logger.L().Warn("openai responses chat fallback: aborted degenerate upstream stream",
+				zap.String("request_id", requestID),
+				zap.Int64("account_id", accountID),
+				zap.String("channel", degenerated.Channel),
+				zap.Int("period_runes", degenerated.PeriodRunes),
+				zap.Int("repeats", degenerated.Repeats),
+				zap.Int("total_runes", degenerated.TotalRunes),
+				zap.Int("output_tokens", totalUsage.OutputTokens),
+			)
+			return &OpenAIForwardResult{
+				RequestID:                   requestID,
+				UpstreamHeaders:             currentResp.Header,
+				Usage:                       totalUsage,
+				Model:                       originalModel,
+				BillingModel:                billingModel,
+				UpstreamModel:               upstreamModel,
+				ReasoningEffort:             reasoningEffort,
+				UpstreamResponseServiceTier: observedUpstreamResponseServiceTier(c),
+				ServiceTier:                 resolvedOpenAIUpstreamServiceTier(c, serviceTier),
+				Stream:                      true,
+				Duration:                    time.Since(startTime),
+				FirstTokenMs:                firstTokenMs,
+			}, fmt.Errorf("upstream_degenerate_repetition: %s", message)
 		}
 		// 首次输出前的传输中断仍可透明换号；已提交响应后保留原失败与部分用量。
 		if scan.Err != nil && !state.CreatedSent {
