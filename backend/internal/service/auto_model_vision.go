@@ -75,5 +75,7 @@ func AutoModelRequestAccountCompatible(ctx context.Context, account *Account, mo
 			return false
 		}
 	}
-	return modelAccountCompatible(account, model, body, assistedVision)
+	// Auto 请求的账号级预检把「服务端引用型条目」交给真实转发路径规范化/丢弃，
+	// 与辅助视觉一样按能力放宽；换模型重放仍走严格判定。
+	return modelAccountCompatibleWithOptions(account, model, body, assistedVision, true)
 }
