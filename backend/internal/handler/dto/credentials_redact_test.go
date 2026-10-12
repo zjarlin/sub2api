@@ -99,3 +99,10 @@ func TestRedactCredentials_AllKnownSensitiveKeys(t *testing.T) {
 		require.True(t, status["has_"+k], "key %s 应在 status 中标记为已配置", k)
 	}
 }
+
+func TestRedactCredentialsModel3DClientSecret(t *testing.T) {
+	out, status := RedactCredentials(map[string]any{"client_id": "client", "client_secret": "private-secret", "model3d_provider": "hi3d"})
+	require.NotContains(t, out, "client_secret")
+	require.True(t, status["has_client_secret"])
+	require.Equal(t, "client", out["client_id"])
+}
