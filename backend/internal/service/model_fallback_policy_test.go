@@ -246,3 +246,35 @@ func TestAutoModelRoutingPolicyCopiesBoundAliases(t *testing.T) {
 	require.False(t, AutoModelAllowed(ctx, "provider/expensive"))
 	require.True(t, AutoModelAllowed(ctx, "gpt-5.5", "provider/changed"))
 }
+
+// Auto 账号级预检必须把「服务端引用型条目」当作可由真实转发路径规范化/丢弃，
+// 不能判成 no_compatible_account；否则 model=auto 的 /v1/responses 会对整池账号
+// 一律返回 503「Auto model routing has no eligible model」（2026-10-12 事故）。
+func TestAutoModelReferenceInputDoesNotExcludeEveryAccount(t *testing.T) {
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	account.SetUpstreamModelMetadataSnapshot(UpstreamModelMetadataSnapshot{Models: map[string]UpstreamModelMetadata{
+		"target": {ID: "target", ContextWindow: 200000, MaxOutputTokens: 8192, InputModalities: []string{"text", "image"}},
+	}})
+	ctx := WithAutoModelRequestCapabilities(context.Background(), []byte(`{"model":"auto","input":"hi"}`))
+	for _, body := range []string{
+		`{"model":"auto","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]},{"type":"item_reference","id":"rs_1"}]}`,
+		`{"model":"auto","input":[{"type":"message","role":"user","content":[{"type":"input_file","file_id":"file-1"}]}]}`,
+		`{"model":"auto","input":[{"type":"message","role":"user","content":[{"type":"input_file","filename":"a.py","file_data":"data:text/plain;base64,aGk="}]}]}`,
+		`{"model":"auto","input":[{"type":"message","role":"user","content":[{"type":"input_audio","input_audio":{"data":"aGk=","format":"wav"}}]}]}`,
+		`{"model":"auto","input":[{"type":"message","role":"user","content":[{"type":"audio","id":"audio_1"}]}]}`,
+		`{"model":"auto","input":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ok"}],"audio":{"id":"audio_1"}}]}`,
+		`{"model":"auto","input":[{"type":"message","role":"user","content":[{"type":"video_url","video_url":"https://example.com/a.mp4"}]}]}`,
+		`{"model":"auto","input":[{"type":"message","role":"user","content":[{"type":"input_video","video_url":"https://example.com/a.mp4"}]}]}`,
+	} {
+		bodyBytes := []byte(body)
+		require.True(t, AutoModelRequestAccountCompatible(WithAutoModelRequestCapabilities(ctx, bodyBytes), account, "target", bodyBytes), body)
+		// 换模型重放仍必须严格：这些条目跨上游不可移植。
+		require.False(t, ModelFallbackAccountCompatible(account, "target", bodyBytes), body)
+		require.False(t, ModelAccountCompatible(account, "target", bodyBytes), body)
+		require.False(t, ModelFallbackRequestPortable(bodyBytes), body)
+	}
+	// 上游明确拒绝的加密思考项对任何账号都不可用，Auto 也不能放宽。
+	redacted := []byte(`{"model":"auto","input":[{"type":"redacted_thinking","data":"abc"}]}`)
+	require.False(t, AutoModelRequestAccountCompatible(WithAutoModelRequestCapabilities(ctx, redacted), account, "target", redacted))
+	require.False(t, ModelFallbackAccountCompatible(account, "target", redacted))
+}
