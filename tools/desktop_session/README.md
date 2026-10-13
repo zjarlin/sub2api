@@ -13,7 +13,7 @@
 - SSE 输出完整的 `response.created`、output item/content/arguments 事件及 `response.completed`，带连续 `sequence_number`。目前仍为**校验后缓冲输出**；不是实时首 token。
 - 桌面协议未提供 token 统计，返回 `usage: null`，网关保留按次计费。`text.format` 可约束最终答案；`max_output_tokens`、reasoning、缓存提示等兼容字段不代表豆包具备对应的上游控制。暂不支持后台任务、Responses 查询/删除端点或模型侧托管工具；媒体输入仍需网关的视觉转换。
 
-**工具决策仍是经校验的文本桥接。** Responses 直连移除了 Chat 协议作为中间表示，不等于已经接通豆包原生自定义工具。当前原生工具链的调查结果见 [native_protocol_research.json](native_protocol_research.json)。
+**默认及已部署服务的工具决策仍是经校验的文本桥接。** 显式原生会话已有设备 SSE 与 Responses 续接实现，并通过离线 HTTP 测试；尚未完成真实连接器与设备运行态准备、线上验收或部署。配置条件、接口子集和验证边界见 [NATIVE_TOOLS.md](NATIVE_TOOLS.md)。
 
 2026-09-29 已部署服务器适配器及两个网关副本。108 项适配器测试、117 项账号表单测试、网关相关回归及前端构建通过；正式网关的 Pro 工具调用、随机结果回传、Responses SSE、`previous_response_id` 与重试复用全部通过，三次请求约耗时 11.9 秒 / 8.7 秒 / 1 毫秒。验证详情及镜像 ID 见 `validation.json.responses_protocol_validation`。验收期间也观测到一次 Pro 用时约 587 秒后未返回要求的工具调用，被校验器拒绝；直连 Responses 不消除这种上游决策不稳定性。服务器备份及回滚脚本保存在 `/opt/sub2api/releases/doubao-responses-20260929`。
 
@@ -124,7 +124,7 @@ Linux 部署只需服务代码/镜像及上述两份私密文件；无需复制�
 
 ### 原生工具协议调查边界
 
-2026-10-13 的当前结论见 [NATIVE_TOOLS.md](NATIVE_TOOLS.md)：已从安装的 2.31.4 客户端恢复 MCP 工具目录、`connector.call`、sandbox 控制与回传协议，并有离线编解码测试；尚未接入 HTTP 服务。一次获准验证确认工具定义对模型可见，但连接器执行与结果续接失败，原生闭环未通过。现有服务仍使用文本 JSON 工具桥。后续只读本地补查没有新增豆包请求。
+2026-10-13 的当前结论见 [NATIVE_TOOLS.md](NATIVE_TOOLS.md)：已从安装的 2.31.4 客户端恢复 MCP 工具目录、`connector.call`、sandbox 控制与回传协议；显式原生模式已接入 HTTP Responses，离线测试覆盖设备调用与结果上传后同一生成的续接。一次先前获准验证确认工具定义对模型可见，但连接器执行与结果续接失败，真实原生闭环未通过。现有线上服务仍使用文本 JSON 工具桥。本轮实现及本地补查没有新增豆包请求。
 
 以下为历史调查记录。2026-09-17 对当时客户端随附资源及热更新包完成核对：旧任务路径有 `/samantha/tool/init`（`client_id`、`tools[].name/description/input_schema`）及 `client_tool_key`，并有工具心跳、结果回传接口；Office 接口定义另有 `/alice/office/tool_local/chunk_stream` 与 `upload_tool_call_result_v2`，关联设备和 sandbox。2.31.4 中已追到的 `connector.call` 实际调用无 v2 后缀的结果端点，不能用历史端点清单替代执行路径证据。
 
@@ -231,6 +231,7 @@ SUB2API_NETWORK=sub2api_sub2api-network \
 - `protocol.py`：工作任务请求和有界 SSE 读取；保留早期脱敏错误探测。
 - `reply.py`：会话及模型选择校验、可见助手文本补丁合并、严格完成判定。
 - `client.py`：组合上述协议，与部署和 HTTP 框架无关。
+- `native_client.py`、`native_tools.py`：显式启用的原生设备通道、连接器协议与 Responses 工具结果续接；不执行桌面工具，不自动注册设备/连接器或执行 sandbox 生命周期。
 - `api.py`：兼容请求范围、JSON/SSE 输出；`server.py`：Bearer 鉴权、串行生成和验证状态。
 - `models.py`：请求、输出格式和工具策略模型；`structured_output.py`：格式参数校验、提示约束、JSON 与 schema 校验。
 - `messages.py`：文本内容归一化和工具调用历史关联；`tool_policy.py`：工具定义及选择规则；`tool_calls.py`：决策提示、调用校验和响应映射。

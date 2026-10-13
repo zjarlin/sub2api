@@ -1,8 +1,8 @@
-# 原生设备工具桥（离线实现）
+# 原生设备工具桥（实验性，未线上验收）
 
 2026-10-13：已从 MacBook 安装的 Doubao 2.31.4 的 `biz.pak` 提取后台实际实现。
 `native_tools.py` 支持原生设备帧到 Responses function_call 的转换及结果载荷构造。
-尚未接入 server.py。一次受控在线验证已确认自定义工具定义对模型可见；设备流未收到调用，回传与生成续接尚未通过。
+`native_client.py` 已接入 `server.py`，在显式原生会话中支持设备 SSE → Responses function_call → 原生结果上传 → 同一生成的最终回答。此链路已通过断网容器中的合成上游与 HTTP 测试，尚未部署或通过豆包线上验收。一次先前的受控在线验证确认了自定义工具定义对模型可见，但设备流未收到调用，回传与生成续接未通过。
 
 ## 新证据
 
@@ -33,7 +33,7 @@ pak_selected/8728.js 可见旧任务 client_tool_key 被放入消息 content，�
 `NativeToolExchange` 按设备/sandbox 隔离，保留上游 call_id 和参数字符串；重复相同帧不再次派发，冲突帧、未知工具、跨 sandbox、签名设备不匹配和未知结果 ID 会拒绝。
 结果可重复构造以供未来受控传输使用，冲突结果拒绝；构造结果不等于上游确认成功。
 
-这是严格的协议子集：只接受数字事件枚举及对象函数参数。支持 localConnectors 工具定义编码、connector.call 包装解码及原始 MCP 响应载荷。`NativeSandboxCommands` 单独解析 sandbox connect/disconnect/release 指令，按调用方显式提供的操作结果构造回执；它不执行生命周期操作，也不自动确认成功。没有验签、网络传输、自动重试、工具执行或 HTTP 服务入口。
+这是严格的协议子集：只接受数字事件枚举及对象函数参数。支持 localConnectors 工具定义编码、connector.call 包装解码及原始 MCP 响应载荷。`NativeSandboxCommands` 单独解析 sandbox connect/disconnect/release 指令，按调用方显式提供的操作结果构造回执；它不执行生命周期操作，也不自动确认成功。`native_tools.py` 本身不连接网络；新增传输与 HTTP 入口在 `native_client.py` / `server.py`。没有原生密码学验签、自动重试或本地工具执行器。
 允许名称表只是本地过滤，不意味着这些名称已注册到云端。签名设备检查也不等于密码学验签。
 
 `connector_task_input_from_catalog` 接受调用方取得的本机运行态和 MCP 目录快照，要求连接器为 READY、enabled，且唯一出现在目录中；仅使用实际发现的工具定义，保留 annotations 与 meta。它不验证快照来源或时效，也不能替代连接器注册与设备通道就绪检查。低层 `connector_task_input` 仍供合成测试使用，不能把成功编码作为发起生成的就绪依据。
@@ -96,4 +96,45 @@ python3 -m unittest discover -s tools/desktop_session -p test_native_tools.py -v
 
 `need_ack=true` 时，调用方实际执行生命周期操作后才可 POST `/alice/office/tool_local/upload_command_result`，body 为 `{"device_id":"...","command_result":{"id":"...","code":0}}`，失败 code=1，可带 message；没有 tool_result，也不携带 sandbox_id。`need_ack=false` 不上传。依据为 `9034.js` 923984 的 `Cd` 与 `7035.js` 84364 的 `AGWUploadCommandResult`。离线代码只做解析、去重、结果编码，拒绝 workspace 等其他命令。
 
-仍未解决：实际注册并启动用于适配器的 MCP 连接器、建立拥有正确执行上下文的设备路由、控制生命周期的真实执行、工具结果上传与同一生成的续接，以及 `server.py` 的 Responses 集成。现有在线服务仍使用原来的文本工具桥。下一次在线验收必须先具备这些条件，不能靠换随机标识反复生成。`native_custom_tool_roundtrip_verified` 保持 false；现有证据不支持归因于风控或账号失效。
+仍未解决：实际注册并启动用于适配器的 MCP 连接器、建立拥有正确执行上下文的设备路由、控制生命周期的真实执行，以及真实云端的工具结果续接。`server.py` 集成与传输代码已完成下述离线验证。现有在线服务仍使用原来的文本工具桥。下一次在线验收必须先具备运行态条件，不能靠换随机标识反复生成。`native_custom_tool_roundtrip_verified` 保持 false；现有证据不支持归因于风控或账号失效。
+
+## Responses 集成与运行边界
+
+显式会话快照中的 `native_tools` 对象选择原生模式；缺少此字段仍使用既有适配器。存在但无效的对象会报错，不回退成提示词工具桥。原生会话的 `desktop_version` 必须为 `2.31.4`，使用现有合法 Cookie 和数字 `params.device_id`；禁止覆盖公共应用参数或重放 `a_bogus`。
+
+`native_tools` 的必填数据来自已准备的运行态，而不是示例或随机标识：
+
+| 字段 | 要求 |
+| --- | --- |
+| `connector_id` | 真实连接器 ID |
+| `connector_runtime` | `{connectorId, status: "READY", enabled: true}`，ID 必须匹配 |
+| `mcp_catalog` | `neotix.mcp.getAllTools()` 的完整响应；目录中恰有一个对应连接器 |
+| `client_option` | 当前执行上下文的 `client_env_id`、`sandbox_id`、`workspace`、`os`、布尔 `enable_sandbox` |
+| `device_name` | 可选显示名 |
+
+这些检查只验证快照的一致性，不能认证快照来源、证明新鲜度或证明独占设备路由。代码不会创建云端连接器、授权设备、创建桌面 sandbox，也不会将 Mac 现有运行目录的存在当作 READY。启用前仍需真实注册、目录发现和正确的设备执行上下文；不要把官方客户端当前使用的设备 ID 直接当成适配器专属通道。
+
+已接入的行为：
+
+- 只支持 `/v1/responses` 的 Office 模型和无 namespace 的 `function`。声明的函数名及参数 schema 必须与目录一致，工具定义通过 `general_task_param.task_input_json` 发送，保留目录的 annotations/meta。正文中不注入工具调用 JSON 协议，也不把回答文本解析为工具调用。
+- 首先打开一次设备 SSE，实际收到心跳后才发起一次生成。心跳可以不带 connection_id，connect 指令也可以更新该 ID；依据为 `9034.js` 字符偏移约 752000 的客户端实现。合法生成 ACK 通过会话和模型校验后才向调用方返回设备工具事件。
+- 保留上游 `call_id`、函数名、参数原文。调用方回传 `function_call_output`，适配器包装为 MCP 文本结果并上传到无 v2 后缀的原生接口，继续等待同一生成；不会把工具结果放入第二次生成的 prompt。
+- 工具续接要求 `store=true` 和本进程返回的 `previous_response_id`。进程内最多保存当前生成的 64 个响应 ID；新生成清空旧生成的续接引用，超过生成期限后拒绝访问。没有持久化、跨进程恢复、完整历史形式的工具续接或完成后的新用户轮续聊。无工具的 `store=false` 请求不保存响应。与已部署文本桥的历史能力不同，当前不能直接替换依赖无状态完整历史续接的客户端。
+- 续接按会话 scope、模型和原调用 ID 校验。省略的工具、instructions 和 text.format 继承正在进行的生成；显式修改会拒绝。相同结果重放复用已完成响应，冲突重放报错；未知、缺失和重复结果 ID 在上传前报 400。
+- `need_ack=false` 的 sandbox connect 只记录路由，不宣称执行了生命周期。需要回执时只上传失败 `native_lifecycle_unavailable` 并终止；disconnect/release 使本地续接失败。此实现不能替代官方 sandbox 管理器。
+- 一次设备连接、一次生成，不自动重连或重试上传。部分上传或回执不明时终止 run。空闲等待调用方结果也受总期限约束；超时、快照替换/删除和正常服务退出都会关闭旧流。同一适配器进程中的不同 profile 不能同时使用同一设备；这不约束官方 app 或其他进程。
+
+`DESKTOP_NATIVE_CONNECT_TIMEOUT_SECONDS` 默认 20 秒；上游读取和总生成期限沿用 `DESKTOP_UPSTREAM_TIMEOUT_SECONDS`（默认 120）与 `DESKTOP_GENERATION_TIMEOUT_SECONDS`（默认 600）。本地关闭流不是云端取消 API，不保证撤销已接受的云端任务。Responses SSE 仍然是每轮缓冲输出，但能在上游等待工具时及时返回调用，不必等最终答案。
+
+离线验证使用已存在的 Python 3.12 测试镜像，网络禁用，不替换线上容器：
+
+```sh
+docker run --rm --network none --read-only --tmpfs /tmp \
+  -v /tmp/sub2api-doubao-native-lifecycle/tools/desktop_session:/app:ro \
+  -e PYTHONDONTWRITEBYTECODE=1 --entrypoint python \
+  sub2api-desktop:responses-20260929 -m unittest discover -p 'test_*.py'
+```
+
+`test_native_client.py` 通过真正的本地 HTTP 入口测试 Responses JSON/SSE、一个及多个原生调用、同一生成续接、生成先结束而上传回执后到、超时/断流、错误目录/ACK/agent、重复或冲突结果、profile 隔离与资源关闭。上游来自合成帧，不能把这些测试描述为云端原生闭环验收。
+
+本轮额外 Mac 只读检查确认 `Default/connector_runtime` 存在连接器运行产物，`sandbox_envs_dir/envs` 中有 5 份环境元数据。只检查了路径、结构和相关状态键，未读取或修改加密 MCP 凭据。此发现只证明客户端曾准备环境，不证明用于适配器的连接器已经注册、就绪或拥有设备通道。本轮新增豆包云端请求、模型生成、真实工具执行和生产部署均为 0。

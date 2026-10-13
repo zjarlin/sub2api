@@ -51,7 +51,7 @@ class Reply:
             self.blocks[key] = (self.blocks.get(key, '') if patch == 1 else '') + text
 
 
-def decode_events(events, payload):
+def decode_events(events, payload, on_ack=None):
     reply = Reply()
     for event, data in events:
         if event == 'STREAM_ERROR':
@@ -68,6 +68,8 @@ def decode_events(events, payload):
                 raise UpstreamError('desktop_conversation_isolation_failed')
             reply.conversation_id = ack['conversation_id']
             reply.section_id = ack.get('section_id', '')
+            if on_ack is not None:
+                on_ack(ack)
         elif event == 'STREAM_MSG_NOTIFY':
             meta = data.get('meta', {})
             if meta.get('user_type') != 2:
@@ -127,7 +129,7 @@ def valid_ack(ack, extra, queries, payload):
             extra.get('inner_app_id', '582478') == '582478')
 
 
-def read_reply(response, payload, *, max_seconds=600):
+def read_reply(response, payload, *, max_seconds=600, on_ack=None):
     if response.status != 200 or 'text/event-stream' not in response.headers.get('Content-Type', ''):
         raise UpstreamError('unexpected_upstream_http_status_' + str(response.status))
     request_json = json.dumps(payload)
@@ -138,7 +140,7 @@ def read_reply(response, payload, *, max_seconds=600):
     try:
         events = read_events(response, max_line_bytes=max_line_bytes, max_total_bytes=max_total_bytes,
                              max_seconds=max_seconds)
-        reply = decode_events(events, payload)
+        reply = decode_events(events, payload, on_ack)
         if reply.text.strip() in CAPACITY_REPLIES:
             raise UpstreamError('upstream_capacity', 503)
         return reply
