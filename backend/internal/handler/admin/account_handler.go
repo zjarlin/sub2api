@@ -2829,6 +2829,39 @@ func (h *AccountHandler) SetSchedulable(c *gin.Context) {
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
 }
 
+// mappedOpenAIModels 把账号显式配置的 model_mapping 键投影为测试候选；仅在目录
+// 不可得且凭证有效时使用，避免向管理员展示账号根本无法调用的模型。
+func mappedOpenAIModels(account *service.Account) []openai.Model {
+	mapping := account.GetModelMapping()
+	if len(mapping) == 0 {
+		return nil
+	}
+	ids := make([]string, 0, len(mapping))
+	for requestedModel := range mapping {
+		requestedModel = strings.TrimSpace(requestedModel)
+		if requestedModel == "" || strings.Contains(requestedModel, "*") {
+			continue
+		}
+		ids = append(ids, requestedModel)
+	}
+	sort.Strings(ids)
+	models := make([]openai.Model, 0, len(ids))
+	for _, id := range ids {
+		var found bool
+		for _, dm := range openai.DefaultModels {
+			if dm.ID == id {
+				models = append(models, dm)
+				found = true
+				break
+			}
+		}
+		if !found {
+			models = append(models, openai.Model{ID: id, Object: "model", Type: "model", DisplayName: id})
+		}
+	}
+	return models
+}
+
 // GetAvailableModels handles getting available models for an account
 // GET /api/v1/admin/accounts/:id/models
 func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
@@ -2873,6 +2906,21 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 			var invalidCredentials *service.AccountCredentialsInvalidError
 			if errors.As(fetchErr, &invalidCredentials) {
 				response.Error(c, http.StatusBadGateway, invalidCredentials.Error())
+				return
+			}
+			// 目录获取失败（如 base_url 指向的上游没有 /v1/models 端点）时，通用 GPT
+			// 默认目录是「伪造」的：它对非官方上游毫无意义，会让测试弹窗列出一堆根本
+			// 调不通的模型。此时先做一次真实鉴权探测；凭证有效才保留手填映射，否则报错。
+			if !service.IsOfficialOpenAIModelsBaseURL(account.GetOpenAIBaseURL()) {
+				if guardErr := h.accountTestService.EnsureAccountTestableCredentials(c.Request.Context(), account); guardErr != nil {
+					response.Error(c, http.StatusBadGateway, guardErr.Error())
+					return
+				}
+				if models := mappedOpenAIModels(account); len(models) > 0 {
+					response.Success(c, models)
+					return
+				}
+				response.Success(c, []openai.Model{})
 				return
 			}
 		}

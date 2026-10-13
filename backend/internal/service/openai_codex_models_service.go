@@ -2579,6 +2579,12 @@ func CodexModelsManifestETagMatches(ifNoneMatch, etag string) bool {
 	return codexModelsManifestETagMatches(ifNoneMatch, etag)
 }
 
+// IsOfficialOpenAIModelsBaseURL 报告 base_url 是否指向官方 OpenAI。非官方兼容上游
+// 在目录获取失败时不得回落到通用 GPT 默认目录。
+func IsOfficialOpenAIModelsBaseURL(raw string) bool {
+	return isOfficialOpenAIModelsBaseURL(raw)
+}
+
 func isOfficialOpenAIModelsBaseURL(raw string) bool {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
 	if err != nil {

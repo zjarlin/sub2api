@@ -354,6 +354,77 @@ func TestAccountHandlerGetAvailableModels_OpenAIAuthInvalidReturnsError(t *testi
 	require.Contains(t, rec.Body.String(), "401")
 }
 
+// 非官方上游目录获取失败（如 base_url 指向没有 /v1/models 的 /plan/v3）时，
+// 不得回落伪造的通用 GPT 默认目录；凭证有效时只返回账号手填映射。
+func TestAccountHandlerGetAvailableModels_NonOfficialDiscoveryFailureUsesMapping(t *testing.T) {
+	account := service.Account{
+		ID:          48,
+		Name:        "tokenhub-plan-v3",
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeAPIKey,
+		Status:      service.StatusActive,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":       "sk-valid",
+			"base_url":      "https://tokenhub.example/plan/v3",
+			"model_mapping": map[string]any{"glm-5.3": "glm-5.3", "hy3": "hy3"},
+		},
+		Extra: map[string]any{"openai_passthrough": true},
+	}
+	adminSvc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: account}
+	upstream := &syncUpstreamHTTPUpstream{responses: []*http.Response{
+		// 目录端点 404（非官方上游没有 /v1/models）。
+		{StatusCode: http.StatusNotFound, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("404 page not found"))},
+		// 鉴权探测通过。
+		{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"choices":[]}`))},
+	}}
+	router := setupSyncUpstreamModelsRouter(adminSvc, upstream)
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/48/models", nil))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	var resp struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
+	require.Len(t, resp.Data, 2)
+	require.Equal(t, "glm-5.3", resp.Data[0].ID)
+	require.Equal(t, "hy3", resp.Data[1].ID)
+}
+
+// 非官方上游目录获取失败且凭证失效时，返回错误而不是伪造目录。
+func TestAccountHandlerGetAvailableModels_NonOfficialDiscoveryFailureRejectsInvalidKey(t *testing.T) {
+	account := service.Account{
+		ID:          49,
+		Name:        "tokenhub-invalid",
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeAPIKey,
+		Status:      service.StatusActive,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":       "sk-invalid",
+			"base_url":      "https://tokenhub.example/plan/v3",
+			"model_mapping": map[string]any{"glm-5.3": "glm-5.3"},
+		},
+		Extra: map[string]any{"openai_passthrough": true},
+	}
+	adminSvc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: account}
+	upstream := &syncUpstreamHTTPUpstream{responses: []*http.Response{
+		{StatusCode: http.StatusNotFound, Header: make(http.Header), Body: io.NopCloser(strings.NewReader("404 page not found"))},
+		{StatusCode: http.StatusUnauthorized, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"error":{"type":"authentication_error"}}`))},
+	}}
+	router := setupSyncUpstreamModelsRouter(adminSvc, upstream)
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/49/models", nil))
+
+	require.Equal(t, http.StatusBadGateway, rec.Code)
+	require.Contains(t, rec.Body.String(), "401")
+}
+
 func TestAccountHandlerGetAvailableModels_OpenAISparkShadowReturnsMappingModels(t *testing.T) {
 	parentID := int64(100)
 	svc := &availableModelsAdminService{

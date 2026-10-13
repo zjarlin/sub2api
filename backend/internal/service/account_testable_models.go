@@ -171,7 +171,9 @@ func (s *AccountTestService) runAccountAuthProbe(ctx context.Context, account *A
 	defer func() { _ = resp.Body.Close() }()
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 
-	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+	// 只有 401 才是「凭证无效」。403 可能是该 key 未被授权访问某个模型（访问范围
+	// 问题）而非凭证失效，据此封掉整个列表会误伤仍然可用的模型。
+	if resp.StatusCode == http.StatusUnauthorized {
 		message := strings.TrimSpace(string(body))
 		if message == "" {
 			message = resp.Status
@@ -214,4 +216,21 @@ func invalidateAccountTestableAuthCache(accountID int64) {
 	if accountID > 0 {
 		accountTestableAuthCache.Delete(accountID)
 	}
+}
+
+// EnsureAccountTestableCredentials 在无法获取上游目录时仍能拦住失效凭证：返回非 nil
+// 表示凭证已被上游拒绝（401），列表不应继续给出任何「可测」模型。
+func (s *AccountTestService) EnsureAccountTestableCredentials(ctx context.Context, account *Account) error {
+	if account == nil {
+		return nil
+	}
+	verdict := s.probeAccountAuthVerdict(ctx, account)
+	if verdict.ok {
+		return nil
+	}
+	message := strings.TrimSpace(verdict.message)
+	if message == "" {
+		message = "该账号凭证无效，无法列出可测模型"
+	}
+	return &AccountCredentialsInvalidError{Message: message}
 }

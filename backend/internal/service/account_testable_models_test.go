@@ -65,19 +65,45 @@ func TestFilterTestableOpenAIModelsRejectsInvalidCredentials(t *testing.T) {
 	require.Contains(t, err.Error(), "401")
 }
 
-// 403 同样视为凭证/权限不可用。
-func TestFilterTestableOpenAIModelsRejectsForbidden(t *testing.T) {
+// 403 是访问范围/权限问题而非凭证失效，不得据此封掉整个列表。
+func TestFilterTestableOpenAIModelsAllowsForbiddenScope(t *testing.T) {
 	svc := testableAuthProbeService(&codexModelsHTTPUpstreamStub{do: func(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
-		return jsonResponse(http.StatusForbidden, `{"error":"forbidden"}`), nil
+		return jsonResponse(http.StatusForbidden, `{"error":{"code":"403002","type":"permission_error"}}`), nil
 	}})
 	account := testableAuthProbeAccount()
 	accountTestableAuthCache.Delete(account.ID)
 	t.Cleanup(func() { accountTestableAuthCache.Delete(account.ID) })
 
-	_, err := svc.filterTestableOpenAIModels(context.Background(), account, []openai.Model{{ID: "hy3"}})
+	models, err := svc.filterTestableOpenAIModels(context.Background(), account, []openai.Model{{ID: "glm-5.3"}})
+	require.NoError(t, err)
+	require.Len(t, models, 1)
+}
+
+// EnsureAccountTestableCredentials 在目录不可得时仍能拦住失效凭证。
+func TestEnsureAccountTestableCredentialsRejects401(t *testing.T) {
+	svc := testableAuthProbeService(&codexModelsHTTPUpstreamStub{do: func(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+		return jsonResponse(http.StatusUnauthorized, `{"error":{"type":"authentication_error"}}`), nil
+	}})
+	account := testableAuthProbeAccount()
+	accountTestableAuthCache.Delete(account.ID)
+	t.Cleanup(func() { accountTestableAuthCache.Delete(account.ID) })
+
+	err := svc.EnsureAccountTestableCredentials(context.Background(), account)
 	require.Error(t, err)
 	var invalid *AccountCredentialsInvalidError
 	require.True(t, errors.As(err, &invalid))
+}
+
+// 凭证有效（含 403 范围问题）时 EnsureAccountTestableCredentials 放行。
+func TestEnsureAccountTestableCredentialsAllowsValid(t *testing.T) {
+	svc := testableAuthProbeService(&codexModelsHTTPUpstreamStub{do: func(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+		return jsonResponse(http.StatusForbidden, `{"error":{"code":"403002"}}`), nil
+	}})
+	account := testableAuthProbeAccount()
+	accountTestableAuthCache.Delete(account.ID)
+	t.Cleanup(func() { accountTestableAuthCache.Delete(account.ID) })
+
+	require.NoError(t, svc.EnsureAccountTestableCredentials(context.Background(), account))
 }
 
 // 凭证有效时保留候选模型，并剔除已有失败证据的模型。
