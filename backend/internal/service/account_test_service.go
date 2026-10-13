@@ -280,7 +280,13 @@ func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, accou
 			}
 		}
 	}
-	return payload.Data, nil
+	// 「上游能获取到什么模型，测试里就能测什么」：在返回候选前做一次带缓存的
+	// 账号级鉴权探测，凭证无效时直接报错而不是把不可用模型展示为可选。
+	filtered, filterErr := s.filterTestableOpenAIModels(ctx, account, payload.Data)
+	if filterErr != nil {
+		return nil, filterErr
+	}
+	return filtered, nil
 }
 
 // NewAccountTestService creates a new AccountTestService
@@ -396,6 +402,9 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Account not found")
 	}
+
+	// 用户显式测试会让「可测模型」结论过期，下一次列表请求重新探测凭证。
+	invalidateAccountTestableAuthCache(accountID)
 
 	if account.Platform == PlatformModel3D {
 		s.sendEvent(c, TestEvent{Type: "test_start", Model: account.GetCredential("default_model")})

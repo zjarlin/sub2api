@@ -322,6 +322,38 @@ func TestAccountHandlerGetAvailableModels_OpenAIAPIKeyDefaultsToConcreteGPT56Sol
 	require.Contains(t, ids, "gpt-6-astra")
 }
 
+// 凭证被上游拒绝时，/models 必须返回错误而不是回落到默认目录（否则会把账号
+// 实际无法调用的模型展示为可测，正是「列表能选、一个都测不通」的根因）。
+func TestAccountHandlerGetAvailableModels_OpenAIAuthInvalidReturnsError(t *testing.T) {
+	account := service.Account{
+		ID:          47,
+		Name:        "openai-apikey-invalid",
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeAPIKey,
+		Status:      service.StatusActive,
+		Concurrency: 1,
+		Credentials: map[string]any{
+			"api_key":       "sk-invalid",
+			"base_url":      "https://tokenhub.example/v1",
+			"model_mapping": map[string]any{"hy3": "hy3"},
+		},
+	}
+	adminSvc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: account}
+	upstream := &syncUpstreamHTTPUpstream{responses: []*http.Response{
+		// 首次请求：上游 /v1/models 不校验凭证，仍返回模型目录。
+		{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"object":"list","data":[{"id":"hy3"},{"id":"glm-5.3"}]}`))},
+		// 鉴权探测：真实 chat/completions 端点拒绝凭证。
+		{StatusCode: http.StatusUnauthorized, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"error":{"type":"authentication_error","code":"401002"}}`))},
+	}}
+	router := setupSyncUpstreamModelsRouter(adminSvc, upstream)
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/47/models", nil))
+
+	require.Equal(t, http.StatusBadGateway, rec.Code)
+	require.Contains(t, rec.Body.String(), "401")
+}
+
 func TestAccountHandlerGetAvailableModels_OpenAISparkShadowReturnsMappingModels(t *testing.T) {
 	parentID := int64(100)
 	svc := &availableModelsAdminService{

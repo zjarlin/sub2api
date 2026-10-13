@@ -2861,11 +2861,18 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 
 	// Handle OpenAI accounts
 	if account.IsOpenAI() {
-		// Prefer the shared, account-keyed upstream catalog. If discovery fails,
-		// retain the legacy local catalog below so the test dialog remains usable.
+		// Prefer the shared, account-keyed upstream catalog.
 		if h.accountTestService != nil {
-			if models, fetchErr := h.accountTestService.FetchOpenAIAccountModels(c.Request.Context(), account); fetchErr == nil {
+			models, fetchErr := h.accountTestService.FetchOpenAIAccountModels(c.Request.Context(), account)
+			if fetchErr == nil {
 				response.Success(c, models)
+				return
+			}
+			// 凭证被上游拒绝时不得回落到默认目录：那会把账号实际无法调用的模型
+			// 展示为「可测」，正是「列表能选、一个都测不通」的根因。
+			var invalidCredentials *service.AccountCredentialsInvalidError
+			if errors.As(fetchErr, &invalidCredentials) {
+				response.Error(c, http.StatusBadGateway, invalidCredentials.Error())
 				return
 			}
 		}
