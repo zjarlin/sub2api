@@ -47,6 +47,135 @@ def connector_task_input(connector_id, functions):
         {'connectorId': connector_id, 'mcpToolsList': tools}]}, ensure_ascii=False)
 
 
+def connector_task_input_from_catalog(runtime, catalog_response):
+    """从本机就绪快照与 getAllTools 目录构造定义；不查询或注册连接器。"""
+    if not isinstance(runtime, dict):
+        raise NativeProtocolError('Missing local connector runtime')
+    connector_id = required_text(runtime.get('connectorId'))
+    if runtime.get('status') != 'READY' or runtime.get('enabled') is not True:
+        raise NativeProtocolError('Local connector is not ready and enabled')
+    if not isinstance(catalog_response, dict) or catalog_response.get('isOK') is not True:
+        raise NativeProtocolError('Native MCP catalog request failed')
+    data = catalog_response.get('data')
+    connectors = data.get('connectors') if isinstance(data, dict) else None
+    if not isinstance(connectors, list) or any(not isinstance(item, dict) for item in connectors):
+        raise NativeProtocolError('Invalid native MCP catalog')
+    matching = [item for item in connectors if item.get('connectorId') == connector_id]
+    if len(matching) != 1:
+        raise NativeProtocolError('Expected one matching connector in native MCP catalog')
+    raw = matching[0].get('toolsJson')
+    if not isinstance(raw, str):
+        raise NativeProtocolError('Expected native toolsJson string')
+    try:
+        discovered = json.loads(raw)
+    except (ValueError, RecursionError):
+        raise NativeProtocolError('Invalid native toolsJson')
+    if not isinstance(discovered, list) or any(not isinstance(tool, dict) for tool in discovered):
+        raise NativeProtocolError('Expected native MCP tools array')
+    if any(not isinstance(tool.get('inputSchema'), dict) for tool in discovered):
+        raise NativeProtocolError('Expected native MCP inputSchema object')
+    functions = [{'name': tool.get('name'), 'description': tool.get('description', ''),
+                  'parameters': tool.get('inputSchema')} for tool in discovered]
+    task = json.loads(connector_task_input(connector_id, functions))
+    encoded = task['localConnectors'][0]['mcpToolsList']
+    for source, target in zip(discovered, encoded):
+        # 客户端保留 MCP 的 annotations 与 _meta，且在线协议将对象编码为字符串。
+        for native_key, wire_key in [('annotations', 'annotations'), ('_meta', 'meta')]:
+            if native_key in source:
+                value = source[native_key]
+                if not isinstance(value, dict):
+                    raise NativeProtocolError('Expected MCP metadata object')
+                target[wire_key] = json.dumps(json_object(value), ensure_ascii=False, allow_nan=False)
+    return json.dumps(task, ensure_ascii=False)
+
+
+class NativeSandboxCommands:
+    """解析控制指令并记录显式执行结果；本类不创建、释放或授权真实 sandbox。"""
+
+    ACTIONS = {1: 'connect', 2: 'disconnect', 3: 'release'}
+
+    def __init__(self, device_id, sandbox_id):
+        self.device_id = required_text(device_id)
+        self.sandbox_id = required_text(sandbox_id)
+        self.commands = {}
+        self.results = {}
+
+    def receive(self, frame):
+        if not isinstance(frame, dict) or type(frame.get('event_type')) is not int or frame['event_type'] != 2:
+            raise NativeProtocolError('Expected device command event')
+        sandbox = frame.get('sandbox_id', frame.get('instance_id', frame.get('sandBoxID')))
+        if sandbox != self.sandbox_id:
+            raise NativeProtocolError('Command sandbox mismatch')
+        signature = frame.get('signature')
+        if signature is not None:
+            if not isinstance(signature, dict) or signature.get('device_id') != self.device_id:
+                raise NativeProtocolError('Signed device identity mismatch')
+        command = frame.get('command')
+        if not isinstance(command, dict) or command.get('name') != 'sandbox':
+            raise NativeProtocolError('Only sandbox lifecycle commands are supported')
+        identifier = required_text(command.get('id'))
+        need_ack = command.get('need_ack', False)
+        if type(need_ack) is not bool:
+            raise NativeProtocolError('Expected boolean command acknowledgement flag')
+        envelope = json_object(command.get('input'))
+        kind = envelope.get('type')
+        if type(kind) is not int or kind not in self.ACTIONS:
+            raise NativeProtocolError('Unsupported sandbox command type')
+        action = self.ACTIONS[kind]
+        detail = envelope.get(action)
+        if not isinstance(detail, dict):
+            raise NativeProtocolError('Missing sandbox command detail')
+        if detail.get('sandbox_id', detail.get('sandboxId')) != self.sandbox_id:
+            raise NativeProtocolError('Command input sandbox mismatch')
+        option = command.get('option', {})
+        if not isinstance(option, dict):
+            raise NativeProtocolError('Expected command option object')
+        result = {'type': 'sandbox_command', 'command_id': identifier, 'action': action,
+                  'sandbox_id': self.sandbox_id, 'need_ack': need_ack}
+        if action != 'release':
+            result.update(self._route(detail, option))
+        previous = self.commands.get(identifier)
+        if previous is not None:
+            if previous != command:
+                raise NativeProtocolError('Conflicting replay of sandbox command')
+            return None
+        self.commands[identifier] = copy.deepcopy(command)
+        return result
+
+    @staticmethod
+    def _route(detail, option):
+        result = {}
+        if detail.get('id') is not None:
+            result['connection_id'] = required_text(detail['id'])
+        for snake, camel in [('agent_id', 'agentId'), ('task_id', 'taskId')]:
+            first = detail.get(snake, detail.get(camel))
+            second = option.get(snake, option.get(camel))
+            if first is not None and second is not None and first != second:
+                raise NativeProtocolError('Command routing identity mismatch')
+            value = first if first is not None else second
+            if value is not None:
+                result[snake] = required_text(value)
+        return result
+
+    def result_payload(self, command_id, success, message=''):
+        """调用方完成生命周期操作后显式确认；need_ack=false 时不构造上传请求。"""
+        command = self.commands.get(command_id)
+        if command is None:
+            raise NativeProtocolError('Unknown command ID')
+        if type(success) is not bool or not isinstance(message, str):
+            raise NativeProtocolError('Expected boolean command result and text message')
+        result = {'id': command_id, 'code': 0 if success else 1}
+        if message:
+            result['message'] = message
+        previous = self.results.get(command_id)
+        if previous is not None and previous != result:
+            raise NativeProtocolError('Conflicting command result')
+        self.results[command_id] = copy.deepcopy(result)
+        if not command.get('need_ack', False):
+            return None
+        return {'device_id': self.device_id, 'command_result': result}
+
+
 class NativeToolExchange:
     """一个设备与 sandbox 的调用关联；实例不得跨账号或工作任务复用。"""
 

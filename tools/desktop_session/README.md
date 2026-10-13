@@ -124,7 +124,9 @@ Linux 部署只需服务代码/镜像及上述两份私密文件；无需复制�
 
 ### 原生工具协议调查边界
 
-2026-09-17 对当前客户端随附资源及热更新包完成核对：旧任务路径有 `/samantha/tool/init`（`client_id`、`tools[].name/description/input_schema`）及 `client_tool_key`，并有工具心跳、结果回传接口；当前 Office 本地执行链路另使用 `/alice/office/tool_local/chunk_stream` 与 `upload_tool_call_result_v2`，关联设备和 sandbox。
+2026-10-13 的当前结论见 [NATIVE_TOOLS.md](NATIVE_TOOLS.md)：已从安装的 2.31.4 客户端恢复 MCP 工具目录、`connector.call`、sandbox 控制与回传协议，并有离线编解码测试；尚未接入 HTTP 服务。一次获准验证确认工具定义对模型可见，但连接器执行与结果续接失败，原生闭环未通过。现有服务仍使用文本 JSON 工具桥。后续只读本地补查没有新增豆包请求。
+
+以下为历史调查记录。2026-09-17 对当时客户端随附资源及热更新包完成核对：旧任务路径有 `/samantha/tool/init`（`client_id`、`tools[].name/description/input_schema`）及 `client_tool_key`，并有工具心跳、结果回传接口；Office 接口定义另有 `/alice/office/tool_local/chunk_stream` 与 `upload_tool_call_result_v2`，关联设备和 sandbox。2.31.4 中已追到的 `connector.call` 实际调用无 v2 后缀的结果端点，不能用历史端点清单替代执行路径证据。
 
 使用独立测试 client ID 注册 `lookup_marker` 得到 HTTP 200、业务码 0 和工具标识，但将该标识及客户端使用的任务字段带入当前 Pro 工作会话后，模型没有获得该函数；实际回复表示工具列表与工具搜索均找不到它。注册成功不能证明当前工作模型支持任意外部工具。因此本版本只启用已实测的会话续接，外部函数继续走明确标注的文本 JSON 桥接，没有声称接通原生工具，没有改用火山方舟 API，也没有让适配器执行桌面内置工具。
 
@@ -136,7 +138,7 @@ Linux 部署只需服务代码/镜像及上述两份私密文件；无需复制�
 
 服务器现有登录态实测：`/alice/dispatch/list_devices` 返回 HTTP 200、业务码 0、两台设备；独立 client ID 的旧 `/samantha/tool/init` 返回业务码 0。使用独立随机 device ID 连接 Office 工具通道时，在 8 秒内未收到 HTTP 响应头。这不证明通道不可用，也不证明注册的任意函数已被当前工作模型加载。没有占用现有桌面设备通道或执行其命令。
 
-继续逆向应依次验证：独立设备上线与 `client_attrs` 契约、sandbox 预建命令及回执、任务与设备/sandbox 的关联、结构化工具调用事件和 v2 回传，最后确认自定义函数目录是否对模型可见。仅修改 runtime_type，或把旧 client_tool_key 放入新任务，不能视为链路打通。`research_native.py` 提供服务器复现探针，默认只查询设备字段形状；`--register` 注册独立测试函数，`--channel` 有界观察独立通道。探针不输出 Cookie、设备身份或命令正文，不执行工具。
+历史 `research_native.py` 提供服务器复现探针，默认会查询设备字段形状；`--register` 注册旧路径测试函数，`--channel` 观察通道，均会发真实请求。当前排查应优先使用已保存证据与离线测试，不自动重跑这些探针。仅修改 runtime_type、注入随机 connectorId，或把旧 client_tool_key 放入新任务，不能视为链路打通。
 
 2026-09-17 增量续聊修正版已部署为 `sub2api-desktop:20260917-incremental-v2`：本机及 AMD64 镜像各 77 项测试通过，部署的 16 个 Python 文件与本地 SHA-256 一致。通过现有客户端有效凭据完成 Sub2API `/v1/responses` 的 Pro 工具调用、真实随机结果回传、重试复用及第三轮 SSE 回答；三轮同一上游会话，实际上传字节数为 31700 / 1482 / 1245。正式适配器的自动模式 SSE 与 JSON 最终答案也完成三轮验证，字节数为 71973 / 1783 / 1585。详细证据见 `validation.json` 的 `incremental_session_validation`；旧镜像、源码和回滚容器保留。
 

@@ -27,7 +27,36 @@
   },
   "limitations": [
     "Synthetic connector identity was injected in task_input_json; no personal connector entity was registered.",
-    "Existing authenticated device with a unique sandbox scope was used; no separate physical device was registered.",
+    "An existing authenticated device and a new sandbox ID were used; device stream isolation was not established.",
     "No upstream function_call_output round trip or Responses server integration has been verified."
-  ]
+  ],
+  "offline_followup": {
+    "new_doubao_http_requests": 0,
+    "new_generation_attempts": 0,
+    "new_tool_executions": 0,
+    "production_deployments": 0,
+    "official_desktop_received_test_sandbox_command": true,
+    "command_evidence": {
+      "file": "saman_2026.1013.2.log",
+      "line": 76657,
+      "time": "2026-10-13T16:49:20.940283+08:00",
+      "source": "local-file-local-tools-sse-wiring.ts",
+      "event": "command",
+      "name": "sandbox",
+      "need_ack": false,
+      "status": "received",
+      "sandbox_matches_test": true,
+      "input_logged": false
+    },
+    "device_routing_isolation_verified": false,
+    "single_root_cause_identified": false,
+    "static_findings": [
+      "Official personal connector creation is followed by native environment checks, triggerUpdate and local readiness.",
+      "The model tool catalog is sourced from neotix.mcp.getAllTools, independently of cloud connector creation.",
+      "Sandbox commands have separate connect, disconnect and release lifecycle operations and conditional acknowledgements."
+    ],
+    "offline_protocol_tests_passed": 19,
+    "real_lifecycle_execution_implemented": false,
+    "responses_server_integration_implemented": false
+  }
 }
