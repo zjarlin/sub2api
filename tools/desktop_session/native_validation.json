@@ -1,0 +1,33 @@
+{
+  "date": "2026-10-13",
+  "desktop_version": "2.31.4",
+  "method": "static_source_and_one_bounded_live_attempt",
+  "custom_tool_visible_to_model_verified": true,
+  "native_custom_tool_roundtrip_verified": false,
+  "http_requests": 4,
+  "generation_attempts": 1,
+  "automatic_retries": 0,
+  "local_tool_executions": 0,
+  "result_uploads": 0,
+  "catalog": {
+    "http_status": 200,
+    "business_code": 0
+  },
+  "device_stream": {
+    "outcome": "timeout_before_response_headers",
+    "tool_events_received": 0
+  },
+  "generation": {
+    "http_status": 200,
+    "ack_received": true,
+    "stream_outcome": "timeout",
+    "followup_read": "own_test_conversation_only",
+    "final_text": "工具调用失败：连接器暂时不可用，未返回任何标记。请稍后重试。",
+    "task_finished": true
+  },
+  "limitations": [
+    "Synthetic connector identity was injected in task_input_json; no personal connector entity was registered.",
+    "Existing authenticated device with a unique sandbox scope was used; no separate physical device was registered.",
+    "No upstream function_call_output round trip or Responses server integration has been verified."
+  ]
+}
