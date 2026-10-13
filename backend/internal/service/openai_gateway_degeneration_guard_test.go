@@ -161,6 +161,59 @@ func TestForwardResponses_AbortsDegenerateUpstreamStream(t *testing.T) {
 	require.NotContains(t, out, "event: response.output_text.delta", "退化的 reasoning 不得兜底成正文")
 }
 
+// TestForwardResponses_AbortsLineLevelDegenerateStream 覆盖 2026-10-13 的真实形态：
+// 上游逐行复读 `Let me write. / Go. / Now. / OK. / Emit.`，整段周期超出 period 通道
+// 范围，必须由行级通道熔断（截图里它一路跑到 32768 输出上限）。
+func TestForwardResponses_AbortsLineLevelDegenerateStream(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"deepseek-v4.1-flash","input":"hello","stream":true}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	cycle := []string{
+		"Let me write the patch to the file now.",
+		"Go ahead and emit the write tool call.",
+		"Now write the requested file to disk.",
+		"OK, emitting the write tool call now.",
+		"Emit the write tool call immediately.",
+	}
+	lines := []string{
+		`data: {"id":"chatcmpl_degen_line","object":"chat.completion.chunk","model":"deepseek-v4.1-flash","choices":[{"index":0,"delta":{"role":"assistant","content":null,"reasoning_content":""},"finish_reason":null}]}`,
+		"",
+	}
+	for i := 0; i < 60; i++ {
+		for _, line := range cycle {
+			payload, err := json.Marshal(map[string]any{
+				"choices": []any{map[string]any{"index": 0, "delta": map[string]any{"reasoning_content": line + "\n"}}},
+			})
+			require.NoError(t, err)
+			lines = append(lines, "data: "+string(payload), "")
+		}
+	}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_degenerate_line"}},
+		Body:       io.NopCloser(strings.NewReader(strings.Join(lines, "\n"))),
+	}}
+	cfg := degenerationGuardTestConfig()
+	cfg.Gateway.Degeneration.MinTotalRunes = 3000
+	svc := &OpenAIGatewayService{cfg: cfg, httpUpstream: upstream}
+
+	result, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "upstream_degenerate_repetition")
+	require.NotNil(t, result)
+
+	out := rec.Body.String()
+	require.Contains(t, out, "event: response.failed")
+	require.Contains(t, out, "trailing lines drawn from only", "行级复读必须走行级熔断分支")
+	require.NotContains(t, out, "event: response.completed")
+	require.NotContains(t, out, "event: response.output_text.delta", "退化的 reasoning 不得兜底成正文")
+}
+
 // TestForwardResponses_ClampsDegenerationProneMaxTokens 固定兜底钳制：易退化模型的
 // 出站输出上限被改写，缩小一次退化能烧掉的 token。
 func TestForwardResponses_ClampsDegenerationProneMaxTokens(t *testing.T) {

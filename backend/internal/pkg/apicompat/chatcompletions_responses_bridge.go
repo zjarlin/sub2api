@@ -1775,11 +1775,11 @@ func (state *ChatCompletionsToResponsesStreamState) ValidateToolCallArguments() 
 	return nil
 }
 
-// DetectDegeneration 检查累积输出是否退化成短周期重复，命中后记住结果并一直返回它。
+// DetectDegeneration 检查累积输出是否退化成重复循环，命中后记住结果并一直返回它。
 //
 // 退化通常发生在 thinking 通道（DeepSeek 式上游把整段重复文本放在 reasoning_content
 // 里），所以取累积更长的那个通道做判定。为控制开销，只有累积长度比上次检测增长超过
-// CheckEveryBytes 时才复制并分析文本。
+// CheckEveryBytes 时才分析文本，且只分析尾部窗口。
 func (state *ChatCompletionsToResponsesStreamState) DetectDegeneration() *ChatDegeneration {
 	if state == nil || state.Degeneration != nil || state.DegenerationGuard == nil {
 		return state.Degeneration

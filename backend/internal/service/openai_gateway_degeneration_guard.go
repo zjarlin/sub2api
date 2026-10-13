@@ -21,11 +21,15 @@ func (s *OpenAIGatewayService) chatDegenerationGuard() *apicompat.ChatDegenerati
 	}
 	cfg := s.cfg.Gateway.Degeneration
 	guard := apicompat.ChatDegenerationGuard{
-		MinTotalRunes: cfg.MinTotalRunes,
-		WindowRunes:   cfg.WindowRunes,
-		MinPeriod:     cfg.MinPeriod,
-		MaxPeriod:     cfg.MaxPeriod,
-		MinRepeats:    cfg.MinRepeats,
+		MinTotalRunes:   cfg.MinTotalRunes,
+		WindowRunes:     cfg.WindowRunes,
+		MinPeriod:       cfg.MinPeriod,
+		MaxPeriod:       cfg.MaxPeriod,
+		MinRepeats:      cfg.MinRepeats,
+		LineWindow:      cfg.LineWindow,
+		LineMinCount:    cfg.LineMinCount,
+		LineMaxDistinct: cfg.LineMaxDistinct,
+		LineMaxRunes:    cfg.LineMaxRunes,
 	}.Normalize()
 	return &guard
 }

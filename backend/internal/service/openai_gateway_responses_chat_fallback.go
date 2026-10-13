@@ -326,10 +326,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 			if account != nil {
 				accountID = account.ID
 			}
-			message := fmt.Sprintf(
-				"Upstream output degenerated into a repeated loop (%s channel, repeating period %d runes, >=%d repeats); aborted instead of streaming it to the output limit",
-				degenerated.Channel, degenerated.PeriodRunes, degenerated.Repeats,
-			)
+			message := degenerationMessage(degenerated)
 			writeEvents([]apicompat.ResponsesStreamEvent{{
 				Type: "response.failed", SequenceNumber: state.SequenceNumber,
 				Response: &apicompat.ResponsesResponse{
@@ -341,9 +338,11 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 			logger.L().Warn("openai responses chat fallback: aborted degenerate upstream stream",
 				zap.String("request_id", requestID),
 				zap.Int64("account_id", accountID),
+				zap.String("kind", degenerated.Kind),
 				zap.String("channel", degenerated.Channel),
 				zap.Int("period_runes", degenerated.PeriodRunes),
 				zap.Int("repeats", degenerated.Repeats),
+				zap.Int("distinct_lines", degenerated.DistinctLines),
 				zap.Int("total_runes", degenerated.TotalRunes),
 				zap.Int("output_tokens", totalUsage.OutputTokens),
 			)

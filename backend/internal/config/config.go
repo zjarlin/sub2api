@@ -1342,6 +1342,13 @@ type GatewayDegenerationConfig struct {
 	MaxOutputTokensModels []string `mapstructure:"max_output_tokens_models"`
 	// MaxOutputTokensCap 是上述模型出站输出 token 的钳制上限，<=0 表示不钳制。
 	MaxOutputTokensCap int `mapstructure:"max_output_tokens_cap"`
+	// LineWindow / LineMinCount / LineMaxDistinct / LineMaxRunes 是行级复读检测阈值。
+	// 覆盖周期较长或准周期的逐行复读（例如 `Let me write. / Go. / Now. / OK.` 交替），
+	// 这类形态周期超出 MaxPeriod，单靠尾部短周期检测抓不到。
+	LineWindow      int `mapstructure:"line_window"`
+	LineMinCount    int `mapstructure:"line_min_count"`
+	LineMaxDistinct int `mapstructure:"line_max_distinct"`
+	LineMaxRunes    int `mapstructure:"line_max_runes"`
 }
 
 // GatewayMediaConfig 指向边缘配音与视频服务（edge-media）的内部地址。
@@ -2731,6 +2738,10 @@ func setDefaults() {
 	viper.SetDefault("gateway.degeneration.min_period", 4)
 	viper.SetDefault("gateway.degeneration.max_period", 48)
 	viper.SetDefault("gateway.degeneration.min_repeats", 40)
+	viper.SetDefault("gateway.degeneration.line_window", 96)
+	viper.SetDefault("gateway.degeneration.line_min_count", 48)
+	viper.SetDefault("gateway.degeneration.line_max_distinct", 10)
+	viper.SetDefault("gateway.degeneration.line_max_runes", 48)
 	// 实测只在 deepseek flash 兼容路径（cline-pass 转发）出现过跑到 65536 输出上限的
 	// 纯复读，所以默认只钳制该族模型，并把上限砍半。
 	viper.SetDefault("gateway.degeneration.max_output_tokens_models", []string{"deepseek-v4.1-flash"})
