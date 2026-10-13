@@ -198,7 +198,10 @@ func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, accou
 	} else {
 		_, upstreamBody, err := s.fetchUpstreamModelList(ctx, account)
 		if err != nil {
-			return nil, err
+			upstreamBody = configuredOpenAIModelsFallback(account, err)
+			if upstreamBody == nil {
+				return nil, err
+			}
 		}
 		body, err = standardOpenAIModelsBody(upstreamBody, account.IsOpenAIOAuthLike())
 		if err != nil {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -63,12 +64,42 @@ func (s *OpenAIGatewayService) FetchOpenAIModelsList(ctx context.Context, accoun
 		return response, nil
 	}, "")
 	if err != nil {
+		if body := configuredOpenAIModelsFallback(account, err); body != nil {
+			return &OpenAIModelsResponse{Body: body, ETag: codexModelsManifestBodyETag(body)}, nil
+		}
 		return nil, err
 	}
 	if response.NotModified {
 		return nil, invalidOpenAIModelsList(fmt.Errorf("upstream returned 304 without a cached catalog"))
 	}
 	return response, nil
+}
+
+// 上游明确没有目录接口时，以账号配置的具体目标补齐标准目录。
+// 在共享缓存之外构造，账号修改后立即生效，且不把配置误记为上游发现结果。
+// 鉴权失败、限流、网络错误和损坏的响应仍按原始错误返回。
+func configuredOpenAIModelsFallback(account *Account, discoveryErr error) []byte {
+	if account == nil || !account.IsOpenAI() || account.Type != AccountTypeAPIKey || isArenaSessionAdapter(account) {
+		return nil
+	}
+	status := upstreamModelSyncStatusCode(discoveryErr)
+	var upstreamErr *codexModelsManifestUpstreamError
+	if errors.As(discoveryErr, &upstreamErr) {
+		status = upstreamErr.statusCode
+	}
+	if status != http.StatusNotFound && status != http.StatusMethodNotAllowed {
+		return nil
+	}
+	models := configuredUpstreamModelsForCapabilitySync(account)
+	if len(models) == 0 {
+		return nil
+	}
+	entries := make([]map[string]any, 0, len(models))
+	for _, id := range models {
+		entries = append(entries, map[string]any{"id": id, "object": "model", "created": 0, "owned_by": "account-configured"})
+	}
+	body, _ := json.Marshal(map[string]any{"object": "list", "data": entries})
+	return body
 }
 
 func invalidOpenAIModelsList(err error) error {
@@ -164,7 +195,8 @@ func standardOpenAIModelsBody(body []byte, fromManifest bool) ([]byte, error) {
 // representations while retaining the source entry's metadata. It never changes
 // the shared response and never synthesizes models absent from this account.
 func projectAccountModelsBody(body []byte, account *Account, group *Group, codex bool) ([]byte, error) {
-	if account.IsOpenAIPassthroughEnabled() || len(account.GetModelMapping()) == 0 {
+	// 透传转发也会应用显式映射，目录必须使用相同的公开名称与白名单。
+	if len(account.GetModelMapping()) == 0 {
 		return body, nil
 	}
 	field, idField := "data", "id"
