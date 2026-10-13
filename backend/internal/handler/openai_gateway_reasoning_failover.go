@@ -5,25 +5,21 @@ import (
 	"go.uber.org/zap"
 )
 
-// openAIPassthroughFailoverState tracks whether this forwarding loop has attempted
-// an OpenAI passthrough account. Once it has, every subsequent non-passthrough
-// attempt must use a sanitized body because the immutable canonical body can carry
-// provider-specific encrypted reasoning produced by that passthrough upstream.
+// 记录本轮转发模式、模型降级状态及推测的密文来源账号。
+// 来源在选号前从粘性绑定读取；绑定缺失时以本请求首次尝试的账号为参照。
+// 粘性绑定并非密文所有权证明，未知来源仍由上游错误后的恢复路径兜底。
+// 按账号行 ID 保守比较：即使两行配置共享上游身份，换行也会剥离密文。
 type openAIPassthroughFailoverState struct {
 	passthroughSeen bool
 	modelFallback   bool
+	// reasoningSourceAccountID 是加密密文所属的上游账号；0 表示未知（无粘性绑定
+	// 且本请求尚未尝试任何账号）。未知时不剥离，交由上游拒绝后的响应式恢复兜底。
+	reasoningSourceAccountID int64
 }
 
-// deriveOpenAIForwardAttemptBody returns the request body for the upcoming forward
-// attempt against account. It always derives from the immutable canonical body and
-// only removes encrypted reasoning input item(s) when the loop has already attempted
-// a passthrough account and the upcoming account is non-passthrough. This remains
-// sticky across retries and additional non-passthrough accounts. Attempts before
-// any passthrough account, and all passthrough attempts, forward the canonical body
-// unchanged. The canonical slice is never mutated.
-//
-// This method is invoked exactly once per forward attempt, immediately before the
-// Forward call, and advances the failover state as a side effect.
+// 每次转发前从不可变的原始请求派生本次请求，并推进尝试状态。
+// 换账号、模型降级或从透传切到非透传时，整块剔除携带密文的推理与压缩项。
+// 同账号且无上述变化时保留历史；原始字节切片始终不被修改。
 func (h *OpenAIGatewayHandler) deriveOpenAIForwardAttemptBody(
 	reqLog *zap.Logger,
 	canonicalBody []byte,
@@ -34,7 +30,12 @@ func (h *OpenAIGatewayHandler) deriveOpenAIForwardAttemptBody(
 	if currentPassthrough {
 		state.passthroughSeen = true
 	}
-	if !state.modelFallback && (currentPassthrough || !state.passthroughSeen) {
+	if state.reasoningSourceAccountID == 0 {
+		state.reasoningSourceAccountID = account.ID
+	}
+	accountChanged := state.reasoningSourceAccountID != account.ID
+	crossMode := state.modelFallback || (state.passthroughSeen && !currentPassthrough)
+	if !crossMode && !accountChanged {
 		return canonicalBody
 	}
 
@@ -57,6 +58,8 @@ func (h *OpenAIGatewayHandler) deriveOpenAIForwardAttemptBody(
 			zap.Bool("account_passthrough", currentPassthrough),
 			zap.Bool("passthrough_seen", state.passthroughSeen),
 			zap.Bool("model_fallback", state.modelFallback),
+			zap.Bool("account_changed", accountChanged),
+			zap.Int64("reasoning_source_account_id", state.reasoningSourceAccountID),
 		)
 	}
 	return sanitized

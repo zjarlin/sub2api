@@ -292,6 +292,9 @@ func sanitizeEncryptedReasoningInputItem(item any) (next any, changed bool, keep
 // the canonical request body by dropping provider-specific encrypted reasoning
 // input items in full (encrypted_content plus the coupled id/summary shape).
 //
+// 除 reasoning 外同样整块删除携带密文的 compaction / compaction_summary：这两类
+// 是压缩产物，密文同样绑定签发账号，账号变化时原样转发必然被上游拒绝。
+//
 // This is the proactive counterpart to the reactive same-account
 // invalid_encrypted_content recovery in Forward: when a failover switches from an
 // OpenAI passthrough account (which forwards upstream-native encrypted reasoning,
@@ -387,12 +390,20 @@ func dropOpenAIEncryptedReasoningInputItems(reqBody map[string]any) bool {
 	}
 }
 
+// isOpenAIEncryptedReasoningInputItem 报告某项是否为"携带密文的推理/压缩历史项"。
+// 覆盖 reasoning / compaction / compaction_summary 三类，与
+// sanitizeEncryptedReasoningInputItem 及 lineage 的项类型集合保持一致：这三类密文
+// 都由签发它的上游账号/组织持有，换号或跨模式重放时整块删除才安全。此前只识别
+// reasoning，导致 compaction 密文在账号变化时被原样转发、必然被上游拒绝。
 func isOpenAIEncryptedReasoningInputItem(item any) bool {
 	inputItem, ok := item.(map[string]any)
 	if !ok {
 		return false
 	}
-	if itemType, _ := inputItem["type"].(string); strings.TrimSpace(itemType) != "reasoning" {
+	itemType, _ := inputItem["type"].(string)
+	switch strings.TrimSpace(itemType) {
+	case "reasoning", "compaction", "compaction_summary":
+	default:
 		return false
 	}
 	_, has := inputItem["encrypted_content"]

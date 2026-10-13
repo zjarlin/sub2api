@@ -633,6 +633,13 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	var passthroughFailoverState openAIPassthroughFailoverState
+	// 加密 reasoning/compaction 密文由签发它的上游账号/组织持有，换号重放会被上游以
+	// invalid_encrypted_content 整包拒绝。以会话粘性绑定为"密文所属账号"的见证：粘性
+	// 绑定即上一轮实际服务的账号，本轮若因粘性逃逸调度到别的账号，deriveOpenAIForwardAttemptBody
+	// 会整块剔除这批密文，避免必然失败的首次请求。无绑定时留 0，由请求内首个账号接手。
+	if stickyAccountID := h.gatewayService.StickySessionAccountID(c.Request.Context(), apiKey.GroupID, sessionHash); stickyAccountID > 0 {
+		passthroughFailoverState.reasoningSourceAccountID = stickyAccountID
+	}
 	var busyRetry concurrencyRetry
 	poolRound := newOpenAIModelPoolRound(h.gatewayService, apiKey.GroupID, service.APIProtocolResponses, forwardModel, switchBudget.replayable)
 	defer poolRound.close()
@@ -649,6 +656,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			return false
 		}
 		passthroughFailoverState.modelFallback = true
+		// 降级换模型后原密文既跨账号也跨模型，重置所有者，由降级后首个账号接手并触发剥离。
+		passthroughFailoverState.reasoningSourceAccountID = 0
 		reqModel, forwardBody, channelMapping = attempt.Model, attempt.Body, attempt.Mapping
 		forwardModel = gjson.GetBytes(forwardBody, "model").String()
 		requestPlatform = openAICompatibleRequestPlatform(c.Request.Context(), apiKey)

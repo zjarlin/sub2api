@@ -119,6 +119,18 @@ func (s *OpenAIGatewayService) openAIStickyLegacyTTL(ttl time.Duration) time.Dur
 	return legacyTTL
 }
 
+// StickySessionAccountID 只读探针：返回会话当前粘性绑定的账号 ID，无绑定或读
+// 失败时返回 0。用于判定请求内携带的加密 reasoning/compaction 密文是否仍属于
+// 本次即将尝试的账号——OpenAI 把密文绑定在签发它的上游账号/组织上，换号重放会
+// 被 invalid_encrypted_content 整包拒绝。只读不写，不影响正常粘性语义。
+func (s *OpenAIGatewayService) StickySessionAccountID(ctx context.Context, groupID *int64, sessionHash string) int64 {
+	accountID, err := s.getStickySessionAccountID(ctx, groupID, sessionHash)
+	if err != nil || accountID <= 0 {
+		return 0
+	}
+	return accountID
+}
+
 func (s *OpenAIGatewayService) getStickySessionAccountID(ctx context.Context, groupID *int64, sessionHash string) (int64, error) {
 	if s == nil || s.cache == nil {
 		return 0, nil

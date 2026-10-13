@@ -63,7 +63,8 @@ func TestDeriveOpenAIForwardAttemptBody_CrossModeStripsKiroReasoning(t *testing.
 	require.JSONEq(t, kiroReasoningCanonicalBody, string(firstBody), "first attempt body must equal the canonical body")
 
 	// Attempt 2 — failover switches to non-passthrough (Bedrock): the whole
-	// provider-specific encrypted reasoning item (id/summary/encrypted_content) is dropped.
+	// encrypted reasoning item (id/summary/encrypted_content) is dropped, both
+	// because it is provider-specific and because the account changed.
 	secondBody := h.deriveOpenAIForwardAttemptBody(nil, canonical, bedrock, state)
 	require.Equal(t, 0, reasoningItemCount(t, secondBody), "cross-mode attempt must drop the reasoning item entirely")
 	require.False(t, gjson.GetBytes(secondBody, "input.#(encrypted_content)").Exists(), "no encrypted_content may remain")
@@ -79,11 +80,18 @@ func TestDeriveOpenAIForwardAttemptBody_CrossModeStripsKiroReasoning(t *testing.
 	require.JSONEq(t, kiroReasoningCanonicalBody, string(canonical), "canonical forwardBody must never be mutated")
 }
 
-// TestDeriveOpenAIForwardAttemptBody_SameModePreservesReasoning proves that
-// non-passthrough attempts before any passthrough attempt, passthrough-family
-// failovers, and switching into passthrough forward the canonical reasoning item
-// unchanged.
-func TestDeriveOpenAIForwardAttemptBody_SameModePreservesReasoning(t *testing.T) {
+// TestDeriveOpenAIForwardAttemptBody_AccountChangeDropsReasoning proves the
+// account-identity rule that replaced the earlier passthrough-mode-only rule.
+//
+// OpenAI binds reasoning.encrypted_content to the upstream account/organization
+// that issued it. A failover onto a *different* account therefore cannot decrypt
+// the blob and the upstream rejects the whole request with
+// invalid_encrypted_content — regardless of whether both accounts are passthrough,
+// non-passthrough, or of the same family. Preserving the ciphertext across an
+// account switch (the previous behavior) was precisely the failing request.
+//
+// Reasoning is preserved only while the attempt stays on the owning account.
+func TestDeriveOpenAIForwardAttemptBody_AccountChangeDropsReasoning(t *testing.T) {
 	h := &OpenAIGatewayHandler{}
 	canonical := []byte(kiroReasoningCanonicalBody)
 
@@ -91,24 +99,26 @@ func TestDeriveOpenAIForwardAttemptBody_SameModePreservesReasoning(t *testing.T)
 		state := &openAIPassthroughFailoverState{}
 		first := h.deriveOpenAIForwardAttemptBody(nil, canonical, newOpenAIPassthroughAccount(10, false), state)
 		second := h.deriveOpenAIForwardAttemptBody(nil, canonical, newOpenAIPassthroughAccount(11, false), state)
-		require.Equal(t, 1, reasoningItemCount(t, first))
-		require.Equal(t, 1, reasoningItemCount(t, second), "Bedrock-family failover must preserve reasoning")
-		require.JSONEq(t, kiroReasoningCanonicalBody, string(second))
+		require.Equal(t, 1, reasoningItemCount(t, first), "owning account keeps reasoning")
+		require.Equal(t, 0, reasoningItemCount(t, second),
+			"another account cannot decrypt the ciphertext, so it must be dropped")
 	})
 
 	t.Run("passthrough_to_passthrough", func(t *testing.T) {
 		state := &openAIPassthroughFailoverState{}
 		first := h.deriveOpenAIForwardAttemptBody(nil, canonical, newOpenAIPassthroughAccount(20, true), state)
 		second := h.deriveOpenAIForwardAttemptBody(nil, canonical, newOpenAIPassthroughAccount(21, true), state)
-		require.Equal(t, 1, reasoningItemCount(t, first))
-		require.Equal(t, 1, reasoningItemCount(t, second), "Kiro-family failover must preserve reasoning")
+		require.Equal(t, 1, reasoningItemCount(t, first), "owning account keeps reasoning")
+		require.Equal(t, 0, reasoningItemCount(t, second),
+			"passthrough-family switch is still an account switch and must drop the ciphertext")
 	})
 
 	t.Run("non_passthrough_to_passthrough", func(t *testing.T) {
 		state := &openAIPassthroughFailoverState{}
 		_ = h.deriveOpenAIForwardAttemptBody(nil, canonical, newOpenAIPassthroughAccount(30, false), state)
 		second := h.deriveOpenAIForwardAttemptBody(nil, canonical, newOpenAIPassthroughAccount(31, true), state)
-		require.Equal(t, 1, reasoningItemCount(t, second), "switching into passthrough must preserve reasoning")
+		require.Equal(t, 0, reasoningItemCount(t, second),
+			"switching into passthrough is still an account switch and must drop the ciphertext")
 	})
 
 	t.Run("same_account_pool_retry", func(t *testing.T) {

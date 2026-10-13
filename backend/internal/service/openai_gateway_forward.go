@@ -946,7 +946,8 @@ func (s *OpenAIGatewayService) forwardOnce(ctx context.Context, c *gin.Context, 
 			// 触发上游拒绝与重连。摘要取自进场形态的 body（密文项只可能来自
 			// 客户端进场请求，重复摘要幂等）。
 			invalidDigests := collectOpenAIEncryptedContentDigestsRaw(lineageEntryBody)
-			removedReasoningItems := trimOpenAIEncryptedReasoningItems(wsReqBody)
+			// 上游已明确拒绝推理历史，整块删除密文项和仅剩摘要的项，避免混合输入漏清。
+			removedReasoningItems := dropOpenAIStaleReasoningInputItems(wsReqBody)
 			if !removedReasoningItems {
 				logOpenAIWSModeInfo(
 					"reconnect_invalid_encrypted_content_recovery_skip account_id=%d attempt=%d reason=missing_encrypted_reasoning_items",
@@ -1211,16 +1212,18 @@ func (s *OpenAIGatewayService) forwardOnce(ctx context.Context, c *gin.Context, 
 			respBody = s.redactAgentIdentitySensitiveBody(ctx, account, respBody)
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
 			if !httpInvalidEncryptedContentRetryTried && resp.StatusCode == http.StatusBadRequest && upstreamCode == "invalid_encrypted_content" {
-				decoded, decodeErr := ensureReqBody()
+				_, decodeErr := ensureReqBody()
 				if decodeErr != nil {
 					return nil, decodeErr
 				}
 				invalidDigests := collectOpenAIEncryptedContentDigestsRaw(lineageEntryBody)
-				if trimOpenAIEncryptedReasoningItems(decoded) {
-					body, err = marshalOpenAIUpstreamJSON(decoded)
-					if err != nil {
-						return nil, fmt.Errorf("serialize invalid_encrypted_content retry body: %w", err)
-					}
+				// 上游已明确拒绝推理历史，整块删除密文项和仅剩摘要的项，避免混合输入漏清。
+				if staleBody, staleChanged, staleErr := DropOpenAIStaleReasoningInputItems(body); staleErr != nil {
+					return nil, fmt.Errorf("drop stale reasoning items: %w", staleErr)
+				} else if staleChanged {
+					body = staleBody
+					requestView = newOpenAIRequestView(body)
+					reqBody = nil
 					if len(invalidDigests) > 0 {
 						if lineageSessionHash == "" {
 							lineageSessionHash = s.GenerateSessionHash(c, lineageEntryBody)
@@ -1229,7 +1232,7 @@ func (s *OpenAIGatewayService) forwardOnce(ctx context.Context, c *gin.Context, 
 					}
 					httpInvalidEncryptedContentRetryTried = true
 					rejectedFieldRetryState.remember(body)
-					logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Retrying non-WSv2 request once after invalid_encrypted_content (account: %s)", account.Name)
+					logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Retrying non-WSv2 request once after invalid_encrypted_content by dropping stale reasoning items (account: %s)", account.Name)
 					continue
 				}
 				logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Skip non-WSv2 invalid_encrypted_content retry because encrypted reasoning items are missing (account: %s)", account.Name)
