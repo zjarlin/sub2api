@@ -168,6 +168,13 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 		s.rateLimitService.HandleTempUnschedulable(stateCtx, account, statusCode, responseBody, canonicalModel[0]) {
 		return true
 	}
+	// 内置的「上游额度/余额耗尽」规则：供应商把钱包耗尽伪装成 400 invalid_request_error
+	// 自由文本时，账号对当前请求不可用。这里同样做模型级临时不可调度并触发换号，
+	// 但要求已解析出具体模型，避免把账号级额度问题写进空模型键。
+	if s.rateLimitService != nil && statusCode != http.StatusUnauthorized && len(canonicalModel) > 0 && strings.TrimSpace(canonicalModel[0]) != "" &&
+		s.rateLimitService.HandleUpstreamCreditsExhausted(stateCtx, account, statusCode, responseBody, canonicalModel[0]) {
+		return true
+	}
 	if statusCode == http.StatusTooManyRequests && s.rateLimitService != nil && len(canonicalModel) > 0 &&
 		s.rateLimitService.HandleOpenAICodexSparkRateLimit(stateCtx, account, canonicalModel[0], statusCode, headers, responseBody) {
 		return false
@@ -180,7 +187,7 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	}
 	shouldDisable := s.rateLimitService.HandleUpstreamError(stateCtx, account, statusCode, headers, responseBody)
 	modelTempMatched := statusCode != http.StatusUnauthorized && tempUnschedulableModel(stateCtx, nil) != "" &&
-		len(matchTempUnschedulableRules(account, statusCode, responseBody)) > 0
+		(len(matchTempUnschedulableRules(account, statusCode, responseBody)) > 0 || isUpstreamCreditsExhaustedError(statusCode, responseBody))
 	if shouldDisable && !modelTempMatched {
 		s.BlockAccountScheduling(account, time.Time{}, "upstream_disable")
 	}
