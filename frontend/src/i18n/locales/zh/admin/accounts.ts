@@ -313,7 +313,7 @@ export default {
       editAccount: '编辑账号',
       deleteAccount: '删除账号',
       searchAccounts: '搜索账号...',
-      searchAccountsOrId: '搜索账号或 ID...',
+      searchAccountsOrId: '搜索账号、ID 或模型...',
       notes: '备注',
       notesPlaceholder: '请输入备注',
       notesHint: '备注可选',

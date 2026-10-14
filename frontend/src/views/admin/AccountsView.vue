@@ -2156,6 +2156,33 @@ const buildAccountQueryFilters = () => ({
   sort_by: sortState.sort_by,
   sort_order: sortState.sort_order
 })
+// 账号管理搜索框与后端保持一致：除账号名/ID 外，模型 ID 也能命中可调度该模型的账号。
+const collectAccountModelIds = (account: Account): string[] => {
+  const models: string[] = []
+  const pushMapping = (raw: unknown) => {
+    if (!raw || typeof raw !== 'object') return
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+      models.push(key)
+      if (typeof value === 'string') models.push(value)
+    }
+  }
+  const credentials = (account.credentials ?? {}) as Record<string, unknown>
+  pushMapping(credentials.model_mapping)
+  pushMapping(credentials.compact_model_mapping)
+  const extra = (account.extra ?? {}) as Record<string, unknown>
+  const upstream = extra.upstream_supported_models as { models?: unknown } | undefined
+  if (upstream && Array.isArray(upstream.models)) {
+    for (const model of upstream.models) {
+      if (typeof model === 'string') models.push(model)
+    }
+  }
+  return models
+}
+const accountMatchesSearch = (account: Account, search: string): boolean => {
+  if (!search) return true
+  if (account.name.toLowerCase().includes(search)) return true
+  return collectAccountModelIds(account).some((model) => model.toLowerCase().includes(search))
+}
 const accountMatchesCurrentFilters = (account: Account) => {
   const filters = buildAccountQueryFilters()
   if (filters.platform && account.platform !== filters.platform) return false
@@ -2196,7 +2223,7 @@ const accountMatchesCurrentFilters = (account: Account) => {
     }
   }
   const search = String(filters.search || '').trim().toLowerCase()
-  if (search && !account.name.toLowerCase().includes(search)) return false
+  if (search && !accountMatchesSearch(account, search)) return false
   const multiplier = account.rate_multiplier ?? 1
   const multiplierMin = Number.parseFloat(String(filters.rate_multiplier_min || ''))
   const multiplierMax = Number.parseFloat(String(filters.rate_multiplier_max || ''))

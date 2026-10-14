@@ -314,7 +314,7 @@ export default {
       editAccount: 'Edit Account',
       deleteAccount: 'Delete Account',
       searchAccounts: 'Search accounts...',
-      searchAccountsOrId: 'Search account or ID...',
+      searchAccountsOrId: 'Search account, ID, or model...',
       notes: 'Notes',
       notesPlaceholder: 'Enter notes',
       notesHint: 'Notes are optional',

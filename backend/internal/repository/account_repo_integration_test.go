@@ -628,7 +628,7 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 
 			tt.setup(client)
 
-			accounts, page, err := repo.ListWithFilters(ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, tt.platform, tt.accType, tt.status, tt.search, tt.groupID, tt.privacyMode)
+			accounts, page, err := repo.ListWithFilters(ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, tt.platform, tt.accType, tt.status, tt.search, tt.groupID, tt.privacyMode, nil, nil)
 			s.Require().NoError(err)
 			s.Require().Len(accounts, tt.wantCount)
 			// Regression guard for issue #3601: when the whole result set fits on a single page,
@@ -651,11 +651,41 @@ func (s *AccountRepoSuite) TestListWithFilters_SearchByID() {
 	target := mustCreateAccount(s.T(), client, &service.Account{Name: "name-without-the-id"})
 	mustCreateAccount(s.T(), client, &service.Account{Name: "other-account"})
 
-	accounts, page, err := repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, "", "", "", strconv.FormatInt(target.ID, 10), 0, "")
+	accounts, page, err := repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, "", "", "", strconv.FormatInt(target.ID, 10), 0, "", nil, nil)
 	s.Require().NoError(err)
 	s.Require().Equal(int64(1), page.Total)
 	s.Require().Len(accounts, 1)
 	s.Require().Equal(target.ID, accounts[0].ID)
+}
+
+func (s *AccountRepoSuite) TestListWithFilters_SearchByModelID() {
+	tx := testEntTx(s.T())
+	client := tx.Client()
+	repo := newAccountRepositoryWithSQL(client, tx, nil)
+
+	// 账号名/ID 都不含模型 ID，只有凭据映射或上游目录声明了该模型。
+	mappingAccount := mustCreateAccount(s.T(), client, &service.Account{
+		Name: "trae-coder",
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"Doubao-Seed-2.0-Code": "Doubao-Seed-2.0-Code"},
+		},
+	})
+	catalogAccount := mustCreateAccount(s.T(), client, &service.Account{
+		Name: "catalog-only",
+		Extra: map[string]any{
+			"upstream_supported_models": map[string]any{
+				"source": "upstream",
+				"models": []any{"Doubao-Seed-2.0-Code"},
+			},
+		},
+	})
+	mustCreateAccount(s.T(), client, &service.Account{Name: "unrelated-account"})
+
+	accounts, page, err := repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, "", "", "", "Doubao-Seed-2.0-Code", 0, "", nil, nil)
+	s.Require().NoError(err)
+	s.Require().Equal(int64(2), page.Total)
+	s.Require().Len(accounts, 2)
+	s.ElementsMatch([]int64{mappingAccount.ID, catalogAccount.ID}, []int64{accounts[0].ID, accounts[1].ID})
 }
 
 // --- ListByGroup / ListActive / ListByPlatform ---
@@ -715,7 +745,7 @@ func (s *AccountRepoSuite) TestPreload_And_VirtualFields() {
 	s.Require().Len(got.Groups, 1, "expected Groups to be populated")
 	s.Require().Equal(group.ID, got.Groups[0].ID)
 
-	accounts, page, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, "", "", "", "acc", 0, "")
+	accounts, page, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, "", "", "", "acc", 0, "", nil, nil)
 	s.Require().NoError(err, "ListWithFilters")
 	s.Require().Equal(int64(1), page.Total)
 	s.Require().Len(accounts, 1)

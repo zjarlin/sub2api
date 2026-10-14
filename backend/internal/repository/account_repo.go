@@ -916,6 +916,26 @@ func (r *accountRepository) List(ctx context.Context, params pagination.Paginati
 	return r.ListWithFilters(ctx, params, "", "", "", "", 0, "", nil, nil)
 }
 
+// accountModelSearchPredicate 让「账号管理」的搜索框既能按账号名/ID，也能按模型 ID
+// 命中可调度该模型的账号（例如搜 Doubao-Seed-2.0-Code）。匹配范围限定在账号的显式模型
+// 配置与上游目录快照，不扫描 api_key/base_url 等无关凭据文本；大小写不敏感，与账号名搜索一致。
+func accountModelSearchPredicate(search string) dbpredicate.Account {
+	pattern := "%" + escapeLikePattern(search) + "%"
+	return dbpredicate.Account(func(s *entsql.Selector) {
+		s.Where(entsql.P(func(b *entsql.Builder) {
+			credentials := s.C(dbaccount.FieldCredentials)
+			extra := s.C(dbaccount.FieldExtra)
+			b.WriteString("(").
+				Ident(credentials).WriteString("->>'model_mapping' ILIKE ").Arg(pattern).
+				WriteString(" OR ").
+				Ident(credentials).WriteString("->>'compact_model_mapping' ILIKE ").Arg(pattern).
+				WriteString(" OR ").
+				Ident(extra).WriteString("->'upstream_supported_models'->>'models' ILIKE ").Arg(pattern).
+				WriteString(")")
+		}))
+	})
+}
+
 func (r *accountRepository) accountListFilteredQuery(platform, accountType, status, search string, groupID int64, privacyMode string, rateMultiplierMin, rateMultiplierMax *float64) *dbent.AccountQuery {
 	q := r.client.Account.Query()
 
@@ -987,12 +1007,15 @@ func (r *accountRepository) accountListFilteredQuery(platform, accountType, stat
 		}
 	}
 	if search != "" {
-		namePredicate := dbaccount.NameContainsFold(search)
-		if id, err := strconv.ParseInt(search, 10, 64); err == nil && id > 0 {
-			q = q.Where(dbaccount.Or(namePredicate, dbaccount.IDEQ(id)))
-		} else {
-			q = q.Where(namePredicate)
+		// 搜索框既能按账号名/ID，也能按模型 ID 命中可调度该模型的账号。
+		searchPredicates := []dbpredicate.Account{
+			dbaccount.NameContainsFold(search),
+			accountModelSearchPredicate(search),
 		}
+		if id, err := strconv.ParseInt(search, 10, 64); err == nil && id > 0 {
+			searchPredicates = append(searchPredicates, dbaccount.IDEQ(id))
+		}
+		q = q.Where(dbaccount.Or(searchPredicates...))
 	}
 	if groupID == service.AccountListGroupUngrouped {
 		q = q.Where(dbaccount.Not(dbaccount.HasAccountGroups()))
