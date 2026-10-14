@@ -202,6 +202,47 @@ async function submitApiKeyAccount(
   return wrapper
 }
 
+function mountModalWithAccountApi(accountApi: Record<string, unknown>) {
+  return mount(CreateAccountModal, {
+    props: { show: true, proxies: [], groups: [], 'account-api': accountApi } as any,
+    global: {
+      stubs: {
+        BaseDialog: BaseDialogStub,
+        OAuthAuthorizationFlow: OAuthAuthorizationFlowStub,
+        ConfirmDialog: true,
+        Select: true,
+        Icon: true,
+        PlatformIcon: true,
+        ProxySelector: true,
+        ProxyAdBanner: true,
+        GroupSelector: GroupSelectorStub,
+        ModelWhitelistSelector: ModelWhitelistSelectorStub,
+        QuotaLimitCard: true,
+      },
+    },
+  })
+}
+
+// 回归：`account-api`（kebab）必须绑定到声明的 accountApi prop。
+// 曾经把 prop 声明成 accountAPI，Vue 驼峰化后永远绑不上，普通用户「我的账号」
+// 会静默回退到管理员 API，创建账号得到 403。
+async function submitApiKeyAccountWithUserApi(userCreate: ReturnType<typeof vi.fn>) {
+  const userApi = {
+    create: userCreate,
+    update: vi.fn(),
+    checkMixedChannelRisk: vi.fn().mockResolvedValue({ has_risk: false }),
+    syncUpstreamModels: vi.fn(),
+  }
+  const wrapper = mountModalWithAccountApi(userApi)
+  await selectButtonByText(wrapper, 'OpenAI')
+  await selectButtonByText(wrapper, 'API Key')
+  await wrapper.get('form#create-account-form input[type="text"]').setValue('owned account')
+  await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+  await wrapper.get('form#create-account-form').trigger('submit.prevent')
+  await flushPromises()
+  return wrapper
+}
+
 async function openCodexImportStep(toggleClicks = 0) {
   const wrapper = mountModal()
   await selectButtonByText(wrapper, 'OpenAI')
@@ -1108,5 +1149,14 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await flushPromises()
 
     expect(createOpenAICodexPATMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBe(false)
+  })
+})
+
+describe('CreateAccountModal 作用域 API 绑定', () => {
+  it('kebab account-api 绑定到 accountApi，创建走用户 API 而非管理员 API', async () => {
+    const userCreate = vi.fn().mockResolvedValue({ id: 501, name: 'owned account' })
+    await submitApiKeyAccountWithUserApi(userCreate)
+    expect(userCreate).toHaveBeenCalledTimes(1)
+    expect(createAccountMock).not.toHaveBeenCalled()
   })
 })

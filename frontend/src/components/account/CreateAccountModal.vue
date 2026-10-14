@@ -1765,7 +1765,7 @@
                 :platform="form.platform"
                 :sync-credentials="syncPreviewCredentials"
                 @upstream-synced="upstreamModelsPreviewed = true"
-                :enable-alias-mapping="!props.accountAPI"
+                :enable-alias-mapping="!props.accountApi"
                 @global-aliases-mapped="addGlobalModelMappings"
               />
               <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -2254,7 +2254,7 @@
               platform="anthropic"
               :sync-credentials="syncPreviewCredentials"
               @upstream-synced="upstreamModelsPreviewed = true"
-              :enable-alias-mapping="!props.accountAPI"
+              :enable-alias-mapping="!props.accountApi"
               @global-aliases-mapped="addGlobalModelMappings"
             />
             <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -2597,7 +2597,7 @@
               :platform="form.platform"
               :sync-credentials="syncPreviewCredentials"
               @upstream-synced="upstreamModelsPreviewed = true"
-              :enable-alias-mapping="!props.accountAPI"
+              :enable-alias-mapping="!props.accountApi"
               @global-aliases-mapped="addGlobalModelMappings"
             />
             <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -4175,6 +4175,7 @@ import BuiltinAdapterLogin from './BuiltinAdapterLogin.vue'
 import Model3DAccountFields from './Model3DAccountFields.vue'
 import DoubaoSessionProfiles from './DoubaoSessionProfiles.vue'
 import type { BuiltinAdapterScope, BuiltinLoginSession } from '@/api/admin/builtinAdapters'
+import type { AccountModalApi } from './accountApi'
 import { ref, reactive, computed, watch, onBeforeUnmount } from 'vue'
 import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
 import { useI18n } from 'vue-i18n'
@@ -4407,7 +4408,7 @@ interface Props {
   show: boolean
   proxies: Proxy[]
   groups: Group[]
-  accountAPI?: typeof adminAPI.accounts
+  accountApi?: AccountModalApi
   /**
    * 内置适配器调用作用域：管理员面板用 'admin'（默认），
    * 普通用户「我的账号」页面传 'user'，避免打到需要管理员角色的 /admin 接口。
@@ -4423,7 +4424,7 @@ const emit = defineEmits<{
 }>()
 
 const appStore = useAppStore()
-const accountAPI = computed(() => props.accountAPI ?? adminAPI.accounts)
+const accountAPI = computed(() => props.accountApi ?? adminAPI.accounts)
 
 const hideAccountLongContextBilling = computed(() => {
   return allSelectedGroupsEnableLongContextPricing(form.group_ids, props.groups)
@@ -5001,7 +5002,7 @@ const {
 } = useQuotaNotifyState()
 
 // Load global feature states once
-if (!props.accountAPI && typeof adminAPI.settings?.getWebSearchEmulationConfig === 'function') {
+if (!props.accountApi && typeof adminAPI.settings?.getWebSearchEmulationConfig === 'function') {
   adminAPI.settings.getWebSearchEmulationConfig().then(cfg => {
     webSearchGlobalEnabled.value = cfg?.enabled === true && (cfg?.providers?.length ?? 0) > 0
   }).catch(() => { webSearchGlobalEnabled.value = false })
@@ -5386,7 +5387,7 @@ watch(
     if (newVal) {
       loadQuickOpenAIDefaultGroup()
       // Load TLS fingerprint profiles
-      if (!props.accountAPI && typeof adminAPI.tlsFingerprintProfiles?.list === 'function') {
+      if (!props.accountApi && typeof adminAPI.tlsFingerprintProfiles?.list === 'function') {
         adminAPI.tlsFingerprintProfiles.list()
           .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
           .catch(() => { tlsFingerprintProfiles.value = [] })
@@ -6920,7 +6921,7 @@ const handleGrokImportSSO = async (ssoInput: string) => {
   }
 
   try {
-    if (props.accountAPI) {
+    if (props.accountApi) {
       throw new Error(t('admin.accounts.failedToCreate'))
     }
     const result = await adminAPI.grok.createFromSSO({

@@ -370,7 +370,7 @@
                 v-model="allowedModels"
                 :platform="account?.platform || 'anthropic'"
                 :account-id="account?.id"
-                :enable-alias-mapping="!props.accountAPI"
+                :enable-alias-mapping="!props.accountApi"
                 @global-aliases-mapped="addGlobalModelMappings"
               />
               <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -856,7 +856,7 @@
               v-model="allowedModels"
               :platform="account?.platform || 'anthropic'"
               :account-id="account?.id"
-              :enable-alias-mapping="!props.accountAPI"
+              :enable-alias-mapping="!props.accountApi"
               @global-aliases-mapped="addGlobalModelMappings"
             />
             <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -1074,7 +1074,7 @@
               v-model="allowedModels"
               :platform="account?.platform || 'anthropic'"
               :account-id="account?.id"
-              :enable-alias-mapping="!props.accountAPI"
+              :enable-alias-mapping="!props.accountApi"
               @global-aliases-mapped="addGlobalModelMappings"
             />
             <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -1301,7 +1301,7 @@
             <ModelWhitelistSelector
               v-model="allowedModels"
               platform="anthropic"
-              :enable-alias-mapping="!props.accountAPI"
+              :enable-alias-mapping="!props.accountApi"
               @global-aliases-mapped="addGlobalModelMappings"
             />
             <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -3129,6 +3129,7 @@ import {
 } from '@/constants/platforms'
 import BuiltinAdapterLogin from './BuiltinAdapterLogin.vue'
 import type { BuiltinAdapterScope, BuiltinLoginSession } from '@/api/admin/builtinAdapters'
+import type { AccountModalApi } from './accountApi'
 import VibexUsage from './VibexUsage.vue'
 import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -3231,7 +3232,7 @@ interface Props {
   account: Account | null
   proxies: Proxy[]
   groups: Group[]
-  accountAPI?: typeof adminAPI.accounts
+  accountApi?: AccountModalApi
   /**
    * 内置适配器调用作用域：管理员面板用 'admin'（默认），
    * 普通用户「我的账号」页面传 'user'，避免打到需要管理员角色的 /admin 接口。
@@ -3263,7 +3264,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const appStore = useAppStore()
-const accountAPI = computed(() => props.accountAPI ?? adminAPI.accounts)
+const accountAPI = computed(() => props.accountApi ?? adminAPI.accounts)
 const browserTimeZone = getBrowserTimeZone()
 
 const selectableGroups = computed(() => {
@@ -3698,7 +3699,7 @@ const {
 } = useQuotaNotifyState()
 
 // Load global feature states once
-if (!props.accountAPI && typeof adminAPI.settings?.getWebSearchEmulationConfig === 'function') {
+if (!props.accountApi && typeof adminAPI.settings?.getWebSearchEmulationConfig === 'function') {
   adminAPI.settings.getWebSearchEmulationConfig().then(cfg => {
     webSearchGlobalEnabled.value = cfg?.enabled === true && (cfg?.providers?.length ?? 0) > 0
   }).catch(() => { webSearchGlobalEnabled.value = false })
@@ -4539,7 +4540,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 
 async function loadTLSProfiles() {
   try {
-    if (props.accountAPI || typeof adminAPI.tlsFingerprintProfiles?.list !== 'function') {
+    if (props.accountApi || typeof adminAPI.tlsFingerprintProfiles?.list !== 'function') {
       tlsFingerprintProfiles.value = []
       return
     }
