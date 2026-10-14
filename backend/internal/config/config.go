@@ -1080,6 +1080,8 @@ type GatewayConfig struct {
 	Vision GatewayVisionConfig `mapstructure:"vision"`
 	// Media 是离线/内网边缘媒体服务（edge-media）的上游接入配置，覆盖配音与视频任务。
 	Media GatewayMediaConfig `mapstructure:"media"`
+	// Mail 是边缘邮件收发服务（edge-mail）的上游接入配置，覆盖 IMAP 收件与 SMTP 发件。
+	Mail GatewayMailConfig `mapstructure:"mail"`
 	// Laya 是本地 System One 推理服务，复用 /v1/systemone 入口。
 	Laya GatewayLayaConfig `mapstructure:"laya"`
 	// Model3D 是第三方 3D 生成服务（Meshy / Tripo / Hi3D）的接入开关。
@@ -1349,6 +1351,25 @@ type GatewayDegenerationConfig struct {
 	LineMinCount    int `mapstructure:"line_min_count"`
 	LineMaxDistinct int `mapstructure:"line_max_distinct"`
 	LineMaxRunes    int `mapstructure:"line_max_runes"`
+}
+
+// GatewayMailConfig 指向边缘邮件服务（edge-mail）的内部地址。
+// 与 edge-vision / edge-media 一样，服务不暴露宿主端口，所有公网访问统一经网关鉴权。
+type GatewayMailConfig struct {
+	// URL 是 edge-mail 的内部基地址；为空时使用编排内的服务名。
+	URL string `mapstructure:"url"`
+	// TimeoutSeconds 是单次邮件操作的等待上限（秒），0 表示默认 60 秒。
+	TimeoutSeconds int `mapstructure:"timeout_seconds"`
+	// Enabled 控制 /v1/mail/* 端点是否开放。默认关闭，避免未部署服务时暴露空端点。
+	Enabled bool `mapstructure:"enabled"`
+}
+
+// BaseURL 返回邮件服务的内部基地址，未显式配置时使用编排内的服务名。
+func (c GatewayMailConfig) BaseURL() string {
+	if strings.TrimSpace(c.URL) != "" {
+		return strings.TrimRight(strings.TrimSpace(c.URL), "/")
+	}
+	return "http://edge-mail:18084"
 }
 
 // GatewayMediaConfig 指向边缘配音与视频服务（edge-media）的内部地址。
@@ -2722,6 +2743,9 @@ func setDefaults() {
 	viper.SetDefault("gateway.vision.enabled", false)
 	viper.SetDefault("gateway.vision.url", "")
 	viper.SetDefault("gateway.vision.timeout_seconds", 300)
+	viper.SetDefault("gateway.mail.enabled", false)
+	viper.SetDefault("gateway.mail.url", "")
+	viper.SetDefault("gateway.mail.timeout_seconds", 60)
 	viper.SetDefault("gateway.media.enabled", false)
 	viper.SetDefault("gateway.media.url", "")
 	viper.SetDefault("gateway.media.timeout_seconds", 3600)

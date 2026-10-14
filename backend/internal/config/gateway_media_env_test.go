@@ -53,3 +53,28 @@ func TestLoadGatewayVisionConfig(t *testing.T) {
 		require.Equal(t, 600, cfg.Gateway.Vision.TimeoutSeconds)
 	})
 }
+
+// 邮件服务同样按纯环境变量部署，必须注册默认值，否则 GATEWAY_MAIL_* 会被静默忽略。
+func TestLoadGatewayMailConfig(t *testing.T) {
+	t.Run("default", func(t *testing.T) {
+		resetViperWithJWTSecret(t)
+		cfg, err := Load()
+		require.NoError(t, err)
+		require.False(t, cfg.Gateway.Mail.Enabled)
+		require.Empty(t, cfg.Gateway.Mail.URL)
+		require.Equal(t, 60, cfg.Gateway.Mail.TimeoutSeconds)
+		// 未显式配置 URL 时沿用编排内的服务名。
+		require.Equal(t, "http://edge-mail:18084", cfg.Gateway.Mail.BaseURL())
+	})
+	t.Run("environment", func(t *testing.T) {
+		resetViperWithJWTSecret(t)
+		t.Setenv("GATEWAY_MAIL_ENABLED", "true")
+		t.Setenv("GATEWAY_MAIL_URL", "http://edge-mail:18084/")
+		t.Setenv("GATEWAY_MAIL_TIMEOUT_SECONDS", "120")
+		cfg, err := Load()
+		require.NoError(t, err)
+		require.True(t, cfg.Gateway.Mail.Enabled)
+		require.Equal(t, 120, cfg.Gateway.Mail.TimeoutSeconds)
+		require.Equal(t, "http://edge-mail:18084", cfg.Gateway.Mail.BaseURL())
+	})
+}

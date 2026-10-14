@@ -30,7 +30,9 @@ object Deploy252Cluster : BuildType({
         param("env.EDGE_VISION_IMAGE_REPOSITORY", "zjarlin/edge-vision")
         param("env.EDGE_LAYA_IMAGE_REPOSITORY", "zjarlin/edge-laya")
         param("env.EDGE_MEDIA_IMAGE_REPOSITORY", "zjarlin/edge-media")
+        param("env.EDGE_MAIL_IMAGE_REPOSITORY", "zjarlin/edge-mail")
         param("env.EDGE_MEDIA_ENABLED", "1")
+        param("env.EDGE_MAIL_ENABLED", "1")
         // 边缘媒体走网关：GATEWAY_MEDIA_ENABLED=1 让子服务通过 /media/* 暴露。
         param("env.SUB2API_EDGE_MEDIA", "1")
         // 252 只做编排：TTS / 视频配音都转发到天津 GPU 机器。
@@ -104,6 +106,7 @@ object Deploy252Cluster : BuildType({
                 chmod +x "${'$'}DEPLOY_DIR/deploy/cluster/deploy-252.sh"
                 chmod +x "${'$'}DEPLOY_DIR/deploy/cluster/deploy-edge-vision.sh"
                 chmod +x "${'$'}DEPLOY_DIR/deploy/cluster/deploy-edge-media.sh"
+                chmod +x "${'$'}DEPLOY_DIR/deploy/cluster/deploy-edge-mail.sh"
                 chmod +x "${'$'}DEPLOY_DIR/deploy/cluster/deploy-laya.sh"
                 echo "##teamcity[progressFinish '同步部署文件']"
 
@@ -139,6 +142,14 @@ object Deploy252Cluster : BuildType({
                   echo "##teamcity[progressFinish '部署边缘媒体服务']"
                 fi
 
+                if [ "%env.EDGE_MAIL_ENABLED%" = "1" ]; then
+                  echo "##teamcity[progressStart '部署边缘邮件服务']"
+                  EDGE_MAIL_IMAGE="%env.EDGE_MAIL_IMAGE_REPOSITORY%:${'$'}SHORT_SHA" \
+                    DEPLOY_DIR="${'$'}DEPLOY_DIR" \
+                    "${'$'}DEPLOY_DIR/deploy/cluster/deploy-edge-mail.sh"
+                  echo "##teamcity[progressFinish '部署边缘邮件服务']"
+                fi
+
                 if [ "%env.EDGE_LAYA_ENABLED%" = "1" ]; then
                   echo "##teamcity[progressStart '部署 Laya 决策模型']"
                   EDGE_LAYA_IMAGE="%env.EDGE_LAYA_IMAGE_REPOSITORY%:${'$'}SHORT_SHA" \
@@ -153,6 +164,9 @@ object Deploy252Cluster : BuildType({
                 if [ "%env.EDGE_MEDIA_ENABLED%" = "1" ]; then
                   docker exec edge-media curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18083/health >/dev/null
                 fi
+                if [ "%env.EDGE_MAIL_ENABLED%" = "1" ]; then
+                  docker exec edge-mail curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18084/health >/dev/null
+                fi
                 if [ "%env.EDGE_LAYA_ENABLED%" = "1" ]; then
                   docker exec edge-laya curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18082/health >/dev/null
                 fi
@@ -161,10 +175,13 @@ object Deploy252Cluster : BuildType({
                 if [ "%env.EDGE_MEDIA_ENABLED%" = "1" ]; then
                   test "${'$'}(docker ps --filter name=edge-media --filter health=healthy -q | wc -l | tr -d ' ')" = "1"
                 fi
+                if [ "%env.EDGE_MAIL_ENABLED%" = "1" ]; then
+                  test "${'$'}(docker ps --filter name=edge-mail --filter health=healthy -q | wc -l | tr -d ' ')" = "1"
+                fi
                 test "${'$'}(docker ps --filter label=com.docker.compose.service=sub2api --filter status=running -q | wc -l | tr -d ' ')" = "1"
                 test "${'$'}(docker ps --filter name=sub2api-canary --filter status=running -q | wc -l | tr -d ' ')" = "0"
                 echo "##teamcity[progressFinish '验证 252 入口']"
-                echo "DEPLOYED ${'$'}IMAGE EDGE_VISION=%env.EDGE_VISION_IMAGE_REPOSITORY%:${'$'}SHORT_SHA EDGE_MEDIA=%env.EDGE_MEDIA_IMAGE_REPOSITORY%:${'$'}SHORT_SHA"
+                echo "DEPLOYED ${'$'}IMAGE EDGE_VISION=%env.EDGE_VISION_IMAGE_REPOSITORY%:${'$'}SHORT_SHA EDGE_MEDIA=%env.EDGE_MEDIA_IMAGE_REPOSITORY%:${'$'}SHORT_SHA EDGE_MAIL=%env.EDGE_MAIL_IMAGE_REPOSITORY%:${'$'}SHORT_SHA"
             """.trimIndent())
         }
     }

@@ -172,7 +172,7 @@ if [ -z "$EDGE_MEDIA_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
   ' "$DEPLOY_DIR/.env")"
 fi
 
-# 显式开启后叠加 GATEWAY_MEDIA_* / GATEWAY_VISION_*；编排文件缺失立即报错。
+# 显式开启后叠加 GATEWAY_MEDIA_* / GATEWAY_VISION_* / GATEWAY_MAIL_*；编排文件缺失立即报错。
 if [ "$EDGE_MEDIA_ENABLED" = "1" ]; then
   test -f "$DEPLOY_DIR/deploy/docker-compose.edge-media.yml"
   COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.edge-media.yml")

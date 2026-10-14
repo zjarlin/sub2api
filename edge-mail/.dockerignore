@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+tests/
+GIT
+rm -rf app/__pycache__ app/api/__pycache__ tests/__pycache__ .pytest_cache
+echo "cleaned"; find . -name "__pycache__" -o -name ".pytest_cache" | head

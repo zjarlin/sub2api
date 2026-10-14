@@ -212,6 +212,12 @@ func RegisterGatewayRoutes(
 	{
 		visionGroup.Any("/*proxyPath", h.Gateway.VisionProxy)
 	}
+	// 边缘计算邮件服务：鉴权+计费+反代 edge-mail（IMAP 收件 / SMTP 发件）。
+	// 与 vision 放在同一位置：在模型相关中间件之前，凭证只透传给 edge-mail。
+	mailGroup := gateway.Group("/mail")
+	{
+		mailGroup.Any("/*proxyPath", h.Gateway.MailProxy)
+	}
 	gateway.Use(modelAliases)
 	gateway.Use(groupModelAllowlist)
 	gateway.Use(verticalIntent)

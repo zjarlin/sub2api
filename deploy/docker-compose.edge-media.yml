@@ -1,7 +1,8 @@
 # =============================================================================
-# 边缘媒体 / 视觉网关接入：把 GATEWAY_MEDIA_*、GATEWAY_VISION_* 注入 Sub2API。
+# 边缘媒体 / 视觉 / 邮件网关接入：把对应 GATEWAY_* 配置注入 Sub2API。
 # =============================================================================
 # 由 deploy/cluster/deploy-252.sh 在 SUB2API_EDGE_MEDIA=1 时通过 -f 叠加。
+# 该变量保留历史名称，实际控制的是 252 上的整组边缘服务网关配置。
 # 这些键必须同时出现在这里，否则 Sub2API 只会读 config.yaml，环境变量会被忽略。
 #
 # 上游地址默认指向 252 本地编排内的 edge-media；天津 GPU 上的实际推理由
@@ -16,3 +17,7 @@ services:
       - GATEWAY_VISION_ENABLED=${GATEWAY_VISION_ENABLED:-1}
       - GATEWAY_VISION_URL=${GATEWAY_VISION_URL:-http://edge-vision:18081}
       - GATEWAY_VISION_TIMEOUT_SECONDS=${GATEWAY_VISION_TIMEOUT_SECONDS:-300}
+      # 边缘邮件服务（edge-mail）：252 本地容器，默认开启 /mail/* 入口。
+      - GATEWAY_MAIL_ENABLED=${GATEWAY_MAIL_ENABLED:-1}
+      - GATEWAY_MAIL_URL=${GATEWAY_MAIL_URL:-http://edge-mail:18084}
+      - GATEWAY_MAIL_TIMEOUT_SECONDS=${GATEWAY_MAIL_TIMEOUT_SECONDS:-60}

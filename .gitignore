@@ -125,6 +125,8 @@ tests
 !edge-vision/tests/**
 !edge-media/tests/
 !edge-media/tests/**
+!edge-mail/tests/
+!edge-mail/tests/**
 CLAUDE.md
 .claude
 scripts
@@ -297,6 +299,9 @@ output/
 
 # 边缘计算媒体服务的维护者约定需随源码交付。
 !edge-media/AGENTS.md
+
+# 边缘计算邮件服务的维护者约定需随源码交付。
+!edge-mail/AGENTS.md
 
 # 本地 Laya 决策服务的维护者约定与权重准备脚本需随源码交付。
 !edge-laya/AGENTS.md
