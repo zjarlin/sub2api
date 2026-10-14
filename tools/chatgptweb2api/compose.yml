@@ -1,0 +1,30 @@
+# 独立适配器配置（未接入生产部署）。宿主端口仅绑定回环地址，
+# 通过外部网络 sub2api_sub2api-network 让网关按服务名访问。
+services:
+  chatgptweb2api:
+    build: .
+    image: sub2api-chatgptweb:local
+    restart: unless-stopped
+    shm_size: 1gb
+    environment:
+      CGW_API_KEY: ${CGW_API_KEY:?set adapter key}
+      CGW_MODELS: ${CGW_MODELS:-gpt-web}
+      CGW_LISTEN: 0.0.0.0:7881
+      CGW_UPSTREAM_PROXY: ${CGW_UPSTREAM_PROXY:-http://sub2api-openai-egress:7890}
+    networks:
+      - gateway
+    ports:
+      - "127.0.0.1:7881:7881"
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:7881/livez"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+networks:
+  gateway:
+    external: true
+    name: ${CGW_DOCKER_NETWORK:-sub2api_sub2api-network}

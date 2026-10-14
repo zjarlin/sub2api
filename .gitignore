@@ -305,3 +305,6 @@ output/
 !edge-laya/tests/
 !edge-laya/tests/**
 edge-laya/tests/__pycache__/
+
+# 适配器构建产物
+/tools/chatgptweb2api/chatgptweb2api

@@ -1,0 +1,21 @@
+{
+  "name": "ChatGPT Web",
+  "platform": "openai",
+  "type": "apikey",
+  "group_ids": [
+    6
+  ],
+  "concurrency": 1,
+  "credentials": {
+    "base_url": "http://chatgptweb2api:7881",
+    "api_key": "REPLACE_WITH_CGW_API_KEY",
+    "model_mapping": {
+      "gpt-web": "gpt-web"
+    }
+  },
+  "extra": {
+    "openai_apikey_responses_websockets_v2_enabled": false,
+    "openai_responses_supported": true,
+    "openai_responses_mode": "force_responses"
+  }
+}
