@@ -25,7 +25,7 @@
 | 服务商 | 凭据 | 前置条件 | IMAP | SMTP |
 |---|---|---|---|---|
 | Google / Gmail | **应用专用密码** | 账号开启两步验证后生成 16 位应用密码 | `imap.gmail.com:993` SSL | `smtp.gmail.com:465` SSL |
-| Microsoft Outlook | **应用密码**（或 OAuth2） | 个人账号可直接用应用密码；企业租户若禁用基本认证需改用 OAuth2 | `outlook.office365.com:993` SSL | `smtp.office365.com:587` STARTTLS |
+| Microsoft Outlook | **密码认证（有限支持）** | 仅支持仍允许基本认证的邮箱；OAuth2 尚未实现 | `outlook.office365.com:993` SSL | `smtp.office365.com:587` STARTTLS |
 | QQ 邮箱 | **IMAP/SMTP 授权码** | 在「设置 → 账户」开启 IMAP/SMTP 服务并生成授权码 | `imap.qq.com:993` SSL | `smtp.qq.com:465` SSL |
 
 调用时只需给出 `email` 与 `credential`，服务会按邮箱域名自动选择服务商；
@@ -91,3 +91,22 @@ docker build -f edge-mail/docker/Dockerfile edge-mail
 
 与 `/vision/*`、`/media/*` 一致：请求先经 Sub2API 网关鉴权与计费资格检查，
 成功后按分组账号写入用量。启用前需明确运营计费口径，不能宣称已按次计费。
+
+## 账号管理与出站代理
+
+在管理端“账号管理 → 添加邮箱”选择 Google / Outlook / QQ / 163，填写邮箱和应用密码或授权码，选择已有代理并保存。
+编辑邮箱继续使用专用表单；凭据留空保留原值，选择“无代理”会清除旧代理。
+保存后可测试收件连接、查看最近邮件，以及手动发送测试邮件给自己。
+Outlook 的 OAuth2 授权尚未实现；要求 OAuth2 的 Microsoft 账号不能使用当前密码认证方式。
+
+代理支持 `http://host:port`（CONNECT）和 `socks5://user:pass@host:port`；收发使用同一个代理。
+HTTPS 代理目前不支持。选定代理失效时返回错误，不静默改为直连。
+直接调用 edge-mail 时传 `proxy` 字段；不传则直连。网关可使用保存账号：
+
+```json
+{"account_id": 123, "folder": "INBOX", "limit": 5}
+```
+
+发送到 `/v1/mail/messages` 等邮件端点。API Key 分组必须在账号允许的分组中；邮箱凭据和代理由网关注入，调用方不能覆盖。
+保存账号的授权码使用现有敏感 `api_key` 字段，列表/详情不返回原值。edge-mail 本身仍不存储凭据。
+邮件账号不参与模型推理调度。管理员通过 `/api/v1/admin/accounts/:id/mail/:action` 验证账号，支持 folders、messages、message、send。

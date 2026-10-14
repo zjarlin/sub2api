@@ -2,6 +2,7 @@ export default {
 
 
     accounts: {
+  mail: {title: 'Mail account', add: 'Add mail account', email: 'Email address', provider: 'Mail provider', secret: 'Application password / authorization code', hint: 'Use an app password for Gmail, an IMAP/SMTP code for QQ / 163. Outlook requires basic authentication support; OAuth2 login is not implemented. Leave the secret blank when editing to keep it.', proxy: 'Outbound proxy (IMAP and SMTP)', groups: 'API key groups allowed to use this mailbox', save: 'Save account', folders: 'Test incoming connection', messages: 'View recent messages', send: 'Send a test email to myself', saved: 'Mail account saved', savedHint: 'Save changes before testing. Sending delivers a test email to this mailbox.', subject: 'Mail delivery test', body: 'This is a test email from the edge mail gateway.'},
   model3d: {
     title: '3D Generation', provider: 'Provider', clientId: 'Client ID', clientSecret: 'Client secret', defaultModel: 'Default model',
     keepSecret: 'Leave blank to keep the saved credential.', authorization: 'Meshy and Tripo use official API keys. Hi3D uses client credentials; access tokens are managed by the server.',

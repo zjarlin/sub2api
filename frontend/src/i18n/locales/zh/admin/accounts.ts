@@ -2,6 +2,7 @@ export default {
 
 
     accounts: {
+  mail: {title: '邮箱账号', add: '添加邮箱', email: '邮箱地址', provider: '邮箱服务商', secret: '应用密码 / 授权码', hint: 'Gmail 使用应用专用密码；QQ / 163 使用 IMAP/SMTP 授权码。Outlook 需要支持基本认证的邮箱；OAuth2 登录暂未实现。编辑时凭据留空保留原值。', proxy: '出站代理（收件和发件共用）', groups: '允许使用此邮箱的 API Key 分组', save: '保存账号', folders: '测试收件连接', messages: '查看最近邮件', send: '发送测试邮件给自己', saved: '邮箱账号已保存', savedHint: '先保存修改，再测试。发件按钮会发送一封测试邮件到此邮箱。', subject: '邮件收发测试', body: '这是一封来自边缘邮件网关的测试邮件。'},
   model3d: {
     title: '3D 生成', provider: '服务商', clientId: '客户端 ID', clientSecret: '客户端密钥', defaultModel: '默认模型',
     keepSecret: '留空保留已保存的凭据。', authorization: 'Meshy、Tripo 使用官方 API Key；Hi3D 使用客户端凭据，令牌由服务端自动管理。',

@@ -21,6 +21,7 @@ from email.utils import formataddr, getaddresses, parsedate_to_datetime
 
 from app import imap_utf7
 from app.providers import MailProvider, resolve_provider
+from app.proxy import ProxyError, normalize_proxy, proxy_tcp_connect
 
 # 在导入期绑定异常类。若写成 `except imaplib.IMAP4.error`，一旦 imaplib.IMAP4
 # 被替换（测试替身或未来重构），属性查找会在异常处理路径上二次失败，掩盖真实错误。
@@ -73,6 +74,8 @@ class MailAccount:
     smtp_port: int
     smtp_starttls: bool
     from_name: str = ""
+    # 出站代理（http(s):// 或 socks5://）；空串表示直连。
+    proxy: str = ""
 
     def display_from(self) -> str:
         return formataddr((self.from_name or self.address, self.address))
@@ -87,6 +90,7 @@ def build_account(
     imap_port: int | None = None,
     smtp_host: str = "",
     smtp_port: int | None = None,
+    proxy: str = "",
 ) -> MailAccount:
     """按服务商预设构造账号；允许显式覆盖主机与端口以接入自建邮箱。"""
     address = (email_address or "").strip()
@@ -94,6 +98,11 @@ def build_account(
         raise MailRequestError("email address is required")
     if not credential:
         raise MailRequestError("credential is required")
+
+    try:
+        normalized_proxy = normalize_proxy(proxy)
+    except (ProxyError, ValueError) as exc:
+        raise MailRequestError("proxy must be a valid HTTP CONNECT or SOCKS5 URL with host and port") from exc
 
     preset = resolve_provider(provider, address)
     host = imap_host.strip() or preset.imap_host
@@ -111,6 +120,7 @@ def build_account(
         smtp_port=int(out_port),
         smtp_starttls=preset.smtp_starttls,
         from_name=from_name.strip(),
+        proxy=normalized_proxy,
     )
 
 
@@ -147,6 +157,48 @@ def _quote_mailbox(name: str) -> str:
     return '"' + encoded.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+def _proxied_imap(account: MailAccount, timeout: int):
+    """经代理建立 IMAP 连接；SSL 由 stdlib 在隧道之上完成。"""
+    base = imaplib.IMAP4_SSL if account.imap_ssl else imaplib.IMAP4
+    proxy_url = account.proxy
+
+    class Proxied(base):  # type: ignore[misc, valid-type]
+        def _create_socket(self, timeout=None):
+            plain = proxy_tcp_connect(proxy_url, self.host, self.port, timeout or 30)
+            if account.imap_ssl:
+                return self.ssl_context.wrap_socket(plain, server_hostname=self.host)
+            return plain
+
+    options = {"ssl_context": ssl.create_default_context()} if account.imap_ssl else {}
+    return Proxied(account.imap_host, account.imap_port, timeout=timeout, **options)
+
+
+def _proxied_smtp_class(proxy_url: str, starttls: bool):
+    """构造经代理建连的 SMTP 类；SSL 由 stdlib 在隧道之上完成。
+
+    单独抽出类工厂，便于在不真正建连的情况下验证代理接线。
+    """
+    if starttls:
+        class ProxiedStartTLS(smtplib.SMTP):  # type: ignore[misc, valid-type]
+            def _get_socket(self, host, port, timeout):
+                return proxy_tcp_connect(proxy_url, host, port, timeout or 30)
+
+        return ProxiedStartTLS
+
+    class ProxiedSSL(smtplib.SMTP_SSL):  # type: ignore[misc, valid-type]
+        def _get_socket(self, host, port, timeout):
+            plain = proxy_tcp_connect(proxy_url, host, port, timeout or 30)
+            return self.context.wrap_socket(plain, server_hostname=self._host or host)
+
+    return ProxiedSSL
+
+
+def _proxied_smtp(account: MailAccount, timeout: int):
+    cls = _proxied_smtp_class(account.proxy, account.smtp_starttls)
+    options = {} if account.smtp_starttls else {"context": ssl.create_default_context()}
+    return cls(account.smtp_host, account.smtp_port, timeout=timeout, **options)
+
+
 class ImapClient:
     """IMAP 收件操作的薄封装，作为上下文管理器使用。"""
 
@@ -160,7 +212,9 @@ class ImapClient:
     def __enter__(self) -> "ImapClient":
         account = self.account
         try:
-            if account.imap_ssl:
+            if account.proxy:
+                self._conn = _proxied_imap(account, self.timeout)
+            elif account.imap_ssl:
                 self._conn = imaplib.IMAP4_SSL(
                     account.imap_host, account.imap_port, timeout=self.timeout
                 )
@@ -168,6 +222,8 @@ class ImapClient:
                 self._conn = imaplib.IMAP4(
                     account.imap_host, account.imap_port, timeout=self.timeout
                 )
+        except ProxyError as exc:
+            raise MailConnectionError(f"proxy error for {account.imap_host}: {exc}") from exc
         except (OSError, ssl.SSLError) as exc:
             raise MailConnectionError(f"cannot reach {account.imap_host}: {exc}") from exc
 
@@ -416,8 +472,19 @@ def send_message(
         )
 
     try:
-        if account.smtp_starttls:
-            client: smtplib.SMTP = smtplib.SMTP(account.smtp_host, account.smtp_port, timeout=timeout)
+        if account.proxy:
+            client: smtplib.SMTP = _proxied_smtp(account, timeout)
+            try:
+                if account.smtp_starttls:
+                    client.ehlo()
+                    client.starttls(context=ssl.create_default_context())
+                    client.ehlo()
+                client.login(account.address, account.credential)
+                client.send_message(message)
+            finally:
+                _close_smtp(client)
+        elif account.smtp_starttls:
+            client = smtplib.SMTP(account.smtp_host, account.smtp_port, timeout=timeout)
             try:
                 client.ehlo()
                 client.starttls(context=ssl.create_default_context())
