@@ -38,6 +38,22 @@ func RegisterUserRoutes(
 				accounts.POST("/:id/test", panelRateLimiter.Heavy(), h.UserAccount.Test)
 				accounts.POST("/check-mixed-channel", h.UserAccount.CheckMixedChannel)
 				accounts.POST("/:id/models/sync-upstream", h.UserAccount.SyncUpstreamModels)
+				accounts.GET("/:id/sidecar/checkins", h.UserAccount.GetBuiltinAdapterCheckins)
+				accounts.GET("/:id/vibex-usage", h.UserAccount.GetVibexUsage)
+			}
+			// 用户侧内置适配器：与管理员接口共用部署级适配器与共享登录账号池，
+			// 但走 JWT 用户鉴权（不要求管理员角色），按登录用户隔离登录会话归属。
+			builtinAdapters := user.Group("/builtin-adapters")
+			{
+				login := builtinAdapters.Group("/:platform/login-sessions")
+				login.POST("", h.UserAccount.BuiltinAdapterLogin)
+				login.POST("/:session/:action", h.UserAccount.BuiltinAdapterLogin)
+				login.GET("/:session/view", h.UserAccount.BuiltinAdapterLogin)
+				login.DELETE("/:session", h.UserAccount.BuiltinAdapterLogin)
+				doubaoProfiles := builtinAdapters.Group("/doubao/profiles")
+				doubaoProfiles.GET("", h.UserAccount.ListDoubaoSessionProfiles)
+				doubaoProfiles.POST("", h.UserAccount.UploadDoubaoSessionProfile)
+				doubaoProfiles.DELETE("/:profile", h.UserAccount.DeleteDoubaoSessionProfile)
 			}
 			user.GET("/profile", h.User.GetProfile)
 			user.PUT("/password", h.User.ChangePassword)

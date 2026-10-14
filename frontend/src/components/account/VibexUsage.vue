@@ -20,9 +20,11 @@
 import { onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
-import { getVibexUsage, type VibexUsage } from '@/api/admin/builtinAdapters'
+import { getVibexUsage, type BuiltinAdapterScope, type VibexUsage } from '@/api/admin/builtinAdapters'
 
-const props = defineProps<{ accountId: number }>()
+const props = withDefaults(defineProps<{ accountId: number; scope?: BuiltinAdapterScope }>(), {
+  scope: 'admin'
+})
 const { t } = useI18n()
 const usage = ref<VibexUsage | null>(null)
 const loading = ref(false)
@@ -39,7 +41,7 @@ async function refresh() {
   error.value = ''
   controller = new AbortController()
   try {
-    usage.value = await getVibexUsage(props.accountId, controller.signal)
+    usage.value = await getVibexUsage(props.accountId, controller.signal, props.scope)
   } catch (err) {
     if (!controller.signal.aborted) error.value = (err as { message?: string }).message || t('admin.accounts.vibex.usageFailed')
   } finally {

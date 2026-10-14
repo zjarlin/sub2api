@@ -433,7 +433,7 @@
     <!-- WorkBuddy / TRAE Work: sidecar 账号池积分与签到（内置适配器） -->
     <template v-else-if="account.platform === 'workbuddy' || account.platform === 'traework'">
       <div class="space-y-1">
-        <BuiltinCheckinCell :account="account" @open="emit('checkin-open', account)" />
+        <BuiltinCheckinCell :account="account" :scope="scope" @open="emit('checkin-open', account)" />
       </div>
     </template>
 
@@ -666,6 +666,7 @@ import AccountQuotaInfo from './AccountQuotaInfo.vue'
 import OpenAIQuotaResetCell from './OpenAIQuotaResetCell.vue'
 import GrokQuotaProbeCell from './GrokQuotaProbeCell.vue'
 import BuiltinCheckinCell from './BuiltinCheckinCell.vue'
+import type { BuiltinAdapterScope } from '@/api/admin/builtinAdapters'
 import CNProviderQuotaCell from './CNProviderQuotaCell.vue'
 import CNProviderBalanceCell from './CNProviderBalanceCell.vue'
 import OllamaCloudUsageCell from './OllamaCloudUsageCell.vue'
@@ -685,6 +686,7 @@ const props = withDefaults(
     batchedUsageError?: string | null
     batchedUsageLoading?: boolean
     requestBatchedUsage?: ((account: Account, options?: { force?: boolean }) => void) | null
+    scope?: BuiltinAdapterScope
   }>(),
   {
     todayStats: null,
@@ -693,7 +695,8 @@ const props = withDefaults(
     batchedUsage: null,
     batchedUsageError: null,
     batchedUsageLoading: false,
-    requestBatchedUsage: null
+    requestBatchedUsage: null,
+    scope: 'admin'
   }
 )
 

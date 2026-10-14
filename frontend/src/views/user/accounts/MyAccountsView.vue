@@ -208,6 +208,7 @@
       :proxies="[]"
       :groups="groups"
       :account-api="userAccountsAPI"
+      adapter-scope="user"
       @close="showAccountDialog = false"
       @created="handleSaved"
     />
@@ -217,6 +218,7 @@
       :proxies="[]"
       :groups="groups"
       :account-api="userAccountsAPI"
+      adapter-scope="user"
       @close="showAccountDialog = false"
       @updated="handleAccountUpdated"
     />

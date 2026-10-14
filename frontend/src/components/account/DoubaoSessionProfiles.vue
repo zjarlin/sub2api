@@ -75,14 +75,16 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { listDoubaoSessionProfiles, uploadDoubaoSessionProfile, deleteDoubaoSessionProfile } from '@/api/admin/builtinAdapters'
+import { listDoubaoSessionProfiles, uploadDoubaoSessionProfile, deleteDoubaoSessionProfile, type BuiltinAdapterScope } from '@/api/admin/builtinAdapters'
 import { useStepUp, isStepUpBlocked, isStepUpCancelled, stepUpBlockReason } from '@/composables/useStepUp'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { useAppStore } from '@/stores/app'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import TotpStepUpDialog from '@/components/auth/TotpStepUpDialog.vue'
 
-const props = defineProps<{ modelValue: string }>()
+const props = withDefaults(defineProps<{ modelValue: string; scope?: BuiltinAdapterScope }>(), {
+  scope: 'admin'
+})
 const emit = defineEmits<{
   (event: 'update:modelValue', value: string): void
   (event: 'busy', value: boolean): void
@@ -118,7 +120,7 @@ async function loadProfiles() {
   loading.value = true
   error.value = ''
   try {
-    const data = await listDoubaoSessionProfiles(controller.signal)
+    const data = await listDoubaoSessionProfiles(controller.signal, props.scope)
     profiles.value = data.profiles
   } catch (cause) {
     showError(cause, 'admin.accounts.doubao.loadFailed')
@@ -177,7 +179,8 @@ async function upload() {
   saving.value = true
   error.value = ''
   try {
-    await stepUp.run(() => uploadDoubaoSessionProfile(name, file, controller.signal))
+    const runUpload = () => uploadDoubaoSessionProfile(name, file, controller.signal, props.scope)
+    await (props.scope === 'user' ? runUpload() : stepUp.run(runUpload))
     if (controller.signal.aborted) {
       return
     }
@@ -201,7 +204,8 @@ async function remove() {
   saving.value = true
   error.value = ''
   try {
-    await stepUp.run(() => deleteDoubaoSessionProfile(name, controller.signal))
+    const runDelete = () => deleteDoubaoSessionProfile(name, controller.signal, props.scope)
+    await (props.scope === 'user' ? runDelete() : stepUp.run(runDelete))
     if (controller.signal.aborted) {
       return
     }

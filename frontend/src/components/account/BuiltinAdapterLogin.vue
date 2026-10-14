@@ -112,9 +112,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { cancelBuiltinLogin, completeBuiltinLogin, getBuiltinLoginView, sendBuiltinLoginInput, startBuiltinLogin, type BuiltinLoginInputEvent, type BuiltinLoginPlatform, type BuiltinLoginSession, type DeepseekLoginOptions, type PasswordLoginOptions, type ZcodeLoginOptions } from '@/api/admin/builtinAdapters'
+import { cancelBuiltinLogin, completeBuiltinLogin, getBuiltinLoginView, sendBuiltinLoginInput, startBuiltinLogin, type BuiltinAdapterScope, type BuiltinLoginInputEvent, type BuiltinLoginPlatform, type BuiltinLoginSession, type DeepseekLoginOptions, type PasswordLoginOptions, type ZcodeLoginOptions } from '@/api/admin/builtinAdapters'
 
-const props = defineProps<{ platform: BuiltinLoginPlatform }>()
+const props = withDefaults(defineProps<{ platform: BuiltinLoginPlatform; scope?: BuiltinAdapterScope }>(), {
+  scope: 'admin'
+})
 const emit = defineEmits<{
   authorized: [session: BuiltinLoginSession]
 }>()
@@ -225,7 +227,7 @@ async function cancel() {
   deepseekPassword.value = ''
   if (!current || current.status !== 'pending') return
   try {
-    await cancelBuiltinLogin(props.platform, current.session_id)
+    await cancelBuiltinLogin(props.platform, current.session_id, props.scope)
   } catch (err) {
     if (!disposed) showError(err)
   }
@@ -276,7 +278,7 @@ async function drainInput() {
       const next = inputQueue.shift()
       if (!next) break
       try {
-        await sendBuiltinLoginInput(props.platform, current.session_id, next)
+        await sendBuiltinLoginInput(props.platform, current.session_id, next, undefined, props.scope)
       } catch {
         // 会话过期或适配器未就绪时忽略单次转发失败；轮询会同步最终状态。
       }
@@ -329,7 +331,7 @@ function finishComposition() {
 async function refreshLoginView(current: BuiltinLoginSession, version: number) {
   if ((props.platform !== 'deepseek_web' && props.platform !== 'madao') || current.status !== 'pending') return
   try {
-    const blob = await getBuiltinLoginView(props.platform, current.session_id, controller?.signal)
+    const blob = await getBuiltinLoginView(props.platform, current.session_id, controller?.signal, props.scope)
     if (version !== generation) return
     // 输入框不随截图变化；若重渲染影响焦点则恢复。
     const hadFocus = typeof document !== 'undefined' && document.activeElement === loginInputRef.value
@@ -363,7 +365,7 @@ async function start() {
   const version = generation
   controller = new AbortController()
   try {
-    const result = await startBuiltinLogin(props.platform, controller.signal, options)
+    const result = await startBuiltinLogin(props.platform, controller.signal, options, props.scope)
     if (version !== generation) {
       if (props.platform === 'arena' || props.platform === 'deepseek_web') await cancelBuiltinLogin(props.platform, result.session_id)
       return
@@ -393,7 +395,7 @@ async function complete() {
   const version = generation
   controller = new AbortController()
   try {
-    const result = await completeBuiltinLogin(props.platform, current, callback.value.trim(), controller.signal)
+    const result = await completeBuiltinLogin(props.platform, current, callback.value.trim(), controller.signal, props.scope)
     if (version !== generation) return
     session.value = result
     if (result.status === 'completed') {

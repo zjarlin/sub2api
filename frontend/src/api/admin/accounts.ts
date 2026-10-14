@@ -4,6 +4,7 @@
  */
 
 import { apiClient } from '../client'
+import type { BuiltinAdapterScope } from './builtinAdapters'
 import type {
   Account,
   AccountListItem,
@@ -1111,9 +1112,10 @@ export interface BuiltinAdapterCheckinOverview {
  * 查询账号对应内置适配器（WorkBuddy / TRAE Work）账号池的积分与签到历史。
  * 目标地址与密钥由服务端注入，只读、脱敏。
  */
-export async function getBuiltinAdapterCheckins(id: number): Promise<BuiltinAdapterCheckinOverview> {
+export async function getBuiltinAdapterCheckins(id: number, scope: BuiltinAdapterScope = 'admin'): Promise<BuiltinAdapterCheckinOverview> {
+  const prefix = scope === 'user' ? '/user' : '/admin'
   const { data } = await apiClient.get<BuiltinAdapterCheckinOverview>(
-    `/admin/accounts/${id}/sidecar/checkins`
+    `${prefix}/accounts/${id}/sidecar/checkins`
   )
   return data
 }

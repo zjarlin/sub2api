@@ -40,7 +40,7 @@ describe('BuiltinCheckinCell', () => {
   it('loads the sidecar summary on mount for workbuddy/traework', async () => {
     const wrapper = mount(BuiltinCheckinCell, { props: { account } })
     await flushPromises()
-    expect(getBuiltinAdapterCheckins).toHaveBeenCalledWith(account.id)
+    expect(getBuiltinAdapterCheckins).toHaveBeenCalledWith(account.id, 'admin')
     expect(wrapper.text()).toContain('2,250')
   })
 

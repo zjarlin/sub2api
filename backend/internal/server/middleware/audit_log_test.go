@@ -64,6 +64,39 @@ func TestBuiltinLoginCallbackBodyOmitted(t *testing.T) {
 	require.Equal(t, "<credential-bearing body omitted>", repository.logs[0].RequestBody)
 }
 
+// 用户侧接口与管理员接口共用凭证语义：登录回调与豆包会话上传的请求体都必须省略。
+func TestUserBuiltinAdapterCredentialBodiesOmitted(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repository := &auditCaptureRepository{}
+	auditService := service.NewAuditLogService(repository, nil)
+	auditService.Start()
+	router := gin.New()
+	router.Use(gin.HandlerFunc(NewAuditLogMiddleware(auditService)))
+	router.POST("/api/v1/user/builtin-adapters/:platform/login-sessions/:session/:action", func(c *gin.Context) {
+		c.Status(http.StatusOK)
+	})
+	router.POST("/api/v1/user/builtin-adapters/doubao/profiles", func(c *gin.Context) {
+		c.Status(http.StatusCreated)
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/user/builtin-adapters/traework/login-sessions/abc/callback", bytes.NewBufferString(`{"callback_url":"http://127.0.0.1:18080/authorize?refreshToken=audit-canary"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	upload := httptest.NewRequest(http.MethodPost, "/api/v1/user/builtin-adapters/doubao/profiles", bytes.NewBufferString(`{"session":"audit-canary"}`))
+	upload.Header.Set("Content-Type", "application/json")
+	w2 := httptest.NewRecorder()
+	router.ServeHTTP(w2, upload)
+	require.Equal(t, http.StatusCreated, w2.Code)
+
+	auditService.Stop()
+	require.Len(t, repository.logs, 2)
+	for _, log := range repository.logs {
+		require.Equal(t, "<credential-bearing body omitted>", log.RequestBody)
+	}
+}
+
 // 上传文件携带完整登录态，审计仅保留操作记录，不能保存文件内容。
 func TestDoubaoProfileUploadBodyOmitted(t *testing.T) {
 	gin.SetMode(gin.TestMode)

@@ -42,10 +42,13 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
+import type { BuiltinAdapterScope } from '@/api/admin/builtinAdapters'
 import { platformTextClass } from '@/utils/platformColors'
 import type { Account } from '@/types'
 
-const props = defineProps<{ account: Account }>()
+const props = withDefaults(defineProps<{ account: Account; scope?: BuiltinAdapterScope }>(), {
+  scope: 'admin'
+})
 const emit = defineEmits<{ open: [] }>()
 const { t } = useI18n()
 
@@ -84,7 +87,7 @@ const load = async () => {
   loading.value = true
   error.value = null
   try {
-    const overview = await adminAPI.accounts.getBuiltinAdapterCheckins(props.account.id)
+    const overview = await adminAPI.accounts.getBuiltinAdapterCheckins(props.account.id, props.scope)
     totalCredits.value = overview.total_credits
     accountCount.value = overview.accounts.length
   } catch (e) {

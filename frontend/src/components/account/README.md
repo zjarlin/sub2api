@@ -16,6 +16,12 @@ Grok、Kimi、智谱、DeepSeek、MiniMax、OpenCode Go、豆包、TRAE Work、W
 
 自动兼容来源的模型 ID 原样转发，不做别名或模型映射。创建这些平台的 API Key 账号后，表单会尝试同步上游模型目录；也可明确选择原模型 ID 白名单。未获得目录且未配置白名单的账号不会参与对应模型调度。
 
+内置适配器组件同时服务管理员面板与用户「我的账号」页面：通过 `scope` 属性切换
+接口作用域——`admin`（默认）走 `/admin/builtin-adapters/*` 与 `/admin/accounts/*`，
+`user` 走 `/user/builtin-adapters/*` 与 `/user/accounts/*`（JWT 用户鉴权，不要求管理员角色）。
+两者共用同一套部署级适配器与共享登录账号池；`MyAccountsView.vue` 以 `adapter-scope="user"`
+传入，避免普通用户误打需要管理员角色的接口而收到 403。
+
 `BuiltinAdapterLogin.vue` 在新建 TRAE / WorkBuddy 账号，或编辑缺少内置适配器连接凭据的账号时提供登录入口。TRAE 手工提交浏览器回调链接，WorkBuddy 国内版自动轮询授权；登录凭证持久化到适配器共享账号池并立即加载，刷新由适配器维护。表单关闭会中止轮询，重新授权会取消旧会话。已有登录账号池可直接创建 Sub2API 路由账号；多个同平台路由账号共用该池。
 
 部署、首次登录和验收边界见 `tools/traework2api/README.sub2api.md`、`tools/workbuddy2api/README.sub2api.md`。

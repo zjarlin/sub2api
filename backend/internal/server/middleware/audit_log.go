@@ -149,16 +149,19 @@ var auditActionOverrides = map[string]string{
 var auditBodyOmittedRoutes = map[string]struct{}{
 	"POST /api/v1/admin/builtin-adapters/doubao/profiles":                           {},
 	"POST /api/v1/admin/builtin-adapters/:platform/login-sessions/:session/:action": {},
-	"POST /api/v1/auth/passkey/login/finish":                                        {},
-	"POST /api/v1/user/passkeys/register/finish":                                    {},
-	"POST /api/v1/admin/accounts/import/codex-session":                              {},
-	"PUT /api/v1/admin/accounts/:id/ollama-cloud-usage/session":                     {},
-	"PUT /api/v1/admin/prompt-audit/config":                                         {},
-	"POST /api/v1/admin/prompt-audit/endpoints/probe":                               {},
-	"DELETE /api/v1/admin/prompt-audit/events/:id":                                  {},
-	"POST /api/v1/admin/prompt-audit/events/batch-delete":                           {},
-	"POST /api/v1/admin/prompt-audit/events/delete-preview":                         {},
-	"POST /api/v1/admin/prompt-audit/events/delete-by-filter":                       {},
+	// 用户侧内置适配器与管理员接口共用同一套凭证语义，请求体同样整体不入库。
+	"POST /api/v1/user/builtin-adapters/doubao/profiles":                           {},
+	"POST /api/v1/user/builtin-adapters/:platform/login-sessions/:session/:action": {},
+	"POST /api/v1/auth/passkey/login/finish":                                       {},
+	"POST /api/v1/user/passkeys/register/finish":                                   {},
+	"POST /api/v1/admin/accounts/import/codex-session":                             {},
+	"PUT /api/v1/admin/accounts/:id/ollama-cloud-usage/session":                    {},
+	"PUT /api/v1/admin/prompt-audit/config":                                        {},
+	"POST /api/v1/admin/prompt-audit/endpoints/probe":                              {},
+	"DELETE /api/v1/admin/prompt-audit/events/:id":                                 {},
+	"POST /api/v1/admin/prompt-audit/events/batch-delete":                          {},
+	"POST /api/v1/admin/prompt-audit/events/delete-preview":                        {},
+	"POST /api/v1/admin/prompt-audit/events/delete-by-filter":                      {},
 }
 
 // NewAuditLogMiddleware 创建审计中间件。

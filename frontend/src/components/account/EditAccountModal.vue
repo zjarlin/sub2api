@@ -31,10 +31,11 @@
         v-if="show && (account.platform === 'arena' || account.platform === 'traework' || account.platform === 'workbuddy' || account.platform === 'vibex' || account.platform === 'zcode' || account.platform === 'deepseek_web') && (account.platform === 'arena' || account.platform === 'deepseek_web' || !hasBuiltinAdapterCredentials)"
         :key="account.id"
         :platform="account.platform"
+        :scope="adapterScope"
         @authorized="handleArenaAuthorized"
       />
       <div v-if="account.type === 'apikey'" class="space-y-4">
-        <VibexUsage v-if="account.platform === 'vibex'" :key="account.id" :account-id="account.id" />
+        <VibexUsage v-if="account.platform === 'vibex'" :key="account.id" :account-id="account.id" :scope="adapterScope" />
         <div v-if="!isBuiltinAdapterAccount && (!isCNApiKeyAccount || editApiProtocol !== 'adaptive')">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -249,6 +250,7 @@
           v-if="show && account.platform === 'doubao'"
           :key="account.id"
           v-model="doubaoSessionProfile"
+          :scope="adapterScope"
           @busy="doubaoSessionBusy = $event"
         />
         <Model3DAccountFields v-if="account.platform === 'model3d'" editing v-model:provider="model3dProvider" v-model:client-id="model3dClientId" v-model:secret="editApiKey" v-model:model="model3dDefaultModel" />
@@ -3126,7 +3128,7 @@ import {
   usesAutomaticMixedScheduling
 } from '@/constants/platforms'
 import BuiltinAdapterLogin from './BuiltinAdapterLogin.vue'
-import type { BuiltinLoginSession } from '@/api/admin/builtinAdapters'
+import type { BuiltinAdapterScope, BuiltinLoginSession } from '@/api/admin/builtinAdapters'
 import VibexUsage from './VibexUsage.vue'
 import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -3230,9 +3232,15 @@ interface Props {
   proxies: Proxy[]
   groups: Group[]
   accountAPI?: typeof adminAPI.accounts
+  /**
+   * 内置适配器调用作用域：管理员面板用 'admin'（默认），
+   * 普通用户「我的账号」页面传 'user'，避免打到需要管理员角色的 /admin 接口。
+   */
+  adapterScope?: BuiltinAdapterScope
 }
 
 const props = defineProps<Props>()
+const adapterScope = computed<BuiltinAdapterScope>(() => props.adapterScope ?? 'admin')
 const isBuiltinAdapterAccount = computed(() => ['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'madao', 'arena'].includes(props.account?.platform ?? ''))
 const cursorLinkedEmail = computed(() => {
   const credentials = props.account?.credentials as Record<string, unknown> | undefined

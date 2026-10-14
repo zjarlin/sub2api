@@ -364,6 +364,7 @@
       <DoubaoSessionProfiles
         v-if="show && form.platform === 'doubao' && form.type === 'apikey'"
         v-model="doubaoSessionProfile"
+        :scope="adapterScope"
         @busy="doubaoSessionBusy = $event"
       />
       <p v-if="form.platform === 'traework'" class="input-hint" data-testid="traework-connection-hint">
@@ -386,7 +387,7 @@
         </div>
         <p class="input-hint mt-2">{{ systemOneProvider === 'laya' ? t('admin.accounts.laya.baseUrlHint') : t('admin.accounts.jev.baseUrlHint') }}</p>
       </div>
-      <BuiltinAdapterLogin v-if="show && (form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'vibex' || form.platform === 'zcode' || form.platform === 'deepseek_web' || form.platform === 'madao' || form.platform === 'arena' || form.platform === 'cursor' || form.platform === 'windsurf')" @authorized="handleBuiltinAuthorized" :key="form.platform" :platform="form.platform" />
+      <BuiltinAdapterLogin v-if="show && (form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'vibex' || form.platform === 'zcode' || form.platform === 'deepseek_web' || form.platform === 'madao' || form.platform === 'arena' || form.platform === 'cursor' || form.platform === 'windsurf')" @authorized="handleBuiltinAuthorized" :key="form.platform" :platform="form.platform" :scope="adapterScope" />
 
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
@@ -4173,7 +4174,7 @@
 import BuiltinAdapterLogin from './BuiltinAdapterLogin.vue'
 import Model3DAccountFields from './Model3DAccountFields.vue'
 import DoubaoSessionProfiles from './DoubaoSessionProfiles.vue'
-import type { BuiltinLoginSession } from '@/api/admin/builtinAdapters'
+import type { BuiltinAdapterScope, BuiltinLoginSession } from '@/api/admin/builtinAdapters'
 import { ref, reactive, computed, watch, onBeforeUnmount } from 'vue'
 import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
 import { useI18n } from 'vue-i18n'
@@ -4407,9 +4408,15 @@ interface Props {
   proxies: Proxy[]
   groups: Group[]
   accountAPI?: typeof adminAPI.accounts
+  /**
+   * 内置适配器调用作用域：管理员面板用 'admin'（默认），
+   * 普通用户「我的账号」页面传 'user'，避免打到需要管理员角色的 /admin 接口。
+   */
+  adapterScope?: BuiltinAdapterScope
 }
 
 const props = defineProps<Props>()
+const adapterScope = computed<BuiltinAdapterScope>(() => props.adapterScope ?? 'admin')
 const emit = defineEmits<{
   close: []
   created: []
