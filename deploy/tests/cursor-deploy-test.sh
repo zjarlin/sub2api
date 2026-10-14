@@ -30,6 +30,47 @@ fi
 if [ "$1" = image ] && [ "$2" = inspect ]; then
   printf '{}\n'
 fi
+case "$*" in
+  "ps --filter label=com.docker.compose.service=sub2api --format {{.Image}}")
+    printf 'old-image\n'
+    ;;
+  "ps --filter label=com.docker.compose.service=sub2api --format {{.Names}}")
+    printf 'sub2api-sub2api-1\n'
+    ;;
+  "inspect --format {{.Config.Image}} sub2api-sub2api-1")
+    printf 'old-image\n'
+    ;;
+  "inspect --format {{.State.Running}} sub2api-gateway")
+    printf 'true\n'
+    ;;
+  "inspect sub2api-sub2api-1"|"inspect sub2api-canary")
+    exit 0
+    ;;
+  "inspect --format {{range .Config.Env}}{{println .}}{{end}} sub2api-sub2api-1")
+    printf 'SERVER_PORT=8080\n'
+    ;;
+  "inspect --format {{range \$name,\$network := .NetworkSettings.Networks}}{{println \$name}}{{end}} sub2api-sub2api-1")
+    printf 'sub2api_sub2api-network\n'
+    ;;
+  "exec sub2api-gateway wget -q -T 5 -O /dev/null http://sub2api:8080/ready")
+    exit 0
+    ;;
+  "exec sub2api-gateway test -f /etc/nginx/cluster/nginx.conf")
+    exit 0
+    ;;
+  "exec sub2api-gateway md5sum /etc/nginx/cluster/nginx.conf")
+    md5sum "$DEPLOY_DIR/deploy/cluster/nginx.conf"
+    ;;
+  "exec sub2api-gateway nginx -t -c /etc/nginx/cluster/nginx.conf"|"exec sub2api-gateway nginx -s reload -c /etc/nginx/cluster/nginx.conf")
+    exit 0
+    ;;
+  *"run -d --name sub2api-canary-"*)
+    exit 0
+    ;;
+  "inspect --format {{(index (index .NetworkSettings.Ports \"8080/tcp\") 0).HostPort}} sub2api-canary-"*)
+    printf '18090\n'
+    ;;
+esac
 SH
 cat > "$test_dir/bin/curl" <<'SH'
 #!/bin/sh
@@ -52,7 +93,7 @@ if ! grep -Fq -- "-f $test_dir/deploy/docker-compose.cursor.yml" "$test_dir/dock
 fi
 if ! awk '
   / up -d --build --wait --wait-timeout 180 sub2api-cursor$/ { adapter_line=NR }
-  / run -d --no-deps --name sub2api-canary/ { canary_line=NR }
+  /run -d --name sub2api-canary/ { canary_line=NR }
   END { exit !(adapter_line > 0 && canary_line > adapter_line) }
 ' "$test_dir/docker.log"; then
   printf 'Cursor adapter was not healthy before the canary\n' >&2
@@ -83,7 +124,7 @@ if MOCK_DOCKER_LOG="$test_dir/docker-failed.log" DEPLOY_DIR="$test_dir" SUB2API_
   printf 'Deployment succeeded despite Cursor adapter health failure\n' >&2
   exit 1
 fi
-if grep -Fq -- 'run -d --no-deps --name sub2api-canary' "$test_dir/docker-failed.log"; then
+if grep -Eq -- 'run -d --name sub2api-canary' "$test_dir/docker-failed.log"; then
   printf 'Canary started after Cursor adapter health failure\n' >&2
   exit 1
 fi

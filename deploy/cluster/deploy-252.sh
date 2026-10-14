@@ -186,6 +186,8 @@ RELEASE_DIR="$DEPLOY_DIR/releases/$STAMP"
 mkdir -p "$RELEASE_DIR"
 CANARY_COMPOSE=("${COMPOSE[@]}" --profile canary)
 NGINX_CONFIG="$DEPLOY_DIR/deploy/cluster/nginx.conf"
+# 容器内由目录挂载提供的配置路径；与 compose 的 command -c 保持一致。
+GATEWAY_CONF="/etc/nginx/cluster/nginx.conf"
 
 if [ ! -f "$NGINX_CONFIG" ]; then
   echo "Missing gateway config: $NGINX_CONFIG" >&2
@@ -272,6 +274,9 @@ route_to() {
     sub2api|sub2api-canary) ;;
     *) echo "Unsupported gateway target: $target" >&2; return 1 ;;
   esac
+  # 先确保网关挂载到当前布局；否则 -c 路径不存在，reload 会直接失败（
+  # 包括回滚路径）。这里只做「挂载是否可用」的判断，不做内容比较。
+  ensure_gateway_mount_current
   local tmp backup
   tmp="$(mktemp "$NGINX_CONFIG.tmp.XXXXXX")"
   backup="$RELEASE_DIR/nginx.conf.before-route"
@@ -284,19 +289,63 @@ route_to() {
     echo "Gateway config has no matching backend target" >&2
     return 1
   fi
-  # Preserve the bind-mounted inode so an already-running gateway sees the update.
+  # 配置来自目录挂载（/etc/nginx/cluster/nginx.conf），按路径解析，
+  # 因此直接覆盖宿主文件后 reload 即可被运行中的网关读到。
   cat "$tmp" > "$NGINX_CONFIG"
   rm -f "$tmp"
-  if ! docker exec sub2api-gateway nginx -t >/dev/null; then
+  if ! docker exec sub2api-gateway nginx -t -c "$GATEWAY_CONF" >/dev/null; then
     cat "$backup" > "$NGINX_CONFIG"
     echo "Gateway config validation failed" >&2
     return 1
   fi
-  if ! docker exec sub2api-gateway nginx -s reload >/dev/null; then
+  if ! docker exec sub2api-gateway nginx -s reload -c "$GATEWAY_CONF" >/dev/null; then
     cat "$backup" > "$NGINX_CONFIG"
-    docker exec sub2api-gateway nginx -s reload >/dev/null 2>&1 || true
+    docker exec sub2api-gateway nginx -s reload -c "$GATEWAY_CONF" >/dev/null 2>&1 || true
     echo "Gateway reload failed" >&2
     return 1
+  fi
+}
+
+# 网关容器必须挂载到当前布局（目录挂载 + -c /etc/nginx/cluster/nginx.conf）。
+# 旧容器挂的是单个 nginx.conf 文件（inode 绑定），git archive 替换文件后它
+# 永远读不到新内容；reload 也修不了挂载本身，只能重建容器。
+# 判断依据是「容器内目标路径是否存在且当前挂载生效」，而不是内容 md5——
+# route_to 会按需改动宿主文件，用内容比较会导致无谓重建。
+ensure_gateway_mount_current() {
+  if gateway_running && docker exec sub2api-gateway test -f "$GATEWAY_CONF" 2>/dev/null; then
+    return 0
+  fi
+  echo "Gateway uses a stale mount layout; recreating gateway container"
+  "${COMPOSE[@]}" up -d --wait --wait-timeout 180 --no-deps gateway
+  if ! docker exec sub2api-gateway test -f "$GATEWAY_CONF" 2>/dev/null; then
+    echo "Gateway did not expose $GATEWAY_CONF after recreate" >&2
+    return 1
+  fi
+}
+
+# 部署收尾断言：网关加载的配置必须与宿主一致，且边缘路由确实生效。
+# 缺少这一步时，配置变更失效只会表现为「部署成功但接口 404」，很难被发现。
+verify_gateway_config_applied() {
+  local host_md5 container_md5
+  host_md5="$(md5sum "$NGINX_CONFIG" | awk '{print $1}')"
+  container_md5="$(docker exec sub2api-gateway md5sum "$GATEWAY_CONF" 2>/dev/null | awk '{print $1}')"
+  if [ "$host_md5" != "$container_md5" ]; then
+    echo "Gateway config mismatch after deploy (container=$container_md5 host=$host_md5)" >&2
+    return 1
+  fi
+  # 边缘叠加层（SUB2API_EDGE_MEDIA=1）会同时开放 /mail/、/vision/、/media/。
+  # 已启用的边缘路由必须落在 Go 后端（鉴权会返回 401/4xx），
+  # 而不是落到前端 SPA（返回 200 且 content-type 为 text/html）。
+  if [ "${EDGE_MEDIA_ENABLED:-0}" = "1" ]; then
+    local ctype
+    ctype="$(curl --silent --show-error --max-time 15 -o /dev/null -w '%{content_type}' \
+      -X POST "http://127.0.0.1:18080/mail/messages" -H 'Content-Type: application/json' -d '{}' || true)"
+    case "$ctype" in
+      *text/html*)
+        echo "Gateway /mail/ route is not reaching the backend (content-type=$ctype)" >&2
+        return 1
+        ;;
+    esac
   fi
 }
 
@@ -464,9 +513,8 @@ if [ -n "$LEGACY_PRIMARY_CONTAINER" ]; then
   docker stop "$LEGACY_PRIMARY_CONTAINER" >/dev/null || true
   docker rm "$LEGACY_PRIMARY_CONTAINER" >/dev/null || true
 fi
-if ! gateway_running; then
-  "${COMPOSE[@]}" up -d --wait --wait-timeout 180 --no-deps gateway
-fi
+# 确保网关容器加载当前配置布局（旧的单文件 inode 挂载无法自愈）。
+ensure_gateway_mount_current
 
 # Point 18080 at the verified candidate.
 CUTOVER_STARTED=1
@@ -503,6 +551,8 @@ if ! curl --fail --silent --show-error --max-time 20 http://127.0.0.1:18080/heal
   echo "Promoted primary health probe failed" >&2
   false
 fi
+# 失败关闭：确认网关确实在跑最新配置，而不是又一次静默停留在旧文件上。
+verify_gateway_config_applied
 PRIMARY_SERVING=1
 stop_canary
 if docker ps --filter "label=sub2api.role=release-candidate" --filter status=running --format '{{.ID}}' | grep -q .; then

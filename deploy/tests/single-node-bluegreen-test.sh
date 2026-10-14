@@ -42,8 +42,15 @@ case "$*" in
   "ps --filter name=^sub2api-canary$ --filter status=running --format {{.ID}}")
     exit 0
     ;;
-  "exec sub2api-gateway nginx -t"|"exec sub2api-gateway nginx -s reload")
+  "exec sub2api-gateway nginx -t -c /etc/nginx/cluster/nginx.conf"|"exec sub2api-gateway nginx -s reload -c /etc/nginx/cluster/nginx.conf")
     exit 0
+    ;;
+  "exec sub2api-gateway test -f /etc/nginx/cluster/nginx.conf")
+    exit 0
+    ;;
+  "exec sub2api-gateway md5sum /etc/nginx/cluster/nginx.conf")
+    # 返回与宿主一致的内容 md5，模拟目录挂载生效（配置已同步）。
+    md5sum "$DEPLOY_DIR/deploy/cluster/nginx.conf"
     ;;
   *"run -d --name sub2api-canary-"*)
     if [ "${MOCK_CANARY_FAIL:-0}" = 1 ]; then printf 'canary failed\n'; exit 7; fi
@@ -91,7 +98,7 @@ grep -Fq -- "--publish 127.0.0.1::8080" "$test_dir/success.log"
 grep -Fq -- "--label sub2api.role=release-candidate" "$test_dir/success.log"
 if ! awk '
   /run -d --name sub2api-canary-/ { candidate=NR }
-  /exec sub2api-gateway nginx -s reload/ { reload=NR }
+  /exec sub2api-gateway nginx -s reload -c/ { reload=NR }
   END { exit !(candidate > 0 && reload > candidate) }
 ' "$test_dir/success.log"; then
   printf 'gateway switched before candidate was started\n' >&2
@@ -106,7 +113,7 @@ if MOCK_CANARY_FAIL=1 run_deploy "$test_dir/canary-failed.log" > "$test_dir/cana
 fi
 if awk '
   /run -d --name sub2api-canary/ { candidate=NR }
-  /exec sub2api-gateway nginx -s reload/ { reload=NR }
+  /exec sub2api-gateway nginx -s reload -c/ { reload=NR }
   END { exit !(candidate > 0 && reload > candidate) }
 ' "$test_dir/canary-failed.log"; then
   printf 'gateway switched after candidate startup failure\n' >&2
