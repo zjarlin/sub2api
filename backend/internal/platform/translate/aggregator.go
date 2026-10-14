@@ -109,7 +109,8 @@ func (a *Aggregator) Translate(ctx context.Context, req *TranslateRequest) (*Tra
 			continue
 		}
 		started := time.Now()
-		attemptCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		// 离线推理按批量分配预算，公网请求保留降级余量。
+		attemptCtx, cancel := context.WithTimeout(ctx, providerAttemptBudget(ctx, t.Name(), len(req.Text)))
 		resp, err := t.Translate(attemptCtx, req)
 		cancel()
 		elapsed := time.Since(started)
@@ -135,6 +136,27 @@ func (a *Aggregator) Translate(ctx context.Context, req *TranslateRequest) (*Tra
 		return resp, nil
 	}
 	return nil, &ChainError{Attempts: attempts}
+}
+
+// 离线模型逐条推理，按批量大小分配预算，同时遵守调用方取消和期限。
+// 公网候选保留短超时，为后续供应商留出回退机会。
+func providerAttemptBudget(ctx context.Context, provider string, items int) time.Duration {
+	budget := 5 * time.Second
+	if offlineProvider(provider) {
+		if items < 1 {
+			items = 1
+		}
+		if items > 4 {
+			items = 4
+		}
+		budget = time.Duration(items) * 30 * time.Second
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining < budget {
+			return remaining
+		}
+	}
+	return budget
 }
 
 // DetectLanguage 使用最高优先级的可用服务商检测语言
