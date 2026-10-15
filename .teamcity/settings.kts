@@ -122,14 +122,14 @@ object Deploy252Cluster : BuildType({
                 echo "##teamcity[progressFinish '部署单节点蓝绿候选']"
 
                 echo "##teamcity[progressStart '部署边缘视觉服务']"
-                EDGE_VISION_IMAGE="%env.EDGE_VISION_IMAGE_REPOSITORY%:${'$'}SHORT_SHA" \
+                EDGE_VISION_IMAGE_REPOSITORY="%env.EDGE_VISION_IMAGE_REPOSITORY%" \
                   DEPLOY_DIR="${'$'}DEPLOY_DIR" \
                   "${'$'}DEPLOY_DIR/deploy/cluster/deploy-edge-vision.sh"
                 echo "##teamcity[progressFinish '部署边缘视觉服务']"
 
                 if [ "%env.EDGE_MEDIA_ENABLED%" = "1" ]; then
                   echo "##teamcity[progressStart '部署边缘媒体服务']"
-                  EDGE_MEDIA_IMAGE="%env.EDGE_MEDIA_IMAGE_REPOSITORY%:${'$'}SHORT_SHA" \
+                  EDGE_MEDIA_IMAGE_REPOSITORY="%env.EDGE_MEDIA_IMAGE_REPOSITORY%" \
                     MEDIA_TTS_ENABLED="%env.MEDIA_TTS_ENABLED%" \
                     MEDIA_TTS_UPSTREAM_URL="%env.MEDIA_TTS_UPSTREAM_URL%" \
                     MEDIA_DUBBING_ENABLED="%env.MEDIA_DUBBING_ENABLED%" \
@@ -144,7 +144,7 @@ object Deploy252Cluster : BuildType({
 
                 if [ "%env.EDGE_MAIL_ENABLED%" = "1" ]; then
                   echo "##teamcity[progressStart '部署边缘邮件服务']"
-                  EDGE_MAIL_IMAGE="%env.EDGE_MAIL_IMAGE_REPOSITORY%:${'$'}SHORT_SHA" \
+                  EDGE_MAIL_IMAGE_REPOSITORY="%env.EDGE_MAIL_IMAGE_REPOSITORY%" \
                     DEPLOY_DIR="${'$'}DEPLOY_DIR" \
                     "${'$'}DEPLOY_DIR/deploy/cluster/deploy-edge-mail.sh"
                   echo "##teamcity[progressFinish '部署边缘邮件服务']"
@@ -152,7 +152,7 @@ object Deploy252Cluster : BuildType({
 
                 if [ "%env.EDGE_LAYA_ENABLED%" = "1" ]; then
                   echo "##teamcity[progressStart '部署 Laya 决策模型']"
-                  EDGE_LAYA_IMAGE="%env.EDGE_LAYA_IMAGE_REPOSITORY%:${'$'}SHORT_SHA" \
+                  EDGE_LAYA_IMAGE_REPOSITORY="%env.EDGE_LAYA_IMAGE_REPOSITORY%" \
                     DEPLOY_DIR="${'$'}DEPLOY_DIR" \
                     "${'$'}DEPLOY_DIR/deploy/cluster/deploy-laya.sh"
                   echo "##teamcity[progressFinish '部署 Laya 决策模型']"
@@ -181,7 +181,7 @@ object Deploy252Cluster : BuildType({
                 test "${'$'}(docker ps --filter label=com.docker.compose.service=sub2api --filter status=running -q | wc -l | tr -d ' ')" = "1"
                 test "${'$'}(docker ps --filter name=sub2api-canary --filter status=running -q | wc -l | tr -d ' ')" = "0"
                 echo "##teamcity[progressFinish '验证 252 入口']"
-                echo "DEPLOYED ${'$'}IMAGE EDGE_VISION=%env.EDGE_VISION_IMAGE_REPOSITORY%:${'$'}SHORT_SHA EDGE_MEDIA=%env.EDGE_MEDIA_IMAGE_REPOSITORY%:${'$'}SHORT_SHA EDGE_MAIL=%env.EDGE_MAIL_IMAGE_REPOSITORY%:${'$'}SHORT_SHA"
+                echo "DEPLOYED ${'$'}IMAGE；各 edge 服务的实际镜像见对应 DEPLOYED 日志"
             """.trimIndent())
         }
     }

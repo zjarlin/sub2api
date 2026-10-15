@@ -7,14 +7,18 @@
 #
 # 环境变量：
 #   DEPLOY_DIR       部署根目录（默认 /opt/sub2api，TeamCity 会同步代码到这里）
-#   EDGE_VISION_IMAGE 镜像标签（必填，例如 zjarlin/edge-vision:<sha>）
+#   EDGE_VISION_IMAGE_REPOSITORY 镜像仓库（默认 zjarlin/edge-vision，标签按构建内容生成）
+#   EDGE_VISION_IMAGE 显式指定不可变镜像标签（可选，已有镜像直接复用）
 #   SUB2API_NETWORK  sub2api 的 Compose 网络名（默认 sub2api_sub2api-network）
 set -euo pipefail
 
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/sub2api}"
 PROJECT_NAME="${PROJECT_NAME:-sub2api}"
 EDGE_VISION_DIR="${EDGE_VISION_DIR:-$DEPLOY_DIR/edge-vision}"
-IMAGE="${EDGE_VISION_IMAGE:?EDGE_VISION_IMAGE is required}"
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
+source "$SCRIPT_DIR/edge-image.sh"
+IMAGE_REPOSITORY="${EDGE_VISION_IMAGE_REPOSITORY:-zjarlin/edge-vision}"
+IMAGE="${EDGE_VISION_IMAGE:-$IMAGE_REPOSITORY:src-$(edge_image_fingerprint "$EDGE_VISION_DIR" '' models)}"
 NETWORK="${SUB2API_NETWORK:-${PROJECT_NAME}_sub2api-network}"
 
 test -f "$EDGE_VISION_DIR/docker/Dockerfile"
@@ -24,18 +28,13 @@ docker network inspect "$NETWORK" >/dev/null 2>&1 || {
   exit 1
 }
 
-echo "构建边缘视觉镜像 $IMAGE"
-docker build \
-  -t "$IMAGE" \
-  -t zjarlin/edge-vision:latest \
-  -f "$EDGE_VISION_DIR/docker/Dockerfile" \
-  "$EDGE_VISION_DIR"
+edge_ensure_image "$IMAGE" "$EDGE_VISION_DIR" -t "$IMAGE_REPOSITORY:latest"
 
 echo "启动边缘视觉容器（接入 $NETWORK，无宿主端口）"
 EDGE_VISION_IMAGE="$IMAGE" \
   EDGE_VISION_MODELS_DIR="$EDGE_VISION_DIR/models" \
   SUB2API_NETWORK="$NETWORK" \
-  docker compose -f "$EDGE_VISION_DIR/compose/docker-compose.yml" up -d --force-recreate
+  docker compose -f "$EDGE_VISION_DIR/compose/docker-compose.yml" up -d --no-build
 
 echo "等待容器健康"
 for _ in $(seq 1 30); do

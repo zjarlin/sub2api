@@ -9,6 +9,29 @@ data continue to come from the existing `/opt/sub2api/.env`.
 可用 `--build-arg ALPINE_MIRROR=` 恢复基础镜像的软件源。版本号、提交号和构建日期
 只影响最终 Go 编译层，后续发版复用依赖安装缓存。
 
+## Edge 服务按需更新
+
+`edge-vision`、`edge-media`、`edge-mail` 和 `edge-laya` 各自已有
+`compose/docker-compose.yml`，复用 Sub2API 内部网络，不发布宿主端口。
+
+TeamCity 只传递各服务的 `EDGE_*_IMAGE_REPOSITORY`。部署脚本对该服务的
+Dockerfile、应用目录、依赖清单、Docker ignore 文件和实际传入的构建参数计算摘要，
+使用 `<repository>:src-<sha256>` 标签；只有视觉服务还将随镜像打包的 `models/`
+计入摘要。仅挂载的媒体数据、Laya 权重和 Compose 运行配置不改变镜像版本。
+
+- 镜像已存在：跳过 `docker build`，不依赖整个仓库的提交号。
+- 镜像与运行配置未变：Compose 保留原容器；源码同步造成的时间戳、属主变化不触发构建。
+- 只有运行配置变化：复用镜像，由 Compose 更新对应服务。
+- 构建内容变化或镜像被清理：仅构建对应服务，构建失败立即停止部署。
+
+首次切换到内容标签时会更新一次容器，之后无变化的发布保留容器。
+可显式传 `EDGE_*_IMAGE` 选择不可变版本；已有版本直接复用，不能用同一标签承载不同源码。
+需要刷新浮动基础镜像时，先在专门的镜像发布流程拉取基础镜像，再用
+`EDGE_FORCE_BUILD=1` 重跑该服务部署脚本。健康检查仍在每次部署执行。
+
+验证：`bash deploy/tests/edge-deploy-test.sh` 使用隔离的 Docker 命令替身，
+覆盖无变化复用、各服务独立更新、构建参数、配置和权重边界，以及构建失败传播。
+
 ## Release Flow
 
 The normal release path is a single-host blue-green handoff:
