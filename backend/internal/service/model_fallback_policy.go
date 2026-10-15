@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,6 +19,10 @@ import (
 const SettingKeyModelFallbackPolicy = "model_fallback_policy"
 
 const maxModelFallbackModels = 256
+
+// ModelFallbackAutoModel 是降级链末尾的虚拟模型哨兵：命中时由 Auto 路由
+// 用完整候选与性价比顺序挑选一个真实模型承接，而不是退回到固定档位模型。
+const ModelFallbackAutoModel = "auto"
 
 const AutoModelExcludedReason GatewayFailureReason = "auto_model_excluded"
 const AutoModelCapabilityMismatchReason GatewayFailureReason = "auto_model_capability_mismatch"
@@ -34,6 +39,10 @@ type ModelCapabilityTier struct {
 type ModelFallbackPolicy struct {
 	Enabled bool                  `json:"enabled"`
 	Tiers   []ModelCapabilityTier `json:"tiers"`
+	// AutoFallback 在档位候选耗尽（含未评级模型没有任何档位候选）后追加虚拟模型
+	// auto 作为最后候选，由 Auto 的完整候选与性价比顺序承接。默认开启，显式关闭
+	// 可恢复“未评级模型不降级”的旧行为。
+	AutoFallback bool `json:"auto_fallback"`
 }
 
 type ModelFallbackCandidate struct {
@@ -82,11 +91,13 @@ func (s *autoModelRoutingPolicy) allows(model string) bool {
 
 // 采用公开榜单最高已测推理强度的粗粒度分段，依据和局限见 docs/model-fallback-tiers.md。
 func DefaultModelFallbackPolicy() *ModelFallbackPolicy {
-	return &ModelFallbackPolicy{Enabled: true, Tiers: []ModelCapabilityTier{
+	return &ModelFallbackPolicy{Enabled: true, AutoFallback: true, Tiers: []ModelCapabilityTier{
 		{Name: "AA 50+", Models: []string{"gpt-6-astra"}},
 		{Name: "AA 40–49", Models: []string{"gpt-5.6-sol", "glm-5.3", "z-ai/glm-5.3", "kimi-k3", "moonshotai/kimi-k3", "glm-5.3-flash", "z-ai/glm-5.3-flash", "gpt-5.6-terra"}},
 		{Name: "AA 30–39", Models: []string{"deepseek-v4.1-flash", "gpt-5.6-luna", "agnes-3.0-flash", "agnes-2.5-pro-beta", "qwen3.8-27b", "glm-5.2", "sensenova-6.8-flash-lite", "gpt-5.3-codex"}},
 		{Name: "AA 20–29", Models: []string{"agnes-2.5-pro-alpha"}},
+		// 内容安全/审核类小模型：彼此互为同类降级目标，不向上借用通用模型。
+		{Name: "内容安全轻量", Models: []string{"meta/llama-guard-4-12b", "nvidia/llama-3.1-nemoguard-8b-content-safety", "nvidia/llama-3.1-nemoguard-8b-topic-control", "nvidia/llama-3.1-nemotron-safety-guard-8b-v3"}},
 	}}
 }
 
@@ -105,6 +116,9 @@ func (p *ModelFallbackPolicy) Validate() error {
 			if model == "" || len(model) > 200 || strings.ContainsAny(model, " \t\n\r*") || seen[model] {
 				return fmt.Errorf("model IDs must be unique, nonempty and exact: %q", model)
 			}
+			if model == ModelFallbackAutoModel {
+				return fmt.Errorf("auto is a reserved fallback sentinel and cannot appear in a tier")
+			}
 			seen[model] = true
 		}
 	}
@@ -115,25 +129,28 @@ func (p *ModelFallbackPolicy) Validate() error {
 }
 
 // 先试同档和低档，耗尽后从最近的高档逐档向上补偿；候选固定且不循环。
+// AutoFallback 开启时在末尾追加虚拟模型 auto，覆盖“未评级模型没有档位候选”
+// 与“全部档位候选耗尽”两种情况；未开启则保持未评级模型不降级的旧行为。
 func (p *ModelFallbackPolicy) Candidates(model string) []ModelFallbackCandidate {
 	if p == nil || !p.Enabled {
 		return nil
 	}
-	start := slices.IndexFunc(p.Tiers, func(t ModelCapabilityTier) bool { return slices.Contains(t.Models, model) })
-	if start < 0 {
-		return nil
-	}
 	var candidates []ModelFallbackCandidate
-	tiers := slices.Clone(p.Tiers[start:])
-	for i := start - 1; i >= 0; i-- {
-		tiers = append(tiers, p.Tiers[i])
-	}
-	for _, tier := range tiers {
-		for _, next := range tier.Models {
-			if next != model {
-				candidates = append(candidates, ModelFallbackCandidate{Model: next, Tier: tier.Name})
+	if start := slices.IndexFunc(p.Tiers, func(t ModelCapabilityTier) bool { return slices.Contains(t.Models, model) }); start >= 0 {
+		tiers := slices.Clone(p.Tiers[start:])
+		for i := start - 1; i >= 0; i-- {
+			tiers = append(tiers, p.Tiers[i])
+		}
+		for _, tier := range tiers {
+			for _, next := range tier.Models {
+				if next != model {
+					candidates = append(candidates, ModelFallbackCandidate{Model: next, Tier: tier.Name})
+				}
 			}
 		}
+	}
+	if p.AutoFallback && model != ModelFallbackAutoModel {
+		candidates = append(candidates, ModelFallbackCandidate{Model: ModelFallbackAutoModel, Tier: "auto"})
 	}
 	return candidates
 }
@@ -437,6 +454,8 @@ func checkAutoModelUpstream(ctx context.Context, models ...string) error {
 }
 
 // 只在同名账号耗尽后读取一次设置及分组目录，成功请求不增加数据库查询。
+// 末尾的 auto 哨兵在这里展开为 Auto 的真实候选，展开后的候选与固定档位候选
+// 共用同一组账号能力预检，避免自动路由把请求交给不具备本次能力的账号。
 func (s *OpenAIGatewayService) ModelFallbackCandidates(ctx context.Context, groupID *int64, model string, body []byte) ([]ModelFallbackCandidate, error) {
 	policy, err := s.settingService.GetModelFallbackPolicy(ctx)
 	if err != nil {
@@ -449,8 +468,8 @@ func (s *OpenAIGatewayService) ModelFallbackCandidates(ctx context.Context, grou
 	canonical := aliases.Canonicalize(model)
 	policy = aliases.NormalizeFallback(policy)
 	ctx = WithModelAliases(ctx, aliases)
-	candidates := policy.Candidates(canonical)
-	if len(candidates) == 0 {
+	raw := policy.Candidates(canonical)
+	if len(raw) == 0 {
 		return nil, nil
 	}
 	accounts, err := s.listSchedulableAccounts(ctx, groupID, PlatformOpenAI)
@@ -461,23 +480,102 @@ func (s *OpenAIGatewayService) ModelFallbackCandidates(ctx context.Context, grou
 	if forwardModel, ok := openAIForwardModelFromContext(ctx); ok {
 		useCompactModelMapping = forwardModel.useCompactModelMapping
 	}
-	return slices.DeleteFunc(candidates, func(candidate ModelFallbackCandidate) bool {
-		mapping, restricted := s.ResolveChannelMappingAndRestrict(ctx, groupID, candidate.Model)
-		if restricted {
-			return true
+	// requireTextPlatform 供 auto 展开使用：档位候选是人工评级过的文本模型，
+	// 自动候选来自分组全目录，必须额外确认存在文本平台账号承接。
+	compatible := s.modelFallbackCompatibleChecker(ctx, groupID, body, accounts, useCompactModelMapping, false)
+	autoCompatible := s.modelFallbackCompatibleChecker(ctx, groupID, body, accounts, useCompactModelMapping, true)
+	candidates := make([]ModelFallbackCandidate, 0, len(raw))
+	for _, candidate := range raw {
+		if candidate.Model != ModelFallbackAutoModel {
+			if compatible(candidate.Model) {
+				candidates = append(candidates, candidate)
+			}
+			continue
 		}
-		forward := candidate.Model
+		// auto 哨兵只在局部绑定 Auto 路由策略：档位候选仍按原语义执行，
+		// 展开出的自动候选则沿用它自己的黑名单、白名单与成本边界。
+		autoCtx, err := s.settingService.BindAutoModelRoutingPolicy(ctx)
+		if err != nil {
+			continue
+		}
+		candidates = append(candidates, expandAutoFallbackCandidates(autoCtx, accounts, canonical, autoCompatible)...)
+	}
+	return candidates, nil
+}
+
+// modelFallbackCompatibleChecker 生成候选账号能力预检：档位候选与 auto 展开共用同一
+// 逻辑，auto 展开额外要求账号属于文本平台，避免自动路由落到专用/决策端点。
+func (s *OpenAIGatewayService) modelFallbackCompatibleChecker(ctx context.Context, groupID *int64, body []byte, accounts []Account, useCompactModelMapping, requireTextPlatform bool) func(string) bool {
+	return func(model string) bool {
+		mapping, restricted := s.ResolveChannelMappingAndRestrict(ctx, groupID, model)
+		if restricted {
+			return false
+		}
+		forward := model
 		if mapping.Mapped {
 			forward = mapping.MappedModel
 		}
-		if !AutoModelAllowed(ctx, candidate.Model, forward) {
-			return true
+		if !AutoModelAllowed(ctx, model, forward) {
+			return false
 		}
-		return !slices.ContainsFunc(accounts, func(account Account) bool {
+		return slices.ContainsFunc(accounts, func(account Account) bool {
+			if requireTextPlatform && (!AutoModelTextPlatform(account.Platform) || !AutoModelPlatformAllowed(ctx, account.Platform)) {
+				return false
+			}
 			upstream := ResolveOpenAIAccountUpstreamModelForRequest(&account, forward, useCompactModelMapping)
 			return AutoModelAllowed(ctx, upstream) && account.IsModelSupported(forward) && ModelFallbackAccountCompatible(&account, forward, body)
 		})
-	}), nil
+	}
+}
+
+// expandAutoFallbackCandidates 用 Auto 的性价比顺序展开末尾哨兵：候选集合取自本次
+// 分组已加载的可调度账号目录（公开模型映射与上游支持快照），与本组档位候选使用
+// 同一批账号，避免自动路由绕过分组可见性。只保留文本生成模型，跳过虚拟模型、
+// 决策/专有模型（含 guard/safety/embedding 等）与已作为起点的请求模型。
+func expandAutoFallbackCandidates(ctx context.Context, accounts []Account, requested string, compatible func(string) bool) []ModelFallbackCandidate {
+	if len(accounts) == 0 {
+		return nil
+	}
+	aliases := ModelAliasesFromContext(ctx)
+	ids, _, decisionOnly := collectAutoModelInventory(ctx, accounts)
+	seen := make(map[string]struct{})
+	ranked := make([]string, 0, len(ids))
+	for _, id := range ids {
+		canonical := aliases.Canonicalize(strings.TrimSpace(id))
+		if canonical == "" || canonical == requested || canonical == ModelFallbackAutoModel {
+			continue
+		}
+		if decisionOnly[canonical] || !AutoModelTextCandidate(canonical) {
+			continue
+		}
+		// 与 Auto 选模同源：黑名单、白名单与最高档排除都不能被降级绕过。
+		if !AutoModelWhitelisted(ctx, canonical) || AutoModelPolicyExcluded(ctx, canonical) {
+			continue
+		}
+		if _, duplicate := seen[canonical]; duplicate {
+			continue
+		}
+		seen[canonical] = struct{}{}
+		ranked = append(ranked, canonical)
+	}
+	sort.SliceStable(ranked, func(i, j int) bool {
+		ti, fi := AutoModelPriority(ctx, ranked[i])
+		tj, fj := AutoModelPriority(ctx, ranked[j])
+		if ti != tj {
+			return ti < tj
+		}
+		if fi != fj {
+			return fi < fj
+		}
+		return ranked[i] < ranked[j]
+	})
+	candidates := make([]ModelFallbackCandidate, 0, len(ranked))
+	for _, model := range ranked {
+		if compatible(model) {
+			candidates = append(candidates, ModelFallbackCandidate{Model: model, Tier: ModelFallbackAutoModel})
+		}
+	}
+	return candidates
 }
 
 // AutoModelAccountCompatible 要求候选至少存在一个可调度且满足本次请求能力的账号。

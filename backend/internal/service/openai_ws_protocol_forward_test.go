@@ -262,9 +262,10 @@ func TestOpenAIGatewayService_Forward_HTTPIngressRetriesInvalidEncryptedContentO
 	require.Equal(t, "keep me", gjson.GetBytes(firstBody, "input.0.summary.0.text").String())
 
 	require.Equal(t, "resp_http_retry", gjson.GetBytes(secondBody, "previous_response_id").String(), "encrypted-content retry must preserve API-key continuation")
-	require.False(t, gjson.GetBytes(secondBody, "input.0.encrypted_content").Exists(), "精确重试应移除 reasoning.encrypted_content")
-	require.Equal(t, "keep me", gjson.GetBytes(secondBody, "input.0.summary.0.text").String(), "精确重试应保留有效 reasoning summary")
-	require.Equal(t, "input_text", gjson.GetBytes(secondBody, "input.1.type").String(), "非 reasoning input 应保持原样")
+	// 被上游拒绝的推理项必须整块删除，避免残留摘要骨架再次触发相同错误。
+	require.Equal(t, int64(1), gjson.GetBytes(secondBody, "input.#").Int())
+	require.Equal(t, "input_text", gjson.GetBytes(secondBody, "input.0.type").String(), "非 reasoning input 应保持原样")
+	require.Equal(t, "hello", gjson.GetBytes(secondBody, "input.0.text").String())
 
 	decision, _ := c.Get("openai_ws_transport_decision")
 	reason, _ := c.Get("openai_ws_transport_reason")
@@ -347,8 +348,9 @@ func TestOpenAIGatewayService_Forward_HTTPIngressRetriesWrappedInvalidEncryptedC
 	firstBody := upstream.bodies[0]
 	secondBody := upstream.bodies[1]
 	require.True(t, gjson.GetBytes(firstBody, "input.0.encrypted_content").Exists(), "首次请求不应做发送前预清理")
-	require.False(t, gjson.GetBytes(secondBody, "input.0.encrypted_content").Exists(), "wrapped exact retry 应移除 reasoning.encrypted_content")
-	require.Equal(t, "keep me too", gjson.GetBytes(secondBody, "input.0.summary.0.text").String(), "wrapped exact retry 应保留有效 reasoning summary")
+	require.Equal(t, int64(1), gjson.GetBytes(secondBody, "input.#").Int(), "嵌套错误恢复同样应删除整块失效推理项")
+	require.Equal(t, "input_text", gjson.GetBytes(secondBody, "input.0.type").String())
+	require.Equal(t, "hello", gjson.GetBytes(secondBody, "input.0.text").String())
 
 	decision, _ := c.Get("openai_ws_transport_decision")
 	reason, _ := c.Get("openai_ws_transport_reason")
@@ -1658,7 +1660,7 @@ func TestOpenAIGatewayService_Forward_WSv2InvalidEncryptedContentSkipsRecoveryWi
 	require.False(t, gjson.GetBytes(requests[0], `input.0.encrypted_content`).Exists())
 }
 
-func TestOpenAIGatewayService_Forward_WSv2InvalidEncryptedContentRecoversSingleObjectInputAndKeepsSummary(t *testing.T) {
+func TestOpenAIGatewayService_Forward_WSv2InvalidEncryptedContentRecoversSingleObjectInput(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	var wsAttempts atomic.Int32
@@ -1770,9 +1772,7 @@ func TestOpenAIGatewayService_Forward_WSv2InvalidEncryptedContentRecoversSingleO
 	wsRequestMu.Unlock()
 	require.Len(t, requests, 2)
 	require.True(t, gjson.GetBytes(requests[0], `input.encrypted_content`).Exists(), "首轮单对象应保留 encrypted_content")
-	require.True(t, gjson.GetBytes(requests[1], `input.summary.0.text`).Exists(), "恢复重试应保留 reasoning summary")
-	require.False(t, gjson.GetBytes(requests[1], `input.encrypted_content`).Exists(), "恢复重试只应移除 encrypted_content")
-	require.Equal(t, "reasoning", gjson.GetBytes(requests[1], `input.type`).String())
+	require.False(t, gjson.GetBytes(requests[1], `input`).Exists(), "单对象失效推理项应整块删除，不能残留摘要骨架")
 	require.False(t, gjson.GetBytes(requests[1], `previous_response_id`).Exists(), "恢复重试应移除 previous_response_id")
 }
 

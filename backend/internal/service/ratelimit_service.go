@@ -96,6 +96,11 @@ var openCodeGoUsageLimitResetPattern = regexp.MustCompile(`(?i)\bresets\s+in\s+`
 // 只识别明确的 Clinepass 配额耗尽，避免把普通瞬时限流延长为数周。
 var clinepassUsageLimitResetPattern = regexp.MustCompile(`(?i)^(?:Error 429: )?You have reached your (?:monthly|weekly) Clinepass limit\. The limit resets in ([0-9]+d(?: [0-9]+h)?(?: [0-9]+m)?), please try again later\.?$`)
 
+// Aliyun MaaS /compatible-mode 的月配额耗尽文案把无年份的 UTC 重置点写在
+// message 中（"11-08 16:00:00 UTC"）。仅匹配该固定句式，避免把含用户输入的
+// 普通 429 文本误解析成数周冷却。
+var aliyunTokenPlanQuotaResetPattern = regexp.MustCompile(`(?i)Your token-plan 1-month quota has been exhausted\. The quota will reset at ([0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}) UTC\.`)
+
 var openCodeGoUsageLimitDurationPartPattern = regexp.MustCompile(`(?i)^([0-9]+(?:\.[0-9]+)?)\s*(s|sec|secs|second|seconds|m|min|mins|minute|minutes|h|hr|hrs|hour|hours|d|day|days|w|week|weeks)\b`)
 
 const (
@@ -1803,6 +1808,81 @@ func (s *RateLimitService) persistOpenAICodexSnapshot(ctx context.Context, accou
 	notifyOpenAIAutoReset(account.ID)
 }
 
+// parseAliyunTokenPlanQuotaReset 解析 Aliyun MaaS token-plan 月配额耗尽响应。
+// 兼容 /responses 的原始 Throttling.AllocationQuota 结构与 /chat/completions
+// 包装成 error.insufficient_quota 的结构；两者 message 相同。
+func parseAliyunTokenPlanQuotaReset(body []byte, now time.Time) *time.Time {
+	if len(body) == 0 || !json.Valid(body) {
+		return nil
+	}
+	code := strings.ToLower(strings.TrimSpace(firstNonEmpty(
+		gjson.GetBytes(body, "error.code").String(),
+		gjson.GetBytes(body, "code").String(),
+	)))
+	switch code {
+	case "throttling.allocationquota", "insufficient_quota":
+	default:
+		return nil
+	}
+	matches := aliyunTokenPlanQuotaResetPattern.FindStringSubmatch(strings.TrimSpace(firstNonEmpty(
+		gjson.GetBytes(body, "error.message").String(),
+		gjson.GetBytes(body, "message").String(),
+	)))
+	if matches == nil {
+		return nil
+	}
+	return parseUTCDateWithoutYear(matches[1], now)
+}
+
+// parseUTCDateWithoutYear 将 "MM-DD HH:MM:SS" 解析为下一个未来 UTC 时刻。
+// 年末 12 月收到 "01-01" 时应指向下一年；解析失败或得到过去时间则返回 nil。
+func parseUTCDateWithoutYear(value string, now time.Time) *time.Time {
+	parts := strings.Fields(value)
+	if len(parts) != 2 {
+		return nil
+	}
+	dateParts := strings.Split(parts[0], "-")
+	clockParts := strings.Split(parts[1], ":")
+	if len(dateParts) != 2 || len(clockParts) != 3 {
+		return nil
+	}
+	month, err := strconv.Atoi(dateParts[0])
+	if err != nil {
+		return nil
+	}
+	day, err := strconv.Atoi(dateParts[1])
+	if err != nil {
+		return nil
+	}
+	hour, err := strconv.Atoi(clockParts[0])
+	if err != nil {
+		return nil
+	}
+	minute, err := strconv.Atoi(clockParts[1])
+	if err != nil {
+		return nil
+	}
+	second, err := strconv.Atoi(clockParts[2])
+	if err != nil {
+		return nil
+	}
+	// time.Date 会把越界字段静默归一化（如 16:99:00 → 17:39），必须显式校验范围，
+	// 否则畸形时间会被当成合法重置点。
+	if month < 1 || month > 12 || day < 1 || day > 31 ||
+		hour < 0 || hour > 23 || minute < 0 || minute > 59 || second < 0 || second > 59 {
+		return nil
+	}
+	nowUTC := now.UTC()
+	candidate := time.Date(nowUTC.Year(), time.Month(month), day, hour, minute, second, 0, time.UTC)
+	if !candidate.After(nowUTC) {
+		candidate = time.Date(nowUTC.Year()+1, time.Month(month), day, hour, minute, second, 0, time.UTC)
+	}
+	if candidate.Month() != time.Month(month) || candidate.Day() != day {
+		return nil
+	}
+	return &candidate
+}
+
 // parseOpenAIRateLimitResetTime 解析 OpenAI 兼容格式的 429 响应，返回重置时间的 Unix 时间戳
 // OpenAI 的 usage_limit_reached 错误格式：
 //
@@ -1815,6 +1895,14 @@ func (s *RateLimitService) persistOpenAICodexSnapshot(ctx context.Context, accou
 //	  }
 //	}
 func parseOpenAIRateLimitResetTime(body []byte) *int64 {
+	// Aliyun token-plan 月配额耗尽：精确 UTC 重置点写在 message 里，且原始
+	// /responses 结构（Throttling.AllocationQuota）没有 error 包装，必须先于
+	// 下方的 error 结构门槛解析，避免只依赖 Retry-After。
+	if resetAt := parseAliyunTokenPlanQuotaReset(body, time.Now()); resetAt != nil {
+		ts := resetAt.Unix()
+		return &ts
+	}
+
 	var parsed map[string]any
 	if err := json.Unmarshal(body, &parsed); err != nil {
 		return nil

@@ -3309,4 +3309,35 @@ data: {"type":"response.failed","error":{"message":"This content was flagged"}}
 
 		require.False(t, openAIForwardErrorAlreadyCommunicated(c, c.Writer.Size(), errors.New("openai cyber_policy: blocked")))
 	})
+
+	// 退化重复熔断：service 层已写出带 upstream_degenerate_repetition 的
+	// response.failed，handler 不得再补一帧 "Upstream request failed"
+	// （线上 6/10 次熔断确实出现了这个重复终止事件，且新帧 sequence_number 归零）。
+	t.Run("degeneration abort after write is already communicated", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodPost, EndpointResponses, nil)
+		before := c.Writer.Size()
+		_, _ = c.Writer.WriteString(`event: response.failed
+data: {"type":"response.failed","response":{"status":"failed","error":{"code":"upstream_degenerate_repetition"}}}
+
+`)
+
+		reported := openAIForwardErrorAlreadyCommunicated(c, before,
+			errors.New("upstream_degenerate_repetition: Upstream output degenerated into a repeated loop"))
+
+		require.True(t, reported)
+	})
+
+	// Size 守卫优先：熔断尚未写出任何字节时（例如首个 chunk 即触发）仍需补写终止事件。
+	t.Run("degeneration abort without write still needs fallback", func(t *testing.T) {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest(http.MethodPost, EndpointResponses, nil)
+
+		reported := openAIForwardErrorAlreadyCommunicated(c, c.Writer.Size(),
+			errors.New("upstream_degenerate_repetition: Upstream output degenerated into a repeated loop"))
+
+		require.False(t, reported)
+	})
 }

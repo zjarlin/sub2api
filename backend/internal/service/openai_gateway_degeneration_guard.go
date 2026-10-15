@@ -2,6 +2,7 @@ package service
 
 import (
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -77,6 +78,37 @@ func (s *OpenAIGatewayService) clampDegenerationProneUpstreamMaxTokens(models []
 		zap.Int64("cap", capValue),
 	)
 	return out, capValue
+}
+
+// recordDegenerationAbort 为一次退化重复熔断记账号+模型维度的短期熔断。
+//
+// 退化是"账号+模型"级别的性质（同一个上游账号转发的同一模型卡在复读），不是整账号
+// 故障：该账号的其它模型仍然可用。所以键必须与调度侧完全同源——调度用
+// isOpenAIAccountModelRuntimeBlocked(account, requestedModel) 判定，内部走
+// canonicalOpenAIAccountSchedulingModel；这里对同一个 requestedModel 做同样换算，
+// 否则键不一致会导致熔断记了却拦不住（模型映射场景尤其明显）。
+//
+// 账号级健康计数由 classifyOpenAIAPIKeyHealthFailure 依据
+// openAIUpstreamDegenerationError 单独累计，这里只做短期隔离。
+func (s *OpenAIGatewayService) recordDegenerationAbort(account *Account, requestedModel string) {
+	if s == nil || account == nil {
+		return
+	}
+	canonicalModel := canonicalOpenAIAccountSchedulingModel(account, requestedModel)
+	if canonicalModel == "" {
+		return
+	}
+	decision := s.recordOpenAIAccountModelTransientFailure(account, canonicalModel, time.Now())
+	if decision.FailureStreak <= 0 {
+		return
+	}
+	logger.L().Warn("openai_degeneration_abort_state",
+		zap.Int64("account_id", account.ID),
+		zap.String("model", openAIAccountModelTransientModel(canonicalModel)),
+		zap.Int("failure_streak", decision.FailureStreak),
+		zap.Int64("cooldown_ms", decision.Cooldown.Milliseconds()),
+		zap.String("block_scope", "account_model"),
+	)
 }
 
 // modelMatchesAnyPrefix 判断任一候选模型名是否以任一配置前缀开头（大小写不敏感）。

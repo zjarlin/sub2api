@@ -48,6 +48,19 @@ func classifyOpenAIAPIKeyHealthFailure(err error) (int, []byte, bool) {
 			return imageErr.StatusCode, []byte(strings.TrimSpace(imageErr.Message)), true
 		}
 	}
+
+	// 退化重复熔断：账号所连上游卡在复读，网关主动中止。它不是 UpstreamFailoverError
+	// （流中途已写出，无法重放），但确实是账号链路的故障，必须计入健康熔断，否则同一
+	// 账号+模型会反复复读、每次白烧几十秒。状态码取 502，与 ops_error_logs 里该事件的
+	// status_code / upstream_status_code 口径一致。
+	var degenerationErr *openAIUpstreamDegenerationError
+	if errors.As(err, &degenerationErr) {
+		var body []byte
+		if degenerationErr != nil {
+			body = []byte(strings.TrimSpace(degenerationErr.message))
+		}
+		return http.StatusBadGateway, body, true
+	}
 	return 0, nil, false
 }
 

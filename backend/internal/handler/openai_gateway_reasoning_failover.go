@@ -1,7 +1,12 @@
 package handler
 
 import (
+	"context"
+
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 	"go.uber.org/zap"
 )
 
@@ -12,9 +17,48 @@ import (
 type openAIPassthroughFailoverState struct {
 	passthroughSeen bool
 	modelFallback   bool
-	// reasoningSourceAccountID 是加密密文所属的上游账号；0 表示未知（无粘性绑定
-	// 且本请求尚未尝试任何账号）。未知时不剥离，交由上游拒绝后的响应式恢复兜底。
+	// 来源账号仅为粘性绑定或首次尝试提供的线索；0 表示未知。
+	// 未知时不剥离，交由上游拒绝后的响应式恢复兜底。
 	reasoningSourceAccountID int64
+	// 同一请求内整理后的明文历史可供后续候选复用，短历史也缓存，避免反复摘要。
+	compactedInput []byte
+}
+
+// 在清理密文之前恢复可读压缩历史，降级时隐式生成新模型可用的纯文本上下文。
+func (h *OpenAIGatewayHandler) prepareOpenAIForwardAttemptBody(
+	ctx context.Context, c *gin.Context, reqLog *zap.Logger, canonicalBody []byte,
+	account *service.Account, state *openAIPassthroughFailoverState,
+) ([]byte, error) {
+	accountChanged := state.reasoningSourceAccountID != 0 && state.reasoningSourceAccountID != account.ID
+	crossMode := state.passthroughSeen && !account.IsOpenAIPassthroughEnabled()
+	if !state.modelFallback && !accountChanged && !crossMode && len(state.compactedInput) == 0 {
+		return h.deriveOpenAIForwardAttemptBody(reqLog, canonicalBody, account, state), nil
+	}
+	prepared := canonicalBody
+	var err error
+	if len(state.compactedInput) > 0 {
+		prepared, err = sjson.SetRawBytes(prepared, "input", state.compactedInput)
+	} else {
+		var compacted bool
+		prepared, compacted, err = h.gatewayService.CompactOpenAIFailoverHistory(ctx, c, account, prepared)
+		if err == nil {
+			state.compactedInput = []byte(gjson.GetBytes(prepared, "input").Raw)
+		}
+		if compacted && reqLog != nil {
+			reqLog.Info("openai.failover_compacted", zap.Int64("account_id", account.ID), zap.Bool("model_fallback", state.modelFallback))
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
+	prepared, err = sjson.DeleteBytes(prepared, "context_management")
+	if err != nil {
+		return nil, err
+	}
+	// 保留客户端会话身份，旧上游回合状态不应随新提示词再次发送。
+	c.Request.Header.Del("x-codex-turn-state")
+	c.Request.Header.Del("x-codex-turn-metadata")
+	return h.deriveOpenAIForwardAttemptBody(reqLog, prepared, account, state), nil
 }
 
 // 每次转发前从不可变的原始请求派生本次请求，并推进尝试状态。

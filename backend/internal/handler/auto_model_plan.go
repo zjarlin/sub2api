@@ -44,13 +44,21 @@ func (h *GatewayHandler) autoModelPlan(ctx context.Context, group *service.Group
 	}
 	canonical := aliases.CanonicalIDs(models)
 	domain := autoModelRequestDomain(body)
+	// ask 是问答专属打包模型组：只影响 ask 链路，auto 与其他打包组保持原样。
+	isAsk := service.AutoModelRequestIsAsk(ctx)
 	sort.SliceStable(canonical, func(i, j int) bool {
 		di, domainI := autoModelDomainPriority(domain, canonical[i])
 		dj, domainJ := autoModelDomainPriority(domain, canonical[j])
-		if domainI != domainJ {
+		if isAsk {
+			// ask 优先免费模型，其次 web 问答适配器，再其他问答模型；同组内沿用性价比顺序。
+			ai := autoModelAskSortKey(canonical[i], platformOfModel(ctx, canonical[i]))
+			bi := autoModelAskSortKey(canonical[j], platformOfModel(ctx, canonical[j]))
+			if ai != bi {
+				return ai < bi
+			}
+		} else if domainI != domainJ {
 			return domainI
-		}
-		if domainI && di != dj {
+		} else if domainI && di != dj {
 			return di < dj
 		}
 		pi, ti := service.AutoModelPriority(ctx, canonical[i])
@@ -66,6 +74,10 @@ func (h *GatewayHandler) autoModelPlan(ctx context.Context, group *service.Group
 	routes := make([]autoModelRouteCandidate, 0, len(canonical))
 	plan := make([]service.AutoModelCandidate, 0, len(canonical))
 	for _, model := range canonical {
+		// ask 链路排除 deepseek-v4.1-flash，避免问答被该模型抢占；auto 链路不受影响。
+		if isAsk && service.ModelAliasesFromContext(ctx).Canonicalize(model) == "deepseek-v4.1-flash" {
+			continue
+		}
 		platforms := service.AutoModelInventoryPlatforms(ctx, model)
 		upstream := model
 		if rule, matched := service.MatchAutoModelRoute(explicit, model, autoModelEndpoint(path)); matched && group.Platform == service.PlatformComposite {
@@ -120,4 +132,29 @@ func (h *GatewayHandler) autoModelPlan(ctx context.Context, group *service.Group
 		}
 	}
 	return routes, plan, nil
+}
+
+// autoModelAskSortKey 计算 ask 虚拟模型组内候选的优先级键，越小越靠前。
+// 第一档：免费模型；第二档：web 问答适配器（Ask 专属平台）；第三档：其他问答模型。
+// 仅在 ask 链路使用，auto 排序不受影响。
+func autoModelAskSortKey(model, platform string) int {
+	if service.AutoModelFreeModelID(model) {
+		return 0
+	}
+	if service.AutoModelWebAskPlatform(platform) {
+		return 1
+	}
+	return 2
+}
+
+// platformOfModel 返回模型的可调度平台，用于 ask 排序判定 web 问答适配器。
+// 优先使用 Auto 清单里登记的来源平台；没有则回退按模型名探测平台。
+func platformOfModel(ctx context.Context, model string) string {
+	if platforms := service.AutoModelInventoryPlatforms(ctx, model); len(platforms) > 0 {
+		return platforms[0]
+	}
+	if platform, ok := service.DetectModelPlatform(model); ok {
+		return platform
+	}
+	return ""
 }

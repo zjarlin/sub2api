@@ -87,6 +87,9 @@ func TestClassifyOpenAIAPIKeyHealthFailureExclusions(t *testing.T) {
 		{name: "rate limit uses dedicated handling", err: &UpstreamFailoverError{StatusCode: http.StatusTooManyRequests, RetryableOnSameAccount: true}},
 		{name: "credential disable path", err: &UpstreamFailoverError{StatusCode: http.StatusUnauthorized, Stage: GatewayFailureStageAccountAuth, Scope: GatewayFailureScopeAccount}},
 		{name: "client request", err: &UpstreamFailoverError{StatusCode: http.StatusBadRequest}},
+		// 退化重复熔断不是 UpstreamFailoverError（流中途已写出，无法换号），但同样
+		// 是账号链路故障，必须计入健康熔断。
+		{name: "degeneration circuit breaker", err: newOpenAIUpstreamDegenerationError("degenerated"), eligible: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

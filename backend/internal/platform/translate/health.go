@@ -78,7 +78,12 @@ func (a *Aggregator) rankedProviders(now time.Time) []Translator {
 		if providerTier(left) != providerTier(right) {
 			return providerTier(left) < providerTier(right)
 		}
-		// 冷却到期的服务优先获得一次恢复机会，避免低分永久饿死。
+		// 稳定可用的服务先消耗请求预算：刚失败过的服务只在没有健康候选时才被探测。
+		// 恢复探测若排在健康服务之前，慢服务会用满单次超时，拖垮整个回合。
+		if failing := a.failing(left); failing != a.failing(right) {
+			return !failing
+		}
+		// 同组内分数高的优先；恢复窗口到期的失败服务优先获得一次恢复机会，避免低分永久饿死。
 		recovering := func(name string) bool {
 			h := a.health[name]
 			return h != nil && h.consecutiveFailures > 0 && !now.Before(h.retryAt) && !h.probing
@@ -91,7 +96,21 @@ func (a *Aggregator) rankedProviders(now time.Time) []Translator {
 	return result
 }
 
+// failing 表示该服务最近连续失败、尚未恢复。
+func (a *Aggregator) failing(name string) bool {
+	h := a.health[name]
+	return h != nil && h.consecutiveFailures > 0
+}
+
+// 离线服务不参与熔断和单探测限制，失败只记录健康信息。
+func offlineProvider(name string) bool {
+	return name == "libretranslate" || name == "hymt"
+}
+
 func (a *Aggregator) cooling(name string, now time.Time) bool {
+	if offlineProvider(name) {
+		return false
+	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	h := a.health[name]
@@ -132,9 +151,11 @@ func (a *Aggregator) record(name string, elapsed time.Duration, success bool, no
 		h.cooldownUntil = time.Time{}
 	} else {
 		h.consecutiveFailures++
-		h.retryAt = now.Add(30 * time.Second)
-		if h.consecutiveFailures >= 3 {
-			h.cooldownUntil = now.Add(30 * time.Second)
+		if !offlineProvider(name) {
+			h.retryAt = now.Add(30 * time.Second)
+			if h.consecutiveFailures >= 3 {
+				h.cooldownUntil = now.Add(30 * time.Second)
+			}
 		}
 	}
 	return healthScore(h)

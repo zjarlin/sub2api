@@ -250,7 +250,7 @@ func accountsWithModelAliases(ctx context.Context, accounts []Account) []Account
 
 // 已保存的旧档位也归一化去重，首次出现的档位与顺序优先。
 func (p *ModelAliasPolicy) NormalizeFallback(policy *ModelFallbackPolicy) *ModelFallbackPolicy {
-	out := &ModelFallbackPolicy{Enabled: policy.Enabled, Tiers: []ModelCapabilityTier{}}
+	out := &ModelFallbackPolicy{Enabled: policy.Enabled, AutoFallback: policy.AutoFallback, Tiers: []ModelCapabilityTier{}}
 	seen := map[string]bool{}
 	for _, tier := range policy.Tiers {
 		next := ModelCapabilityTier{Name: tier.Name}

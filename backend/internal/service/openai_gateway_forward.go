@@ -31,8 +31,8 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	return s.forwardOnce(ctx, c, account, body)
 }
 
-// forwardOnce 保留一次完整转发及原有适配、重试和计量逻辑，辅助调用不再嵌套续跑。
-func (s *OpenAIGatewayService) forwardOnce(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
+// 保留一次完整转发及原有适配、重试和计量逻辑，失效历史由 forwardOnce 统一恢复。
+func (s *OpenAIGatewayService) forwardAttempt(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
 	needsNativeSearchTools := modelRequestNeedsNativeSearchTools(body)
 	c.Set(deepSeekCompactContextKey, false)
 	beginUpstreamResponseModelObservation(c)
@@ -1130,7 +1130,6 @@ func (s *OpenAIGatewayService) forwardOnce(ctx context.Context, c *gin.Context, 
 		firstOutputTimeout = s.openAIFirstOutputTimeout(reasoningEffortValue)
 	}
 
-	httpInvalidEncryptedContentRetryTried := false
 	compactModelFallbackRetried := false
 	responsesToChatFallbackRetried := false
 	agentTaskRecoveryTried := false
@@ -1211,31 +1210,10 @@ func (s *OpenAIGatewayService) forwardOnce(ctx context.Context, c *gin.Context, 
 			}
 			respBody = s.redactAgentIdentitySensitiveBody(ctx, account, respBody)
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
-			if !httpInvalidEncryptedContentRetryTried && resp.StatusCode == http.StatusBadRequest && upstreamCode == "invalid_encrypted_content" {
-				_, decodeErr := ensureReqBody()
-				if decodeErr != nil {
-					return nil, decodeErr
+			if resp.StatusCode == http.StatusBadRequest {
+				if retryErr := newOpenAIStaleReasoningRetrySignal(c, respBody); retryErr != nil {
+					return nil, retryErr
 				}
-				invalidDigests := collectOpenAIEncryptedContentDigestsRaw(lineageEntryBody)
-				// 上游已明确拒绝推理历史，整块删除密文项和仅剩摘要的项，避免混合输入漏清。
-				if staleBody, staleChanged, staleErr := DropOpenAIStaleReasoningInputItems(body); staleErr != nil {
-					return nil, fmt.Errorf("drop stale reasoning items: %w", staleErr)
-				} else if staleChanged {
-					body = staleBody
-					requestView = newOpenAIRequestView(body)
-					reqBody = nil
-					if len(invalidDigests) > 0 {
-						if lineageSessionHash == "" {
-							lineageSessionHash = s.GenerateSessionHash(c, lineageEntryBody)
-						}
-						s.markOpenAIWSInvalidEncryptedContentLineage(lineageGroupID, lineageSessionHash, invalidDigests)
-					}
-					httpInvalidEncryptedContentRetryTried = true
-					rejectedFieldRetryState.remember(body)
-					logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Retrying non-WSv2 request once after invalid_encrypted_content by dropping stale reasoning items (account: %s)", account.Name)
-					continue
-				}
-				logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Skip non-WSv2 invalid_encrypted_content retry because encrypted reasoning items are missing (account: %s)", account.Name)
 			}
 			if retryBody, retry := deepSeekReasoningReplayRetry(c, account, resp.StatusCode, body, respBody); retry {
 				body = retryBody

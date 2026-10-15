@@ -62,7 +62,11 @@ func TestTranslationChainPreservesEveryFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, attempt := range chain.Attempts {
-		if attempt.Status != "cooldown" || attempt.Reason == "" {
+		expected := "cooldown"
+		if attempt.Provider == "hymt" {
+			expected = "failed"
+		}
+		if attempt.Status != expected || attempt.Reason == "" {
 			t.Fatal(attempt)
 		}
 	}

@@ -246,3 +246,61 @@ func TestAutoModelRoutingPolicyCopiesBoundAliases(t *testing.T) {
 	require.False(t, AutoModelAllowed(ctx, "provider/expensive"))
 	require.True(t, AutoModelAllowed(ctx, "gpt-5.5", "provider/changed"))
 }
+
+func TestModelFallbackAutoSentinelCoversUntieredAndExhaustedTiers(t *testing.T) {
+	// 未评级模型没有任何档位候选，AutoFallback 开启时仍要给出 auto 兜底。
+	withAuto := &ModelFallbackPolicy{Enabled: true, AutoFallback: true, Tiers: []ModelCapabilityTier{
+		{Name: "high", Models: []string{"top"}},
+		{Name: "guard", Models: []string{"meta/llama-guard-4-12b"}},
+	}}
+	guardCandidates := withAuto.Candidates("meta/llama-guard-4-12b")
+	require.NotEmpty(t, guardCandidates)
+	require.Equal(t, ModelFallbackCandidate{Model: ModelFallbackAutoModel, Tier: "auto"},
+		guardCandidates[len(guardCandidates)-1], "guard 档候选耗尽后以 auto 收尾")
+
+	untiered := withAuto.Candidates("totally-unknown-model")
+	require.Equal(t, []ModelFallbackCandidate{{Model: ModelFallbackAutoModel, Tier: "auto"}}, untiered,
+		"未评级模型直接以 auto 作为唯一候选")
+
+	// 关闭 AutoFallback 时恢复旧行为：未评级模型不降级。
+	withoutAuto := *withAuto
+	withoutAuto.AutoFallback = false
+	require.Empty(t, withoutAuto.Candidates("totally-unknown-model"))
+	// 已评级模型仍然只在档位内互降，不带 auto 尾巴。
+	for _, candidate := range withoutAuto.Candidates("meta/llama-guard-4-12b") {
+		require.NotEqual(t, ModelFallbackAutoModel, candidate.Model)
+	}
+}
+
+func TestModelFallbackPolicyGuardTierKeepsGuardModelsTogether(t *testing.T) {
+	policy := &ModelFallbackPolicy{Enabled: true, Tiers: []ModelCapabilityTier{
+		{Name: "旗舰", Models: []string{"gpt-6-astra"}},
+		{Name: "内容安全轻量", Models: []string{
+			"meta/llama-guard-4-12b",
+			"nvidia/llama-3.1-nemoguard-8b-content-safety",
+			"nvidia/llama-3.1-nemoguard-8b-topic-control",
+			"nvidia/llama-3.1-nemotron-safety-guard-8b-v3",
+		}},
+	}}
+	models := policy.Candidates("meta/llama-guard-4-12b")
+	// guard 档内部互为降级目标，且不向上借通用旗舰模型。
+	require.Equal(t, "nvidia/llama-3.1-nemoguard-8b-content-safety", models[0].Model)
+	require.Equal(t, "内容安全轻量", models[0].Tier)
+	require.Equal(t, "gpt-6-astra", models[len(models)-1].Model)
+}
+
+func TestModelFallbackPolicyRejectsAutoSentinelInTier(t *testing.T) {
+	policy := &ModelFallbackPolicy{Enabled: true, Tiers: []ModelCapabilityTier{
+		{Name: "x", Models: []string{ModelFallbackAutoModel}},
+	}}
+	require.Error(t, policy.Validate())
+}
+
+func TestDefaultModelFallbackPolicyDeclaresGuardTierAndAutoFallback(t *testing.T) {
+	policy := DefaultModelFallbackPolicy()
+	require.True(t, policy.AutoFallback)
+	require.NoError(t, policy.Validate())
+	last := policy.Tiers[len(policy.Tiers)-1]
+	require.Equal(t, "内容安全轻量", last.Name)
+	require.Contains(t, last.Models, "meta/llama-guard-4-12b")
+}

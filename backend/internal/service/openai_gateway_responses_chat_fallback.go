@@ -327,12 +327,13 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 				accountID = account.ID
 			}
 			message := degenerationMessage(degenerated)
+			s.recordDegenerationAbort(account, originalModel)
 			writeEvents([]apicompat.ResponsesStreamEvent{{
 				Type: "response.failed", SequenceNumber: state.SequenceNumber,
 				Response: &apicompat.ResponsesResponse{
 					ID: state.ResponseID, Object: "response", CreatedAt: state.Created,
 					Model: originalModel, Status: "failed", Output: []apicompat.ResponsesOutput{},
-					Error: &apicompat.ResponsesError{Code: "upstream_degenerate_repetition", Message: message},
+					Error: &apicompat.ResponsesError{Code: OpenAIUpstreamDegenerationCode, Message: message},
 				},
 			}})
 			logger.L().Warn("openai responses chat fallback: aborted degenerate upstream stream",
@@ -359,7 +360,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 				Stream:                      true,
 				Duration:                    time.Since(startTime),
 				FirstTokenMs:                firstTokenMs,
-			}, fmt.Errorf("upstream_degenerate_repetition: %s", message)
+			}, newOpenAIUpstreamDegenerationError(message)
 		}
 		// 首次输出前的传输中断仍可透明换号；已提交响应后保留原失败与部分用量。
 		if scan.Err != nil && !state.CreatedSent {

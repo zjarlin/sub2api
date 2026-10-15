@@ -633,10 +633,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	var passthroughFailoverState openAIPassthroughFailoverState
-	// 加密 reasoning/compaction 密文由签发它的上游账号/组织持有，换号重放会被上游以
-	// invalid_encrypted_content 整包拒绝。以会话粘性绑定为"密文所属账号"的见证：粘性
-	// 绑定即上一轮实际服务的账号，本轮若因粘性逃逸调度到别的账号，deriveOpenAIForwardAttemptBody
-	// 会整块剔除这批密文，避免必然失败的首次请求。无绑定时留 0，由请求内首个账号接手。
+	// 粘性绑定只用于推测历史来源，不能证明密文的账号/组织归属。
+	// 换号时先恢复可读历史并生成可移植摘要，避免再次重放可能失效的密文。
+	// 无绑定时保留首次请求，由上游明确拒绝后的恢复路径兜底。
 	if stickyAccountID := h.gatewayService.StickySessionAccountID(c.Request.Context(), apiKey.GroupID, sessionHash); stickyAccountID > 0 {
 		passthroughFailoverState.reasoningSourceAccountID = stickyAccountID
 	}
@@ -656,7 +655,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			return false
 		}
 		passthroughFailoverState.modelFallback = true
-		// 降级换模型后原密文既跨账号也跨模型，重置所有者，由降级后首个账号接手并触发剥离。
+		// 降级状态及已有摘要必须跨模型保留；来源账号由下一次尝试重新记录。
 		passthroughFailoverState.reasoningSourceAccountID = 0
 		reqModel, forwardBody, channelMapping = attempt.Model, attempt.Body, attempt.Mapping
 		forwardModel = gjson.GetBytes(forwardBody, "model").String()
@@ -669,7 +668,6 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		switchBudget.requireCompatible = false
 		lastFailoverErr = nil
 		oauth429FailoverState = service.OpenAIOAuth429FailoverState{}
-		passthroughFailoverState = openAIPassthroughFailoverState{}
 		busyRetry = concurrencyRetry{}
 		poolRound.reset(forwardModel)
 		return true
@@ -854,16 +852,18 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		// 用扣除非语义心跳字节的口径快照：心跳注释不构成语义响应，
 		// 不能因心跳字节变化而放弃 failover 换号（#3887）。
 		writerSizeBeforeForward := service.OpenAICompactKeepaliveAdjustedWrittenSize(c)
-		// 跨 passthrough 边界的 failover：从 Kiro 等透传账号切到 Bedrock 等非透传账号前，
-		// 从不可变的 canonical forwardBody 派生本次尝试 body 并整块剔除上游私有的加密
-		// reasoning item（含耦合的 id/summary），避免非透传上游 400 拒绝 Kiro reasoning 形态。
-		attemptBody := h.deriveOpenAIForwardAttemptBody(reqLog, forwardBody, account, &passthroughFailoverState)
+		// 换号或降级前从原始请求准备明文历史；辅助摘要与主请求共用账号槽位，
+		// 摘要失败也必须释放槽位，并按原有失败分类决定是否尝试下一候选。
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
 			}()
+			attemptBody, prepareErr := h.prepareOpenAIForwardAttemptBody(c.Request.Context(), c, reqLog, forwardBody, account, &passthroughFailoverState)
+			if prepareErr != nil {
+				return nil, prepareErr
+			}
 			return h.gatewayService.Forward(c.Request.Context(), c, account, attemptBody)
 		}()
 		h.recordVisionFallbackUsage(c, apiKey, subscription)
@@ -3909,9 +3909,14 @@ func openAIForwardErrorAlreadyCommunicated(c *gin.Context, writerSizeBeforeForwa
 	}
 
 	msg := strings.TrimSpace(err.Error())
+	// 退化重复熔断同理：service 层已经把带 upstream_degenerate_repetition 的
+	// response.failed 终止事件写给客户端，这里再补一帧通用
+	// "Upstream request failed" 会让严格客户端读到无意义的第二个终止事件
+	// （sequence_number 归零、并覆盖掉可编程判断的错误码）。
 	for _, prefix := range []string{
 		"upstream response failed:",
 		"non-streaming openai protocol error:",
+		service.OpenAIUpstreamDegenerationCode + ":",
 	} {
 		if strings.HasPrefix(msg, prefix) {
 			return true

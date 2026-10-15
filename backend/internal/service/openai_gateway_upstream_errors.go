@@ -607,10 +607,25 @@ func isOpenAIUpstreamAccessStateError(_ string, body []byte) bool {
 	}
 	for _, path := range []string{"error.code", "response.error.code", "detail.code", "code"} {
 		if isOpenAIUpstreamAccessStateCode(gjson.GetBytes(body, path).String()) {
+			// A quota-exhaustion code that carries its own future reset instant is
+			// a timed rate limit, not a dead credential. Durable blocking would
+			// disable the account permanently and discard the provider-supplied
+			// reset, so route those bodies through the timed 429 cooldown path.
+			if isOpenAIUpstreamAccessStateCodeWithReset(body) {
+				continue
+			}
 			return true
 		}
 	}
 	return false
+}
+
+// isOpenAIUpstreamAccessStateCodeWithReset reports whether the body carries a
+// provider-supplied reset instant for its quota-exhaustion code. Only the
+// explicit Aliyun token-plan shape qualifies; unrelated quota codes keep the
+// existing durable-block behavior.
+func isOpenAIUpstreamAccessStateCodeWithReset(body []byte) bool {
+	return parseAliyunTokenPlanQuotaReset(body, time.Now()) != nil
 }
 
 func isOpenAIUpstreamAccessStateCode(value string) bool {

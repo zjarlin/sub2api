@@ -444,6 +444,11 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			probeBody := s.readUpstreamErrorBody(resp)
 			_ = resp.Body.Close()
 			resp.Body = io.NopCloser(bytes.NewReader(probeBody))
+			if resp.StatusCode == http.StatusBadRequest {
+				if retryErr := newOpenAIStaleReasoningRetrySignal(c, probeBody); retryErr != nil {
+					return nil, retryErr
+				}
+			}
 			if retryBody, retry := deepSeekReasoningReplayRetry(c, account, resp.StatusCode, body, probeBody); retry {
 				body = retryBody
 				reasoningEffort = new(string)
@@ -2214,6 +2219,9 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				}
 				outputStarted := openAIStreamClientOutputStarted(c, clientOutputStarted)
 				if !outputStarted && !cyberHit {
+					if retryErr := newOpenAIStaleReasoningRetrySignal(c, dataBytes); retryErr != nil {
+						return resultWithUsage(), retryErr
+					}
 					if compactErr := newOpenAICompactFallbackSignal(c, dataBytes, failedMessage); compactErr != nil {
 						return resultWithUsage(), compactErr
 					}
@@ -2439,6 +2447,9 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	if isEventStreamResponse(resp.Header) {
 		return s.handlePassthroughSSEToJSON(resp, c, account, body, originalModel, mappedModel)
 	}
+	if retryErr := newOpenAIStaleReasoningRetrySignal(c, body); retryErr != nil {
+		return nil, retryErr
+	}
 	body = s.preserveDeepSeekReasoning(c, account, body)
 
 	usage := &OpenAIUsage{}
@@ -2496,6 +2507,9 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 	bodyText := string(body)
 	terminalType, terminalPayload, terminalOK := extractOpenAISSETerminalEvent(bodyText)
 	if terminalOK && (terminalType == "response.failed" || terminalType == "error") {
+		if retryErr := newOpenAIStaleReasoningRetrySignal(c, terminalPayload); retryErr != nil {
+			return nil, retryErr
+		}
 		msg := extractOpenAISSEErrorMessage(terminalPayload)
 		if msg == "" {
 			msg = "Upstream compact response failed"

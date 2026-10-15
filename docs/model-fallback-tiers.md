@@ -4,11 +4,11 @@
 
 配置存放在 `settings.model_fallback_policy`，通过管理端 `GET/PUT /api/v1/admin/settings/model-fallback` 读写。推荐配置通过 `GET /api/v1/admin/settings/model-fallback/preset` 获取，载入后需要保存。未保存配置时使用内置推荐；关闭开关后仅保留同名账号重试。通用设置的保存不会覆盖此独立配置。
 
-每档包含名称与精确模型 ID，档位数组由高到低排列。手动指定模型的同名账号重试耗尽后，先按该档的填写顺序尝试其他模型，再逐档往下；仍未成功时，从原请求最近的高档开始逐档向上补偿，包含最高档。补偿模型继续通过分组权限、请求能力和利润检查，费用按实际模型记录。等价 ID 在“全局模型同义词”中配置，档位使用规范 ID，执行时自动归一化去重；未评级的模型不猜测档位。一次请求固定候选清单，每个模型最多进入一次，配置最多 12 档、256 个模型。客户端取消和既有超时仍立即生效。
+每档包含名称与精确模型 ID，档位数组由高到低排列。手动指定模型的同名账号重试耗尽后，先按该档的填写顺序尝试其他模型，再逐档往下；仍未成功时，从原请求最近的高档开始逐档向上补偿，包含最高档。补偿模型继续通过分组权限、请求能力和利润检查，费用按实际模型记录。等价 ID 在“全局模型同义词”中配置，档位使用规范 ID，执行时自动归一化去重；未评级的模型不猜测档位。开启 `auto_fallback` 后，档位候选耗尽（含未评级模型本身没有任何档位候选）会在降级链末尾追加虚拟模型 `auto`，由 Auto 的完整候选与性价比顺序挑选真实模型承接；`auto` 展开出的候选是分组目录中真实存在的文本生成模型，并沿用它自己的黑名单、白名单与成本边界，因此 guard/safety 等专用模型不会成为自动候选。关闭 `auto_fallback` 恢复“未评级模型不降级”的旧行为。一次请求固定候选清单，每个模型最多进入一次，配置最多 12 档、256 个模型。客户端取消和既有超时仍立即生效。
 
 新增渠道后需要核对上游目录里的精确 ID。独立账号测试成功只说明该账号接受传入的 ID，不代表规范 ID 已经能匹配到它。例如 `deepseek/deepseek-v4.1-flash` 必须显式归入 `deepseek-v4.1-flash` 的同义词组；转发仍保留渠道要求的 `deepseek/` 前缀。版本、`fast`、`vision-exp` 等变体不会自动合并。
 
-迁移 `246_deepseek_provider_model_aliases.sql` 为 V4 Flash、V4 Pro、V4.1 Flash 补齐上述前缀。迁移 `249_complete_model_aliases.sql` 补齐 V4.1 Flash 的新名及大小写写法、MiniMax M3 的大小写写法，并把 MiniMax M2.7 的 `cn:` 与大写写法归到 `minimax-m2.7`。迁移 `260_deepseek_v41_flash_hyphen_alias.sql` 补齐 `deepseek-v4-1-flash` 这种把版本点号写成短横线的写法。迁移 `261_deepseek_v4_family_prefer_v41.sql` 把 V4 Flash、V4 Pro 并入 V4.1 Flash 规范组，顺序为 V4.1、V4 Flash、V4 Pro，使账号不支持 V4.1 时自动改用其可用的兼容 ID。迁移 `262_prioritize_glm_qwen_fallback.sql` 在同时包含 V4.1 Flash 与 GPT-5.6 Terra 的档位中，把降级顺序调整为 V4.1 Flash、GLM、Qwen、其他模型、GPT-5.6 Terra。迁移 `263_add_glm52_sensenova_fallback.sql` 在已有 GLM-5.2 的档位中，把 `sensenova-6.8-flash-lite` 紧跟其后纳入同一降级路线。迁移不改变档位、账号映射或管理员已分配的别名；空同义词策略保持为空。后续变更新增迁移，不修改已执行迁移的校验和。
+迁移 `246_deepseek_provider_model_aliases.sql` 为 V4 Flash、V4 Pro、V4.1 Flash 补齐上述前缀。迁移 `249_complete_model_aliases.sql` 补齐 V4.1 Flash 的新名及大小写写法、MiniMax M3 的大小写写法，并把 MiniMax M2.7 的 `cn:` 与大写写法归到 `minimax-m2.7`。迁移 `260_deepseek_v41_flash_hyphen_alias.sql` 补齐 `deepseek-v4-1-flash` 这种把版本点号写成短横线的写法。迁移 `261_deepseek_v4_family_prefer_v41.sql` 把 V4 Flash、V4 Pro 并入 V4.1 Flash 规范组，顺序为 V4.1、V4 Flash、V4 Pro，使账号不支持 V4.1 时自动改用其可用的兼容 ID。迁移 `262_prioritize_glm_qwen_fallback.sql` 在同时包含 V4.1 Flash 与 GPT-5.6 Terra 的档位中，把降级顺序调整为 V4.1 Flash、GLM、Qwen、其他模型、GPT-5.6 Terra。迁移 `263_add_glm52_sensenova_fallback.sql` 在已有 GLM-5.2 的档位中，把 `sensenova-6.8-flash-lite` 紧跟其后纳入同一降级路线。迁移 `270_model_fallback_guard_tier_and_auto.sql` 为 `meta/llama-guard-4-12b` 等内容安全小模型追加以「内容安全轻量」为名的档位（同类互降），并开启 `auto_fallback`；仅在管理员策略已存在时生效，已存在同名档位时幂等跳过。迁移不改变档位、账号映射或管理员已分配的别名；空同义词策略保持为空。后续变更新增迁移，不修改已执行迁移的校验和。
 
 默认同义词组的规范 ID 如下；`GET /v1/models` 和 Codex 模型清单在最终写出时按这些组去重，旧 ID 仍可用于请求。管理员修改过的 `model_aliases` 以实际设置为准。
 
@@ -142,7 +142,7 @@ HTTP 200 不等于请求成功：SSE `response.failed` 或请求级流内错误�
 
 - 索引缓存的是候选账号 ID，不是固定分数排序。目录指纹仍扫描当前分组快照，复杂度为 O(N)；负载和综合分按请求重新计算。模型成功率与首字延迟仍在进程内，多实例评分尚未统一。
 - 成本因子目前只能使用有来源的账号计费倍率，未接入所有兼容供应商的逐模型真实结算成本。现有账号探针仅提供倍率，账号统计中的价格未证明是上游成本；没有可信数据的候选保持中性，成本权重为零时不生效。
-- 手动指定模型的档位降级顺序取自管理员配置，未评级模型不会自动猜测下一档。Auto 使用上述完整候选和性价比顺序；未知协议能力不能视为已验证兼容。有状态 WebSocket、专用图片和向量请求仍不参与文本档位降级。
+- 手动指定模型的档位降级顺序取自管理员配置，未评级模型不会自动猜测下一档；但开启 `auto_fallback` 后，档位耗尽会以 `auto` 作为最后候选，由 Auto 用完整候选和性价比顺序承接，因此已评级与未评级模型最终都能落到可用的文本生成模型。未知协议能力不能视为已验证兼容。有状态 WebSocket、专用图片和向量请求仍不参与文本档位降级。
 - 半开探针依赖 Redis 租约和续租。持续网络分区或进程暂停超过租约时，其他实例可能接管；现有转发接口不能在失去租约后强制终止旧在途请求，因此不能声称在这些故障下仍保证实际请求绝不重叠。
 
 本地回归覆盖实际 HTTP 两轮完整失败触发冷却、三种入站协议、SSE 失败、渠道映射变更隔离、失效会话继续选号和取消边界。Redis 测试覆盖两个真实缓存客户端及两个网关实例共用许可、唯一探针、长请求续租、所有者保护和断连放行。测试与 `-race` 只验证本地源码和进程内 HTTP 链路，不代表生产已部署或真实供应商请求已验证。

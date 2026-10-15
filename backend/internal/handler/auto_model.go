@@ -72,8 +72,9 @@ func (h *GatewayHandler) prependAvailableVirtualModels(ctx context.Context, grou
 	return prependVirtualModels(models, virtualModels...)
 }
 
+// 虚拟模型判定委托服务层，保证 Auto 中间件、模型清单与档位降级共用同一集合。
 func isVirtualModelID(model string) bool {
-	return model == autoModelID || model == askModelID || isModelTierVirtualModel(model)
+	return service.IsVirtualModelID(model)
 }
 
 // ask 只调度文本/视觉对话适配器。客户端函数工具不能交给文本模型，
@@ -169,37 +170,14 @@ func (h *GatewayHandler) autoModelEligibleCandidates(ctx context.Context, group 
 	return filtered
 }
 
+// 文本候选判定委托服务层，保证 Auto 中间件与档位降级的 auto 展开使用同一条规则。
 func autoModelTextCandidate(model string) bool {
-	platform, _ := service.DetectModelPlatform(model)
-	if isVirtualModelID(model) || strings.Contains(model, "*") || service.IsSystemOneDecisionPlatform(platform) {
-		return false
-	}
-	name := strings.ToLower(model)
-	for _, specialized := range []string{
-		"embed", "esmfold", "moderation", "image", "audio", "video", "tts-", "whisper", "transcri", "dall-e",
-		"translate", "translation", "safety", "guard", "calibration", "rerank", "re-rank", "classifier", "reward-model", "parser",
-		// 决策/分类模型只做单次前向判定，不产出文本；供应商聚合目录常把它
-		// 当作普通聊天模型登记，纳入 Auto 只会把文本请求打到不支持的端点。
-		"decision-model",
-	} {
-		if strings.Contains(name, specialized) {
-			return false
-		}
-	}
-	return true
+	return service.AutoModelTextCandidate(model)
 }
 
+// 文本平台判定委托服务层，Auto 中间件与档位降级的 auto 展开共用同一规则。
 func autoModelTextPlatform(platform string) bool {
-	switch platform {
-	case service.PlatformOpenAI, service.PlatformGrok, service.PlatformKimi,
-		service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax,
-		service.PlatformOpenCodeGo, service.PlatformKilo, service.PlatformDoubao, service.PlatformDeepseekWeb, service.PlatformMadao, service.PlatformCursor, service.PlatformWindsurf, service.PlatformTraework,
-		service.PlatformWorkbuddy, service.PlatformVibex, service.PlatformZcode,
-		service.PlatformQoder:
-		return true
-	default:
-		return false
-	}
+	return service.AutoModelTextPlatform(platform)
 }
 
 func (h *GatewayHandler) autoModelAvailable(ctx context.Context, group *service.Group, models []string) bool {

@@ -590,3 +590,102 @@ func TestCalculateOpenAI429ResetTime_5MinFallbackWhenNoReset(t *testing.T) {
 		t.Errorf("expected nil when no reset_after_seconds, got %v", resetAt)
 	}
 }
+
+func TestParseAliyunTokenPlanQuotaReset(t *testing.T) {
+	const responsesBody = `{"code":"Throttling.AllocationQuota","message":"Your token-plan 1-month quota has been exhausted. The quota will reset at 11-08 16:00:00 UTC.","request_id":"req-1"}`
+	const chatBody = `{"error":{"message":"Your token-plan 1-month quota has been exhausted. The quota will reset at 11-08 16:00:00 UTC.","type":"insufficient_quota","code":"insufficient_quota"}}`
+
+	now := time.Date(2026, 10, 14, 15, 30, 0, 0, time.UTC)
+	want := time.Date(2026, 11, 8, 16, 0, 0, 0, time.UTC)
+	for name, body := range map[string][]byte{
+		"responses_shape": []byte(responsesBody),
+		"chat_shape":      []byte(chatBody),
+	} {
+		t.Run(name, func(t *testing.T) {
+			reset := parseAliyunTokenPlanQuotaReset(body, now)
+			require.NotNil(t, reset)
+			require.True(t, want.Equal(*reset))
+			parsed := parseOpenAIRateLimitResetTime(body)
+			require.NotNil(t, parsed)
+			require.Equal(t, want.Unix(), *parsed)
+		})
+	}
+
+	t.Run("year_rollover", func(t *testing.T) {
+		body := []byte(`{"code":"Throttling.AllocationQuota","message":"Your token-plan 1-month quota has been exhausted. The quota will reset at 01-01 00:00:00 UTC."}`)
+		december := time.Date(2026, 12, 31, 23, 59, 0, 0, time.UTC)
+		reset := parseAliyunTokenPlanQuotaReset(body, december)
+		require.NotNil(t, reset)
+		require.True(t, time.Date(2027, 1, 1, 0, 0, 0, 0, time.UTC).Equal(*reset))
+	})
+
+	t.Run("invalid_and_unrelated", func(t *testing.T) {
+		for _, body := range []string{
+			`{"code":"Throttling.AllocationQuota","message":"quota exhausted"}`,
+			`{"code":"Throttling.AllocationQuota","message":"The quota will reset at 02-30 16:00:00 UTC."}`,
+			`{"code":"Throttling.AllocationQuota","message":"Your token-plan 1-month quota has been exhausted. The quota will reset at 11-08 16:99:00 UTC."}`,
+			`{"code":"Throttling.AllocationQuota","message":"Your token-plan 1-month quota has been exhausted. The quota will reset at 11-08 25:00:00 UTC."}`,
+			`{"error":{"code":"insufficient_quota","message":"Your token-plan 1-month quota has been exhausted. The quota will reset at 11-08 16:00:00 CST."}}`,
+			`{"code":"rate_limit_error","message":"Your token-plan 1-month quota has been exhausted. The quota will reset at 11-08 16:00:00 UTC."}`,
+			`{"error":{"message":"User asked: your token-plan 1-month quota has been exhausted. The quota will reset at 11-08 16:00:00 UTC."}}`,
+		} {
+			require.Nil(t, parseAliyunTokenPlanQuotaReset([]byte(body), now), body)
+			require.Nil(t, parseOpenAIRateLimitResetTime([]byte(body)), body)
+		}
+	})
+}
+
+func TestAliyunTokenPlanQuotaUsesTimedRateLimitNotAccessState(t *testing.T) {
+	const body = `{"code":"Throttling.AllocationQuota","message":"Your token-plan 1-month quota has been exhausted. The quota will reset at 11-08 16:00:00 UTC.","request_id":"req-1"}`
+	require.False(t, isOpenAIUpstreamAccessStateError("", []byte(body)))
+	require.False(t, isOpenAIUpstreamAccessStateCodeWithReset([]byte(`{"code":"insufficient_quota","message":"quota exhausted"}`)))
+	require.True(t, isOpenAIUpstreamAccessStateError("", []byte(`{"error":{"code":"insufficient_quota","message":"quota exhausted"}}`)))
+
+	repo := &aliyunTokenPlanQuotaRepoStub{}
+	rateLimits := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	svc := &OpenAIGatewayService{rateLimitService: rateLimits}
+	account := &Account{ID: 883, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true}
+	headers := http.Header{"Retry-After": {"120"}}
+	require.False(t, svc.handleOpenAIAccountUpstreamError(context.Background(), account, http.StatusTooManyRequests, headers, []byte(body), "deepseek-v4-flash-0731"))
+	require.Zero(t, repo.setErrorCalls, "quota reset must not permanently disable the account")
+	require.Zero(t, repo.tempCalls)
+	require.Equal(t, 1, repo.rateLimitCalls)
+	require.Equal(t, time.Date(2026, 11, 8, 16, 0, 0, 0, time.UTC), repo.lastRateLimitReset.UTC())
+}
+
+// aliyunTokenPlanQuotaRepoStub 记录 429 冷却与永久禁用两条路径，用于区分
+// 带未来重置点的配额错误究竟走定时冷却还是账号级 SetError。
+type aliyunTokenPlanQuotaRepoStub struct {
+	AccountRepository
+	tempCalls          int
+	setErrorCalls      int
+	rateLimitCalls     int
+	lastRateLimitReset time.Time
+}
+
+func (r *aliyunTokenPlanQuotaRepoStub) SetTempUnschedulable(context.Context, int64, time.Time, string) error {
+	r.tempCalls++
+	return nil
+}
+
+func (r *aliyunTokenPlanQuotaRepoStub) SetError(context.Context, int64, string) error {
+	r.setErrorCalls++
+	return nil
+}
+
+func (r *aliyunTokenPlanQuotaRepoStub) SetRateLimited(_ context.Context, _ int64, resetAt time.Time) error {
+	r.rateLimitCalls++
+	r.lastRateLimitReset = resetAt
+	return nil
+}
+
+func TestHandle429AliyunTokenPlanBodyReset(t *testing.T) {
+	repo := &rateLimit429AccountRepoStub{}
+	svc := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+	account := &Account{ID: 883, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	body := []byte(`{"code":"Throttling.AllocationQuota","message":"Your token-plan 1-month quota has been exhausted. The quota will reset at 11-08 16:00:00 UTC.","request_id":"req-1"}`)
+	svc.handle429(context.Background(), account, nil, body)
+	require.Equal(t, 1, repo.rateLimitCalls)
+	reset := repo.lastRateLimitReset.UTC()
+	require.Equal(t, time.Date(2026, 11, 8, 16, 0, 0, 0, time.UTC), reset)
+}

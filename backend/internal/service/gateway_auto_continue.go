@@ -72,7 +72,7 @@ func (s *OpenAIGatewayService) forwardWithAutoContinue(ctx context.Context, c *g
 		result, err := s.forwardOnce(ctx, c, account, body)
 		contextError := autoContinueContextError(writer)
 		if !compacted && contextError && ctx.Err() == nil {
-			nextBody, decision, compactErr := s.compactAutoContinue(ctx, c, account, body, "")
+			nextBody, decision, compactErr := s.compactAutoContinue(ctx, c, account, body, "", false)
 			if compactErr == nil {
 				compactErr = s.recordAutoContinueDecision(ctx, c, body, decision)
 			}
@@ -137,7 +137,7 @@ func (s *OpenAIGatewayService) forwardWithAutoContinue(ctx context.Context, c *g
 		var decisionErr error
 		needsCompaction := !compacted && len(candidate.Questions) == 0 && autoContinueNeedsCompaction(candidate.Text)
 		if needsCompaction {
-			nextBody, decision, decisionErr = s.compactAutoContinue(ctx, c, account, body, candidate.Text)
+			nextBody, decision, decisionErr = s.compactAutoContinue(ctx, c, account, body, candidate.Text, false)
 		} else {
 			decision, decisionErr = s.decideAutoContinue(ctx, c, account, body, candidate)
 		}

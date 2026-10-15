@@ -208,3 +208,51 @@ func TestAutoModelSchedulerSkipsHighestTierAccountMappings(t *testing.T) {
 		}
 	}
 }
+
+func TestModelFallbackAutoSentinelExpandsToRankedAutoCandidates(t *testing.T) {
+	repo := newMockSettingRepo()
+	settings := NewSettingService(repo, nil)
+	require.NoError(t, settings.SetModelFallbackPolicy(context.Background(), &ModelFallbackPolicy{
+		Enabled: true, AutoFallback: true,
+		Tiers: []ModelCapabilityTier{
+			{Name: "highest", Models: []string{"gpt-6-astra"}},
+			{Name: "guard", Models: []string{"meta/llama-guard-4-12b"}},
+		},
+	}))
+	// 账号目录里同时有：guard 兄弟模型（不该被 auto 选中）、决策/专有模型（被过滤）、
+	// 以及两个档位内文本模型（应按 Auto 性价比顺序作为兜底候选）。
+	svc := &OpenAIGatewayService{
+		settingService: settings,
+		accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{autoRoutingTestAccount(1, map[string]any{
+			"meta/llama-guard-4-12b":                       "meta/llama-guard-4-12b",
+			"nvidia/llama-3.1-nemoguard-8b-content-safety": "nvidia/llama-3.1-nemoguard-8b-content-safety",
+			"gpt-5.3-codex":                                "gpt-5.3-codex",
+			"gpt-5.5":                                      "gpt-5.5",
+			"text-embedding-3-large":                       "text-embedding-3-large",
+		})}},
+	}
+	groupID := int64(10)
+	body := []byte(`{"messages":[{"role":"user","content":"hi"}]}`)
+
+	// 显式请求 guard 模型：档位内没有兄弟候选可用（未评级 guard 兄弟被 auto 文本判定排除），
+	// 末尾 auto 兜底展开为可用的通用文本模型。
+	candidates, err := svc.ModelFallbackCandidates(context.Background(), &groupID, "meta/llama-guard-4-12b", body)
+	require.NoError(t, err)
+	require.NotEmpty(t, candidates)
+	last := candidates[len(candidates)-1]
+	require.Equal(t, ModelFallbackAutoModel, last.Tier)
+	require.Contains(t, []string{"gpt-5.3-codex", "gpt-5.5"}, last.Model)
+	// guard/embedding 一律不能出现在降级链里。
+	for _, candidate := range candidates {
+		require.NotContains(t, candidate.Model, "guard")
+		require.NotContains(t, candidate.Model, "embedding")
+	}
+
+	// 未评级模型没有任何档位候选，auto 兜底独立成立。
+	untiered, err := svc.ModelFallbackCandidates(context.Background(), &groupID, "totally-unknown-model", body)
+	require.NoError(t, err)
+	require.NotEmpty(t, untiered)
+	for _, candidate := range untiered {
+		require.Equal(t, ModelFallbackAutoModel, candidate.Tier)
+	}
+}

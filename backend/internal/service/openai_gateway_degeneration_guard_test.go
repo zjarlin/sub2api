@@ -154,6 +154,12 @@ func TestForwardResponses_AbortsDegenerateUpstreamStream(t *testing.T) {
 	require.NotNil(t, result)
 	require.True(t, result.Stream)
 
+	// 熔断必须能被账号健康熔断器归因（502 可计数），否则账号不会被降权，
+	// 同一账号+模型会反复复读。
+	status, _, eligible := classifyOpenAIAPIKeyHealthFailure(err)
+	require.True(t, eligible, "退化熔断必须计入账号健康")
+	require.Equal(t, http.StatusBadGateway, status)
+
 	out := rec.Body.String()
 	require.Contains(t, out, "event: response.failed")
 	require.Contains(t, out, `"code":"upstream_degenerate_repetition"`)

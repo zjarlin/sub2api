@@ -1,11 +1,126 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
+
+const openAIStaleReasoningRecoveryKey = "openai_stale_reasoning_recovery"
+
+// 恢复状态只属于本次转发，普通、透传、JSON 与 SSE 共用一次重试预算。
+type openAIStaleReasoningRecovery struct {
+	body    []byte
+	retried bool
+}
+
+type openAIStaleReasoningRetrySignal struct {
+	body []byte
+}
+
+func (e *openAIStaleReasoningRetrySignal) Error() string {
+	return "invalid_encrypted_content: retry with stale reasoning removed"
+}
+
+// 从原始请求恢复，重新执行账号适配，避免重复改写已经转换过的工具和会话标识。
+func (s *OpenAIGatewayService) forwardOnce(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
+	startedAt := time.Now()
+	// 恢复副本也必须包含网关可解的摘要，避免错误重试把整段早期历史删掉。
+	recoveryBody, restoreErr := s.restoreDeepSeekCompaction(body)
+	if restoreErr != nil {
+		return nil, restoreErr
+	}
+	previous, _ := c.Get(openAIStaleReasoningRecoveryKey)
+	c.Set(openAIStaleReasoningRecoveryKey, &openAIStaleReasoningRecovery{body: recoveryBody})
+	defer c.Set(openAIStaleReasoningRecoveryKey, previous)
+
+	result, err := s.forwardAttempt(ctx, c, account, body)
+	var retry *openAIStaleReasoningRetrySignal
+	if !errors.As(err, &retry) {
+		return result, err
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	s.markOpenAIWSInvalidEncryptedContentLineageFromPayload(c, body, "invalid_encrypted_content_http_recovery", account.ID, 0)
+	logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Retrying request once after invalid_encrypted_content by dropping stale reasoning items (account: %d, passthrough: %v)", account.ID, account.IsOpenAIPassthroughEnabled())
+	recoveryDelay := time.Since(startedAt)
+	c.Request.Header.Del(openAICodexTurnStateHeader)
+	c.Request.Header.Del("x-codex-turn-metadata")
+	result, err = s.forwardAttempt(ctx, c, account, retry.body)
+	if result != nil {
+		result.Duration += recoveryDelay
+		if result.FirstTokenMs != nil {
+			*result.FirstTokenMs += int(recoveryDelay.Milliseconds())
+		}
+	}
+	return result, err
+}
+
+// 仅识别结构化错误字段，避免把正文或工具结果中的同名字符串误判为错误。
+func newOpenAIStaleReasoningRetrySignal(c *gin.Context, payload []byte) error {
+	if c == nil || openAIStreamClientOutputStarted(c, false) {
+		return nil
+	}
+	code := extractUpstreamErrorCode(payload)
+	if code == "" {
+		code = strings.TrimSpace(gjson.GetBytes(payload, "code").String())
+	}
+	if code == "" {
+		code = extractUpstreamErrorCode([]byte(gjson.GetBytes(payload, "response").Raw))
+	}
+	if code != openAIWSFallbackReasonInvalidEncryptedContent {
+		return nil
+	}
+	value, _ := c.Get(openAIStaleReasoningRecoveryKey)
+	recovery, ok := value.(*openAIStaleReasoningRecovery)
+	if !ok || recovery == nil || recovery.retried {
+		return nil
+	}
+	body, changed, err := recoverOpenAIReadableStaleHistory(recovery.body)
+	if err != nil {
+		return err
+	}
+	if !changed {
+		return nil
+	}
+	recovery.retried = true
+	return &openAIStaleReasoningRetrySignal{body: body}
+}
+
+// 只清理推理状态，压缩历史须先还原为可读摘要；未知密文保留上游原错误。
+func recoverOpenAIReadableStaleHistory(body []byte) ([]byte, bool, error) {
+	var payload map[string]any
+	if err := decodeOpenAIJSONUseNumber(body, &payload); err != nil {
+		return nil, false, err
+	}
+	converted := false
+	if input, ok := payload["input"].([]any); ok {
+		for _, raw := range input {
+			item, _ := raw.(map[string]any)
+			if !isOpenAICompactionType(stringValue(item["type"])) {
+				continue
+			}
+			if deepSeekCompactSummaryText(item["summary"]) == "" {
+				return body, false, nil
+			}
+			converted = true
+		}
+		payload["input"] = convertDeepSeekCompactionItems(input)
+	}
+	changed := dropOpenAIStaleReasoningInputItems(payload)
+	if !changed && !converted {
+		return body, false, nil
+	}
+	next, err := marshalOpenAIUpstreamJSON(payload)
+	return next, true, err
+}
 
 // 上游明确以 invalid_encrypted_content 拒绝请求后的响应式兜底（#3138）。
 //
