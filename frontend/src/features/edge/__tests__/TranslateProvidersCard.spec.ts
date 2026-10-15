@@ -43,6 +43,17 @@ describe('translation adapter contexts', () => {
     await wrapper.setProps({ adapter: 'baidu' })
     expect((wrapper.get('[data-testid="translate-baidu-secret"]').element as HTMLInputElement).value).toBe('')
   })
+  it('shows how to obtain the provider key and links the official console', async () => {
+    const wrapper = mount(TranslateProvidersCard, { props: { adapter: 'tencent' } })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="translate-apply-guide"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="translate-apply-steps"]').text()).toBe('admin.vision.context.applySteps.tencent')
+    expect(wrapper.get('[data-testid="translate-apply-link"]').attributes('href')).toBe('https://console.cloud.tencent.com/cam/capi')
+
+    await wrapper.setProps({ adapter: 'hymt' })
+    expect(wrapper.get('[data-testid="translate-apply-steps"]').text()).toBe('admin.vision.context.applySteps.hymt')
+    expect(wrapper.find('[data-testid="translate-apply-link"]').exists()).toBe(false)
+  })
   it('keeps save disabled after a failed load', async () => {
     get.mockRejectedValue(new Error('failed'))
     const wrapper = mount(TranslateProvidersCard, { props: { adapter: 'baidu' } })

@@ -17,6 +17,12 @@
         <div v-if="endpoint.method !== 'GET'"><dt>Content-Type</dt><dd><code>{{ service.key === 'dub' ? 'multipart/form-data' : 'application/json' }}</code></dd></div>
       </dl>
       <p class="edge-doc-note">{{ t('admin.vision.catalog.authDescription') }}</p>
+      <section v-if="service.key === 'translate'" class="edge-doc-section" data-testid="edge-doc-key-guide">
+        <h3>{{ t('admin.vision.catalog.keyGuideTitle') }}</h3>
+        <p class="edge-doc-note">{{ t('admin.vision.catalog.keyGuideCaller') }}</p>
+        <p class="edge-doc-note">{{ t('admin.vision.catalog.keyGuideProvider') }}</p>
+        <RouterLink :to="{ query: edgeQuery(route.query, service, 'context', endpoint.key, 'tencent') }" class="edge-doc-note">{{ t('admin.vision.catalog.keyGuideOpenContext') }}</RouterLink>
+      </section>
       <DubbingDocs v-if="service.key === 'dub'" :base-url="baseUrl" />
       <section v-else class="edge-doc-section">
         <h3>{{ t('admin.vision.catalog.requestParameters') }}<span>{{ fields.length }}</span></h3>

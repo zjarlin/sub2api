@@ -390,6 +390,12 @@ describe('VisionEdgeView workbench', () => {
     expect(fetchMock.mock.calls[0][0]).toContain('/api/v1/translate')
     expect(wrapper.text()).toContain('tencent')
 
+    await wrapper.get('[data-testid="edge-tab-docs"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="edge-doc-key-guide"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('admin.vision.catalog.keyGuideCaller')
+    expect(wrapper.text()).toContain('admin.vision.catalog.keyGuideProvider')
+
     await openEndpoint('translate-providers')
     await flushPromises()
     expect((wrapper.get('[data-testid="edge-request-url"]').element as HTMLInputElement).value).toContain('/api/v1/translate/providers')

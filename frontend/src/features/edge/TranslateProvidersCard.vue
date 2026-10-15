@@ -22,6 +22,11 @@
           <div><h3 class="text-base font-semibold text-gray-950 dark:text-white">{{ selected.title }}</h3><p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t('admin.vision.context.' + adapter + 'Hint') }}</p></div>
           <label class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300"><input v-model="form[adapter].enabled" type="checkbox" :data-testid="`translate-provider-${adapter}`" />{{ t('admin.vision.context.adapterEnabled') }}</label>
         </div>
+        <div class="rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-900/40 dark:bg-amber-950/20" data-testid="translate-apply-guide">
+          <p class="text-xs font-medium text-amber-800 dark:text-amber-200">{{ t('admin.vision.context.applyTitle') }}</p>
+          <p class="mt-1 text-xs leading-5 text-amber-800/90 dark:text-amber-200/90" data-testid="translate-apply-steps">{{ t('admin.vision.context.applySteps.' + adapter) }}</p>
+          <a v-if="selected.applyUrl" :href="selected.applyUrl" target="_blank" rel="noopener noreferrer" class="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-primary-600 hover:underline dark:text-primary-300" data-testid="translate-apply-link">{{ t('admin.vision.context.applyLink') }}</a>
+        </div>
         <div class="grid gap-x-6 gap-y-4 xl:grid-cols-2">
           <label v-for="field in selected.fields" :key="field.key" class="min-w-0 space-y-2">
             <span class="flex items-center justify-between gap-2 text-xs font-medium text-gray-700 dark:text-gray-300"><span>{{ field.label }}</span><span v-if="field.secret && saved[adapter]?.[field.key + '_set']" class="text-emerald-700 dark:text-emerald-400">{{ t('admin.vision.context.configured') }}</span></span>
@@ -54,7 +59,7 @@ import { EDGE_ADAPTERS, type EdgeAdapter } from './catalog'
 interface Context { enabled: boolean; [key: string]: string | boolean }
 type Settings = { enabled: boolean; priority: EdgeAdapter[] } & Record<EdgeAdapter, Context>
 interface Field { key: string; label: string; env: string; secret?: boolean; placeholder?: string; type?: string }
-interface Provider { key: EdgeAdapter; title: string; fields: Field[] }
+interface Provider { key: EdgeAdapter; title: string; fields: Field[]; applyUrl?: string }
 const props = defineProps<{ adapter: EdgeAdapter }>()
 const emit = defineEmits<{ saved: []; select: [adapter: EdgeAdapter] }>()
 const { t } = useI18n()
@@ -66,13 +71,13 @@ const success = ref('')
 const saved = ref<Partial<Record<EdgeAdapter, Context>>>({})
 const revealed = reactive<Record<string, boolean>>({})
 const providers: Provider[] = [
-  { key: 'baidu', title: 'Baidu', fields: [{ key: 'app_id', label: 'APP_ID', env: 'TRANSLATE_BAIDU_APP_ID' }, { key: 'secret', label: 'SECURITY_KEY / Secret', env: 'TRANSLATE_BAIDU_SECRET', secret: true }] },
-  { key: 'tencent', title: 'Tencent Cloud', fields: [{ key: 'secret_id', label: 'SecretId', env: 'TRANSLATE_TENCENT_SECRET_ID' }, { key: 'secret_key', label: 'SecretKey', env: 'TRANSLATE_TENCENT_SECRET_KEY', secret: true }, { key: 'region', label: 'Region', env: 'TRANSLATE_TENCENT_REGION', placeholder: 'ap-guangzhou' }] },
-  { key: 'youdao', title: 'Youdao', fields: [{ key: 'app_key', label: 'AppKey', env: 'TRANSLATE_YOUDAO_APP_KEY' }, { key: 'app_secret', label: 'AppSecret', env: 'TRANSLATE_YOUDAO_APP_SECRET', secret: true }] },
-  { key: 'mymemory', title: 'MyMemory', fields: [{ key: 'email', label: 'Email', env: 'TRANSLATE_MYMEMORY_EMAIL', type: 'email' }, { key: 'api_key', label: 'API Key', env: 'TRANSLATE_MYMEMORY_API_KEY', secret: true }] },
+  { key: 'baidu', title: 'Baidu', applyUrl: 'https://fanyi-api.baidu.com/manage/developer', fields: [{ key: 'app_id', label: 'APP_ID', env: 'TRANSLATE_BAIDU_APP_ID' }, { key: 'secret', label: 'SECURITY_KEY / Secret', env: 'TRANSLATE_BAIDU_SECRET', secret: true }] },
+  { key: 'tencent', title: 'Tencent Cloud', applyUrl: 'https://console.cloud.tencent.com/cam/capi', fields: [{ key: 'secret_id', label: 'SecretId', env: 'TRANSLATE_TENCENT_SECRET_ID' }, { key: 'secret_key', label: 'SecretKey', env: 'TRANSLATE_TENCENT_SECRET_KEY', secret: true }, { key: 'region', label: 'Region', env: 'TRANSLATE_TENCENT_REGION', placeholder: 'ap-guangzhou' }] },
+  { key: 'youdao', title: 'Youdao', applyUrl: 'https://ai.youdao.com/console/', fields: [{ key: 'app_key', label: 'AppKey', env: 'TRANSLATE_YOUDAO_APP_KEY' }, { key: 'app_secret', label: 'AppSecret', env: 'TRANSLATE_YOUDAO_APP_SECRET', secret: true }] },
+  { key: 'mymemory', title: 'MyMemory', applyUrl: 'https://mymemory.translated.net/doc/spec.php', fields: [{ key: 'email', label: 'Email', env: 'TRANSLATE_MYMEMORY_EMAIL', type: 'email' }, { key: 'api_key', label: 'API Key', env: 'TRANSLATE_MYMEMORY_API_KEY', secret: true }] },
   { key: 'libretranslate', title: 'LibreTranslate', fields: [{ key: 'base_url', label: 'Base URL', env: 'TRANSLATE_LIBRETRANSLATE_URL', type: 'url' }, { key: 'api_key', label: 'API Key', env: 'TRANSLATE_LIBRETRANSLATE_API_KEY', secret: true }] },
   { key: 'hymt', title: 'Hy-MT2', fields: [{ key: 'base_url', label: 'Base URL', env: 'TRANSLATE_HYMT_URL', type: 'url' }, { key: 'api_key', label: 'API Key', env: 'TRANSLATE_HYMT_API_KEY', secret: true }] },
-  { key: 'caiyun', title: 'Caiyun', fields: [{ key: 'token', label: 'Token', env: 'TRANSLATE_CAIYUN_TOKEN', secret: true }] },
+  { key: 'caiyun', title: 'Caiyun', applyUrl: 'https://dashboard.caiyunapp.com/', fields: [{ key: 'token', label: 'Token', env: 'TRANSLATE_CAIYUN_TOKEN', secret: true }] },
   { key: 'google_web', title: 'Google Web', fields: [{ key: 'proxy_url', label: 'Proxy URL', env: 'TRANSLATE_GOOGLE_WEB_PROXY_URL', type: 'url' }] },
 ]
 const form = reactive({ enabled: false, priority: [...EDGE_ADAPTERS], ...Object.fromEntries(EDGE_ADAPTERS.map(key => [key, { enabled: false }])) } as Settings)
