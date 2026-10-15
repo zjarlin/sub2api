@@ -1688,9 +1688,13 @@ export default {
     prompt3d: '3D prompt; required for text-to-3D. Specific descriptions produce steadier results.', mode3d: 'Generation mode: text-to-3d or image-to-3d.', imageUrl3d: 'Reference image URL or base64; required for image-to-3D. Private addresses are rejected.', format3d: 'Asset format such as glb, fbx, obj, usdz or stl, subject to provider support.', previewTask3d: 'Meshy preview task ID used to submit a texture refinement.', endpointTranslate: 'Unified translation (Tencent / Baidu / Youdao fallback)',
     endpointModel3D: 'Meshy / Tripo / Hi3D 3D generation',
     endpointModel3DProviders: '3D providers and capabilities',
+    endpointMailProviders: 'List supported mail providers', endpointMailFolders: 'List mailbox folders', endpointMailMessages: 'List messages', endpointMailMessage: 'Read one message', endpointMailSend: 'Send mail',
+    categoryMail: 'Mail', categoryMailDescription: 'Receive over IMAP and send over SMTP using saved mailbox accounts.',
+    mailStatus: 'Mail Service',
+    mailContext: { title: 'Mailbox Accounts and Proxies', description: 'Account management stores mail credentials and outbound proxies.', addAccount: 'Add Mailbox', gatewayManaged: 'Gateway-managed credentials', proxy: 'HTTP CONNECT and SOCKS5 supported', credentials: 'Credentials are never returned to the browser', hint: 'Add Outlook, Gmail, QQ or 163 accounts, bind caller groups and optionally select a proxy. The explorer only needs the account ID; the gateway injects credentials and proxy settings.', manageAccounts: 'Manage Mailboxes' },
     catalog: {
       model3dTitle: '3D Generation', model3dDescription: 'A unified 3D API with text-to-3D, image-to-3D and multi-view generation.',
-      subtitle: 'Edge API services', services: 'Service Catalog', categories: 'Service Categories', all: 'All Services', language: 'Language', vision: 'Vision', media: 'Audio & Video', decision: 'Decision Models', search: 'Search services or adapters', noResults: 'No matching services',
+      subtitle: 'Edge API services', services: 'Service Catalog', categories: 'Service Categories', all: 'All Services', language: 'Language', vision: 'Vision', media: 'Audio & Video', communication: 'Communication', decision: 'Decision Models', search: 'Search services or adapters', noResults: 'No matching services',
       translationTitle: 'Text Translation', translationDescription: 'A unified translation API with online providers and offline models.',
       visionTitle: 'Image Recognition', visionDescription: 'Object detection, segmentation, pose estimation, classification and OCR.',
       ttsTitle: 'Speech Synthesis', ttsDescription: 'Convert text into audio for playback and download.',
@@ -1698,6 +1702,7 @@ export default {
       generationTitle: 'Video Generation', generationDescription: 'Create and track video generation tasks with Seedance / Ark.',
       layaTitle: 'Laya Decisions', layaDescription: 'Local decision inference with structured questions.',
       jevTitle: 'JEV Decisions', jevDescription: 'TypeSafe JEV with the shared System One protocol.',
+      mailTitle: 'Mail', mailDescription: 'Unified IMAP receiving and SMTP sending with account proxies and group authorization.',
       docs: 'API Documentation', debug: 'API Explorer', code: 'Code Samples', context: 'Adapter Context',
       endpoints: 'API Endpoints', requestParameters: 'Request Parameters', parameter: 'Parameter', type: 'Type', description: 'Description', response: 'Example Response', authentication: 'Authentication', gateway: 'Gateway URL', adapters: 'Service Adapters',
       authDescription: 'Authenticate with a gateway API key. Provider credentials are used only on the server.',
@@ -1706,6 +1711,7 @@ export default {
       fields: {
         q: 'Text array. Responses preserve input order.', target: 'Target language code, such as zh-CN, en or ja.', source: 'Source language code. Omit or use auto for detection.', provider: 'Omit for configured priority; examples: baidu, mymemory, hymt.', format: 'Defaults to text. HTML is available only for supporting adapters.',
         action: 'Detect, Segment, Pose, Classify or OCR, matching the endpoint.', version: 'API version: 2022-08-31.', image: 'Base64 image content without a data URI prefix.', params: 'Task parameters such as ConfidenceThreshold or classification TopK.', text: 'Text to synthesize, up to 20,000 characters.', language: 'Language code, such as zh or en.', audioFormat: 'Audio format: wav or mp3. Defaults to wav.', speed: 'Speech speed multiplier passed to GPT-SoVITS.', base64: 'Return Base64 audio in JSON when true; defaults to binary audio.', arkModel: 'A configured Ark model or inference endpoint ID.', content: 'Content objects with type and text fields.', duration: 'Duration in seconds, within the model supported range.', resolution: 'Output resolution, such as 720p.', decisionModel: 'Use laya for Laya or typesafe/jev for JEV.', state: 'Input context for the decision.', questions: 'An object keyed by question ID, with type and instructions.',
+        mailAccount: 'Mail account ID from account management. It must be bound to the API key group.', mailFolder: 'Mailbox folder. Defaults to INBOX.', mailUid: 'Message UID, required when reading one message.', mailTo: 'Recipient address array.', mailSubject: 'Message subject.', mailText: 'Plain-text message body.',
       },
     },
 

@@ -1681,9 +1681,13 @@ export default {
     endpointVideoGeneration: 'Seedance / Ark 网络视频生成任务',
     endpointModel3D: 'Meshy / Tripo / Hi3D 3D 生成任务',
     endpointModel3DProviders: '3D 服务商与能力',
+    endpointMailProviders: '查询可接入的邮箱服务商', endpointMailFolders: '查询邮箱文件夹', endpointMailMessages: '查询邮件列表', endpointMailMessage: '读取单封邮件', endpointMailSend: '发送邮件',
+    categoryMail: '邮件服务', categoryMailDescription: '通过保存的邮箱账号执行 IMAP 收件与 SMTP 发件。',
+    mailStatus: '邮件服务',
+    mailContext: { title: '邮箱账号与代理', description: '邮件凭据和出站代理由账号管理统一保存。', addAccount: '添加邮箱账号', gatewayManaged: '网关托管凭据', proxy: '支持 HTTP CONNECT 与 SOCKS5', credentials: '凭据不会返回给浏览器', hint: '添加 Outlook、Gmail、QQ 或 163 邮箱，绑定调用分组并按需选择代理。调试接口只填写账号 ID，网关自动注入授权码和代理。', manageAccounts: '管理邮箱账号' },
     catalog: {
       model3dTitle: '3D 生成', model3dDescription: '统一 3D 生成接口，支持文生 3D、图生 3D 与多视角生成。',
-      subtitle: '边缘 API 服务', services: '服务目录', categories: '服务分类', all: '全部服务', language: '语言服务', vision: '视觉智能', media: '音视频', decision: '决策模型', search: '搜索服务或适配器', noResults: '没有匹配的服务',
+      subtitle: '边缘 API 服务', services: '服务目录', categories: '服务分类', all: '全部服务', language: '语言服务', vision: '视觉智能', media: '音视频', communication: '通信服务', decision: '决策模型', search: '搜索服务或适配器', noResults: '没有匹配的服务',
       translationTitle: '文本翻译', translationDescription: '统一翻译接口，在线服务与离线模型按需选择。',
       visionTitle: '图像识别', visionDescription: '目标检测、实例分割、姿态估计、分类与文字识别。',
       ttsTitle: '语音合成', ttsDescription: '文本转语音，生成可播放、下载的音频。',
@@ -1691,6 +1695,7 @@ export default {
       generationTitle: '视频生成', generationDescription: '通过 Seedance / Ark 创建并查询视频生成任务。',
       layaTitle: 'Laya 决策', layaDescription: '本地决策模型，以结构化问题获取判断结果。',
       jevTitle: 'JEV 决策', jevDescription: 'TypeSafe JEV 接口，共用 System One 调用协议。',
+      mailTitle: '邮件收发', mailDescription: '统一 IMAP 收件与 SMTP 发件，支持账号代理和分组授权。',
       docs: '调用文档', debug: '在线调试', code: '接入代码', context: '适配上下文',
       endpoints: 'API 端点', requestParameters: '请求参数', parameter: '参数', type: '类型', description: '说明', response: '响应示例', authentication: '鉴权', gateway: '网关地址', adapters: '服务适配器',
       authDescription: '使用网关 API Key 鉴权。上游服务商凭据仅在服务端使用。',
@@ -1699,6 +1704,7 @@ export default {
       fields: {
         q: '待翻译文本数组。响应顺序与输入顺序一致。', target: '目标语言代码，例如 zh-CN、en、ja。', source: '源语言代码。省略或使用 auto 时自动识别。', provider: '省略时按配置优先级调用；例如 baidu、mymemory、hymt。', format: '默认 text；html 仅在对应适配器支持时可用。',
         action: 'Detect、Segment、Pose、Classify 或 OCR，与端点匹配。', version: '接口版本：2022-08-31。', image: '图片的 Base64 内容，不包含 data URI 前缀。', params: '检测阈值 ConfidenceThreshold；分类 TopK 等任务参数。', text: '待合成文本，最多 20,000 字符。', language: '语种代码，例如 zh、en。', audioFormat: '音频格式：wav 或 mp3，默认 wav。', speed: '语速倍率，传递给 GPT-SoVITS 上游。', base64: '设为 true 时以 JSON 返回 Base64 音频，默认返回二进制音频。', arkModel: '已配置的 Ark 模型或推理接入点 ID。', content: '包含 type 和 text 等字段的内容数组。', duration: '生成时长（秒），以模型支持范围为准。', resolution: '输出分辨率，例如 720p。', decisionModel: 'Laya 使用 laya，JEV 使用 typesafe/jev。', state: '需要判断的输入上下文。', questions: '以问题 ID 为键的对象，包含 type 和 instructions。',
+        mailAccount: '账号管理中的邮件账号 ID；账号必须绑定当前 API Key 的分组。', mailFolder: '邮箱文件夹，默认 INBOX。', mailUid: '邮件 UID，读取单封邮件时必填。', mailTo: '收件人地址数组。', mailSubject: '邮件主题。', mailText: '纯文本邮件正文。',
       },
     },
 

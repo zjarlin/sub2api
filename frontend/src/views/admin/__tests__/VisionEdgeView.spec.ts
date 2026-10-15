@@ -140,7 +140,7 @@ describe('VisionEdgeView workbench', () => {
     navigation.query = { service: 'vision', tab: 'debug' }
     URL.createObjectURL = vi.fn().mockReturnValue('blob:media-result')
     URL.revokeObjectURL = vi.fn()
-    getStatus.mockResolvedValue({ data: { enabled: true, laya_enabled: true, media_enabled: true, translate_enabled: true, translate_providers: ['tencent'] } })
+    getStatus.mockResolvedValue({ data: { enabled: true, laya_enabled: true, media_enabled: true, mail_enabled: true, translate_enabled: true, translate_providers: ['tencent'] } })
     getAllGroups.mockResolvedValue([group(7, 'Main')])
     getCandidates.mockResolvedValue(['existing-model', 'laya-multilingual'])
     updateGroup.mockResolvedValue(group(7, 'Main'))
@@ -177,7 +177,7 @@ describe('VisionEdgeView workbench', () => {
     const wrapper = mount(VisionEdgeView)
     await flushPromises()
     expect(wrapper.find('[data-testid="edge-request-detail"]').exists()).toBe(false)
-    expect(wrapper.findAll('[data-testid^="edge-service-"]')).toHaveLength(8)
+    expect(wrapper.findAll('[data-testid^="edge-service-"]')).toHaveLength(10)
     await wrapper.get('[data-testid="edge-service-vision"]').trigger('click')
     expect(wrapper.find('[data-testid="edge-service-docs"]').exists()).toBe(true)
     await wrapper.get('[data-testid="edge-tab-debug"]').trigger('click')
@@ -192,6 +192,25 @@ describe('VisionEdgeView workbench', () => {
     expect(wrapper.text()).toContain('admin.vision.workbench.body')
   })
 
+
+  it('shows mail in the catalog and prepares account-based receive and send requests', async () => {
+    navigation.query = {}
+    const wrapper = mount(VisionEdgeView)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="edge-service-mail"]').text()).toContain('admin.vision.catalog.mailTitle')
+    await openEndpoint('mail-messages')
+    expect((wrapper.get('[data-testid="edge-request-url"]').element as HTMLInputElement).value).toContain('/v1/mail/messages')
+    expect((wrapper.get('[data-testid="edge-request-body"]').element as HTMLTextAreaElement).value).toContain('"account_id": 123')
+
+    await openEndpoint('mail-send')
+    expect((wrapper.get('[data-testid="edge-request-url"]').element as HTMLInputElement).value).toContain('/v1/mail/send')
+    expect((wrapper.get('[data-testid="edge-request-body"]').element as HTMLTextAreaElement).value).toContain('recipient@example.com')
+
+    navigation.query = edgeQuery({}, EDGE_SERVICES.find(service => service.key === 'mail'), 'context') as Record<string, string>
+    await flushPromises()
+    expect(wrapper.find('[data-testid="edge-mail-context"]').exists()).toBe(true)
+  })
   it('sends the Volcengine envelope through the gateway with the chosen API key', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ResponseMetadata: { RequestId: 'req-1' }, Result: { detections: [] } }), {
       status: 200,
