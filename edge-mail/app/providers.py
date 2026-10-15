@@ -9,9 +9,10 @@
 - ``google``  : 必须使用「应用专用密码」（App Password）。Google 已对第三方
   客户端关闭明文密码，且 OAuth2 之外的登录一律要求两步验证 + 应用密码。
   主机 ``imap.gmail.com:993`` / ``smtp.gmail.com:465``。
-- ``outlook`` : 同时接受应用密码和 OAuth2。Microsoft 已弃用基本身份验证的
-  IMAP，个人账号/无 MFA 企业账号仍可用「应用密码」；企业租户可能要求
-  OAuth2，此时服务会返回明确的 ``auth_failed`` 提示改用应用密码或 OAuth。
+- ``outlook`` : 微软已停用个人邮箱基础认证，必须走 OAuth2 + XOAUTH2。
+  收件 IMAP 与发件 SMTP 都用 ``XOAUTH2`` 携带 Bearer access_token 登录；
+  调用方在 ``credential`` 字段传 **refresh_token**，edge-mail 运行时换取
+  access_token（默认使用 Thunderbird 公共客户端换取，见 ``oauth2_*`` 字段）。
   主机 ``outlook.office365.com:993`` / ``smtp.office365.com:587``(STARTTLS)。
 - ``qq``      : 必须使用「IMAP/SMTP 授权码」，不是 QQ 登录密码；需在
   「设置 → 账户 → POP3/IMAP/SMTP 服务」中开启并生成授权码。
@@ -46,6 +47,12 @@ class MailProvider:
     credential_hint: str
     # 常见域名后缀，用于按邮箱地址推断服务商。
     domains: tuple[str, ...]
+    # OAuth2 客户端信息；auth="oauth2" 时生效。为空表示未配置 OAuth2。
+    oauth2_client_id: str = ""
+    # OAuth2 令牌端点（refresh_token 换 access_token）。
+    oauth2_token_endpoint: str = ""
+    # OAuth2 请求的 scope。
+    oauth2_token_scope: str = ""
 
     def as_dict(self) -> dict[str, object]:
         return asdict(self)
@@ -74,8 +81,8 @@ PROVIDERS: dict[str, MailProvider] = {
         smtp_host="smtp.office365.com",
         smtp_port=587,
         smtp_starttls=True,
-        auth="app_password_or_oauth",
-        credential_hint="个人账号用「应用密码」；企业租户若被策略禁用基本认证需改用 OAuth2",
+        auth="oauth2",
+        credential_hint="微软已停用基础认证：请在凭据框粘贴该邮箱的 OAuth2 refresh_token，edge-mail 运行时换 access_token 后以 XOAUTH2 收发",
         domains=(
             "outlook.com",
             "hotmail.com",
@@ -84,6 +91,9 @@ PROVIDERS: dict[str, MailProvider] = {
             "office365.com",
             "onmicrosoft.com",
         ),
+        oauth2_client_id="9e5f94bc-e8a4-4e73-b8be-63364c29d753",
+        oauth2_token_endpoint="https://login.microsoftonline.com/common/oauth2/v2.0/token",
+        oauth2_token_scope="https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send offline_access",
     ),
     "qq": MailProvider(
         key="qq",

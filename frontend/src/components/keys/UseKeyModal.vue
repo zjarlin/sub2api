@@ -1396,6 +1396,7 @@ function generateRoutedCodexFiles(
   const preferredModel = preferredModels[platform] || ''
   const model = selectCodexCatalogModel(preferredModel)
   const labels: Record<GroupPlatform, string> = {
+    mail: t('admin.accounts.mail.title'),
     model3d: '3D',
     anthropic: 'Anthropic',
     openai: 'OpenAI',

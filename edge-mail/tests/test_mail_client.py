@@ -315,9 +315,40 @@ def test_smtp_ssl_login_and_send(monkeypatch):
 
 
 def test_smtp_starttls_used_for_outlook(monkeypatch):
+    # outlook 现为 OAuth2 预设，仍需验证走 STARTTLS + 587。
+    # 伪造令牌端点返回 access_token，并用支持 docmd 的 SMTP 替身。
+    import io
+    import urllib.request as _urlreq
+    from unittest import mock
+
     FakeSMTP.instances.clear()
-    monkeypatch.setattr(mc.smtplib, "SMTP", FakeSMTP)
-    account = mc.build_account("user@outlook.com", "app-pw")
+
+    class OAuthFakeSMTP(FakeSMTP):
+        def docmd(self, verb, arg=None):
+            if verb == "AUTH" and arg.startswith("XOAUTH2 "):
+                return (235, b"ok")
+            return (250, b"ok")
+
+    monkeypatch.setattr(mc.smtplib, "SMTP", OAuthFakeSMTP)
+    monkeypatch.setattr(mc.smtplib, "SMTP_SSL", OAuthFakeSMTP)
+
+    def fake_urlopen(request, timeout=None):
+        class Resp:
+            def __enter__(self_):
+                return self_
+
+            def __exit__(self_, *args):
+                return False
+
+            def read(self_):
+                import json as _json
+                return _json.dumps({"access_token": "ACC"}).encode()
+
+        return Resp()
+
+    monkeypatch.setattr(_urlreq, "urlopen", fake_urlopen)
+
+    account = mc.build_account("user@outlook.com", "refresh-token")
     mc.send_message(account, ["a@b.com"], "s", "b")
     assert FakeSMTP.instances[-1].tls is True
     assert FakeSMTP.instances[-1].port == 587
@@ -368,3 +399,104 @@ def test_smtp_multipart_alternative_and_attachment(monkeypatch):
     assert "text/plain" in content_types
     assert "text/html" in content_types
     assert any(part.get_filename() == "f.txt" for part in sent.walk())
+
+# --------------------------------------------------------------------------
+# 出站代理接线
+# --------------------------------------------------------------------------
+
+
+def test_build_account_accepts_and_normalizes_proxy():
+    account = mc.build_account("user@gmail.com", "pw", proxy="socks5://p.local:1080")
+    assert account.proxy == "socks5://p.local:1080"
+    # 空值保持直连
+    assert mc.build_account("user@gmail.com", "pw").proxy == ""
+    assert mc.build_account("user@gmail.com", "pw", proxy="").proxy == ""
+
+
+def test_build_account_rejects_invalid_proxy():
+    with pytest.raises(mc.MailRequestError):
+        mc.build_account("user@gmail.com", "pw", proxy="ftp://p.local:21")
+
+
+def test_imap_uses_proxy_factory_when_configured(monkeypatch):
+    """配置代理时，IMAP 必须走代理工厂而不是直连。"""
+    calls = {}
+
+    def fake_factory(account, timeout):
+        calls["account"] = account
+        calls["timeout"] = timeout
+        return FakeIMAP()
+
+    monkeypatch.setattr(mc, "_proxied_imap", fake_factory)
+    account = mc.build_account("user@gmail.com", "pw", proxy="http://p.local:3128")
+    with mc.ImapClient(account, timeout=9):
+        pass
+    assert calls["account"] is account
+    assert calls["timeout"] == 9
+
+
+def test_imap_direct_when_no_proxy(monkeypatch):
+    used = {"proxy": False}
+
+    def fake_factory(account, timeout):
+        used["proxy"] = True
+        return FakeIMAP()
+
+    monkeypatch.setattr(mc, "_proxied_imap", fake_factory)
+    fake = FakeIMAP()
+    monkeypatch.setattr(mc.imaplib, "IMAP4_SSL", lambda *a, **k: fake)
+    account = mc.build_account("user@gmail.com", "pw")
+    with mc.ImapClient(account):
+        pass
+    assert used["proxy"] is False
+
+
+def test_proxied_smtp_uses_ssl_wrapper_for_implicit_tls(monkeypatch):
+    """隐式 TLS（465）经代理时必须由 stdlib 在隧道之上再 wrap。"""
+    seen = {}
+
+    class DummySock:
+        def close(self): seen["closed"] = True
+
+    class IdentityContext:
+        def wrap_socket(self, sock, server_hostname=None):
+            seen["server_hostname"] = server_hostname
+            return sock
+
+    def fake_connect(url, host, port, timeout):
+        seen["proxy_url"] = url
+        seen["target"] = (host, port)
+        return DummySock()
+
+    monkeypatch.setattr(mc, "proxy_tcp_connect", fake_connect)
+    cls = mc._proxied_smtp_class("socks5://p.local:1080", starttls=False)
+    obj = cls.__new__(cls)          # 不触发真实连接
+    obj.context = IdentityContext()
+    obj._host = "smtp.gmail.com"
+    obj._get_socket("smtp.gmail.com", 465, 5)
+    assert seen["proxy_url"] == "socks5://p.local:1080"
+    assert seen["target"] == ("smtp.gmail.com", 465)
+    assert seen["server_hostname"] == "smtp.gmail.com"
+
+
+def test_proxied_smtp_starttls_uses_plain_tunnel(monkeypatch):
+    seen = {}
+
+    class DummySock:
+        def close(self): pass
+
+    def fake_connect(url, host, port, timeout):
+        seen["target"] = (host, port)
+        return DummySock()
+
+    monkeypatch.setattr(mc, "proxy_tcp_connect", fake_connect)
+    cls = mc._proxied_smtp_class("http://p.local:3128", starttls=True)
+    obj = cls.__new__(cls)
+    obj._get_socket("smtp.office365.com", 587, 5)
+    assert seen["target"] == ("smtp.office365.com", 587)
+
+
+def test_invalid_proxy_is_request_error():
+    from app.mail_client import MailRequestError
+    with pytest.raises(MailRequestError):
+        mc.build_account("test@gmail.com", "secret", proxy="http://proxy:not-a-port")

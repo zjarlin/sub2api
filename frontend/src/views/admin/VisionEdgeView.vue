@@ -11,6 +11,7 @@
           <span class="badge" :class="status?.media_enabled ? 'badge-success' : 'badge-gray'">{{ t('admin.vision.mediaStatus') }}</span>
           <span class="badge" :class="status?.laya_enabled ? 'badge-success' : 'badge-gray'">{{ t('admin.vision.layaStatus') }}</span>
           <span class="badge" :class="status?.translate_enabled ? 'badge-success' : 'badge-gray'">{{ t('admin.vision.translateStatus') }}</span>
+          <span class="badge" :class="status?.mail_enabled ? 'badge-success' : 'badge-gray'">{{ t('admin.vision.mailStatus') }}</span>
           <button type="button" class="btn btn-icon btn-secondary h-8 w-8" :title="t('common.refresh')" :aria-label="t('common.refresh')" :disabled="loading" @click="loadStatus">
             <Icon name="refresh" size="sm" :class="loading ? 'animate-spin' : ''" />
           </button>
@@ -39,6 +40,7 @@
       <p v-if="error" role="alert" class="edge-notice error">{{ error }}</p>
       <EdgeServiceDocs v-if="selection.tab === 'docs'" :service="selection.service" :endpoints="serviceEndpoints" :endpoint="selectedEndpoint" :code="documentationCode" :base-url="baseUrl" :adapter="selection.adapter" />
       <TranslateProvidersCard v-if="selection.tab === 'context' && selection.service.key === 'translate'" class="edge-translate-context" :adapter="selection.adapter" @select="selectAdapter" @saved="loadStatus" />
+      <MailServiceContext v-else-if="selection.tab === 'context' && selection.service.key === 'mail'" />
       <EdgeServiceContext v-else-if="selection.tab === 'context'" :key="selection.service.key" :service="selection.service" :context="contexts[selection.service.key]" :loading="contextsLoading" :error="contextsError" @refresh="loadContexts" @saved="loadContexts" />
 
       <section v-if="selection.tab === 'debug'" class="overflow-hidden border border-gray-200 bg-white dark:border-dark-700 dark:bg-dark-900">
@@ -334,6 +336,7 @@ import EdgeServiceCatalog from '@/features/edge/EdgeServiceCatalog.vue'
 import EdgeServiceDocs from '@/features/edge/EdgeServiceDocs.vue'
 import TranslateProvidersCard from '@/features/edge/TranslateProvidersCard.vue'
 import EdgeServiceContext from '@/features/edge/EdgeServiceContext.vue'
+import MailServiceContext from '@/features/edge/MailServiceContext.vue'
 import type { EdgeContexts } from '@/features/edge/contexts'
 import '@/features/edge/edge-console.css'
 import { EDGE_SERVICES, edgeQuery, edgeSelection, type EdgeAdapter, type EdgeService, type EdgeDetailTab } from '@/features/edge/catalog'
@@ -358,11 +361,12 @@ interface VisionStatus {
   media_enabled: boolean
   translate_enabled?: boolean
   model3d_enabled?: boolean
+  mail_enabled?: boolean
   translate_providers?: string[]
 }
 
-type Preset = 'model3d' | 'model3d-providers' | 'vision' | 'jev' | 'laya' | 'manbo' | 'video-dub' | 'video-generation' | 'translate' | 'translate-providers'
-type EndpointCategory = 'vision' | 'media' | 'decision' | 'translate'
+type Preset = 'model3d' | 'model3d-providers' | 'vision' | 'jev' | 'laya' | 'manbo' | 'video-dub' | 'video-generation' | 'translate' | 'translate-providers' | 'mail-providers' | 'mail-folders' | 'mail-messages' | 'mail-message' | 'mail-send'
+type EndpointCategory = 'vision' | 'media' | 'decision' | 'translate' | 'mail'
 
 interface EndpointDefinition {
   key: string
@@ -464,6 +468,11 @@ const endpoints = computed<EndpointDefinition[]>(() => [
   { key: 'laya', path: '/v1/systemone', method: 'POST', description: t('admin.vision.layaDescription'), category: 'decision', preset: 'laya' },
   { key: 'translate', path: '/api/v1/translate', method: 'POST', description: t('admin.vision.endpointTranslate'), category: 'translate', preset: 'translate' },
   { key: 'translate-providers', path: '/api/v1/translate/providers', method: 'GET', description: t('admin.vision.endpointTranslateProviders'), category: 'translate', preset: 'translate-providers' },
+  { key: 'mail-providers', path: '/v1/mail/providers', method: 'GET', description: t('admin.vision.endpointMailProviders'), category: 'mail', preset: 'mail-providers' },
+  { key: 'mail-folders', path: '/v1/mail/folders', method: 'POST', description: t('admin.vision.endpointMailFolders'), category: 'mail', preset: 'mail-folders' },
+  { key: 'mail-messages', path: '/v1/mail/messages', method: 'POST', description: t('admin.vision.endpointMailMessages'), category: 'mail', preset: 'mail-messages' },
+  { key: 'mail-message', path: '/v1/mail/message', method: 'POST', description: t('admin.vision.endpointMailMessage'), category: 'mail', preset: 'mail-message' },
+  { key: 'mail-send', path: '/v1/mail/send', method: 'POST', description: t('admin.vision.endpointMailSend'), category: 'mail', preset: 'mail-send' },
 ])
 
 const endpointGroups = computed(() => {
@@ -472,6 +481,7 @@ const endpointGroups = computed(() => {
     { key: 'media', title: t('admin.vision.categoryMedia'), description: t('admin.vision.categoryMediaDescription') },
     { key: 'decision', title: t('admin.vision.categoryDecision'), description: t('admin.vision.categoryDecisionDescription') },
     { key: 'translate', title: t('admin.vision.categoryTranslate'), description: t('admin.vision.categoryTranslateDescription') },
+    { key: 'mail', title: t('admin.vision.categoryMail'), description: t('admin.vision.categoryMailDescription') },
   ]
   return categories.map(category => ({
     ...category,
@@ -515,6 +525,7 @@ function endpointEnabled(endpoint: EndpointDefinition): boolean {
   if (['generation', 'laya', 'jev'].includes(endpoint.key)) return false
   if (!status.value) return false
   if (endpoint.key.startsWith('model3d')) return !!status.value.model3d_enabled
+  if (endpoint.category === 'mail') return !!status.value.mail_enabled
   if (endpoint.category === 'vision') return status.value.enabled
   if (endpoint.category === 'media') return status.value.media_enabled
   if (endpoint.category === 'translate') return !!status.value.translate_enabled
@@ -674,6 +685,26 @@ function presetRequest(preset: Preset) {
       query: [] as EdgeKeyValue[],
       body: '',
       bodyMode: 'none' as EdgeBodyMode,
+      model: '',
+    }
+  }
+  if (preset.startsWith('mail-')) {
+    const action = preset.slice('mail-'.length)
+    gatewayPath.value = `/v1/mail/${action}`
+    const discovery = preset === 'mail-providers'
+    const bodies: Record<string, object> = {
+      'mail-folders': { account_id: 123 },
+      'mail-messages': { account_id: 123, folder: 'INBOX', limit: 10, unread_only: false },
+      'mail-message': { account_id: 123, folder: 'INBOX', uid: '1', include_body: true },
+      'mail-send': { account_id: 123, to: ['recipient@example.com'], subject: 'Gateway mail test', text: 'Sent through the edge mail gateway.' },
+    }
+    return {
+      method: (discovery ? 'GET' : 'POST') as EdgeRequestMethod,
+      url: buildGatewayUrl(gatewayPath.value),
+      headers: discovery ? [] as EdgeKeyValue[] : [{ name: 'Content-Type', value: 'application/json' }],
+      query: [] as EdgeKeyValue[],
+      body: discovery ? '' : JSON.stringify(bodies[preset], null, 2),
+      bodyMode: (discovery ? 'none' : 'json') as EdgeBodyMode,
       model: '',
     }
   }

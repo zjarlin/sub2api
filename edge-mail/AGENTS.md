@@ -17,8 +17,7 @@
 
 ## 关键约定
 
-- 三家服务商凭据都不是登录密码：Gmail 用应用专用密码、Outlook 用应用密码（企业租户
-  可能要求 OAuth2）、QQ 用 IMAP/SMTP 授权码。见 README 的接入方式表。
+- 三家服务商凭据都不是登录密码：Gmail 用应用专用密码、Outlook 用 OAuth2 refresh_token（运行时换 access_token 走 XOAUTH2）、QQ 用 IMAP/SMTP 授权码。见 README 的接入方式表。
 - 服务商解析优先级：显式 `provider`（含别名） > 邮箱域名推断（支持
   `*.onmicrosoft.com` 这类企业子域后缀匹配）。
 - 中文/日文邮箱名必须走 IMAP modified UTF-7（`app/imap_utf7.py`），
@@ -36,3 +35,8 @@ docker build -f edge-mail/docker/Dockerfile edge-mail
 
 测试全部离线运行：用 `tests/fake_servers.py` 的内存版 IMAP/SMTP 驱动协议交互，
 不需要真实邮箱账号，也不访问网络。新增行为必须补对应测试。
+
+- `proxy` 是可选的 HTTP CONNECT / SOCKS5 出站代理，IMAP 与 SMTP 共用；不允许代理失败时静默直连。
+- 保存账号由主网关管理，edge-mail 仍只消费请求中的凭据；代理认证信息必须按 URL 规则解码。
+- HTTP CONNECT 响应读取不能吞掉紧随其后的 SMTP greeting；隧道上的 TLS 必须校验服务端证书。
+- Outlook 走 OAuth2 + XOAUTH2：凭据字段传 refresh_token，provider 预设已内置 Thunderbird 公共客户端换 token；单测与真实账号均验证过。

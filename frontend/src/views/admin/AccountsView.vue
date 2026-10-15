@@ -17,6 +17,7 @@
             @create="showCreate = true"
           >
             <template #after>
+              <button class="btn btn-secondary" @click="edAcc = null; showMail = true">{{ t('admin.accounts.mail.add') }}</button>
               <!-- Auto Refresh Dropdown -->
               <div class="relative" ref="autoRefreshDropdownRef">
                 <button
@@ -451,6 +452,7 @@
       </template>
       <template #pagination><Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" /></template>
     </TablePageLayout>
+    <MailAccountModal :show="showMail" :account="edAcc" :proxies="proxies" :groups="groups" @close="showMail = false" @saved="reload" />
     <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
     <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
@@ -505,6 +507,7 @@ import DataTable from '@/components/common/DataTable.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import MailAccountModal from '@/components/account/MailAccountModal.vue'
 import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrsModal, TempUnschedStatusModal } from '@/components/account'
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
@@ -590,6 +593,7 @@ const selTypes = computed<AccountType[]>(() => {
   )
   return [...types]
 })
+const showMail = ref(false)
 const showCreate = ref(false)
 const showEdit = ref(false)
 const showSync = ref(false)
@@ -1365,6 +1369,7 @@ watch(accounts, (rows) => {
 
 const isAnyModalOpen = computed(() => {
   return (
+    showMail.value ||
     showCreate.value ||
     showEdit.value ||
     showSync.value ||
@@ -1852,6 +1857,7 @@ const handleEdit = async (a: AccountListItem) => {
   const account = await loadAccountDetails(a)
   if (!account) return
   edAcc.value = account
+  if (account.platform === 'mail') { showMail.value = true; return }
   showEdit.value = true
 }
 const openMenu = (a: Account, e: MouseEvent) => {

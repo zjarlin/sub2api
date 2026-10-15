@@ -25,6 +25,7 @@ def account_from_body(body: dict[str, Any], config: MailConfig):
         imap_port=body.get("imap_port") or None,
         smtp_host=str(body.get("smtp_host", "")),
         smtp_port=body.get("smtp_port") or None,
+        proxy=str(body.get("proxy", "")),
     )
     if config.allowed_providers and account.provider.key not in config.allowed_providers:
         raise MailRequestError(

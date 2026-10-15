@@ -451,7 +451,7 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		Concurrency: normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
 		Priority:    input.Priority,
 		Status:      StatusActive,
-		Schedulable: true,
+		Schedulable: input.Platform != PlatformMail,
 	}
 	if input.ProbeEnabled != nil && *input.ProbeEnabled {
 		if !isUpstreamBillingProbeAccount(account) {
@@ -495,6 +495,9 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 }
 
 func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccountInput) (*Account, error) {
+	if err := ValidateMailAccount(input.Platform, input.Type, input.Credentials); err != nil {
+		return nil, err
+	}
 	if err := ValidateModel3DAccount(input.Platform, input.Type, input.Credentials); err != nil {
 		return nil, err
 	}
@@ -664,6 +667,19 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		if len(shadows) > 0 {
 			return nil, infraerrors.New(http.StatusBadRequest, "SPARK_SHADOW_PARENT_IMMUTABLE_TYPE",
 				"cannot change account type while it has a spark shadow; delete the shadow first")
+		}
+	}
+	if account.Platform == PlatformMail {
+		kind := account.Type
+		if input.Type != "" {
+			kind = input.Type
+		}
+		credentials := account.Credentials
+		if input.Credentials != nil {
+			credentials = MergePreservingSensitiveCreds(credentials, input.Credentials)
+		}
+		if err := ValidateMailAccount(account.Platform, kind, credentials); err != nil {
+			return nil, err
 		}
 	}
 	if account.Platform == PlatformModel3D {
@@ -1065,6 +1081,11 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	}
 	// 批量路径直接合并数据库字段，需在首次写入前保护豆包协议与并发约束。
 	for _, account := range cachedTargets {
+		if account.Platform == PlatformMail && len(input.Credentials) > 0 {
+			if err := ValidateMailAccount(account.Platform, account.Type, mergeMap(account.Credentials, input.Credentials)); err != nil {
+				return nil, err
+			}
+		}
 		if account.Platform == PlatformModel3D && len(input.Credentials) > 0 {
 			credentials := mergeMap(account.Credentials, input.Credentials)
 			if credentials["model3d_provider"] != account.Credentials["model3d_provider"] {

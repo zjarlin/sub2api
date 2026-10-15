@@ -201,6 +201,10 @@ func (a *Account) EffectiveLoadFactor() int {
 }
 
 func (a *Account) IsSchedulable() bool {
+	// 邮箱只通过显式邮件接口调用，不能进入模型调度池。
+	if a.Platform == PlatformMail {
+		return false
+	}
 	if !a.IsActive() || !a.Schedulable {
 		return false
 	}

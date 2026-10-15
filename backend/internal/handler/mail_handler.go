@@ -1,7 +1,9 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/url"
@@ -77,6 +79,34 @@ func (h *GatewayHandler) MailProxy(c *gin.Context) {
 		return
 	}
 
+	var mailAccount *service.Account
+	if endpoint != "providers" {
+		data, err := io.ReadAll(io.LimitReader(c.Request.Body, (32<<20)+1))
+		var body map[string]any
+		if err != nil || len(data) > 32<<20 || json.Unmarshal(data, &body) != nil || body == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "Invalid mail request"}})
+			return
+		}
+		if raw, exists := body["account_id"]; exists {
+			id, ok := raw.(float64)
+			if !ok || id <= 0 || id != float64(int64(id)) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"message": "Invalid account_id"}})
+				return
+			}
+			mailAccount, err = h.gatewayService.ResolveMailAccountBody(c.Request.Context(), int64(id), *apiKey.GroupID, body)
+			if err != nil {
+				c.JSON(http.StatusForbidden, gin.H{"error": gin.H{"message": "Mail account or proxy unavailable for this group"}})
+				return
+			}
+			data, err = json.Marshal(body)
+			if err != nil {
+				c.Status(http.StatusBadRequest)
+				return
+			}
+		}
+		c.Request.Body = io.NopCloser(bytes.NewReader(data))
+		c.Request.ContentLength = int64(len(data))
+	}
 	target, err := url.Parse(h.cfg.Gateway.Mail.BaseURL())
 	if err != nil || target.Scheme != "http" || target.Host == "" || target.User != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "service_unavailable", "message": "Mail upstream is not configured"}})
@@ -117,7 +147,7 @@ func (h *GatewayHandler) MailProxy(c *gin.Context) {
 
 	// 只有成功的实际邮件动作才计费；失败与只读元数据（providers）不计费。
 	if response.StatusCode >= 200 && response.StatusCode < 300 && endpoint != "providers" {
-		if err := h.recordMailUsage(c, apiKey, subscription, quotaPlatform, endpoint, requestURL.Path); err != nil {
+		if err := h.recordMailUsage(c, apiKey, subscription, quotaPlatform, endpoint, requestURL.Path, mailAccount); err != nil {
 			logger.L().With(zap.String("component", "handler.mail")).Error("billing_failed", zap.Error(err))
 			c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "billing_error", "message": "Mail billing unavailable"}})
 			return
@@ -135,23 +165,31 @@ func (h *GatewayHandler) recordMailUsage(
 	quotaPlatform string,
 	endpoint string,
 	upstreamPath string,
+	account *service.Account,
 ) error {
-	selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, "", "", nil, "", apiKey.UserID)
-	if err != nil || selection == nil || selection.Account == nil {
-		return err
-	}
-	if selection.ReleaseFunc != nil {
-		defer selection.ReleaseFunc()
-	}
-	if !selection.Acquired && selection.ReleaseFunc == nil {
-		return service.ErrNoAvailableAccounts
+	// 保存账号的邮件调用直接计入该邮箱，不借用无关模型账号。
+	if account == nil {
+		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, "", "", nil, "", apiKey.UserID)
+		if err != nil {
+			return err
+		}
+		if selection == nil || selection.Account == nil {
+			return service.ErrNoAvailableAccounts
+		}
+		if selection.ReleaseFunc != nil {
+			defer selection.ReleaseFunc()
+		}
+		if !selection.Acquired && selection.ReleaseFunc == nil {
+			return service.ErrNoAvailableAccounts
+		}
+		account = selection.Account
 	}
 	requestID := "mail:" + uuid.NewString()
 	// 与 vision/media 一致：按次计费，具体单价由分组价格覆盖。
 	model := "edge-mail-" + strings.ReplaceAll(endpoint, "/", "-")
 	return h.gatewayService.RecordUsage(c.Request.Context(), &service.RecordUsageInput{
 		Result: &service.ForwardResult{RequestID: requestID, Model: model, VisionCount: 1},
-		APIKey: apiKey, User: apiKey.User, Account: selection.Account,
+		APIKey: apiKey, User: apiKey.User, Account: account,
 		Subscription: subscription, InboundEndpoint: GetInboundEndpoint(c), UpstreamEndpoint: upstreamPath,
 		UserAgent: c.GetHeader("User-Agent"), IPAddress: ip.GetClientIP(c),
 		APIKeyService: h.apiKeyService, QuotaPlatform: quotaPlatform,

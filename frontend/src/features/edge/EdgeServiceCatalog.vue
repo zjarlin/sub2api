@@ -37,7 +37,7 @@ import { EDGE_SERVICES, edgeQuery, type EdgeService } from './catalog'
 defineProps<{ enabled: (service: EdgeService) => boolean; loading: boolean }>()
 const route = useRoute()
 const { t } = useI18n()
-const categories = ['all', 'language', 'vision', 'media', 'decision']
+const categories = ['all', 'language', 'vision', 'media', 'communication', 'decision']
 const filter = ref('all')
 const search = ref('')
 const visibleServices = computed(() => EDGE_SERVICES.filter(service =>
