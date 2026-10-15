@@ -2,6 +2,9 @@
 
 边缘计算层统一翻译网关，对外提供标准化 REST API，内部按优先级自动回退多个翻译服务商。
 
+> 调用方如何获取（申请）访问 Key、以及管理员如何申请并配置上游服务商 Key，见
+> [`docs/translate-edge-key-guide.md`](../../../../docs/translate-edge-key-guide.md)。
+
 ## 设计标准
 
 - **语言代码**: 严格遵循 ISO 639-1 / BCP 47 (如 `zh-CN`, `en-US`, `ja-JP`)
@@ -39,7 +42,8 @@ MyMemory 和自定义 LibreTranslate 使用独立的显式配置，不受 `TRANS
 
 ### POST /api/v1/translate
 
-需要 API Key 认证。
+需要 API Key 认证（Sub2API API Key，`Authorization: Bearer <key>`；自助创建，见
+[Key 申请与调用指引](../../../../docs/translate-edge-key-guide.md)）。
 
 **请求体:**
 ```json
