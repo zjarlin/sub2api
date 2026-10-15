@@ -48,11 +48,8 @@ func (h *TranslateHandler) TranslateModelMiddleware() gin.HandlerFunc {
 			return
 		}
 		var attempts []translate.TranslationAttempt
-		// 明确限定离线出口，不把用户文本回退到公网翻译服务。
-		for _, provider := range aggregator.AvailableProviders() {
-			if provider != "hymt" && provider != "libretranslate" {
-				continue
-			}
+		// 优先保证译文质量：混元翻译失败后才使用 LibreTranslate，不回退公网。
+		for _, provider := range []string{"hymt", "libretranslate"} {
 			req.Provider = provider
 			result, err := aggregator.Translate(c.Request.Context(), req)
 			if err == nil {

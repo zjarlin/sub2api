@@ -2,7 +2,7 @@
 
 POST `/v1/responses`，使用现有 Bearer API Key。分组白名单需要允许 `translate`。
 配置离线 HYMT 或 LibreTranslate 后，OpenAI/Composite 模型目录会包含 `translate`。
-每次操作读取当前翻译配置，只使用离线出口，不回退公网供应商。
+每次操作读取当前翻译配置，固定优先 HYMT，失败或未配置时才使用 LibreTranslate，不回退公网供应商。
 
 ```json
 {
