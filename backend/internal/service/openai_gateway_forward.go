@@ -1448,7 +1448,7 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 	if account == nil || account.Type != AccountTypeAPIKey {
 		return false
 	}
-	if account.IsCursor() || account.IsWindsurf() {
+	if account.IsCursor() || account.IsWindsurf() || account.IsTeleagent() {
 		return true
 	}
 	if account.IsOpenCodeGo() {

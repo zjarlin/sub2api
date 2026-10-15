@@ -1,7 +1,7 @@
 <template>
   <div class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-dark-600" data-testid="builtin-adapter-login">
     <p class="text-sm text-gray-600 dark:text-gray-300">{{ t(hintKey) }}</p>
-    <p class="input-hint">{{ t(platform === 'arena' ? 'admin.accounts.arena.loginSessionHint' : platform === 'deepseek_web' ? 'admin.accounts.builtinLogin.deepseekWebPoolHint' : platform === 'madao' ? 'admin.accounts.builtinLogin.madaoPoolHint' : platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexPoolHint' : platform === 'zcode' ? 'admin.accounts.builtinLogin.zcodePoolHint' : platform === 'cursor' ? 'admin.accounts.builtinLogin.cursorPoolHint' : platform === 'windsurf' ? 'admin.accounts.builtinLogin.windsurfPoolHint' : 'admin.accounts.builtinLogin.poolHint') }}</p>
+    <p class="input-hint">{{ t(platform === 'arena' ? 'admin.accounts.arena.loginSessionHint' : platform === 'deepseek_web' ? 'admin.accounts.builtinLogin.deepseekWebPoolHint' : platform === 'teleagent' ? 'admin.accounts.builtinLogin.teleagentPoolHint' : platform === 'madao' ? 'admin.accounts.builtinLogin.madaoPoolHint' : platform === 'vibex' ? 'admin.accounts.builtinLogin.vibexPoolHint' : platform === 'zcode' ? 'admin.accounts.builtinLogin.zcodePoolHint' : platform === 'cursor' ? 'admin.accounts.builtinLogin.cursorPoolHint' : platform === 'windsurf' ? 'admin.accounts.builtinLogin.windsurfPoolHint' : 'admin.accounts.builtinLogin.poolHint') }}</p>
     <div v-if="platform === 'zcode'" class="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <div>
         <label for="zcode-login-plan" class="input-label">{{ t('admin.accounts.builtinLogin.zcodePlan') }}</label>
@@ -49,10 +49,10 @@
       {{ t(startKey) }}
     </button>
     <template v-if="session?.status === 'pending'">
-      <a v-if="session.auth_url && platform !== 'deepseek_web' && platform !== 'madao'" :href="session.auth_url" target="_blank" rel="noopener noreferrer" class="block text-sm text-primary-600 underline dark:text-primary-400">
+      <a v-if="session.auth_url && !hasLoginView" :href="session.auth_url" target="_blank" rel="noopener noreferrer" class="block text-sm text-primary-600 underline dark:text-primary-400">
         {{ t(platform === 'cursor' ? 'admin.accounts.builtinLogin.cursorOpen' : platform === 'windsurf' ? 'admin.accounts.builtinLogin.windsurfOpen' : 'admin.accounts.builtinLogin.open') }}
       </a>
-      <div v-if="platform === 'deepseek_web' || platform === 'madao'" class="space-y-2">
+      <div v-if="hasLoginView" class="space-y-2">
         <!-- 容器映射鼠标坐标，原生输入框接收键盘与输入法；截图刷新不替换输入框。 -->
         <div
           ref="loginViewRef"
@@ -69,7 +69,7 @@
             v-if="viewInteractive"
             ref="loginInputRef"
             data-testid="builtin-login-input"
-            :aria-label="t('admin.accounts.builtinLogin.madaoViewAlt')"
+            :aria-label="t(viewAltKey)"
             class="absolute left-0 top-0 h-px w-px opacity-0"
             autocomplete="off"
             @input="relayTextInput"
@@ -80,13 +80,13 @@
           <img
             v-if="loginViewURL"
             :src="loginViewURL"
-            :data-testid="platform === 'madao' ? 'madao-login-view' : 'deepseek-login-view'"
-            :alt="t(platform === 'madao' ? 'admin.accounts.builtinLogin.madaoViewAlt' : 'admin.accounts.builtinLogin.deepseekWebQRCodeAlt')"
+            :data-testid="platform === 'deepseek_web' ? 'deepseek-login-view' : `${platform}-login-view`"
+            :alt="t(viewAltKey)"
             class="max-h-[520px] w-full rounded-lg border border-gray-200 object-contain dark:border-dark-600"
             draggable="false"
           />
         </div>
-        <p class="input-hint" role="status">{{ t(loginViewURL ? (platform === 'madao' ? 'admin.accounts.builtinLogin.madaoWaiting' : 'admin.accounts.builtinLogin.deepseekWebWaiting') : (platform === 'madao' ? 'admin.accounts.builtinLogin.madaoLoading' : 'admin.accounts.builtinLogin.deepseekWebLoading')) }}</p>
+        <p class="input-hint" role="status">{{ t(viewStatusKey) }}</p>
         <p v-if="viewInteractive && loginViewURL" class="input-hint">{{ t('admin.accounts.builtinLogin.viewInteractHint') }}</p>
       </div>
       <template v-else-if="session.mode === 'callback'">
@@ -119,6 +119,7 @@ const props = withDefaults(defineProps<{ platform: BuiltinLoginPlatform; scope?:
 })
 const emit = defineEmits<{
   authorized: [session: BuiltinLoginSession]
+  reset: []
 }>()
 const { t } = useI18n()
 const session = ref<BuiltinLoginSession | null>(null)
@@ -147,7 +148,11 @@ const arenaErrorKeys = new Map<string, string>([
   ['ARENA_LOGIN_TIMEOUT', 'admin.accounts.arena.loginTimeout'],
   ['ARENA_SESSION_PREPARE_FAILED', 'admin.accounts.arena.sessionPrepareFailed']
 ])
-const viewInteractive = computed(() => props.platform === 'madao')
+const viewInteractive = computed(() => props.platform === 'madao' || props.platform === 'teleagent')
+const hasLoginView = computed(() => viewInteractive.value || props.platform === 'deepseek_web')
+const viewKeyPrefix = computed(() => props.platform === 'deepseek_web' ? 'deepseekWeb' : props.platform)
+const viewAltKey = computed(() => `admin.accounts.builtinLogin.${viewKeyPrefix.value}${props.platform === 'deepseek_web' ? 'QRCodeAlt' : 'ViewAlt'}`)
+const viewStatusKey = computed(() => `admin.accounts.builtinLogin.${viewKeyPrefix.value}${loginViewURL.value ? 'Waiting' : 'Loading'}`)
 const busy = ref(false)
 const zcodePlan = ref<ZcodeLoginOptions['plan']>('coding-plan')
 const zcodeProvider = ref<ZcodeLoginOptions['provider']>('zai')
@@ -169,8 +174,8 @@ const startKey = computed(() => {
   if (props.platform === 'deepseek_web') {
     return session.value ? 'admin.accounts.builtinLogin.deepseekWebRestart' : 'admin.accounts.builtinLogin.deepseekWebStart'
   }
-  if (props.platform === 'madao') {
-    return session.value ? 'admin.accounts.builtinLogin.madaoRestart' : 'admin.accounts.builtinLogin.madaoStart'
+  if (viewInteractive.value) {
+    return `admin.accounts.builtinLogin.${props.platform}${session.value ? 'Restart' : 'Start'}`
   }
   return session.value ? 'admin.accounts.builtinLogin.restart' : 'admin.accounts.builtinLogin.start'
 })
@@ -212,6 +217,10 @@ function showError(err: unknown) {
     error.value = t('admin.accounts.builtinLogin.deepseekWebUnavailable')
     return
   }
+  if (props.platform === 'teleagent' && detail.code === 'BUILTIN_ADAPTER_DISABLED') {
+    error.value = t('admin.accounts.builtinLogin.teleagentUnavailable')
+    return
+  }
   if (props.platform === 'madao' && detail.code === 'BUILTIN_ADAPTER_DISABLED') {
     error.value = t('admin.accounts.builtinLogin.madaoUnavailable')
     return
@@ -220,6 +229,7 @@ function showError(err: unknown) {
 }
 
 async function cancel() {
+  emit('reset')
   const current = session.value
   stop()
   session.value = null
@@ -329,7 +339,7 @@ function finishComposition() {
 }
 
 async function refreshLoginView(current: BuiltinLoginSession, version: number) {
-  if ((props.platform !== 'deepseek_web' && props.platform !== 'madao') || current.status !== 'pending') return
+  if (!hasLoginView.value || current.status !== 'pending') return
   try {
     const blob = await getBuiltinLoginView(props.platform, current.session_id, controller?.signal, props.scope)
     if (version !== generation) return
@@ -367,18 +377,39 @@ async function start() {
   try {
     const result = await startBuiltinLogin(props.platform, controller.signal, options, props.scope)
     if (version !== generation) {
-      if (props.platform === 'arena' || props.platform === 'deepseek_web') await cancelBuiltinLogin(props.platform, result.session_id)
+      if (result.status === 'pending') await cancelBuiltinLogin(props.platform, result.session_id, props.scope)
       return
     }
-    session.value = result
+    if (!applySession(result)) return
     await refreshLoginView(result, version)
-    if (result.mode === 'poll') timer = setTimeout(complete, 2500)
+    if (result.status === 'pending' && result.mode === 'poll') timer = setTimeout(complete, 2500)
   } catch (err) {
     if (version === generation) showError(err)
   } finally {
     starting = false
     if (version === generation) busy.value = false
   }
+}
+
+// 只有服务端确认完成且返回独立账号密钥，TeleAgent 才能显示授权成功。
+function applySession(result: BuiltinLoginSession): boolean {
+  if (props.platform === 'teleagent' && result.status === 'completed' && !result.api_key?.trim()) {
+    stop()
+    session.value = null
+    emit('reset')
+    error.value = t('admin.accounts.teleagent.loginRequired')
+    return false
+  }
+  session.value = result
+  if (result.status !== 'completed') return true
+  callback.value = ''
+  if (loginViewURL.value) URL.revokeObjectURL(loginViewURL.value)
+  loginViewURL.value = ''
+  if (!authorizedEmitted) {
+    authorizedEmitted = true
+    emit('authorized', result)
+  }
+  return true
 }
 
 async function complete() {
@@ -397,17 +428,8 @@ async function complete() {
   try {
     const result = await completeBuiltinLogin(props.platform, current, callback.value.trim(), controller.signal, props.scope)
     if (version !== generation) return
-    session.value = result
-    if (result.status === 'completed') {
-      callback.value = ''
-      if (loginViewURL.value) URL.revokeObjectURL(loginViewURL.value)
-      loginViewURL.value = ''
-      if (!authorizedEmitted) {
-        authorizedEmitted = true
-        emit('authorized', result)
-      }
-    }
-    else if (result.mode === 'poll') {
+    if (!applySession(result)) return
+    if (result.status === 'pending' && result.mode === 'poll') {
       await refreshLoginView(result, version)
       timer = setTimeout(complete, 2500)
     }
@@ -426,7 +448,7 @@ async function complete() {
 // 关闭表单立即中止轮询；服务端未完成会话会在十分钟后过期。
 onBeforeUnmount(() => {
   disposed = true
-  if (props.platform === 'arena' || props.platform === 'deepseek_web' || props.platform === 'madao' || props.platform === 'cursor' || props.platform === 'windsurf') {
+  if (props.platform === 'arena' || props.platform === 'deepseek_web' || props.platform === 'madao' || props.platform === 'teleagent' || props.platform === 'cursor' || props.platform === 'windsurf') {
     void cancel()
   } else {
     stop()

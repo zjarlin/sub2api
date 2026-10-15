@@ -57,6 +57,8 @@ func builtinAdapterBaseURL(platform string) string {
 		return strings.TrimRight(cfg.CursorBaseURL(), "/")
 	case PlatformWindsurf:
 		return strings.TrimRight(cfg.WindsurfBaseURL(), "/")
+	case PlatformTeleagent:
+		return strings.TrimRight(cfg.TeleagentBaseURL(), "/")
 	case PlatformZcode:
 		return strings.TrimRight(cfg.ZcodeBaseURL(), "/")
 	case PlatformDeepseekWeb:
@@ -93,6 +95,8 @@ func builtinAdapterAPIKey(platform string) string {
 		return strings.TrimSpace(cfg.CursorKey)
 	case PlatformWindsurf:
 		return strings.TrimSpace(cfg.WindsurfKey)
+	case PlatformTeleagent:
+		return strings.TrimSpace(cfg.TeleagentKey)
 	case PlatformZcode:
 		return strings.TrimSpace(cfg.ZcodeKey)
 	case PlatformDeepseekWeb:
@@ -155,7 +159,7 @@ func applyBuiltinAdapterCredentials(platform string, credentials map[string]any)
 		}
 		credentials["base_url"] = strings.TrimRight(base.String(), "/")
 	}
-	if platform == PlatformCursor || platform == PlatformWindsurf {
+	if platform == PlatformCursor || platform == PlatformWindsurf || platform == PlatformTeleagent {
 		return
 	}
 	if existing, _ := credentials["api_key"].(string); strings.TrimSpace(existing) == "" {

@@ -352,9 +352,9 @@ describe('EditAccountModal', () => {
     rotating.unmount()
   })
 
-  it('edits Cursor with a redacted stored key and clears its optional adapter URL', async () => {
+  it.each(['cursor', 'teleagent'] as const)('edits %s with a redacted stored key and clears its optional adapter URL', async platform => {
     const account = buildAccount()
-    account.platform = 'cursor'
+    account.platform = platform
     account.credentials = {
       base_url: 'http://sub2api-cursor:7868/v1',
       api_protocol: 'responses',
@@ -364,7 +364,9 @@ describe('EditAccountModal', () => {
     updateAccountMock.mockReset().mockResolvedValue(account)
     const wrapper = mountModal(account)
     expect(wrapper.findComponent({ name: 'BuiltinAdapterLogin' }).exists()).toBe(false)
-    expect(wrapper.get('[data-testid="account-api-key"]').attributes('placeholder')).toBe('admin.accounts.cursor.apiKeyPlaceholder')
+    if (platform === 'cursor') {
+      expect(wrapper.get('[data-testid="account-api-key"]').attributes('placeholder')).toBe('admin.accounts.cursor.apiKeyPlaceholder')
+    }
     await wrapper.get('[data-testid="account-base-url"]').setValue('')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()

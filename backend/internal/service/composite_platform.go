@@ -94,6 +94,11 @@ func DetectModelPlatform(model string) (string, bool) {
 	}
 
 	normalized = strings.TrimPrefix(normalized, "models/")
+	for _, id := range DefaultTeleagentModelIDs() {
+		if normalized == id {
+			return PlatformTeleagent, true
+		}
+	}
 	// System One 决策模型的公开名带命名空间（typesafe/jev），必须在下面的
 	// provider 前缀切分之前按完整名字识别，否则会被切成 provider=typesafe。
 	if normalized == "typesafe/jev" {
@@ -125,6 +130,8 @@ func DetectModelPlatform(model string) (string, bool) {
 			return PlatformArena, true
 		case "cursor":
 			return PlatformCursor, true
+		case "teleagent":
+			return PlatformTeleagent, true
 		case "windsurf":
 			return PlatformWindsurf, true
 		case "doubao":
@@ -253,7 +260,7 @@ func (s *GatewayService) resolveCompositeRouteDecision(ctx context.Context, grou
 func isConcreteRequestPlatform(platform string) bool {
 	switch platform {
 	case PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformGrok,
-		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformMadao, PlatformArena, PlatformMiniMax, PlatformCursor, PlatformWindsurf, PlatformOpenCodeGo, PlatformKilo, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformSystemOne, PlatformModel3D, PlatformLaya, PlatformJev:
+		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformMadao, PlatformArena, PlatformMiniMax, PlatformCursor, PlatformWindsurf, PlatformTeleagent, PlatformOpenCodeGo, PlatformKilo, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformSystemOne, PlatformModel3D, PlatformLaya, PlatformJev:
 		return true
 	default:
 		return false

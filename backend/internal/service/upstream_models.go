@@ -340,7 +340,7 @@ func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, accou
 	liveListAvailable := err == nil
 	if err != nil {
 		configuredModels := configuredUpstreamModelsForCapabilitySync(account)
-		if account != nil && (account.IsCursor() || account.IsWindsurf()) || !upstreamModelListEndpointUnsupported(err) || len(configuredModels) == 0 {
+		if account != nil && (account.IsCursor() || account.IsWindsurf() || account.IsTeleagent()) || !upstreamModelListEndpointUnsupported(err) || len(configuredModels) == 0 {
 			return nil, err
 		}
 		models = configuredModels
@@ -781,7 +781,7 @@ func upstreamModelRegistryBaseURL(account *Account) string {
 		return ""
 	}
 	switch {
-	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo() || account.IsCursor() || account.IsWindsurf():
+	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo() || account.IsCursor() || account.IsWindsurf() || account.IsTeleagent():
 		return account.GetOpenAIFormatBaseURL()
 	case account.IsGrok():
 		return account.GetGrokBaseURL()
@@ -1015,7 +1015,7 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 		return s.buildAntigravityAPIKeyModelsRequest(ctx, account)
 	case account.IsGrok():
 		return s.buildGrokUpstreamModelsRequest(ctx, account)
-	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo() || account.IsKilo() || account.IsArena() || account.IsCursor() || account.IsWindsurf():
+	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo() || account.IsKilo() || account.IsArena() || account.IsCursor() || account.IsWindsurf() || account.IsTeleagent():
 		// 国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）与 OpenCode Go
 		// 复用 OpenAI /v1/models 探测。
 		return s.buildOpenAIUpstreamModelsRequest(ctx, account)
@@ -1275,7 +1275,7 @@ func buildOpenAIAPIKeyModelsRequest(ctx context.Context, account *Account, valid
 		req.Header.Set("User-Agent", openCodeFreeUserAgent)
 		req.Header.Set(openCodeClientHeader, openCodeClientName)
 	}
-	if account.IsCursor() || account.IsWindsurf() {
+	if account.IsCursor() || account.IsWindsurf() || account.IsTeleagent() {
 		if adapterKey := builtinAdapterSharedKeyForTarget(account.Platform, normalizedBaseURL); adapterKey != "" {
 			req.Header.Set("X-Sub2API-Adapter-Key", adapterKey)
 		}

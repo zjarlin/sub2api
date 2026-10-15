@@ -7,6 +7,10 @@ vi.mock('@/api/admin/accounts', () => ({
 import { buildModelMappingObject, getModelsByPlatform, getPresetMappingsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
 
 describe('useModelWhitelist', () => {
+  it('TeleAgent 提供三种聊天模型', () => {
+    expect(getModelsByPlatform('teleagent')).toEqual(['chat-pro', 'chat-flagship', 'chat-flash'])
+  })
+
   it('openai 模型列表包含 GPT-5.4 官方快照', () => {
     const models = getModelsByPlatform('openai')
 

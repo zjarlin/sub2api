@@ -450,6 +450,7 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'cursor':
     case 'windsurf':
     case 'arena': return []
+    case 'teleagent': return ['chat-pro', 'chat-flagship', 'chat-flash']
     case 'workbuddy': return ['glm-5.2']
     case 'zcode': return ['glm-5.3', 'glm-5.3-flash']
     case 'qoder': return ['auto', 'qmodel_38max', 'qfmodel']

@@ -226,7 +226,7 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	upstreamReq = upstreamReq.WithContext(WithHTTPUpstreamProfile(upstreamReq.Context(), HTTPUpstreamProfileOpenAI))
 	upstreamReq.Header.Set("Content-Type", "application/json")
 	upstreamReq.Header.Set("Authorization", "Bearer "+bearerToken)
-	if account.IsCursor() || account.IsWindsurf() {
+	if account.IsCursor() || account.IsWindsurf() || account.IsTeleagent() {
 		if adapterKey := builtinAdapterSharedKeyForTarget(account.Platform, targetURL); adapterKey != "" {
 			upstreamReq.Header.Set("X-Sub2API-Adapter-Key", adapterKey)
 		}

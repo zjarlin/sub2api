@@ -343,7 +343,7 @@ func (a *Account) IsCNProvider() bool {
 // openai/grok 原生走 OpenAI 网关；国产供应商同为 OpenAI Chat Completions
 // 兼容上游，也经 OpenAI 网关转发。OpenCode 同样经 OpenAI 网关按模型分流。
 func (a *Account) IsOpenAICompatible() bool {
-	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok || a.IsCNProvider() || a.IsOpenCodeGo() || a.IsCursor() || a.IsWindsurf())
+	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok || a.IsCNProvider() || a.IsOpenCodeGo() || a.IsCursor() || a.IsWindsurf() || a.IsTeleagent())
 }
 
 func (a *Account) GeminiOAuthType() string {
@@ -695,6 +695,13 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 		return nil
 	}
 	if len(rawMapping) == 0 {
+		if a.IsTeleagent() {
+			mapping := make(map[string]string)
+			for _, id := range DefaultTeleagentModelIDs() {
+				mapping[id] = id
+			}
+			return mapping
+		}
 		if a.IsGeminiGoogleOne() {
 			return geminicli.GoogleOneModelMapping()
 		}
@@ -976,7 +983,7 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 		if a.Platform == PlatformDeepseek {
 			return isDeepseekServableModel(requestedModel)
 		}
-		if a.IsCursor() || a.IsWindsurf() {
+		if a.IsCursor() || a.IsWindsurf() || a.IsTeleagent() {
 			return false
 		}
 		// 混合调度来源必须有模型支持依据，避免空目录的兼容账号抢占其他厂商请求。
@@ -1470,7 +1477,7 @@ func (a *Account) SupportsHTTPResponsesContinuation() bool {
 // 适用 openai、国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）与 OpenCode Go；
 // grok 走 GetGrokBaseURL，此处对 grok 返回 "" 以保持原有行为。
 func (a *Account) GetOpenAIBaseURL() string {
-	if !a.IsOpenAI() && !a.IsCNProvider() && !a.IsOpenCodeGo() && !a.IsCursor() && !a.IsWindsurf() && !a.IsLaya() && !a.IsJev() {
+	if !a.IsOpenAI() && !a.IsCNProvider() && !a.IsOpenCodeGo() && !a.IsCursor() && !a.IsWindsurf() && !a.IsTeleagent() && !a.IsLaya() && !a.IsJev() {
 		return ""
 	}
 	if a.IsMultiProtocolAPIKey() && a.IsAdaptiveAPIProtocol() {
@@ -1490,7 +1497,7 @@ func (a *Account) GetOpenAIBaseURL() string {
 	case PlatformQoder:
 		// Qoder 直连官方 Model Server，不依赖内置适配器配置。
 		return QoderModelServerURL()
-	case PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformDeepseekWeb, PlatformMadao, PlatformArena, PlatformLaya, PlatformJev, PlatformCursor, PlatformWindsurf:
+	case PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformDeepseekWeb, PlatformMadao, PlatformArena, PlatformLaya, PlatformJev, PlatformCursor, PlatformWindsurf, PlatformTeleagent:
 		// 内置适配器模式下由部署注入地址，账号本身不存默认公网端点。
 		return builtinAdapterBaseURL(a.Platform)
 	case PlatformKilo:
@@ -1519,7 +1526,7 @@ func (a *Account) GetOpenAIBaseURL() string {
 // GetAccountMode 返回国产供应商账号的接入模式（payg / coding）；非国产供应商或未设置时
 // 返回空串。存储于 credentials["account_mode"]。
 func (a *Account) GetAccountMode() string {
-	if a == nil || a.IsDoubao() || a.IsTraework() || a.IsWorkbuddy() || a.IsVibex() || a.IsZcode() || a.IsDeepseekWeb() || a.IsMadao() || a.IsArena() || a.IsLaya() || a.IsJev() || a.IsCursor() || a.IsWindsurf() {
+	if a == nil || a.IsDoubao() || a.IsTraework() || a.IsWorkbuddy() || a.IsVibex() || a.IsZcode() || a.IsDeepseekWeb() || a.IsMadao() || a.IsArena() || a.IsLaya() || a.IsJev() || a.IsCursor() || a.IsWindsurf() || a.IsTeleagent() {
 		return ""
 	}
 	mode := strings.TrimSpace(a.GetCredential("account_mode"))
@@ -1553,7 +1560,7 @@ func (a *Account) GetAPIProtocol() string {
 		// pinned to Chat before it exposed Responses; preserve the inbound shape.
 		return APIProtocolResponses
 	}
-	if a.IsCursor() || a.IsWindsurf() {
+	if a.IsCursor() || a.IsWindsurf() || a.IsTeleagent() {
 		return APIProtocolChatCompletions
 	}
 	if a.IsTraework() || a.IsWorkbuddy() || a.IsVibex() || a.IsZcode() || a.IsDeepseekWeb() || a.IsMadao() || a.IsArena() || a.IsQoder() || !a.IsMultiProtocolAPIKey() {
@@ -1980,6 +1987,10 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 		return true
 	}
 	if !a.IsOpenAICompatible() {
+		return false
+	}
+	// TeleAgent 仅有 Chat 端点；普通 Responses 请求由网关转换，原生能力不能冒认。
+	if a.IsTeleagent() && capability != OpenAIEndpointCapabilityChatCompletions {
 		return false
 	}
 	if a.IsGrok() {

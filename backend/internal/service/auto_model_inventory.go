@@ -117,7 +117,7 @@ func AutoModelTextPlatform(platform string) bool {
 	switch platform {
 	case PlatformOpenAI, PlatformGrok, PlatformKimi,
 		PlatformZhipu, PlatformDeepseek, PlatformMiniMax,
-		PlatformOpenCodeGo, PlatformKilo, PlatformDoubao, PlatformDeepseekWeb, PlatformMadao, PlatformCursor, PlatformWindsurf, PlatformTraework,
+		PlatformOpenCodeGo, PlatformKilo, PlatformDoubao, PlatformDeepseekWeb, PlatformMadao, PlatformCursor, PlatformWindsurf, PlatformTeleagent, PlatformTraework,
 		PlatformWorkbuddy, PlatformVibex, PlatformZcode,
 		PlatformQoder:
 		return true

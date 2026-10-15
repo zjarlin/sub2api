@@ -16,6 +16,7 @@ const PROVIDER_BY_PLATFORM: Record<GroupPlatform, KeyGroupProvider> = {
   arena: 'other',
   cursor: 'other',
   windsurf: 'other',
+  teleagent: 'domestic',
   doubao: 'domestic',
   traework: 'domestic',
   workbuddy: 'domestic',

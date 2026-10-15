@@ -38,3 +38,5 @@ VibeX 使用同一登录会话组件导入 RunningHub 令牌，凭证在后台�
 Qoder 测试模型列表优先使用账号已保存的官方目录及展示名，默认候选使用官方模型键。
 提交消息测试先于通用供应商分支处理，OAuth 使用设备令牌，并应用账号模型映射。
 目录启用状态和实际推理额度是独立信息；上游额度不足会按真实 HTTP 错误显示。
+
+TeleAgent 使用 `platform=teleagent` 的 API Key 账号。`BuiltinAdapterLogin` 通过当前 `admin` / `user` scope 创建轮询会话、读取 PNG 画面并转发点击、滚动和文本输入；完成响应必须包含独立 `api_key`，缺失时不得显示成功或创建账号。账号地址留空，由内置适配器注入。模型目录包含 `chat-pro`、`chat-flagship`、`chat-flash`，可使用工具并加入 OpenAI/Codex 兼容分组。平台切换、关闭表单或重新登录会清除旧授权。

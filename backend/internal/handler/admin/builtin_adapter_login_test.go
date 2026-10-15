@@ -16,6 +16,61 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestTeleagentAdminBuiltinLoginRoutesPreserveScope(t *testing.T) {
+	sessionID := strings.Repeat("a", 64)
+	localKey := "ta-" + strings.Repeat("b", 64)
+	adapter := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "Bearer shared-key", r.Header.Get("Authorization"))
+		require.Equal(t, "admin:7", r.Header.Get("X-Login-Owner"))
+		if strings.HasSuffix(r.URL.Path, "/view") {
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write([]byte("png"))
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/input") {
+			var event service.BuiltinLoginInputEvent
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&event))
+			require.Equal(t, "click", event.Type)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"session_id": sessionID, "mode": "poll", "status": "completed", "api_key": localKey, "account": map[string]string{"uid": "cloud-uid", "nickname": "admin", "token": "cloud-secret"}})
+	}))
+	defer adapter.Close()
+	service.SetBuiltinAdapterConfig(&config.BuiltinAdapterConfig{Enabled: true, TeleagentURL: adapter.URL, TeleagentKey: "shared-key"})
+	t.Cleanup(func() { service.SetBuiltinAdapterConfig(nil) })
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 7})
+		c.Next()
+	})
+	h := &AccountHandler{}
+	login := router.Group("/builtin-adapters/:platform/login-sessions")
+	login.POST("", h.BuiltinAdapterLogin)
+	login.POST("/:session/:action", h.BuiltinAdapterLogin)
+	login.GET("/:session/view", h.BuiltinAdapterLogin)
+	base := "/builtin-adapters/teleagent/login-sessions"
+	for _, tc := range []struct{ method, path, body string }{
+		{http.MethodPost, base, `{}`},
+		{http.MethodPost, base + "/" + sessionID + "/poll", `{}`},
+		{http.MethodGet, base + "/" + sessionID + "/view", ""},
+		{http.MethodPost, base + "/" + sessionID + "/input", `{"type":"click","x":12,"y":34}`},
+	} {
+		request := httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body))
+		request.Header.Set("Content-Type", "application/json")
+		result := httptest.NewRecorder()
+		router.ServeHTTP(result, request)
+		require.Equal(t, http.StatusOK, result.Code, result.Body.String())
+		require.Equal(t, "no-store", result.Header().Get("Cache-Control"))
+		require.NotContains(t, result.Body.String(), "cloud-secret")
+		require.NotContains(t, result.Body.String(), "shared-key")
+		if tc.path == base {
+			require.Contains(t, result.Body.String(), localKey)
+		}
+	}
+}
+
 func TestBuiltinAdapterLoginDeepseekWebForwardsCredentials(t *testing.T) {
 	sessionID := strings.Repeat("a", 64)
 	forwarded := make(chan service.BuiltinLoginOptions, 1)

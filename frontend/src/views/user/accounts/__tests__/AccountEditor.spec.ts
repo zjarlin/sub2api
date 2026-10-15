@@ -25,9 +25,9 @@ function editor(value: Account | null, groups: any[] = [], renderGroupSelector =
 }
 beforeEach(() => { vi.resetAllMocks(); update.mockResolvedValue(account) })
 describe('我的账号编辑', () => {
-  it('Cursor 创建时要求 Dashboard Key 并允许省略适配器地址', async () => {
+  it.each(['cursor', 'teleagent'])('%s 创建时要求独立账号 Key 并允许省略适配器地址', async platform => {
     const wrapper = editor(null)
-    wrapper.findComponent({ name: 'Select' }).vm.$emit('update:modelValue', 'cursor')
+    wrapper.findComponent({ name: 'Select' }).vm.$emit('update:modelValue', platform)
     await flushPromises()
     expect(wrapper.get('[data-testid="owned-account-base-url"]').attributes('required')).toBeUndefined()
     await wrapper.find('form').trigger('submit')
@@ -39,17 +39,17 @@ describe('我的账号编辑', () => {
     await wrapper.find('form').trigger('submit')
     await flushPromises()
     expect(create.mock.lastCall?.[0]).toMatchObject({
-      platform: 'cursor', type: 'apikey', credentials: {
+      platform, type: 'apikey', credentials: {
         api_key: 'owned-cursor-key', api_protocol: 'chat_completions', openai_capabilities: ['chat_completions'],
       },
     })
     expect(create.mock.lastCall?.[0]?.credentials).not.toHaveProperty('base_url')
   })
 
-  it('Cursor 编辑保留脱敏密钥并固定文本协议', async () => {
+  it.each(['cursor', 'teleagent'])('%s 编辑保留脱敏密钥并固定文本协议', async platform => {
     const cursorAccount = {
       ...account,
-      platform: 'cursor',
+      platform,
       credentials: { api_protocol: 'responses', openai_capabilities: ['responses'] },
     } as unknown as Account
     const wrapper = editor(cursorAccount)

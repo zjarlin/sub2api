@@ -103,7 +103,7 @@
       <!-- Platform Selection - Segmented Control Style -->
       <div>
         <label class="input-label">{{ t('admin.accounts.platform') }}</label>
-        <div class="mt-2 flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700" data-tour="account-form-platform">
+        <div class="mt-2 flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700 [&>button]:min-w-[96px]" data-tour="account-form-platform">
           <button
             type="button"
             @click="form.platform = 'anthropic'"
@@ -344,6 +344,11 @@
             <PlatformIcon platform="windsurf" size="sm" />
             {{ t('admin.accounts.windsurf.title') }}
           </button>
+          <button type="button" data-testid="platform-teleagent" @click="selectTeleagentPlatform"
+            :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'teleagent' ? 'bg-white text-sky-600 shadow-sm dark:bg-dark-600 dark:text-sky-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
+            <PlatformIcon platform="teleagent" size="sm" />
+            {{ t('admin.accounts.teleagent.title') }}
+          </button>
           <button type="button" data-testid="platform-arena" @click="selectArenaPlatform"
             :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'arena' ? 'bg-white text-emerald-600 shadow-sm dark:bg-dark-600 dark:text-emerald-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
             <PlatformIcon platform="arena" size="sm" />
@@ -387,7 +392,7 @@
         </div>
         <p class="input-hint mt-2">{{ systemOneProvider === 'laya' ? t('admin.accounts.laya.baseUrlHint') : t('admin.accounts.jev.baseUrlHint') }}</p>
       </div>
-      <BuiltinAdapterLogin v-if="show && (form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'vibex' || form.platform === 'zcode' || form.platform === 'deepseek_web' || form.platform === 'madao' || form.platform === 'arena' || form.platform === 'cursor' || form.platform === 'windsurf')" @authorized="handleBuiltinAuthorized" :key="form.platform" :platform="form.platform" :scope="adapterScope" />
+      <BuiltinAdapterLogin v-if="show && (form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'vibex' || form.platform === 'zcode' || form.platform === 'deepseek_web' || form.platform === 'madao' || form.platform === 'arena' || form.platform === 'cursor' || form.platform === 'windsurf' || form.platform === 'teleagent')" @authorized="handleBuiltinAuthorized" @reset="resetBuiltinAuthorization" :key="form.platform" :platform="form.platform" :scope="adapterScope" />
 
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
@@ -4736,8 +4741,8 @@ function selectCursorPlatform() {
   apiProtocol.value = 'chat_completions'
   apiKeyBaseUrl.value = ''
   apiKeyValue.value = ''
-  cursorAuthorizedKey.value = ''
-  cursorAuthorizedEmail.value = ''
+  browserAuthorizedKey.value = ''
+  browserAuthorizedAccount.value = ''
   form.concurrency = 1
 }
 
@@ -4751,6 +4756,12 @@ function selectWindsurfPlatform() {
   apiKeyBaseUrl.value = ''
   apiKeyValue.value = ''
   form.concurrency = 1
+}
+
+// TeleAgent 网页登录返回独立账号密钥，服务地址由内置适配器注入。
+function selectTeleagentPlatform() {
+  selectWindsurfPlatform()
+  form.platform = 'teleagent'
 }
 
 // Laya / JEV 是 System One 决策模型：属内置适配器平台，地址与共享密钥由后端注入。
@@ -4785,9 +4796,9 @@ function selectSystemOnePlatform() {
   form.concurrency = 1
 }
 
-// 内置适配器平台（地址与共享密钥由后端注入）的单一权威列表。
+// 内置适配器平台列表；地址由后端注入，浏览器授权平台使用返回的独立凭据。
 // 新增此类平台时只改这里，避免平台按钮 / base_url 复位 / 密钥必填等分支各漏一处。
-const BUILTIN_ADAPTER_PLATFORMS = ['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'madao', 'qoder', 'systemone', 'arena', 'cursor', 'windsurf'] as const
+const BUILTIN_ADAPTER_PLATFORMS = ['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'madao', 'qoder', 'systemone', 'arena', 'cursor', 'windsurf', 'teleagent'] as const
 const isBuiltinAdapterPlatform = computed(() =>
   (BUILTIN_ADAPTER_PLATFORMS as readonly string[]).includes(form.platform)
 )
@@ -4846,7 +4857,8 @@ function onCnPresetSelect(preset: { mode: CnAccountMode; protocol: CnApiProtocol
 }
 
 const syncPreviewCredentials = computed(() => {
-  if (!apiKeyValue.value) return undefined
+  const key = form.platform === 'teleagent' ? browserAuthorizedKey.value : apiKeyValue.value
+  if (!key) return undefined
   const baseUrl = isMultiProtocolPlatform.value && apiProtocol.value === 'adaptive'
     ? adaptiveBaseUrls.value.chat_completions.trim() || apiKeyBaseUrl.value.trim()
     : apiKeyBaseUrl.value.trim()
@@ -4859,7 +4871,7 @@ const syncPreviewCredentials = computed(() => {
     platform: form.platform,
     type: form.type,
     base_url: baseUrl || undefined,
-    api_key: apiKeyValue.value,
+    api_key: key,
     ...(modelMapping ? { model_mapping: modelMapping } : {})
   }
 })
@@ -4880,13 +4892,19 @@ const preserveModelWhitelist = ref(false)
 const modelMappingMode = computed(() => preserveModelWhitelist.value ? 'combined' : modelRestrictionMode.value)
 const allowedModels = ref<string[]>([])
 const arenaLoginReady = ref(false)
-const cursorAuthorizedKey = ref('')
-const cursorAuthorizedEmail = ref('')
+const browserAuthorizedKey = ref('')
+const browserAuthorizedAccount = ref('')
+function resetBuiltinAuthorization() {
+  browserAuthorizedKey.value = ''
+  browserAuthorizedAccount.value = ''
+}
 function handleBuiltinAuthorized(session: BuiltinLoginSession) {
-  // Cursor / Windsurf 浏览器授权成功后返回账号凭据，直接作为账号 api_key 保存。
-  if (form.platform === 'cursor' || form.platform === 'windsurf') {
-    if (session.api_key) cursorAuthorizedKey.value = session.api_key
-    cursorAuthorizedEmail.value = session.account?.nickname || session.account?.uid || ''
+  // 浏览器授权返回的独立凭据直接作为账号 api_key 保存。
+  if (form.platform === 'cursor' || form.platform === 'windsurf' || form.platform === 'teleagent') {
+    resetBuiltinAuthorization()
+    if (form.platform === 'teleagent' && session.status !== 'completed') return
+    browserAuthorizedKey.value = session.api_key?.trim() || ''
+    browserAuthorizedAccount.value = session.account?.nickname || session.account?.uid || ''
     return
   }
   handleArenaAuthorized(session)
@@ -5466,10 +5484,11 @@ watch(
   () => form.platform,
   (newPlatform) => {
     arenaLoginReady.value = false
+    resetBuiltinAuthorization()
     // Reset base URL based on platform.
     // 内置适配器平台（豆包 / TRAE / WorkBuddy / ZCode / Laya / JEV）地址由后端注入，
     // 必须清空 base_url，否则会保留上一个平台的默认值（例如 Anthropic）而打到错误上游。
-    if (newPlatform === 'model3d' || newPlatform === 'cursor' || newPlatform === 'windsurf') {
+    if (newPlatform === 'model3d' || newPlatform === 'cursor' || newPlatform === 'windsurf' || newPlatform === 'teleagent') {
       apiKeyBaseUrl.value = ''
       accountCategory.value = 'apikey'
       apiProtocol.value = 'chat_completions'
@@ -6022,6 +6041,7 @@ const resetForm = () => {
   doubaoSessionProfile.value = 'default'
   doubaoSessionBusy.value = false
   arenaLoginReady.value = false
+  resetBuiltinAuthorization()
   step.value = 1
   form.name = ''
   form.notes = ''
@@ -6358,12 +6378,16 @@ const handleSubmit = async () => {
     appStore.showError(t('admin.accounts.arena.loginRequired'))
     return
   }
-  if (form.platform === 'cursor' && !cursorAuthorizedKey.value) {
+  if (form.platform === 'cursor' && !browserAuthorizedKey.value) {
     appStore.showError(t('admin.accounts.cursor.loginRequired'))
     return
   }
-  if (form.platform === 'windsurf' && !cursorAuthorizedKey.value) {
+  if (form.platform === 'windsurf' && !browserAuthorizedKey.value) {
     appStore.showError(t('admin.accounts.windsurf.loginRequired'))
+    return
+  }
+  if (form.platform === 'teleagent' && !browserAuthorizedKey.value) {
+    appStore.showError(t('admin.accounts.teleagent.loginRequired'))
     return
   }
   // For OAuth-based type, handle OAuth flow (goes to step 2)
@@ -6538,19 +6562,19 @@ const handleSubmit = async () => {
   if (form.platform === 'cursor') {
     // 地址由后端内置适配器注入；账号凭据来自 Cursor 浏览器授权。
     delete credentials.base_url
-    credentials.api_key = cursorAuthorizedKey.value
+    credentials.api_key = browserAuthorizedKey.value
     credentials.api_protocol = 'chat_completions'
     credentials.openai_capabilities = ['chat_completions']
     // 记录授权的 Cursor 账号，便于管理员区分同名账号与排查套餐问题。
-    if (cursorAuthorizedEmail.value) credentials.cursor_email = cursorAuthorizedEmail.value
+    if (browserAuthorizedAccount.value) credentials.cursor_email = browserAuthorizedAccount.value
   }
   if (form.platform === 'gemini') {
     credentials.tier_id = geminiTierAIStudio.value
   }
-  if (form.platform === 'windsurf') {
-    // 地址由后端内置适配器注入；账号凭据来自 Windsurf 浏览器授权。
+  if (form.platform === 'windsurf' || form.platform === 'teleagent') {
+    // 地址由后端内置适配器注入；账号凭据来自浏览器授权完成结果。
     delete credentials.base_url
-    credentials.api_key = cursorAuthorizedKey.value
+    credentials.api_key = browserAuthorizedKey.value
     credentials.api_protocol = 'chat_completions'
     credentials.openai_capabilities = ['chat_completions']
   }

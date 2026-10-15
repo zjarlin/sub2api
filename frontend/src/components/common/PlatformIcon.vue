@@ -90,6 +90,8 @@
   <svg v-else-if="platform === 'kilo'" :class="sizeClass" viewBox="0 0 24 24" fill="currentColor">
     <path d="M5 3h3v7l6-7h4l-6.5 7.4L19 21h-4l-4.6-7.2L8 16.4V21H5V3z" />
   </svg>
+  <!-- TeleAgent 暂用文本标识，避免臆造品牌图形。 -->
+  <span v-else-if="platform === 'teleagent'" :class="sizeClass" class="inline-flex items-center justify-center text-xs font-bold" aria-hidden="true">T</span>
   <!-- Fallback: generic platform icon -->
   <svg v-else :class="sizeClass" fill="currentColor" viewBox="0 0 24 24">
     <path

@@ -911,6 +911,7 @@ export default {
         openai: 'OpenAI',
         cursor: 'Cursor',
         windsurf: 'Windsurf',
+        teleagent: 'TeleAgent',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
         grok: 'Grok',

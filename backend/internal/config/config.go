@@ -116,6 +116,8 @@ type BuiltinAdapterConfig struct {
 	CursorKey      string `mapstructure:"cursor_key"`
 	WindsurfURL    string `mapstructure:"windsurf_url"`
 	WindsurfKey    string `mapstructure:"windsurf_key"`
+	TeleagentURL   string `mapstructure:"teleagent_url"`
+	TeleagentKey   string `mapstructure:"teleagent_key"`
 	Enabled        bool   `mapstructure:"enabled"`
 	DesktopURL     string `mapstructure:"desktop_url"`
 	DesktopKey     string `mapstructure:"desktop_key"`
@@ -208,6 +210,14 @@ func (c BuiltinAdapterConfig) DeepseekWebBaseURL() string {
 		return "http://sub2api-deepseek-web:7867"
 	}
 	return strings.TrimSpace(c.DeepseekWebURL)
+}
+
+// TeleagentBaseURL 返回内置 TeleAgent 适配器地址。
+func (c BuiltinAdapterConfig) TeleagentBaseURL() string {
+	if strings.TrimSpace(c.TeleagentURL) == "" {
+		return "http://sub2api-teleagent:7872"
+	}
+	return strings.TrimSpace(c.TeleagentURL)
 }
 
 // MadaoBaseURL 返回内置码道适配器地址。
@@ -2336,6 +2346,8 @@ func setDefaults() {
 	viper.SetDefault("builtin_adapter.cursor_key", "")
 	viper.SetDefault("builtin_adapter.windsurf_url", "")
 	viper.SetDefault("builtin_adapter.windsurf_key", "")
+	viper.SetDefault("builtin_adapter.teleagent_url", "")
+	viper.SetDefault("builtin_adapter.teleagent_key", "")
 	viper.SetDefault("builtin_adapter.zcode_url", "")
 	viper.SetDefault("builtin_adapter.zcode_key", "")
 	viper.SetDefault("builtin_adapter.deepseek_web_url", "")

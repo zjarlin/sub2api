@@ -280,6 +280,7 @@ const platformFilterOptions = computed(() => [
   { value: 'openai', label: t('myAccounts.openaiCompatible') },
   { value: 'cursor', label: 'Cursor' },
   { value: 'windsurf', label: 'Windsurf' },
+  { value: 'teleagent', label: 'TeleAgent' },
   { value: 'gemini', label: 'Gemini' },
   { value: 'antigravity', label: 'Antigravity' },
   { value: 'kiro', label: 'Kiro' },

@@ -84,6 +84,19 @@ describe('GroupSelector mixed-scheduling platform filter', () => {
     expect(wrapper.text()).not.toContain('Claude')
   })
 
+  it('selects an existing Codex group for TeleAgent without enabling a default group', async () => {
+    const wrapper = mountMixed({ platform: 'teleagent', mixedScheduling: false })
+    expect(wrapper.text()).toContain('Codex')
+    expect(wrapper.text()).not.toContain('Claude')
+    expect(wrapper.text()).not.toContain('Gemini')
+    const choice = wrapper.findAll('label').find(label => label.text().includes('Codex'))
+    expect(choice).toBeDefined()
+    await choice!.get('input[type="checkbox"]').setValue(true)
+    expect(wrapper.emitted('update:modelValue')).toEqual([[[10]]])
+    expect(wrapper.emitted('update:defaultGroupId')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('shows openai groups to automatic compatible accounts when the flag is omitted', () => {
     const wrapper = mountMixed({ platform: 'workbuddy' })
     expect(wrapper.text()).toContain('Codex')

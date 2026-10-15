@@ -43,9 +43,10 @@
       <template v-if="usesApiKey">
         <div>
           <label class="input-label">{{ t('myAccounts.baseUrl') }}</label>
-          <input v-model="form.baseUrl" type="url" :required="!['cursor', 'windsurf'].includes(form.platform)" class="input" data-testid="owned-account-base-url" :placeholder="form.platform === 'cursor' ? t('admin.accounts.cursor.baseUrlPlaceholder') : form.platform === 'windsurf' ? t('admin.accounts.windsurf.baseUrlPlaceholder') : undefined" />
+          <input v-model="form.baseUrl" type="url" :required="!['cursor', 'windsurf', 'teleagent'].includes(form.platform)" class="input" data-testid="owned-account-base-url" :placeholder="form.platform === 'cursor' ? t('admin.accounts.cursor.baseUrlPlaceholder') : form.platform === 'windsurf' ? t('admin.accounts.windsurf.baseUrlPlaceholder') : undefined" />
           <p v-if="form.platform === 'cursor'" class="input-hint">{{ t('admin.accounts.cursor.baseUrlHint') }}</p>
           <p v-if="form.platform === 'windsurf'" class="input-hint">{{ t('admin.accounts.windsurf.baseUrlHint') }}</p>
+          <p v-if="form.platform === 'teleagent'" class="input-hint">{{ t('admin.accounts.teleagent.baseUrlHint') }}</p>
         </div>
         <div>
           <label class="input-label">{{ t(form.platform === 'cursor' ? 'admin.accounts.cursor.apiKey' : form.platform === 'windsurf' ? 'admin.accounts.windsurf.apiKey' : 'myAccounts.apiKey') }}</label>
@@ -275,11 +276,11 @@ const accountTypes = [
   { value: 'bedrock' as AccountType, label: t('admin.accounts.bedrockLabel'), hint: t('myAccounts.typeAdvancedJsonHint') },
   { value: 'service_account' as AccountType, label: 'Service Account', hint: t('myAccounts.typeAdvancedJsonHint') },
 ]
-const types = computed(() => (form.platform === 'cursor' || form.platform === 'windsurf')
+const types = computed(() => (form.platform === 'cursor' || form.platform === 'windsurf' || form.platform === 'teleagent')
   ? accountTypes.filter(option => option.value === 'apikey')
   : accountTypes)
 watch(() => form.platform, platform => {
-  if (platform === 'cursor' || platform === 'windsurf') {
+  if (platform === 'cursor' || platform === 'windsurf' || platform === 'teleagent') {
     form.type = 'apikey'
     if (!props.account) {
       form.baseUrl = ''
@@ -324,7 +325,7 @@ async function save() {
       if (form.apiKey.trim()) {
         nextCredentials.api_key = form.apiKey.trim()
       }
-      if (form.platform === 'cursor' || form.platform === 'windsurf') {
+      if (form.platform === 'cursor' || form.platform === 'windsurf' || form.platform === 'teleagent') {
         const hasStoredKey = props.account?.credentials_status?.has_api_key ?? Boolean(credentials.api_key)
         if (!nextCredentials.api_key && !hasStoredKey) {
           throw new Error(t('admin.accounts.apiKeyIsRequired'))

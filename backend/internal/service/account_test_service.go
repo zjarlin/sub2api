@@ -232,7 +232,7 @@ func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, accou
 		}
 	}
 	// 专属会话目录只取上游实际配置，不补充目录中不存在的手填模型。
-	if isArenaSessionAdapter(account) || account.IsCursor() || account.IsWindsurf() {
+	if isArenaSessionAdapter(account) || account.IsCursor() || account.IsWindsurf() || account.IsTeleagent() {
 		return payload.Data, nil
 	}
 	// Manual self-mappings are authoritative test-picker entries even when the
@@ -499,7 +499,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	if account.IsDoubao() {
 		return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt)
 	}
-	if account.IsCNProvider() || account.IsCursor() || account.IsWindsurf() {
+	if account.IsCNProvider() || account.IsCursor() || account.IsWindsurf() || account.IsTeleagent() {
 		switch account.GetAPIProtocol() {
 		case APIProtocolAdaptive:
 			return s.testCNProviderAdaptiveConnection(c, account, modelID, prompt)
@@ -602,6 +602,9 @@ func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Cont
 			return s.sendErrorAndEnd(c, "Select a model synchronized from the VibeX account")
 		}
 		testModelID = openai.DefaultTestModel
+		if account.IsTeleagent() {
+			testModelID = DefaultTeleagentModel
+		}
 		if account.IsDoubao() {
 			testModelID = DefaultDoubaoTestModel
 		}
@@ -2324,7 +2327,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Authorization", "Bearer "+authToken)
-	if account.IsCursor() || account.IsWindsurf() {
+	if account.IsCursor() || account.IsWindsurf() || account.IsTeleagent() {
 		if adapterKey := builtinAdapterSharedKeyForTarget(account.Platform, apiURL); adapterKey != "" {
 			req.Header.Set("X-Sub2API-Adapter-Key", adapterKey)
 		}

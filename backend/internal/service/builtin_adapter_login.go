@@ -21,7 +21,7 @@ type BuiltinLoginResult struct {
 	Mode      string `json:"mode"`
 	Status    string `json:"status"`
 	ExpiresAt int64  `json:"expires_at"`
-	// APIKey 仅由 Cursor 浏览器授权返回：SDK 登录成功后铸造的可撤销账号凭据，
+	// APIKey 是适配器返回的独立本地账号凭据，TeleAgent 云端 token 留在适配器内，
 	// 由管理页面立即写入待创建账号，不写日志、不落库到登录会话。
 	APIKey  string `json:"api_key,omitempty"`
 	Account *struct {
@@ -48,7 +48,7 @@ type BuiltinLoginOptions struct {
 // BuiltinAdapterLogin 只连接部署配置指定的内部服务，不接受浏览器提供的目标地址或密钥。
 func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action, callback string, options ...BuiltinLoginOptions) (*BuiltinLoginResult, error) {
 	switch platform {
-	case PlatformArena, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformDeepseekWeb, PlatformMadao, PlatformQoder, PlatformCursor, PlatformWindsurf, PlatformLaya, PlatformJev:
+	case PlatformArena, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformDeepseekWeb, PlatformMadao, PlatformQoder, PlatformCursor, PlatformWindsurf, PlatformTeleagent, PlatformLaya, PlatformJev:
 	default:
 		return nil, infraerrors.BadRequest("INVALID_LOGIN_PLATFORM", "Unsupported login platform")
 	}
@@ -198,6 +198,13 @@ func BuiltinAdapterLogin(ctx context.Context, platform, owner, sessionID, action
 	if result.SessionID == "" || (result.Status != "pending" && result.Status != "completed") {
 		return nil, fmt.Errorf("invalid adapter login status")
 	}
+	if platform == PlatformTeleagent {
+		if result.Status == "pending" {
+			result.APIKey = ""
+		} else if !teleagentAccountKeyPattern.MatchString(result.APIKey) || result.APIKey == key || result.Account == nil || strings.TrimSpace(result.Account.UID) == "" {
+			return nil, infraerrors.New(502, "INVALID_ADAPTER_RESPONSE", "Invalid TeleAgent account credential")
+		}
+	}
 	return &result, nil
 }
 
@@ -252,6 +259,9 @@ func arenaLoginError(res *http.Response) error {
 // BuiltinAdapterLoginInput 把管理页面的一次交互（鼠标/键盘/滚轮）转发给隔离浏览器。
 // 只连接部署配置指定的内部服务，不接受浏览器提供的目标地址或密钥。
 func BuiltinAdapterLoginInput(ctx context.Context, platform, owner, sessionID string, event BuiltinLoginInputEvent) error {
+	if !builtinAdapterBrowserLoginSupported(platform) {
+		return infraerrors.BadRequest("INVALID_LOGIN_PLATFORM", "Unsupported browser login platform")
+	}
 	base, key := builtinAdapterBaseURL(platform), builtinAdapterAPIKey(platform)
 	if base == "" || key == "" {
 		return infraerrors.BadRequest("BUILTIN_ADAPTER_DISABLED", "Enable the built-in adapter and configure its shared key first")
@@ -306,6 +316,9 @@ type BuiltinLoginInputEvent struct {
 }
 
 func BuiltinAdapterLoginView(ctx context.Context, platform, owner, sessionID string) (*BuiltinLoginView, error) {
+	if !builtinAdapterBrowserLoginSupported(platform) {
+		return nil, infraerrors.BadRequest("INVALID_LOGIN_PLATFORM", "Unsupported browser login platform")
+	}
 	base, key := builtinAdapterBaseURL(platform), builtinAdapterAPIKey(platform)
 	if base == "" || key == "" {
 		return nil, infraerrors.BadRequest("BUILTIN_ADAPTER_DISABLED", "Enable the built-in adapter and configure its shared key first")
@@ -342,4 +355,13 @@ func BuiltinAdapterLoginView(ctx context.Context, platform, owner, sessionID str
 		return nil, infraerrors.New(502, "INVALID_ADAPTER_RESPONSE", "Invalid login view response")
 	}
 	return &BuiltinLoginView{ContentType: contentType, Body: body}, nil
+}
+
+func builtinAdapterBrowserLoginSupported(platform string) bool {
+	switch platform {
+	case PlatformArena, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformDeepseekWeb, PlatformMadao, PlatformTeleagent, PlatformQoder, PlatformCursor, PlatformWindsurf, PlatformLaya, PlatformJev:
+		return true
+	default:
+		return false
+	}
 }

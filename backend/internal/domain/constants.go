@@ -55,6 +55,8 @@ const (
 	PlatformCursor = "cursor"
 	// Windsurf（Devin / Codeium 云）文本会话适配器。
 	PlatformWindsurf = "windsurf"
+	// TeleAgent 云端聊天适配器。
+	PlatformTeleagent = "teleagent"
 	// PlatformOpenCodeGo 是 OpenCode 平台（账号类型 Zen 按量 / Go 订阅 / Free 免费池）。
 	// 值保持 opencode_go 以兼容已落库的分组、配额与 Composite 路由 CHECK。
 	PlatformOpenCodeGo = "opencode_go"

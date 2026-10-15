@@ -14,6 +14,9 @@ func (a *Account) IsWorkbuddy() bool { return a != nil && a.Platform == Platform
 
 // validateBuiltinChatCredentials 统一校验内置适配器账号。
 func validateBuiltinChatCredentials(platform, accountType string, credentials map[string]any) error {
+	if platform == PlatformTeleagent {
+		return validateTeleagentCredentials(accountType, credentials)
+	}
 	if platform == PlatformCursor {
 		if accountType != AccountTypeAPIKey {
 			return infraerrors.BadRequest("INVALID_CURSOR_CREDENTIALS", "cursor requires an API key account")

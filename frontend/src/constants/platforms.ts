@@ -33,6 +33,7 @@ export const CONCRETE_PLATFORM_OPTIONS = [
   { value: 'qoder', label: 'Qoder' },
   { value: 'cursor', label: 'Cursor' },
   { value: 'windsurf', label: 'Windsurf' },
+  { value: 'teleagent', label: 'TeleAgent' },
   { value: 'systemone', label: 'System One' },
   { value: 'model3d', label: '3D (Meshy / Tripo / Hi3D)' }
 ] as const satisfies readonly PlatformOption<AccountPlatform>[]
@@ -66,6 +67,7 @@ export const MIXED_SCHEDULING_TARGETS: Partial<Record<AccountPlatform, GroupPlat
   qoder: ['openai'],
   cursor: ['openai'],
   windsurf: ['openai'],
+  teleagent: ['openai'],
   systemone: ['openai'],
   // 历史账号读取兼容；新建账号统一使用 systemone。
   laya: ['openai'],

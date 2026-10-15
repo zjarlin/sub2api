@@ -36,6 +36,7 @@ func modelCatalogCandidatePlatforms(targetPlatform string) []string {
 			PlatformMiniMax,
 			PlatformCursor,
 			PlatformWindsurf,
+			PlatformTeleagent,
 			PlatformOpenCodeGo,
 			PlatformKilo,
 			PlatformDoubao,

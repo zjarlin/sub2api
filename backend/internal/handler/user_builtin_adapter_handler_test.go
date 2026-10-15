@@ -3,16 +3,69 @@
 package handler
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestTeleagentUserBuiltinLoginRoutesPreserveScope(t *testing.T) {
+	sessionID := strings.Repeat("a", 64)
+	localKey := "ta-" + strings.Repeat("b", 64)
+	adapter := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "Bearer shared-key", r.Header.Get("Authorization"))
+		if r.Header.Get("X-Login-Owner") != "user:22" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/view") {
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write([]byte("png"))
+			return
+		}
+		if strings.HasSuffix(r.URL.Path, "/input") {
+			var event service.BuiltinLoginInputEvent
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&event))
+			require.Equal(t, "text", event.Type)
+			require.Equal(t, "hello", event.Text)
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"session_id": sessionID, "mode": "poll", "status": "completed", "api_key": localKey, "account": map[string]string{"uid": "cloud-uid", "nickname": "user", "token": "cloud-secret"}})
+	}))
+	defer adapter.Close()
+	service.SetBuiltinAdapterConfig(&config.BuiltinAdapterConfig{Enabled: true, TeleagentURL: adapter.URL, TeleagentKey: "shared-key"})
+	t.Cleanup(func() { service.SetBuiltinAdapterConfig(nil) })
+	h := &UserAccountHandler{}
+	base := "/builtin-adapters/teleagent/login-sessions"
+	for _, tc := range []struct{ method, path, body string }{
+		{http.MethodPost, base, `{}`},
+		{http.MethodPost, base + "/" + sessionID + "/poll", `{}`},
+		{http.MethodGet, base + "/" + sessionID + "/view", ""},
+		{http.MethodPost, base + "/" + sessionID + "/input", `{"type":"text","text":"hello"}`},
+	} {
+		result := userBuiltinAdapterRequest(h, tc.method, tc.path, tc.body, 22)
+		require.Equal(t, http.StatusOK, result.Code, result.Body.String())
+		require.Equal(t, "no-store", result.Header().Get("Cache-Control"))
+		require.NotContains(t, result.Body.String(), "cloud-secret")
+		require.NotContains(t, result.Body.String(), "shared-key")
+		if strings.HasSuffix(tc.path, "/view") {
+			require.Equal(t, "image/png", result.Header().Get("Content-Type"))
+		}
+		if tc.path == base {
+			require.Contains(t, result.Body.String(), localKey)
+		}
+		denied := userBuiltinAdapterRequest(h, tc.method, tc.path, tc.body, 23)
+		require.Equal(t, http.StatusNotFound, denied.Code)
+	}
+}
 
 // 用户侧内置适配器路由：必须走 JWT 用户鉴权，且不得依赖管理员角色。
 // 未登录调用在触碰任何账号/适配器前即被拒绝。

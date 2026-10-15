@@ -3297,6 +3297,7 @@ const handleOllamaCloudUsageUpdated = (state: OllamaCloudUsageState) => {
 // Platform-specific hint for Base URL
 const baseUrlHint = computed(() => {
   if (props.account?.platform === 'cursor') return t('admin.accounts.cursor.baseUrlHint')
+  if (props.account?.platform === 'teleagent') return t('admin.accounts.teleagent.baseUrlHint')
   if (props.account?.platform === 'windsurf') return t('admin.accounts.windsurf.baseUrlHint')
   if (props.account?.platform === 'doubao') return t('admin.accounts.doubao.baseUrlHint')
   if (props.account?.platform === 'traework') return t('admin.accounts.traework.baseUrlHint')
@@ -3983,7 +3984,7 @@ const tempUnschedPresets = computed(() => [
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
   if (props.account?.platform === 'cursor') return ''
-  if (props.account?.platform === 'windsurf') return ''
+  if (props.account?.platform === 'windsurf' || props.account?.platform === 'teleagent') return ''
   if (props.account?.platform === 'arena') return ''
   if (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'madao'].includes(props.account?.platform ?? '')) return ''
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
@@ -4432,7 +4433,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       }
     }
     const platformDefaultUrl =
-      (['model3d', 'doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'madao', 'cursor', 'windsurf'].includes(newAccount.platform))
+      (['model3d', 'doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'madao', 'cursor', 'windsurf', 'teleagent'].includes(newAccount.platform))
         ? ''
         : newAccount.platform === 'openai'
         ? 'https://api.openai.com'
@@ -4513,7 +4514,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     loadModelRestrictionFromMapping(credentials.model_mapping as Record<string, unknown> | undefined)
   } else {
     const platformDefaultUrl =
-      (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'cursor', 'windsurf'].includes(newAccount.platform))
+      (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'cursor', 'windsurf', 'teleagent'].includes(newAccount.platform))
         ? ''
         : newAccount.platform === 'openai'
         ? 'https://api.openai.com'
@@ -5220,12 +5221,12 @@ const handleSubmit = async () => {
       } else {
         delete newCredentials.base_url
       }
-      if (props.account.platform === 'cursor' || props.account.platform === 'windsurf') {
+      if (props.account.platform === 'cursor' || props.account.platform === 'windsurf' || props.account.platform === 'teleagent') {
         newCredentials.api_protocol = 'chat_completions'
         newCredentials.openai_capabilities = ['chat_completions']
       }
 
-      if (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'arena', 'windsurf'].includes(props.account.platform)) {
+      if (['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'arena', 'windsurf', 'teleagent'].includes(props.account.platform)) {
         newCredentials.api_protocol = props.account.platform === 'doubao' ? 'responses' : 'chat_completions'
         newCredentials.openai_capabilities = props.account.platform === 'doubao' ? ['responses', 'chat_completions'] : ['chat_completions']
         if (props.account.platform !== 'traework') {

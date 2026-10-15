@@ -21,6 +21,7 @@ describe('mixed scheduling mapping', () => {
     'workbuddy',
     'zcode',
     'cursor',
+    'teleagent',
   ] as const
 
   it('marks compatible platforms as supported', () => {

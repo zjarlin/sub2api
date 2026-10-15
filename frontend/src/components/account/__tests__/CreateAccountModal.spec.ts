@@ -136,6 +136,7 @@ const ModelWhitelistSelectorStub = defineComponent({
     platform: String,
     enableAliasMapping: Boolean,
     syncCredentials: Object,
+    accountApi: Object,
   },
   emits: ['update:modelValue', 'upstream-synced', 'global-aliases-mapped'],
   template: `<button
@@ -255,6 +256,77 @@ async function openCodexImportStep(toggleClicks = 0) {
 }
 
 describe('CreateAccountModal OpenAI long-context billing', () => {
+  it.each(['admin', 'user'] as const)('shows TeleAgent login in %s scope and saves its independent key', async scope => {
+    const scopedCreate = vi.fn().mockResolvedValue({ id: 47, platform: 'teleagent', type: 'apikey' })
+    const wrapper = scope === 'user'
+      ? mountModalWithAccountApi({ create: scopedCreate })
+      : mountModal()
+    await wrapper.setProps({ adapterScope: scope })
+    expect(wrapper.get('[data-testid="platform-teleagent"]').isVisible()).toBe(true)
+    await wrapper.get('[data-testid="platform-teleagent"]').trigger('click')
+    const login = wrapper.findComponent({ name: 'BuiltinAdapterLogin' })
+    expect(login.props()).toMatchObject({ platform: 'teleagent', scope })
+    expect(wrapper.find('[data-testid="account-api-key"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="account-base-url"]').exists()).toBe(false)
+    const key = `ta-${'a'.repeat(64)}`
+    login.vm.$emit('authorized', { status: 'completed', mode: 'poll', api_key: key, account: { uid: 'user-1', nickname: 'TeleAgent user' } })
+    await flushPromises()
+    expect(wrapper.findComponent({ name: 'ModelWhitelistSelector' }).props('syncCredentials')).toMatchObject({ platform: 'teleagent', api_key: key })
+    await wrapper.get('[data-tour="account-form-name"]').setValue('TeleAgent account')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const create = scope === 'user' ? scopedCreate : createAccountMock
+    expect(create).toHaveBeenCalledOnce()
+    expect(create.mock.lastCall?.[0]).toMatchObject({
+      platform: 'teleagent', type: 'apikey', concurrency: 1, group_ids: [],
+      credentials: { api_key: key, api_protocol: 'chat_completions', openai_capabilities: ['chat_completions'] },
+    })
+    expect(create.mock.lastCall?.[0].credentials).not.toHaveProperty('base_url')
+    expect(create.mock.lastCall?.[0].credentials).not.toHaveProperty('cursor_email')
+    expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
+    if (scope === 'user') expect(createAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it.each([undefined, '', '   '])('blocks TeleAgent creation when completed login has no usable key: %s', async apiKey => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="platform-teleagent"]').trigger('click')
+    await wrapper.get('[data-tour="account-form-name"]').setValue('TeleAgent account')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    expect(createAccountMock).not.toHaveBeenCalled()
+    wrapper.findComponent({ name: 'BuiltinAdapterLogin' }).vm.$emit('authorized', { status: 'completed', api_key: apiKey })
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('clears TeleAgent credentials across platform changes, re-login and dialog reopen', async () => {
+    const wrapper = mountModal()
+    const authorize = () => wrapper.findComponent({ name: 'BuiltinAdapterLogin' }).vm.$emit('authorized', { status: 'completed', api_key: `ta-${'b'.repeat(64)}` })
+    await wrapper.get('[data-testid="platform-teleagent"]').trigger('click')
+    authorize()
+    await wrapper.get('[data-testid="platform-windsurf"]').trigger('click')
+    await wrapper.get('[data-tour="account-form-name"]').setValue('Windsurf account')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    expect(createAccountMock).not.toHaveBeenCalled()
+    await wrapper.get('[data-testid="platform-teleagent"]').trigger('click')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    expect(createAccountMock).not.toHaveBeenCalled()
+    authorize()
+    wrapper.findComponent({ name: 'BuiltinAdapterLogin' }).vm.$emit('reset')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    expect(createAccountMock).not.toHaveBeenCalled()
+    authorize()
+    await wrapper.setProps({ show: false })
+    await wrapper.setProps({ show: true })
+    await wrapper.get('[data-testid="platform-teleagent"]').trigger('click')
+    await wrapper.get('[data-tour="account-form-name"]').setValue('Reopened TeleAgent')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    expect(createAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('requires a Cursor browser login before creating an account', async () => {
     const wrapper = mountModal()
     await wrapper.get('[data-testid="platform-cursor"]').trigger('click')

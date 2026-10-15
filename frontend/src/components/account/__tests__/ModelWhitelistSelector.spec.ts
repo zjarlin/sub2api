@@ -347,7 +347,7 @@ describe('ModelWhitelistSelector', () => {
   })
 
   it('shows the upstream sync button for new platforms like Windsurf and Cursor', () => {
-    for (const platform of ['windsurf', 'cursor', 'qoder', 'deepseek_web']) {
+    for (const platform of ['windsurf', 'cursor', 'teleagent', 'qoder', 'deepseek_web']) {
       const wrapper = mountSelector({
         platform,
         syncCredentials: { platform, type: 'apikey', api_key: 'test-key' },

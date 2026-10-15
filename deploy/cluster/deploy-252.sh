@@ -85,6 +85,24 @@ if [ "$CURSOR_ENABLED" = "1" ]; then
   COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.cursor.yml")
 fi
 
+# TeleAgent 签名与网页登录均在服务器执行，不依赖桌面客户端。
+TELEAGENT_ENABLED="${SUB2API_TELEAGENT:-}"
+if [ -z "$TELEAGENT_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
+  TELEAGENT_ENABLED="$(awk -F= '
+    $1 ~ /^[[:space:]]*(export[[:space:]]+)?SUB2API_TELEAGENT[[:space:]]*$/ {
+      value=$2
+      sub(/#.*/, "", value)
+      gsub(/[[:space:]"\047]/, "", value)
+      result=value
+    }
+    END { if (result == "1") print "1"; else print "0" }
+  ' "$DEPLOY_DIR/.env")"
+fi
+if [ "$TELEAGENT_ENABLED" = "1" ]; then
+  test -f "$DEPLOY_DIR/deploy/docker-compose.teleagent.yml"
+  COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.teleagent.yml")
+fi
+
 # Windsurf 独立启用，真实账号 Token 在管理页面保存，部署仅生成内部共享密钥。
 WINDSURF_ENABLED="${SUB2API_WINDSURF:-}"
 if [ -z "$WINDSURF_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
@@ -234,6 +252,9 @@ if [ "$MADAO_ENABLED" = "1" ]; then
 fi
 if [ "$CURSOR_ENABLED" = "1" ]; then
   ensure_adapter_key CURSOR_ADAPTER_KEY
+fi
+if [ "$TELEAGENT_ENABLED" = "1" ]; then
+  ensure_adapter_key TELEAGENT_ADAPTER_KEY
 fi
 if [ "$WINDSURF_ENABLED" = "1" ]; then
   ensure_adapter_key WINDSURF_ADAPTER_KEY
@@ -467,6 +488,10 @@ fi
 if [ "$CURSOR_ENABLED" = "1" ]; then
   echo "Building and starting Cursor SDK adapter"
   "${COMPOSE[@]}" up -d --build --wait --wait-timeout 180 sub2api-cursor
+fi
+if [ "$TELEAGENT_ENABLED" = "1" ]; then
+  echo "Building and starting TeleAgent adapter"
+  "${COMPOSE[@]}" up -d --build --wait --wait-timeout 180 sub2api-teleagent
 fi
 if [ "$WINDSURF_ENABLED" = "1" ]; then
   echo "Building and starting Windsurf adapter"
