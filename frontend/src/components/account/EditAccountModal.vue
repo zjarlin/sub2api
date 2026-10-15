@@ -3988,6 +3988,7 @@ const tempUnschedPresets = computed(() => [
 
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
+  if (props.account?.platform === 'v0') return 'https://api.v0.dev/v2'
   if (props.account?.platform === 'cursor') return ''
   if (props.account?.platform === 'windsurf' || props.account?.platform === 'teleagent') return ''
   if (props.account?.platform === 'arena') return ''

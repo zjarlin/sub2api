@@ -35,7 +35,8 @@ export const CONCRETE_PLATFORM_OPTIONS = [
   { value: 'windsurf', label: 'Windsurf' },
   { value: 'teleagent', label: 'TeleAgent' },
   { value: 'systemone', label: 'System One' },
-  { value: 'model3d', label: '3D (Meshy / Tripo / Hi3D)' }
+  { value: 'model3d', label: '3D (Meshy / Tripo / Hi3D)' },
+  { value: 'v0', label: 'v0 (Vercel)' }
 ] as const satisfies readonly PlatformOption<AccountPlatform>[]
 
 /** Platforms that can own a group. */

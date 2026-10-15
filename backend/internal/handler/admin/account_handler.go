@@ -3026,6 +3026,10 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
+	if account.Platform == service.PlatformV0 {
+		response.Success(c, []gin.H{})
+		return
+	}
 	if account.Platform == service.PlatformModel3D {
 		provider, err := service.Model3DAccountProvider(account)
 		if err != nil {

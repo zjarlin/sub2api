@@ -522,6 +522,21 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(payload.credentials.api_key).toBeUndefined()
   })
 
+  it('creates a v0 account with the official endpoint and skips model probing', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="platform-v0"]').trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('v0 account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('v0-test-secret')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({
+      platform: 'v0', type: 'apikey',
+      credentials: { base_url: 'https://api.v0.dev/v2', api_key: 'v0-test-secret' }
+    })
+    expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it.each(['meshy', 'tripo', 'hi3d'])('creates a 3D %s account with provider credentials', async provider => {
     const wrapper = mountModal()
     await wrapper.get('[data-testid="platform-model3d"]').trigger('click')

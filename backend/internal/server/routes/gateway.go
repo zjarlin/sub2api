@@ -202,6 +202,8 @@ func RegisterGatewayRoutes(
 	gateway.Use(endpointNorm)
 	gateway.Use(gin.HandlerFunc(apiKeyAuth))
 	gateway.GET("/sub2api/billing", h.Gateway.KeyBillingInfo)
+	// v0 应用生成与客户端源码取回。
+	gateway.Any("/v0/*proxyPath", h.Gateway.V0Proxy)
 	// System One 决策协议（Laya / JEV 共用）：按 model 选平台后走账号池，
 	// 鉴权、调度、用量与其它平台一致。
 	jevGroup := gateway.Group("")

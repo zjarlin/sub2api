@@ -37,6 +37,8 @@ const (
 	PlatformSystemOne = "systemone"
 	// 3D 生成平台，服务商由账号凭据 model3d_provider 指定。
 	PlatformModel3D = "model3d"
+	// v0 (Vercel) 应用生成平台：账号持 v0 API key，网关透传 /v1/v0/* 到 api.v0.dev。
+	PlatformV0 = "v0"
 	// 保留旧值用于读取尚未迁移的历史账号。
 	PlatformLaya = "laya"
 	PlatformJev  = "jev"

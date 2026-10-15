@@ -498,6 +498,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if err := ValidateMailAccount(input.Platform, input.Type, input.Credentials); err != nil {
 		return nil, err
 	}
+	if err := ValidateV0Account(input.Platform, input.Type, input.Credentials); err != nil {
+		return nil, err
+	}
 	if err := ValidateModel3DAccount(input.Platform, input.Type, input.Credentials); err != nil {
 		return nil, err
 	}
@@ -695,6 +698,19 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			return nil, infraerrors.BadRequest("MODEL3D_ACCOUNT_INVALID", "Create a new account to change the 3D provider")
 		}
 		if err := ValidateModel3DAccount(account.Platform, effectiveType, credentials); err != nil {
+			return nil, err
+		}
+	}
+	if account.Platform == PlatformV0 {
+		effectiveType := account.Type
+		if input.Type != "" {
+			effectiveType = input.Type
+		}
+		credentials := account.Credentials
+		if input.Credentials != nil {
+			credentials = MergePreservingSensitiveCreds(credentials, input.Credentials)
+		}
+		if err := ValidateV0Account(account.Platform, effectiveType, credentials); err != nil {
 			return nil, err
 		}
 	}
@@ -1083,6 +1099,11 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	for _, account := range cachedTargets {
 		if account.Platform == PlatformMail && len(input.Credentials) > 0 {
 			if err := ValidateMailAccount(account.Platform, account.Type, mergeMap(account.Credentials, input.Credentials)); err != nil {
+				return nil, err
+			}
+		}
+		if account.Platform == PlatformV0 && len(input.Credentials) > 0 {
+			if err := ValidateV0Account(account.Platform, account.Type, mergeMap(account.Credentials, input.Credentials)); err != nil {
 				return nil, err
 			}
 		}
