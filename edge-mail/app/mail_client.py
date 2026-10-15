@@ -20,6 +20,7 @@ from email.message import EmailMessage, Message
 from email.utils import formataddr, getaddresses, parsedate_to_datetime
 
 from app import imap_utf7
+from app import oauth2 as oauth
 from app.providers import MailProvider, resolve_provider
 from app.proxy import ProxyError, normalize_proxy, proxy_tcp_connect
 
@@ -157,6 +158,21 @@ def _quote_mailbox(name: str) -> str:
     return '"' + encoded.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
 
+def _use_oauth2(account: MailAccount) -> bool:
+    """该服务商是否走 OAuth2/XOAUTH2 认证。"""
+    return account.provider.auth == "oauth2"
+
+
+def _imap_authenticate(conn, account: MailAccount, timeout: int) -> None:
+    """对 IMAP 连接做登录：OAuth2 走 XOAUTH2，否则走密码 LOGIN。"""
+    if _use_oauth2(account):
+        access_token = oauth.get_access_token(account.provider, account.credential, timeout=timeout)
+        sasl = oauth.build_xoauth2(account.address, access_token)
+        conn.authenticate("XOAUTH2", lambda _: sasl)
+    else:
+        conn.login(account.address, account.credential)
+
+
 def _proxied_imap(account: MailAccount, timeout: int):
     """经代理建立 IMAP 连接；SSL 由 stdlib 在隧道之上完成。"""
     base = imaplib.IMAP4_SSL if account.imap_ssl else imaplib.IMAP4
@@ -228,9 +244,11 @@ class ImapClient:
             raise MailConnectionError(f"cannot reach {account.imap_host}: {exc}") from exc
 
         try:
-            self._conn.login(account.address, account.credential)
+            _imap_authenticate(self._conn, account, self.timeout)
         except _IMAP_ERROR as exc:
             raise _auth_error("IMAP", account, exc) from exc
+        except oauth.OAuth2Error as exc:
+            raise MailAuthError(f"IMAP OAuth2 failed for {account.address}: {exc}") from exc
         except (OSError, ssl.SSLError) as exc:
             raise MailConnectionError(f"IMAP login failed on the network layer: {exc}") from exc
 
@@ -479,7 +497,7 @@ def send_message(
                     client.ehlo()
                     client.starttls(context=ssl.create_default_context())
                     client.ehlo()
-                client.login(account.address, account.credential)
+                _smtp_authenticate(client, account, timeout)
                 client.send_message(message)
             finally:
                 _close_smtp(client)
@@ -489,7 +507,7 @@ def send_message(
                 client.ehlo()
                 client.starttls(context=ssl.create_default_context())
                 client.ehlo()
-                client.login(account.address, account.credential)
+                _smtp_authenticate(client, account, timeout)
                 client.send_message(message)
             finally:
                 _close_smtp(client)
@@ -498,10 +516,12 @@ def send_message(
                 account.smtp_host, account.smtp_port, timeout=timeout, context=ssl.create_default_context()
             )
             try:
-                client.login(account.address, account.credential)
+                _smtp_authenticate(client, account, timeout)
                 client.send_message(message)
             finally:
                 _close_smtp(client)
+    except oauth.OAuth2Error as exc:
+        raise MailAuthError(f"SMTP OAuth2 failed for {account.address}: {exc}") from exc
     except _SMTP_AUTH_ERROR as exc:
         raise MailAuthError(
             f"SMTP authentication failed for {account.address}: "
@@ -516,6 +536,18 @@ def send_message(
         "recipients": recipients,
         "subject": subject or "",
     }
+
+
+def _smtp_authenticate(client: smtplib.SMTP, account: MailAccount, timeout: int) -> None:
+    """对 SMTP 连接做登录：OAuth2 走 XOAUTH2，否则走密码 LOGIN。"""
+    if _use_oauth2(account):
+        access_token = oauth.get_access_token(account.provider, account.credential, timeout=timeout)
+        sasl = oauth.xoauth2_b64(account.address, access_token)
+        code, resp = client.docmd("AUTH", "XOAUTH2 " + sasl)
+        if code != 235:
+            raise _SMTP_AUTH_ERROR(code, resp)
+    else:
+        client.login(account.address, account.credential)
 
 
 def _close_smtp(client: smtplib.SMTP) -> None:

@@ -25,7 +25,7 @@
 | 服务商 | 凭据 | 前置条件 | IMAP | SMTP |
 |---|---|---|---|---|
 | Google / Gmail | **应用专用密码** | 账号开启两步验证后生成 16 位应用密码 | `imap.gmail.com:993` SSL | `smtp.gmail.com:465` SSL |
-| Microsoft Outlook | **密码认证（有限支持）** | 仅支持仍允许基本认证的邮箱；OAuth2 尚未实现 | `outlook.office365.com:993` SSL | `smtp.office365.com:587` STARTTLS |
+| Microsoft Outlook | **OAuth2 / XOAUTH2** | 凭据填该邮箱的 OAuth2 refresh_token，edge-mail 运行时换 access_token | `outlook.office365.com:993` SSL | `smtp.office365.com:587` STARTTLS |
 | QQ 邮箱 | **IMAP/SMTP 授权码** | 在「设置 → 账户」开启 IMAP/SMTP 服务并生成授权码 | `imap.qq.com:993` SSL | `smtp.qq.com:465` SSL |
 
 调用时只需给出 `email` 与 `credential`，服务会按邮箱域名自动选择服务商；
@@ -97,7 +97,7 @@ docker build -f edge-mail/docker/Dockerfile edge-mail
 在管理端“账号管理 → 添加邮箱”选择 Google / Outlook / QQ / 163，填写邮箱和应用密码或授权码，选择已有代理并保存。
 编辑邮箱继续使用专用表单；凭据留空保留原值，选择“无代理”会清除旧代理。
 保存后可测试收件连接、查看最近邮件，以及手动发送测试邮件给自己。
-Outlook 的 OAuth2 授权尚未实现；要求 OAuth2 的 Microsoft 账号不能使用当前密码认证方式。
+Outlook 已支持 OAuth2：凭据字段填该邮箱的 OAuth2 refresh_token。edge-mail 使用服务商预设内置的 Thunderbird 公共客户端，运行时用 refresh_token 换 access_token，再以 XOAUTH2 登录 IMAP/SMTP 收发。
 
 代理支持 `http://host:port`（CONNECT）和 `socks5://user:pass@host:port`；收发使用同一个代理。
 HTTPS 代理目前不支持。选定代理失效时返回错误，不静默改为直连。

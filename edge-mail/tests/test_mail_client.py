@@ -315,9 +315,40 @@ def test_smtp_ssl_login_and_send(monkeypatch):
 
 
 def test_smtp_starttls_used_for_outlook(monkeypatch):
+    # outlook 现为 OAuth2 预设，仍需验证走 STARTTLS + 587。
+    # 伪造令牌端点返回 access_token，并用支持 docmd 的 SMTP 替身。
+    import io
+    import urllib.request as _urlreq
+    from unittest import mock
+
     FakeSMTP.instances.clear()
-    monkeypatch.setattr(mc.smtplib, "SMTP", FakeSMTP)
-    account = mc.build_account("user@outlook.com", "app-pw")
+
+    class OAuthFakeSMTP(FakeSMTP):
+        def docmd(self, verb, arg=None):
+            if verb == "AUTH" and arg.startswith("XOAUTH2 "):
+                return (235, b"ok")
+            return (250, b"ok")
+
+    monkeypatch.setattr(mc.smtplib, "SMTP", OAuthFakeSMTP)
+    monkeypatch.setattr(mc.smtplib, "SMTP_SSL", OAuthFakeSMTP)
+
+    def fake_urlopen(request, timeout=None):
+        class Resp:
+            def __enter__(self_):
+                return self_
+
+            def __exit__(self_, *args):
+                return False
+
+            def read(self_):
+                import json as _json
+                return _json.dumps({"access_token": "ACC"}).encode()
+
+        return Resp()
+
+    monkeypatch.setattr(_urlreq, "urlopen", fake_urlopen)
+
+    account = mc.build_account("user@outlook.com", "refresh-token")
     mc.send_message(account, ["a@b.com"], "s", "b")
     assert FakeSMTP.instances[-1].tls is True
     assert FakeSMTP.instances[-1].port == 587
