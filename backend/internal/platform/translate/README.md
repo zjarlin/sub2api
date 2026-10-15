@@ -2,8 +2,9 @@
 
 边缘计算层统一翻译网关，对外提供标准化 REST API，内部按优先级自动回退多个翻译服务商。
 
-> 调用方如何获取（申请）访问 Key、以及管理员如何申请并配置上游服务商 Key，见
-> [`docs/translate-edge-key-guide.md`](../../../../docs/translate-edge-key-guide.md)。
+> 调用方如何获取（申请）访问 Key：见 [`docs/translate-edge-key-guide.md`](../../../../docs/translate-edge-key-guide.md)。
+> 管理员如何领取腾讯云 / 百度 / 有道 / MyMemory 等上游 Key：见
+> [`docs/translate-provider-key-guide.md`](../../../../docs/translate-provider-key-guide.md)。
 
 ## 设计标准
 

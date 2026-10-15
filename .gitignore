@@ -161,6 +161,7 @@ docs/*
 !docs/auto-route-observations.md
 !docs/auto-high-availability.md
 !docs/translate-edge-key-guide.md
+!docs/translate-provider-key-guide.md
 !docs/verification/
 docs/verification/*
 !docs/verification/auto-model-2026-09-29/
