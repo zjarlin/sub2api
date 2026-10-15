@@ -178,6 +178,7 @@ func userOwnedRouteRequest(h *UserAccountHandler, method, path, body string, use
 		c.Next()
 	})
 	router.POST("/accounts/check-mixed-channel", h.CheckMixedChannel)
+	router.POST("/accounts/models/sync-upstream-preview", h.SyncUpstreamModelsPreview)
 	router.POST("/accounts/:id/models/sync-upstream", h.SyncUpstreamModels)
 	request := httptest.NewRequest(method, path, strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
@@ -205,6 +206,27 @@ func TestUserAccountCheckMixedChannelRequiresOwnership(t *testing.T) {
 	// Unauthenticated callers are rejected before touching the repository.
 	result = userOwnedRouteRequest(h, http.MethodPost, "/accounts/check-mixed-channel", `{"platform":"openai","group_ids":[7]}`, 0)
 	require.Equal(t, http.StatusUnauthorized, result.Code)
+}
+
+// 回归：创建流程的模型预览必须挂在用户侧，且不依赖管理员角色/账号归属。
+// 曾经前端直接调用 /admin/accounts/models/sync-upstream-preview，普通用户必然 403。
+func TestUserAccountSyncUpstreamModelsPreviewRequiresAuthButNotOwnership(t *testing.T) {
+	repo := &ownedAccountRepoStub{account: &service.Account{ID: 3}}
+	h := &UserAccountHandler{accountRepo: repo}
+
+	// 未登录：在任何服务调用前就拒绝。
+	result := userOwnedRouteRequest(h, http.MethodPost, "/accounts/models/sync-upstream-preview", `{"platform":"openai","type":"apikey","api_key":"k"}`, 0)
+	require.Equal(t, http.StatusUnauthorized, result.Code)
+	require.Zero(t, repo.calls)
+
+	// 缺少 api_key：请求体校验失败。
+	result = userOwnedRouteRequest(h, http.MethodPost, "/accounts/models/sync-upstream-preview", `{"platform":"openai","type":"apikey"}`, 22)
+	require.Equal(t, http.StatusBadRequest, result.Code)
+
+	// 登录用户 + 合法请求体：不需要账号归属，直接进入（未配置的）测试服务。
+	result = userOwnedRouteRequest(h, http.MethodPost, "/accounts/models/sync-upstream-preview", `{"platform":"openai","type":"apikey","api_key":"k"}`, 22)
+	require.Equal(t, http.StatusInternalServerError, result.Code)
+	require.Zero(t, repo.calls)
 }
 
 func TestUserAccountSyncUpstreamModelsRequiresOwnership(t *testing.T) {

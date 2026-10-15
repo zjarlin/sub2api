@@ -37,6 +37,9 @@ func RegisterUserRoutes(
 				accounts.DELETE("/:id", h.UserAccount.Delete)
 				accounts.POST("/:id/test", panelRateLimiter.Heavy(), h.UserAccount.Test)
 				accounts.POST("/check-mixed-channel", h.UserAccount.CheckMixedChannel)
+				// 创建流程在没有 account id 时预览上游模型；与 :id 路由并列，
+				// 静态段优先匹配，不会抢占 /:id/models/sync-upstream。
+				accounts.POST("/models/sync-upstream-preview", panelRateLimiter.Heavy(), h.UserAccount.SyncUpstreamModelsPreview)
 				accounts.POST("/:id/models/sync-upstream", h.UserAccount.SyncUpstreamModels)
 				accounts.GET("/:id/sidecar/checkins", h.UserAccount.GetBuiltinAdapterCheckins)
 				accounts.GET("/:id/vibex-usage", h.UserAccount.GetVibexUsage)

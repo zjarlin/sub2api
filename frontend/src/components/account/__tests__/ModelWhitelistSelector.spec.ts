@@ -360,6 +360,52 @@ describe('ModelWhitelistSelector', () => {
     }
   })
 
+  // 回归：父级传入作用域 API（用户侧 userAccountsAPI）时，同步必须走它，
+  // 不能回退到管理员 accountsAPI——否则普通用户「我的账号」会打到 /admin/*，得到 403。
+  it('syncs through the scoped accountApi instead of the admin API', async () => {
+    const scopedSync = vi.fn().mockResolvedValue({ models: ['scoped-model'] })
+    const scopedPreview = vi.fn().mockResolvedValue({ models: ['scoped-preview'] })
+
+    const wrapper = mountSelector({
+      platform: 'openai',
+      accountId: 898,
+      accountApi: { syncUpstreamModels: scopedSync, syncUpstreamModelsPreview: scopedPreview },
+    })
+    const button = wrapper.findAll('button').find(item => item.text() === 'admin.accounts.syncUpstreamModels')!
+    await button.trigger('click')
+    await flushPromises()
+
+    expect(scopedSync).toHaveBeenCalledWith(898)
+    expect(syncUpstreamModels).not.toHaveBeenCalled()
+    expect(wrapper.emitted('update:modelValue')).toEqual([[['scoped-model']]])
+  })
+
+  it('previews upstream models through the scoped accountApi when credentials are given', async () => {
+    const scopedPreview = vi.fn().mockResolvedValue({ models: ['scoped-preview'] })
+    const wrapper = mountSelector({
+      platform: 'openai',
+      accountApi: { syncUpstreamModelsPreview: scopedPreview },
+      syncCredentials: { platform: 'openai', type: 'apikey', api_key: 'sk-test' },
+    })
+    const button = wrapper.findAll('button').find(item => item.text() === 'admin.accounts.syncUpstreamModels')!
+    await button.trigger('click')
+    await flushPromises()
+
+    expect(scopedPreview).toHaveBeenCalledWith({
+      platform: 'openai',
+      type: 'apikey',
+      api_key: 'sk-test',
+    })
+    expect(syncUpstreamModelsPreview).not.toHaveBeenCalled()
+    expect(wrapper.emitted('upstream-synced')).toHaveLength(1)
+  })
+
+  it('hides the sync action when the scoped api cannot sync upstream models', () => {
+    const wrapper = mountSelector({ platform: 'openai', accountId: 898, accountApi: {} })
+    const button = wrapper.findAll('button').find(item => item.text() === 'admin.accounts.syncUpstreamModels')
+    expect(button).toBeUndefined()
+  })
+
   it('shows the upstream sync button for OpenCode Go create-account credentials', () => {
     const wrapper = mountSelector({
       platform: 'opencode_go',

@@ -173,7 +173,7 @@ import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { accountsAPI } from '@/api/admin/accounts'
-import type { SyncUpstreamPreviewParams } from '@/api/admin/accounts'
+import type { UpstreamModelSyncApi, UpstreamModelSyncPreviewParams } from '@/components/account/accountApi'
 import { getModelAliasPolicy, type ModelAliasGroup } from '@/api/admin/settings'
 import { useClipboard } from '@/composables/useClipboard'
 import ModelIcon from '@/components/common/ModelIcon.vue'
@@ -188,6 +188,12 @@ const props = defineProps<{
   platform?: string
   platforms?: string[]
   accountId?: number
+  /**
+   * 账号作用域 API（管理员 `adminAPI.accounts` 或用户 `userAccountsAPI`）。
+   * 父级必须以 kebab `:account-api` 传入；缺省回退到管理员 API，
+   * 保持管理端既有行为。用户侧传入后再也不会打到 /admin/*（否则 403）。
+   */
+  accountApi?: UpstreamModelSyncApi
   syncCredentials?: {
     platform: string
     type: string
@@ -241,12 +247,19 @@ watch(() => [props.accountId, props.platform, props.platforms, props.syncCredent
 // 否则 cursor / windsurf / qoder / deepseek_web 这类新平台会静默地没有同步入口。
 const upstreamSyncUnsupportedPlatforms = new Set(['systemone', 'laya', 'jev'])
 const platformSupportsUpstreamSync = (platform: string) => !upstreamSyncUnsupportedPlatforms.has(platform.toLowerCase())
+// 作用域 API：父级传入的账号 API（用户侧 userAccountsAPI）优先；未传入时才
+// 惰性回退到管理员 API，保持管理端既有行为。回退必须惰性求值——否则只用到
+// 平台白名单、并不需要同步能力的消费方（如批量编辑）也会在渲染期就去碰
+// 管理员 API 模块。
+const resolveSyncUpstreamApi = (): UpstreamModelSyncApi => props.accountApi ?? accountsAPI
 const canSyncUpstream = computed(() => {
   if (props.accountId) {
+    if (props.accountApi && typeof props.accountApi.syncUpstreamModels !== 'function') return false
     if (normalizedPlatforms.value.length === 0) return true
     return normalizedPlatforms.value.some(platformSupportsUpstreamSync)
   }
   if (props.syncCredentials) {
+    if (props.accountApi && typeof props.accountApi.syncUpstreamModelsPreview !== 'function') return false
     return platformSupportsUpstreamSync(props.syncCredentials.platform)
   }
   return false
@@ -380,10 +393,19 @@ const syncUpstreamModels = async () => {
   const requestVersion = catalogVersion
   try {
     let result
+    const api = resolveSyncUpstreamApi()
     if (props.accountId) {
-      result = await accountsAPI.syncUpstreamModels(props.accountId)
+      if (typeof api.syncUpstreamModels !== 'function') {
+        throw new Error(t('admin.accounts.syncUpstreamModelsFailed'))
+      }
+      result = await api.syncUpstreamModels(props.accountId)
     } else if (props.syncCredentials) {
-      result = await accountsAPI.syncUpstreamModelsPreview(props.syncCredentials as SyncUpstreamPreviewParams)
+      if (typeof api.syncUpstreamModelsPreview !== 'function') {
+        throw new Error(t('admin.accounts.syncUpstreamModelsFailed'))
+      }
+      result = await api.syncUpstreamModelsPreview(
+        props.syncCredentials as UpstreamModelSyncPreviewParams,
+      )
     } else {
       return
     }

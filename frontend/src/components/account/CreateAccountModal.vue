@@ -1761,6 +1761,7 @@
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
               <ModelWhitelistSelector
+                :account-api="accountAPI"
                 v-model="allowedModels"
                 :platform="form.platform"
                 :sync-credentials="syncPreviewCredentials"
@@ -2250,6 +2251,7 @@
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
             <ModelWhitelistSelector
+              :account-api="accountAPI"
               v-model="allowedModels"
               platform="anthropic"
               :sync-credentials="syncPreviewCredentials"
@@ -2593,6 +2595,7 @@
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
             <ModelWhitelistSelector
+              :account-api="accountAPI"
               v-model="allowedModels"
               :platform="form.platform"
               :sync-credentials="syncPreviewCredentials"

@@ -319,7 +319,26 @@ func (h *UserAccountHandler) CheckMixedChannel(c *gin.Context) {
 	response.Success(c, gin.H{"has_risk": false})
 }
 
+// respondUserUpstreamSyncError 将上游模型同步错误映射为用户侧 HTTP 响应（管理端与用户端
+// 共用同一套 service.UpstreamModelSyncError 分类，避免两处文案/状态码漂移）。
+func respondUserUpstreamSyncError(c *gin.Context, err error) {
+	var syncErr *service.UpstreamModelSyncError
+	if errors.As(err, &syncErr) {
+		switch syncErr.Kind {
+		case service.UpstreamModelSyncErrorConfiguration, service.UpstreamModelSyncErrorUnsupported:
+			response.BadRequest(c, syncErr.SafeMessage())
+		case service.UpstreamModelSyncErrorInternal:
+			response.InternalError(c, syncErr.SafeMessage())
+		default:
+			response.Error(c, http.StatusBadGateway, syncErr.SafeMessage())
+		}
+		return
+	}
+	response.Error(c, http.StatusBadGateway, "Failed to sync upstream models from upstream")
+}
+
 // SyncUpstreamModels refreshes the model catalog for one of the current user's own accounts.
+// POST /api/v1/user/accounts/:id/models/sync-upstream
 func (h *UserAccountHandler) SyncUpstreamModels(c *gin.Context) {
 	subject, ok := middleware.GetAuthSubjectFromContext(c)
 	if !ok || subject.UserID <= 0 {
@@ -342,19 +361,57 @@ func (h *UserAccountHandler) SyncUpstreamModels(c *gin.Context) {
 
 	catalog, err := h.accountTestService.SyncUpstreamModelCatalog(c.Request.Context(), account)
 	if err != nil {
-		var syncErr *service.UpstreamModelSyncError
-		if errors.As(err, &syncErr) {
-			switch syncErr.Kind {
-			case service.UpstreamModelSyncErrorConfiguration, service.UpstreamModelSyncErrorUnsupported:
-				response.BadRequest(c, syncErr.SafeMessage())
-			case service.UpstreamModelSyncErrorInternal:
-				response.InternalError(c, syncErr.SafeMessage())
-			default:
-				response.Error(c, http.StatusBadGateway, syncErr.SafeMessage())
-			}
-			return
-		}
-		response.Error(c, http.StatusBadGateway, "Failed to sync upstream models from upstream")
+		respondUserUpstreamSyncError(c, err)
+		return
+	}
+
+	response.Success(c, catalog)
+}
+
+// SyncUpstreamModelsPreview refreshes a model catalog from caller-supplied credentials so the
+// create flow can discover upstream models before the account is saved. Users own their accounts,
+// so probing an upstream with the credentials they are about to save is the same capability as
+// creating the account and syncing it afterwards.
+// POST /api/v1/user/accounts/models/sync-upstream-preview
+func (h *UserAccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok || subject.UserID <= 0 {
+		response.Unauthorized(c, "Unauthorized")
+		return
+	}
+
+	var req struct {
+		Platform     string            `json:"platform" binding:"required"`
+		Type         string            `json:"type" binding:"required"`
+		BaseURL      string            `json:"base_url"`
+		APIKey       string            `json:"api_key" binding:"required"`
+		ModelMapping map[string]string `json:"model_mapping"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if h.accountTestService == nil {
+		response.InternalError(c, "Account test service is not configured")
+		return
+	}
+
+	modelMapping := make(map[string]any, len(req.ModelMapping))
+	for sourceModel, upstreamModel := range req.ModelMapping {
+		modelMapping[sourceModel] = upstreamModel
+	}
+
+	catalog, err := h.accountTestService.SyncUpstreamModelCatalog(c.Request.Context(), &service.Account{
+		Platform: req.Platform,
+		Type:     req.Type,
+		Credentials: map[string]any{
+			"api_key":       req.APIKey,
+			"base_url":      req.BaseURL,
+			"model_mapping": modelMapping,
+		},
+	})
+	if err != nil {
+		respondUserUpstreamSyncError(c, err)
 		return
 	}
 

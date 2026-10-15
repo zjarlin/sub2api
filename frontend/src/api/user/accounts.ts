@@ -12,6 +12,14 @@ import type {
   UpdateAccountRequest,
 } from '@/types'
 
+export interface SyncUpstreamPreviewParams {
+  platform: string
+  type: string
+  base_url?: string
+  api_key: string
+  model_mapping?: Record<string, string>
+}
+
 export interface UserSyncUpstreamModelsResult {
   models: string[]
   metadata?: Record<string, unknown>
@@ -67,6 +75,20 @@ export async function syncUpstreamModels(id: number): Promise<UserSyncUpstreamMo
   return data
 }
 
+/**
+ * 创建流程（尚无 account id）用当前填写的凭证预览上游模型目录。
+ * 走用户侧路由 `/user/accounts/models/sync-upstream-preview`，普通用户无需管理员权限。
+ */
+export async function syncUpstreamModelsPreview(
+  params: SyncUpstreamPreviewParams,
+): Promise<UserSyncUpstreamModelsResult> {
+  const { data } = await apiClient.post<UserSyncUpstreamModelsResult>(
+    '/user/accounts/models/sync-upstream-preview',
+    params,
+  )
+  return data
+}
+
 export async function getById(id: number): Promise<Account> {
   const { data } = await apiClient.get<Account>(`/user/accounts/${id}`)
   return data
@@ -102,6 +124,7 @@ export const userAccountsAPI = {
   getAccountRebateSummary,
   checkMixedChannelRisk,
   syncUpstreamModels,
+  syncUpstreamModelsPreview,
   getById,
   create,
   update,

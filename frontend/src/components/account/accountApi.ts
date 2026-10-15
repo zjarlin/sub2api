@@ -29,11 +29,30 @@ export interface UpstreamModelSyncOutcome {
   warnings?: { code: string; message: string }[]
 }
 
+export interface UpstreamModelSyncPreviewParams {
+  platform: string
+  type: string
+  base_url?: string
+  api_key: string
+  model_mapping?: Record<string, string>
+}
+
+/**
+ * `ModelWhitelistSelector` 实际消费的最小同步契约。父级以 kebab `:account-api`
+ * 传入账号弹窗/编辑器的 API 对象（管理员 `adminAPI.accounts` 或用户
+ * `userAccountsAPI`）；不传时组件回退到管理员 API 以保持管理端既有行为。
+ */
+export interface UpstreamModelSyncApi {
+  syncUpstreamModels?(id: number): Promise<UpstreamModelSyncOutcome>
+  syncUpstreamModelsPreview?(params: UpstreamModelSyncPreviewParams): Promise<UpstreamModelSyncOutcome>
+}
+
 export interface AccountModalApi {
   create(payload: CreateAccountRequest): Promise<Account>
   update(id: number, payload: UpdateAccountRequest): Promise<Account>
   checkMixedChannelRisk(payload: CheckMixedChannelRequest): Promise<CheckMixedChannelResponse>
   syncUpstreamModels?(id: number): Promise<UpstreamModelSyncOutcome>
+  syncUpstreamModelsPreview?(params: UpstreamModelSyncPreviewParams): Promise<UpstreamModelSyncOutcome>
   probeUpstreamBilling?(id: number): Promise<unknown>
   importCodexSession?(payload: CodexSessionImportRequest): Promise<CodexSessionImportResult>
   createOpenAICodexPAT?(payload: OpenAICodexPATCreateRequest): Promise<Account>

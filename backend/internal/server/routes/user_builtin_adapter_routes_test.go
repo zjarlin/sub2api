@@ -39,6 +39,9 @@ func TestUserBuiltinAdapterRoutesMountedUnderUserWithoutAdminRole(t *testing.T) 
 		{http.MethodGet, "/api/v1/user/builtin-adapters/doubao/profiles"},
 		{http.MethodGet, "/api/v1/user/accounts/1/sidecar/checkins"},
 		{http.MethodGet, "/api/v1/user/accounts/1/vibex-usage"},
+		// 创建流程的模型预览与按 id 同步：都只要求登录用户，不能要求管理员角色。
+		{http.MethodPost, "/api/v1/user/accounts/models/sync-upstream-preview"},
+		{http.MethodPost, "/api/v1/user/accounts/1/models/sync-upstream"},
 	} {
 		t.Run(tc.method+" "+tc.path+"/unauthenticated", func(t *testing.T) {
 			recorder := httptest.NewRecorder()
@@ -60,4 +63,30 @@ func TestBuiltinAdapterAPIPathsAreScoped(t *testing.T) {
 	// 不允许出现写死的管理员前缀字面量（拼接模板 `${dbl(scope)}...` 除外）。
 	require.NotContains(t, text, "apiClient.get<DoubaoSessionProfiles>('/admin")
 	require.NotContains(t, text, "apiClient.get<VibexUsage>(`/admin/accounts")
+}
+
+// 源码守卫：模型白名单选择器必须按父级传入的作用域 API 发请求，
+// 不能把 accountsAPI（/admin/accounts）写死在组件里——否则普通用户
+// 「我的账号」里同步上游模型会打到 /admin/*，得到 403。
+func TestModelWhitelistSelectorUsesScopedAccountApi(t *testing.T) {
+	source, err := os.ReadFile("../../../../frontend/src/components/account/ModelWhitelistSelector.vue")
+	require.NoError(t, err)
+	text := string(source)
+
+	require.Contains(t, text, "props.accountApi ?? accountsAPI")
+	require.Contains(t, text, "api.syncUpstreamModels(")
+	require.Contains(t, text, "api.syncUpstreamModelsPreview(")
+	// 不允许再直接调用写死的管理员 API 对象（回退只能经 syncUpstreamApi）。
+	require.NotContains(t, text, "await accountsAPI.syncUpstreamModels")
+	require.NotContains(t, text, "await accountsAPI.syncUpstreamModelsPreview")
+
+	// 父级必须把作用域 API 透传下去。
+	for _, path := range []string{
+		"../../../../frontend/src/components/account/EditAccountModal.vue",
+		"../../../../frontend/src/components/account/CreateAccountModal.vue",
+	} {
+		parent, err := os.ReadFile(path)
+		require.NoError(t, err)
+		require.Contains(t, string(parent), ":account-api=\"accountAPI\"", path)
+	}
 }

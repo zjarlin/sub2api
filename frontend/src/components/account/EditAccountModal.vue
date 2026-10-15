@@ -367,6 +367,7 @@
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
               <ModelWhitelistSelector
+                :account-api="accountAPI"
                 v-model="allowedModels"
                 :platform="account?.platform || 'anthropic'"
                 :account-id="account?.id"
@@ -853,6 +854,7 @@
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
             <ModelWhitelistSelector
+              :account-api="accountAPI"
               v-model="allowedModels"
               :platform="account?.platform || 'anthropic'"
               :account-id="account?.id"
@@ -1071,6 +1073,7 @@
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
             <ModelWhitelistSelector
+              :account-api="accountAPI"
               v-model="allowedModels"
               :platform="account?.platform || 'anthropic'"
               :account-id="account?.id"
@@ -1299,6 +1302,7 @@
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
             <ModelWhitelistSelector
+              :account-api="accountAPI"
               v-model="allowedModels"
               platform="anthropic"
               :enable-alias-mapping="!props.accountApi"
