@@ -56,16 +56,32 @@ test("账号身份由官方接口验证，令牌不写入对外返回值", async
 
 test("会话隔离归属且到期清理浏览器", async () => {
   let now = 1000;
-  const { login, context } = fixture({ now: () => now, ttlMs: 1000 });
+  const { login, context } = fixture({ now: () => now, ttlMs: 1000, maxSessions: 1 });
   try {
     const result = await login.start("admin:4");
     assert.throws(() => login.poll("user:4", result.session_id), { status: 404 });
     await assert.rejects(login.cancel("admin:5", result.session_id), { status: 404 });
-    await assert.rejects(login.start("admin:4"), { status: 429 });
+    assert.equal((await login.start("admin:4")).session_id, result.session_id);
+    assert.equal(login.sessions.size, 1);
+    await assert.rejects(login.start("admin:5"), { status: 429 });
     now = 2001;
     assert.throws(() => login.poll("admin:4", result.session_id), { status: 410 });
     assert.equal(context.closed, true);
     assert.equal(login.sessions.size, 0);
+  } finally { await login.close(); }
+});
+
+test("授权失败的会话仍可由归属用户取消并重新开始", async () => {
+  const { login, context } = fixture({ fetchImpl: async () => Response.json({ code: 401 }) });
+  try {
+    const { session_id: id } = await login.start("user:4");
+    context.emit("request", { url: () => `https://agent.teleai.com.cn/superCowork/sapi/cowork/auth?code=ok&token=${token}` });
+    await login.sessions.get(id).completing;
+    assert.throws(() => login.poll("user:4", id), { status: 502 });
+    await assert.rejects(login.cancel("user:5", id), { status: 404 });
+    await login.cancel("user:4", id);
+    assert.equal(login.sessions.size, 0);
+    assert.notEqual((await login.start("user:4")).session_id, id);
   } finally { await login.close(); }
 });
 

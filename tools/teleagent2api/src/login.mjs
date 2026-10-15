@@ -67,7 +67,10 @@ export class LoginSessions {
 
   async start(owner) {
     await this.cleanup();
-    if (this.sessions.size >= this.maxSessions || [...this.sessions.values()].some((s) => s.owner === owner && s.status === "pending")) {
+    const pending = [...this.sessions.values()].find((s) => s.owner === owner && s.status === "pending");
+    // 页面刷新会丢失前端会话 ID；同一归属恢复已有浏览器，不重复占用名额。
+    if (pending?.page && !pending.failure) { return this.result(pending); }
+    if (this.sessions.size >= this.maxSessions || pending) {
       throw new AdapterError(429, "login_busy", "A TeleAgent login is already pending; finish or cancel it first.");
     }
     const session = {
@@ -186,7 +189,10 @@ export class LoginSessions {
   }
 
   async cancel(owner, id) {
-    this.get(owner, id);
+    const session = this.sessions.get(id);
+    if (!session || session.owner !== owner) {
+      throw new AdapterError(404, "login_not_found", "Login session not found.");
+    }
     await this.remove(id);
   }
 
