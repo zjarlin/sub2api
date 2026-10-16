@@ -50,6 +50,27 @@ func TestProvidersLive(t *testing.T) {
 		t.Logf("current=%.1fC %s %s forecast=%d", response.Current.TemperatureC, response.Resolved, response.Current.Condition, len(response.Forecast))
 	})
 
+	t.Run("aggregator fallback", func(t *testing.T) {
+		aggregator := NewAggregator(nil)
+		response, err := aggregator.Fetch(ctx, &WeatherRequest{Location: "洛阳", Days: 2})
+		if err != nil {
+			t.Fatalf("fetch failed: %v", err)
+		}
+		if response.Provider == "" || response.Current == nil {
+			t.Fatalf("response incomplete: %+v", response)
+		}
+		t.Logf("provider=%s attempts=%d current=%.1fC", response.Provider, len(response.Attempts), response.Current.TemperatureC)
+
+		history, err := aggregator.Fetch(ctx, &WeatherRequest{Location: "57073", History: true, Start: "2026-01-01", End: "2026-01-31"})
+		if err != nil {
+			t.Fatalf("history fetch failed: %v", err)
+		}
+		if len(history.History) == 0 {
+			t.Fatalf("history response incomplete: %+v", history)
+		}
+		t.Logf("history provider=%s rows=%d", history.Provider, len(history.History))
+	})
+
 	t.Run("tianqi2345", func(t *testing.T) {
 		response, err := NewTianqi2345Provider().Fetch(ctx, &WeatherRequest{Location: "57073", History: true, Start: "2026-01-01", End: "2026-01-31"})
 		if err != nil {
