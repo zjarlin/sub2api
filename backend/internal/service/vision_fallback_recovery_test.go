@@ -59,6 +59,135 @@ func TestVisionFallbackTimeoutBudgets(t *testing.T) {
 	}
 }
 
+func TestVisionFallbackCompletedDescriptionsSurviveOuterFailover(t *testing.T) {
+	for _, protocol := range []string{"responses", "chat"} {
+		for _, unavailable := range []string{"expired_budget", "repository_error", "missing_repository", "no_helpers"} {
+			t.Run(protocol+"/"+unavailable, func(t *testing.T) {
+				primary := visionTestAccount(1, "text-model", "text")
+				helper := visionTestAccount(2, "vision-model", "text", "image")
+				backup := visionTestAccount(3, "backup-model", "text")
+				repo := &countingCodexModelsAccountRepo{accounts: []Account{helper}}
+				var calls []int64
+				svc := &OpenAIGatewayService{
+					cfg: visionTestConfig(), accountRepo: repo,
+					httpUpstream: &codexModelsHTTPUpstreamStub{do: func(req *http.Request, _ string, accountID int64, _ int) (*http.Response, error) {
+						calls = append(calls, accountID)
+						if accountID == helper.ID {
+							return visionTestResponse(helper.Name, "截图中的错误代码为 E42"), nil
+						}
+						forwarded, err := io.ReadAll(req.Body)
+						require.NoError(t, err)
+						require.Contains(t, string(forwarded), "截图中的错误代码为 E42")
+						require.NotContains(t, string(forwarded), "data:image")
+						if accountID == primary.ID {
+							return &http.Response{StatusCode: http.StatusBadGateway, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"error":{"message":"primary unavailable"}}`))}, nil
+						}
+						require.Equal(t, backup.ID, accountID)
+						require.Equal(t, backup.Name, gjson.GetBytes(forwarded, "model").String())
+						return visionTestResponse(backup.Name, "备用模型已读图"), nil
+					}},
+				}
+				body := []byte(visionTestInput)
+				if protocol == "chat" {
+					body = []byte(`{"model":"text-model","messages":[{"role":"user","content":[{"type":"text","text":"Explain the error"},{"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}]}]}`)
+				}
+				original := string(body)
+				c, recorder := visionTestContext(body, 9, 7)
+				forward := func(account *Account, requestBody []byte) (*OpenAIForwardResult, error) {
+					if protocol == "chat" {
+						c.Request.URL.Path = "/v1/chat/completions"
+						return svc.ForwardAsChatCompletions(context.Background(), c, account, requestBody, "", "")
+					}
+					return svc.Forward(context.Background(), c, account, requestBody)
+				}
+				_, err := forward(&primary, body)
+				var failure *UpstreamFailoverError
+				require.ErrorAs(t, err, &failure)
+				require.False(t, c.Writer.Written())
+				require.Len(t, TakeVisionFallbackUsage(c), 1)
+				state, err := svc.visionFallbackState(context.Background(), c)
+				require.NoError(t, err)
+				switch unavailable {
+				case "expired_budget":
+					// 模拟搜索、并发等待或主模型失败耗尽辅助截止时间。
+					state.deadline = time.Now().Add(-time.Second)
+				case "repository_error":
+					repo.err = errors.New("helper catalog unavailable")
+				case "missing_repository":
+					svc.accountRepo = nil
+				case "no_helpers":
+					repo.accounts = nil
+				}
+				deadline := state.deadline
+				retryBody := svc.ReplaceModelInBody(body, backup.Name)
+				result, err := forward(&backup, retryBody)
+				require.NoError(t, err)
+				require.NotNil(t, result)
+				require.Contains(t, recorder.Body.String(), "备用模型已读图")
+				require.Equal(t, []int64{helper.ID, primary.ID, backup.ID}, calls)
+				require.Empty(t, TakeVisionFallbackUsage(c))
+				require.Equal(t, deadline, state.deadline)
+				require.Equal(t, original, string(body))
+			})
+		}
+	}
+}
+
+func TestVisionFallbackCachedDescriptionsRespectPendingImagesAndCancellation(t *testing.T) {
+	for _, scenario := range []string{"new_image", "changed_context", "cancelled", "parent_deadline"} {
+		t.Run(scenario, func(t *testing.T) {
+			primary := visionTestAccount(1, "text-model", "text")
+			helper := visionTestAccount(2, "vision-model", "text", "image")
+			calls := 0
+			svc := &OpenAIGatewayService{
+				cfg: visionTestConfig(), accountRepo: &countingCodexModelsAccountRepo{accounts: []Account{helper}},
+				httpUpstream: &codexModelsHTTPUpstreamStub{do: func(*http.Request, string, int64, int) (*http.Response, error) {
+					calls++
+					return visionTestResponse(helper.Name, "已有图片描述"), nil
+				}},
+			}
+			body := []byte(visionTestInput)
+			c, recorder := visionTestContext(body, 9, 7)
+			_, err := svc.prepareVisionFallback(context.Background(), c, &primary, body)
+			require.NoError(t, err)
+			require.Len(t, TakeVisionFallbackUsage(c), 1)
+			state, err := svc.visionFallbackState(context.Background(), c)
+			require.NoError(t, err)
+			state.deadline = time.Now().Add(-time.Second)
+			ctx := context.Background()
+			switch scenario {
+			case "new_image":
+				body = []byte(strings.Replace(string(body), `"detail":"original"}`, `"detail":"original"},{"type":"input_image","image_url":"data:image/png;base64,BBBB"}`, 1))
+			case "changed_context":
+				body = []byte(strings.Replace(string(body), "Explain the error", "Read the table", 1))
+			case "cancelled":
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithCancel(ctx)
+				cancel()
+			case "parent_deadline":
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithDeadline(ctx, time.Now().Add(-time.Second))
+				defer cancel()
+			}
+			original := string(body)
+			converted, err := svc.prepareVisionFallback(ctx, c, &primary, body)
+			require.Nil(t, converted)
+			if ctx.Err() != nil {
+				require.ErrorIs(t, err, ctx.Err())
+			} else {
+				var failure *UpstreamFailoverError
+				require.ErrorAs(t, err, &failure)
+				require.Equal(t, http.StatusGatewayTimeout, failure.ClientStatusCode)
+				require.False(t, failure.ShouldReportAccountScheduleFailure())
+			}
+			require.Equal(t, 1, calls)
+			require.Equal(t, original, string(body))
+			require.Empty(t, TakeVisionFallbackUsage(c))
+			require.Empty(t, recorder.Body.String())
+		})
+	}
+}
+
 func TestVisionFallbackTimeoutRetriesWithinTotalBudget(t *testing.T) {
 	for _, exhaustTotal := range []bool{false, true} {
 		name := "next_candidate_succeeds"
