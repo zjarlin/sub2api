@@ -44,13 +44,15 @@ describe('BuiltinCheckinCell', () => {
     expect(wrapper.text()).toContain('2,250')
   })
 
-  it('shows individual decimal balances alongside the pool total', async () => {
-    getBuiltinAdapterCheckins.mockResolvedValue({ ...overview, total_credits: 879.75,
-      accounts: [{ uid: 'u1', nickname: '🤔', credits: 79.75 }, { uid: 'u2', nickname: 'n2', credits: 800 }] })
+  it('shows only the current account balance without a pool breakdown', async () => {
+    getBuiltinAdapterCheckins.mockResolvedValue({ ...overview, total_credits: 79.75,
+      accounts: [{ uid: 'u1', nickname: '🤔', credits: 79.75 }] })
     const wrapper = mount(BuiltinCheckinCell, { props: { account } })
     await flushPromises()
-    expect(wrapper.text()).toContain('879.75')
-    expect(wrapper.text()).toContain('🤔: 79.75')
+    expect(wrapper.text()).toContain('79.75')
+    expect(wrapper.text()).toContain('admin.accounts.builtinCheckin.remaining')
+    expect(wrapper.text()).not.toContain('totalCredits')
+    expect(wrapper.text()).not.toContain('🤔')
   })
 
   it('does not fetch for unrelated platforms', async () => {

@@ -93,3 +93,31 @@ func TestBuiltinAdapterCheckinOverviewSurfacesUpstreamError(t *testing.T) {
 	require.Error(t, err)
 	require.NotContains(t, strings.ToLower(err.Error()), "must-not-leak")
 }
+
+// 账号查询必须按稳定 UID 隔离，昵称相同也不得混入其他人的余额与历史。
+func TestBuiltinAdapterCheckinOverviewForAccountFiltersByUID(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/status" {
+			_, _ = w.Write([]byte(`{"accounts":[{"uid":"mine","nickname":"same","credits":79.75},{"uid":"other","nickname":"same","credits":23050}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"checkins":{"mine":[],"other":[{"status":"ok","credits":23050}]}}`))
+	}))
+	defer server.Close()
+	SetBuiltinAdapterConfig(&config.BuiltinAdapterConfig{Enabled: true, WorkbuddyURL: server.URL, WorkbuddyKey: "key"})
+	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
+	account := &Account{Platform: PlatformWorkbuddy, Extra: map[string]any{"builtin_adapter_uid": "mine"}}
+	overview, err := BuiltinAdapterCheckinOverviewForAccount(context.Background(), account)
+	require.NoError(t, err)
+	require.Equal(t, 79.75, overview.TotalCredits)
+	require.Len(t, overview.Accounts, 1)
+	require.Equal(t, "mine", overview.Accounts[0].UID)
+	account.Extra["builtin_adapter_uid"] = "missing"
+	_, err = BuiltinAdapterCheckinOverviewForAccount(context.Background(), account)
+	require.Error(t, err)
+}
+
+func TestBuiltinAdapterCheckinOverviewForUnboundAccountDoesNotQueryPool(t *testing.T) {
+	_, err := BuiltinAdapterCheckinOverviewForAccount(context.Background(), &Account{Platform: PlatformWorkbuddy})
+	require.ErrorContains(t, err, "未绑定上游账号")
+}

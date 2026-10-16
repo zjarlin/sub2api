@@ -7,9 +7,9 @@ Sub2API 把它作为 `workbuddy` 平台的内部服务一起部署，无需另�
 
 ## 积分显示
 
-Sub2API 路由账号共用 WorkBuddy 上游账号池，列表中的「账号池剩余合计」是池内全部上游账号的余额总和；下方逐行显示昵称与余额，签到弹窗也可查看单个账号。
+Sub2API 账号使用 `extra.builtin_adapter_uid` 绑定上游账号的稳定 UID。账号列表与签到弹窗只返回该 UID 的余额和历史，不返回共享池合计或其他账号的数据。未绑定或绑定失效时显示明确错误，不按昵称猜选。
 
-账号页面通过鉴权的 `GET /status?refresh_credits=true` 查询官方套餐余额，优先使用 `CycleCapacityRemainPrecise` / `CapacityRemainPrecise`，保留两位小数。普通 `/status` 继续返回调度池的整数估算值。查询失败会显示错误，不使用估算值冒充官方余额；签到历史中的余额仍是签到时的历史快照。
+WorkBuddy 账号页面通过鉴权的 `GET /status?refresh_credits=true` 查询官方套餐余额，优先使用 `CycleCapacityRemainPrecise` / `CapacityRemainPrecise`，保留两位小数。普通 `/status` 继续返回调度池的整数估算值。查询失败会显示错误；签到历史中的余额仍是签到时的历史快照。
 
 ## 部署
 

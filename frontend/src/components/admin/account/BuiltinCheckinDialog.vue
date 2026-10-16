@@ -6,7 +6,7 @@
         <div class="flex items-baseline gap-3">
           <div>
             <div class="text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.builtinCheckin.totalCredits') }}
+              {{ t('admin.accounts.builtinCheckin.remaining') }}
             </div>
             <div class="text-2xl font-bold text-gray-900 dark:text-white">
               {{ loading || error ? '—' : formatCredits(totalCredits) }}

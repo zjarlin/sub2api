@@ -54,9 +54,23 @@ type builtinAdapterCheckinsResponse struct {
 	Checkins map[string][]BuiltinAdapterCheckinRecord `json:"checkins"`
 }
 
+// BuiltinAdapterCheckinOverviewForAccount 只返回当前路由账号绑定的上游账号。
+// 缺少绑定时不猜选账号，也不向浏览器返回共享池中其他账号的数据。
+func BuiltinAdapterCheckinOverviewForAccount(ctx context.Context, account *Account) (*BuiltinAdapterCheckinOverview, error) {
+	uid := strings.TrimSpace(account.GetExtraString("builtin_adapter_uid"))
+	if uid == "" {
+		return nil, infraerrors.BadRequest("BUILTIN_ACCOUNT_UNBOUND", "未绑定上游账号，请先绑定当前账号后查询积分")
+	}
+	return builtinAdapterCheckinOverview(ctx, account.Platform, uid)
+}
+
 // BuiltinAdapterCheckinOverviewForPlatform 从 WorkBuddy/TRAE Work sidecar 拉取
 // 脱敏状态与签到历史。目标地址和共享密钥只读取服务端配置，不接受浏览器输入。
 func BuiltinAdapterCheckinOverviewForPlatform(ctx context.Context, platform string) (*BuiltinAdapterCheckinOverview, error) {
+	return builtinAdapterCheckinOverview(ctx, platform, "")
+}
+
+func builtinAdapterCheckinOverview(ctx context.Context, platform, uid string) (*BuiltinAdapterCheckinOverview, error) {
 	if platform != PlatformWorkbuddy && platform != PlatformTraework {
 		return nil, infraerrors.BadRequest("BUILTIN_CHECKIN_UNSUPPORTED", "account platform does not support check-in history")
 	}
@@ -85,6 +99,9 @@ func BuiltinAdapterCheckinOverviewForPlatform(ctx context.Context, platform stri
 		Accounts:  make([]BuiltinAdapterCheckinAccount, 0, len(status.Accounts)),
 	}
 	for _, item := range status.Accounts {
+		if uid != "" && item.UID != uid {
+			continue
+		}
 		out.TotalCredits += item.Credits
 		checkins := history.Checkins[item.UID]
 		if checkins == nil {
@@ -94,6 +111,9 @@ func BuiltinAdapterCheckinOverviewForPlatform(ctx context.Context, platform stri
 			UID: item.UID, Nickname: item.Nickname, Credits: item.Credits,
 			Checkin: item.Checkin, Checkins: checkins,
 		})
+	}
+	if uid != "" && len(out.Accounts) == 0 {
+		return nil, infraerrors.NotFound("BUILTIN_ACCOUNT_NOT_FOUND", "绑定的上游账号已不存在，请重新绑定")
 	}
 	return out, nil
 }

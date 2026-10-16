@@ -9,9 +9,6 @@
         {{ summaryLabel }}
       </span>
     </div>
-    <div v-for="item in balances" :key="item.uid" class="text-[10px] text-gray-500 dark:text-gray-400">
-      {{ item.nickname || item.uid.slice(0, 8) }}: {{ new Intl.NumberFormat().format(item.credits) }}
-    </div>
     <div class="flex flex-wrap items-center gap-1.5">
       <button
         type="button"
@@ -62,12 +59,11 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const totalCredits = ref<number | null>(null)
 const accountCount = ref(0)
-const balances = ref<{ uid: string; nickname?: string; credits: number }[]>([])
 
 const summaryLabel = computed(() => {
   if (error.value) return t('admin.accounts.builtinCheckin.remaining')
   if (totalCredits.value == null) return t('admin.accounts.builtinCheckin.remaining')
-  return `${t('admin.accounts.builtinCheckin.totalCredits')} ${new Intl.NumberFormat().format(totalCredits.value)}`
+  return `${t('admin.accounts.builtinCheckin.remaining')} ${new Intl.NumberFormat().format(totalCredits.value)}`
 })
 
 const extractErrorMessage = (e: unknown): string => {
@@ -93,11 +89,9 @@ const load = async () => {
   try {
     const overview = await adminAPI.accounts.getBuiltinAdapterCheckins(props.account.id, props.scope)
     totalCredits.value = overview.total_credits
-    balances.value = overview.accounts
     accountCount.value = overview.accounts.length
   } catch (e) {
     totalCredits.value = null
-    balances.value = []
     error.value = extractErrorMessage(e)
   } finally {
     loading.value = false
@@ -113,7 +107,6 @@ watch(
   () => {
     totalCredits.value = null
     accountCount.value = 0
-    balances.value = []
     error.value = null
     if (visible.value) void load()
   }

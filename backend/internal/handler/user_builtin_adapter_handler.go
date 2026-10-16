@@ -179,7 +179,7 @@ func (h *UserAccountHandler) DeleteDoubaoSessionProfile(c *gin.Context) {
 }
 
 // UserGetBuiltinAdapterCheckins 返回当前用户自有账号对应内置适配器（WorkBuddy / TRAE Work）
-// 账号池的积分与签到历史（脱敏，只读）。
+// 绑定上游账号的积分与签到历史（脱敏，只读）。
 // GET /api/v1/user/accounts/:id/sidecar/checkins
 func (h *UserAccountHandler) GetBuiltinAdapterCheckins(c *gin.Context) {
 	subject, ok := middleware.GetAuthSubjectFromContext(c)
@@ -196,7 +196,7 @@ func (h *UserAccountHandler) GetBuiltinAdapterCheckins(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	overview, err := service.BuiltinAdapterCheckinOverviewForPlatform(c.Request.Context(), account.Platform)
+	overview, err := service.BuiltinAdapterCheckinOverviewForAccount(c.Request.Context(), account)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

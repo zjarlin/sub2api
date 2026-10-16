@@ -28,11 +28,12 @@
 
       <!-- API Key fields (only for apikey type) -->
       <BuiltinAdapterLogin
-        v-if="show && (account.platform === 'arena' || account.platform === 'traework' || account.platform === 'workbuddy' || account.platform === 'vibex' || account.platform === 'zcode' || account.platform === 'deepseek_web') && (account.platform === 'arena' || account.platform === 'deepseek_web' || !hasBuiltinAdapterCredentials)"
+        v-if="show && (account.platform === 'arena' || account.platform === 'traework' || account.platform === 'workbuddy' || account.platform === 'vibex' || account.platform === 'zcode' || account.platform === 'deepseek_web') && (account.platform === 'arena' || account.platform === 'deepseek_web' || !hasBuiltinAdapterCredentials || (['workbuddy', 'traework'].includes(account.platform) && !account.extra?.builtin_adapter_uid))"
         :key="account.id"
         :platform="account.platform"
         :scope="adapterScope"
         @authorized="handleArenaAuthorized"
+        @reset="builtinAdapterUid = ''"
       />
       <div v-if="account.type === 'apikey'" class="space-y-4">
         <VibexUsage v-if="account.platform === 'vibex'" :key="account.id" :account-id="account.id" :scope="adapterScope" />
@@ -3252,7 +3253,11 @@ const cursorLinkedEmail = computed(() => {
   const email = credentials?.cursor_email
   return typeof email === 'string' ? email : ''
 })
+const builtinAdapterUid = ref('')
 function handleArenaAuthorized(session: BuiltinLoginSession) {
+  if (['workbuddy', 'traework'].includes(props.account?.platform || '') && session.status === 'completed') {
+    builtinAdapterUid.value = session.account?.uid || ''
+  }
   if (props.account?.platform !== 'arena' || !session.account?.model_id) return
   modelRestrictionMode.value = 'whitelist'
   allowedModels.value = [session.account.model_id]
@@ -4563,6 +4568,7 @@ watch(
       return
     }
     if (!wasShow || newAccount !== previousAccount) {
+      builtinAdapterUid.value = ''
       syncFormFromAccount(newAccount)
       loadTLSProfiles()
     }
@@ -5910,6 +5916,9 @@ const handleSubmit = async () => {
 
     updatePayload.extra = writeModelProbePolicy(modelProbePolicy.value,
       (updatePayload.extra as Record<string, unknown>) || (props.account.extra as Record<string, unknown>) || {})
+    if (builtinAdapterUid.value && ['workbuddy', 'traework'].includes(props.account.platform)) {
+      updatePayload.extra = { ...(updatePayload.extra as Record<string, unknown>), builtin_adapter_uid: builtinAdapterUid.value }
+    }
     // 上游ID头名只在改动时写回 extra，避免用弹窗打开时的快照覆盖运行态键。
     const nextUpstreamRequestIdHeader = upstreamRequestIdHeader.value.trim()
     if (nextUpstreamRequestIdHeader !== readUpstreamRequestIdHeader(props.account.extra)) {

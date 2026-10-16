@@ -1715,7 +1715,7 @@ func (h *AccountHandler) ApplyOAuthCredentials(c *gin.Context) {
 }
 
 // GetStats handles getting account statistics
-// GetBuiltinAdapterCheckins 返回账号对应内置适配器（WorkBuddy / TRAE Work）账号池的
+// GetBuiltinAdapterCheckins 返回账号对应内置适配器（WorkBuddy / TRAE Work）绑定上游账号的
 // 积分与签到历史（脱敏，只读）。目标地址与共享密钥只来自服务端配置。
 // GET /api/v1/admin/accounts/:id/sidecar/checkins
 func (h *AccountHandler) GetBuiltinAdapterCheckins(c *gin.Context) {
@@ -1729,7 +1729,7 @@ func (h *AccountHandler) GetBuiltinAdapterCheckins(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	overview, err := service.BuiltinAdapterCheckinOverviewForPlatform(c.Request.Context(), account.Platform)
+	overview, err := service.BuiltinAdapterCheckinOverviewForAccount(c.Request.Context(), account)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

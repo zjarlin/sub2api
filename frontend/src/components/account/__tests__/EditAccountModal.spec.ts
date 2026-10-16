@@ -399,6 +399,7 @@ describe('EditAccountModal', () => {
 
   it('preserves TRAE Work configured concurrency and pins its adapter protocol when editing', async () => {
     const account = buildAccount()
+    account.extra = { builtin_adapter_uid: 'trae-current' }
     account.platform = 'traework'
     account.type = 'apikey'
     account.credentials = { base_url: 'http://sub2api-traework:7864/v1', api_key: 'adapter-key', api_protocol: 'chat_completions' }
@@ -424,8 +425,9 @@ describe('EditAccountModal', () => {
     expect(wrapper.find('[data-testid="builtin-adapter-login"]').exists()).toBe(true)
   })
 
-  it('hides built-in adapter login when WorkBuddy credentials already exist', () => {
+  it('hides built-in adapter login when WorkBuddy credentials and binding already exist', () => {
     const account = buildAccount()
+    account.extra = { builtin_adapter_uid: 'workbuddy-current' }
     account.platform = 'workbuddy'
     account.type = 'apikey'
     account.credentials = { api_protocol: 'chat_completions' }
@@ -434,6 +436,15 @@ describe('EditAccountModal', () => {
     const wrapper = mountModal(account)
 
     expect(wrapper.find('[data-testid="builtin-adapter-login"]').exists()).toBe(false)
+  })
+
+  it('allows binding an existing WorkBuddy account with shared adapter credentials', () => {
+    const account = buildAccount()
+    account.platform = 'workbuddy'
+    account.credentials_status = { has_api_key: true }
+    account.extra = {}
+    const wrapper = mountModal(account)
+    expect(wrapper.find('[data-testid="builtin-adapter-login"]').exists()).toBe(true)
   })
 
   it('allows configuring automatic DeepSeek sign-in when adapter credentials already exist', () => {

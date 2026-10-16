@@ -4316,10 +4316,12 @@ const oauthStepTitle = computed(() => {
 // Platform-specific hints for API Key type
 // 上游ID：直接上游声明请求标识的响应头名，留空不记录。
 const upstreamRequestIdHeader = ref('')
+const builtinAdapterUid = ref('')
 const withUpstreamRequestIdHeader = <T extends Record<string, unknown> | undefined>(extra: T): T | Record<string, unknown> => {
   const name = upstreamRequestIdHeader.value.trim()
-  if (!name) return extra
-  return { ...(extra || {}), upstream_request_id_header: name }
+  const uid = ['workbuddy', 'traework'].includes(form.platform) ? builtinAdapterUid.value : ''
+  if (!name && !uid) return extra
+  return { ...(extra || {}), ...(name ? { upstream_request_id_header: name } : {}), ...(uid ? { builtin_adapter_uid: uid } : {}) }
 }
 
 const baseUrlHint = computed(() => {
@@ -4895,10 +4897,14 @@ const arenaLoginReady = ref(false)
 const browserAuthorizedKey = ref('')
 const browserAuthorizedAccount = ref('')
 function resetBuiltinAuthorization() {
+  builtinAdapterUid.value = ''
   browserAuthorizedKey.value = ''
   browserAuthorizedAccount.value = ''
 }
 function handleBuiltinAuthorized(session: BuiltinLoginSession) {
+  if (['workbuddy', 'traework'].includes(form.platform) && session.status === 'completed') {
+    builtinAdapterUid.value = session.account?.uid || ''
+  }
   // 浏览器授权返回的独立凭据直接作为账号 api_key 保存。
   if (form.platform === 'cursor' || form.platform === 'windsurf' || form.platform === 'teleagent') {
     resetBuiltinAuthorization()
