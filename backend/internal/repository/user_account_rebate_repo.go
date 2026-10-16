@@ -215,9 +215,13 @@ func (r *userAccountRebateRepository) SettleAccount(ctx context.Context, in serv
 
 	err := r.withTx(ctx, func(txCtx context.Context, txClient *dbent.Client) error {
 		// 1) 确保游标存在，再取行锁。
+		// settled_through 取该账号最早一条用量日志：返额的口径是「账号被平台真实消耗后
+		// 返还给号主」，因此首次结算必须覆盖已发生消耗，而不是在当前时刻只建一条基线，
+		// 否则号主已经贡献、被别的用户调走的用量会永远拿不到返额。
+		// 账号尚无用量日志时回退到本次窗口右边界（窗口为空，本轮直接推进游标）。
 		if _, err := txClient.ExecContext(txCtx, `
 INSERT INTO user_account_rebate_cursors (account_id, owner_user_id, settled_through, created_at, updated_at)
-VALUES ($1, $2, $3, NOW(), NOW())
+VALUES ($1, $2, COALESCE((SELECT MIN(created_at) FROM usage_logs WHERE account_id = $1), $3), NOW(), NOW())
 ON CONFLICT (account_id) DO NOTHING`, in.AccountID, in.OwnerUserID, in.WindowTo); err != nil {
 			return fmt.Errorf("ensure rebate cursor: %w", err)
 		}

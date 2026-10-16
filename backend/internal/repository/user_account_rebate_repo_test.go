@@ -120,9 +120,10 @@ func TestSettleAccountIncludesOwnerUsage(t *testing.T) {
 	require.NotContains(t, aggregate, "user_id <>")
 }
 
-// 首次结算只建立基线：游标以「当前窗口右边界」初始化，因此该账号的历史用量
-// 不会被追溯返额（返额只从功能开启后的新增消耗开始）。这是防"上线即补发历史"的安全属性。
-func TestSettleAccountFirstRunEstablishesBaselineWithoutRetroCredit(t *testing.T) {
+// 首次结算必须覆盖已发生消耗：游标以该账号最早一条用量日志为起点，因此号主贡献的
+// 账号被别的用户真实调走后就能拿到返额，而不是只从开启时刻往后再算。
+// 返额上限仍是 LEAST(倍率前成本, 用户实付)，所以补历史不会让平台净亏。
+func TestSettleAccountFirstRunBackfillsExistingUsage(t *testing.T) {
 	var capturedSQL []string
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(captureEntQueryMatcherList{actual: &capturedSQL}))
 	require.NoError(t, err)
@@ -131,16 +132,27 @@ func TestSettleAccountFirstRunEstablishesBaselineWithoutRetroCredit(t *testing.T
 	t.Cleanup(func() { _ = client.Close() })
 	repo := &userAccountRebateRepository{client: client}
 
+	firstUsage := time.Now().Add(-2 * time.Hour).UTC().Truncate(time.Second)
 	windowTo := time.Now().UTC().Truncate(time.Second)
 
 	mock.ExpectBegin()
-	// 游标首次创建：settled_through 直接取本次窗口右边界（不回溯历史）。
+	// 游标首次创建：settled_through 由 SQL 侧取该账号最早用量日志，窗口右边界只作为兜底参数。
 	mock.ExpectExec(`INSERT INTO user_account_rebate_cursors`).
 		WithArgs(int64(9), int64(5), windowTo).
 		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`SELECT owner_user_id, settled_through`).
 		WillReturnRows(sqlmock.NewRows([]string{"owner_user_id", "settled_through", "total_consumed", "total_rebated"}).
-			AddRow(int64(5), windowTo, 0.0, 0.0))
+			AddRow(int64(5), firstUsage, 0.0, 0.0))
+	mock.ExpectQuery(`SUM\(LEAST`).
+		WithArgs(int64(9), firstUsage, windowTo, int64(5)).
+		WillReturnRows(sqlmock.NewRows([]string{"count", "basis"}).AddRow(int64(118), 0.2259121356))
+	mock.ExpectQuery(`UPDATE users`).
+		WithArgs(sqlmock.AnyArg(), int64(5)).
+		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(200.2259121356))
+	mock.ExpectExec(`INSERT INTO user_account_rebate_ledger`).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec(`UPDATE user_account_rebate_cursors`).
+		WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 
 	settlement, err := repo.SettleAccount(context.Background(), service.AccountRebateSettleInput{
@@ -150,14 +162,17 @@ func TestSettleAccountFirstRunEstablishesBaselineWithoutRetroCredit(t *testing.T
 		RatePercent: 100,
 	})
 	require.NoError(t, err)
-	require.True(t, settlement.Skipped)
-	require.Zero(t, settlement.RebateAmount)
+	require.True(t, settlement.Settled)
+	require.False(t, settlement.Skipped)
+	require.Equal(t, firstUsage, settlement.WindowFrom)
+	// 入账金额按 8 位小数量化，避免浮点尾差进入余额。
+	require.InDelta(t, 0.22591214, settlement.RebateAmount, 1e-9)
 	require.NoError(t, mock.ExpectationsWereMet())
 
-	// 首次运行不得出现聚合、入账或流水写入。
-	require.Empty(t, findSQL(capturedSQL, "SUM(LEAST"))
-	require.Empty(t, findSQL(capturedSQL, "UPDATE users"))
-	require.Empty(t, findSQL(capturedSQL, "INSERT INTO user_account_rebate_ledger"))
+	insert := findSQL(capturedSQL, "INSERT INTO user_account_rebate_cursors")
+	require.Contains(t, insert, "MIN(created_at)")
+	require.Contains(t, insert, "FROM usage_logs")
+	require.NotEmpty(t, findSQL(capturedSQL, "SUM(LEAST"))
 }
 
 // 空窗口（右边界不晚于已结算位置）直接跳过，不聚合、不入账，但仍锁定游标。
