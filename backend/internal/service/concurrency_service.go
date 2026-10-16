@@ -351,21 +351,25 @@ func (s *ConcurrencyService) AcquireAccountSlot(ctx context.Context, accountID i
 	// Generate unique request ID for this slot
 	requestID := generateRequestID()
 
+	release := func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.cache.ReleaseAccountSlot(bgCtx, accountID, requestID); err != nil {
+			logger.LegacyPrintf("service.concurrency", "Warning: failed to release account slot for %d (req=%s): %v", accountID, requestID, err)
+		}
+	}
+
 	acquired, err := s.cache.AcquireAccountSlot(ctx, accountID, maxConcurrency, requestID)
+	// Redis 可能已写入槽位但丢失响应；用独立上下文回收本次请求，避免耗尽并发容量。
 	if err != nil {
+		release()
 		return nil, err
 	}
 
 	if acquired {
 		return &AcquireResult{
-			Acquired: true,
-			ReleaseFunc: func() {
-				bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				if err := s.cache.ReleaseAccountSlot(bgCtx, accountID, requestID); err != nil {
-					logger.LegacyPrintf("service.concurrency", "Warning: failed to release account slot for %d (req=%s): %v", accountID, requestID, err)
-				}
-			},
+			Acquired:    true,
+			ReleaseFunc: release,
 		}, nil
 	}
 
@@ -390,21 +394,25 @@ func (s *ConcurrencyService) AcquireUserSlot(ctx context.Context, userID int64, 
 	// Generate unique request ID for this slot
 	requestID := generateRequestID()
 
+	release := func() {
+		bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := s.cache.ReleaseUserSlot(bgCtx, userID, requestID); err != nil {
+			logger.LegacyPrintf("service.concurrency", "Warning: failed to release user slot for %d (req=%s): %v", userID, requestID, err)
+		}
+	}
+
 	acquired, err := s.cache.AcquireUserSlot(ctx, userID, maxConcurrency, requestID)
+	// Redis 可能已写入槽位但丢失响应；用独立上下文回收本次请求，避免耗尽并发容量。
 	if err != nil {
+		release()
 		return nil, err
 	}
 
 	if acquired {
 		return &AcquireResult{
-			Acquired: true,
-			ReleaseFunc: func() {
-				bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				if err := s.cache.ReleaseUserSlot(bgCtx, userID, requestID); err != nil {
-					logger.LegacyPrintf("service.concurrency", "Warning: failed to release user slot for %d (req=%s): %v", userID, requestID, err)
-				}
-			},
+			Acquired:    true,
+			ReleaseFunc: release,
 		}, nil
 	}
 

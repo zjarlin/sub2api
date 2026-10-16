@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"net/http"
@@ -364,10 +365,28 @@ func (h *ConcurrencyHelper) waitForSlotWithPingTimeout(c *gin.Context, slotType 
 	defer cancel()
 
 	acquireSlot := func() (*service.AcquireResult, error) {
+		var result *service.AcquireResult
+		var err error
 		if slotType == "user" {
-			return h.concurrencyService.AcquireUserSlot(ctx, id, maxConcurrency)
+			result, err = h.concurrencyService.AcquireUserSlot(ctx, id, maxConcurrency)
+		} else {
+			result, err = h.concurrencyService.AcquireAccountSlot(ctx, id, maxConcurrency)
 		}
-		return h.concurrencyService.AcquireAccountSlot(ctx, id, maxConcurrency)
+		if ctx.Err() == nil {
+			return result, err
+		}
+		// Redis 调用期间也可能耗尽等待预算，不能因返回路径不同而误报 503、跳过换号。
+		if result != nil && result.Acquired && result.ReleaseFunc != nil {
+			result.ReleaseFunc()
+		}
+		if parentErr := c.Request.Context().Err(); parentErr != nil {
+			return nil, parentErr
+		}
+		// 基础设施错误仍保留原因，不能仅因清理耗时跨过截止时间就伪装成容量不足。
+		if err != nil && !errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, context.Canceled) {
+			return nil, err
+		}
+		return nil, &ConcurrencyError{SlotType: slotType, IsTimeout: true}
 	}
 
 	if tryImmediate {
