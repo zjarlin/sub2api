@@ -9,7 +9,7 @@ import (
 )
 
 func TestV0PlatformMigration(t *testing.T) {
-	content, err := FS.ReadFile("270_add_v0_platform.sql")
+	content, err := FS.ReadFile("272_add_v0_platform.sql")
 	require.NoError(t, err)
 
 	sql := strings.Join(strings.Fields(string(content)), " ")
@@ -19,7 +19,7 @@ func TestV0PlatformMigration(t *testing.T) {
 		"anthropic", "openai", "gemini", "antigravity", "grok", "kimi", "zhipu",
 		"deepseek", "deepseek_web", "arena", "minimax", "cursor", "windsurf",
 		"opencode_go", "kilo", "doubao", "traework", "workbuddy", "zcode", "laya", "jev",
-		"vibex", "systemone", "madao", "qoder", "model3d", "v0",
+		"vibex", "systemone", "madao", "qoder", "model3d", "v0", "teleagent",
 	}
 	for _, field := range []string{"platform", "target_platform"} {
 		pattern := regexp.MustCompile(`CHECK \(` + field + ` IN \(([^)]+)\)\)`)
