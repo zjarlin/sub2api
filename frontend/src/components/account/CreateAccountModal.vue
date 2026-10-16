@@ -354,6 +354,7 @@
             <PlatformIcon platform="arena" size="sm" />
             Arena
           </button>
+          <button type="button" data-testid="platform-v0" @click="selectV0Platform" class="flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium" :class="form.platform === 'v0' ? 'bg-white text-violet-600 shadow-sm dark:bg-dark-600' : 'text-gray-600 dark:text-gray-400'">v0 (Vercel)</button>
           <button type="button" data-testid="platform-model3d" @click="selectModel3DPlatform" class="flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium" :class="form.platform === 'model3d' ? 'bg-white text-amber-600 shadow-sm dark:bg-dark-600' : 'text-gray-600 dark:text-gray-400'">{{ t('admin.accounts.model3d.title') }}</button>
           <button type="button" data-testid="platform-systemone" @click="selectSystemOnePlatform"
             :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'systemone' ? 'bg-white text-violet-600 shadow-sm dark:bg-dark-600 dark:text-violet-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
@@ -4336,6 +4337,7 @@ const baseUrlHint = computed(() => {
   if (form.platform === 'madao') return t('admin.accounts.madao.baseUrlHint')
   if (form.platform === 'arena') return t('admin.accounts.arena.baseUrlHint')
   if (form.platform === 'systemone') return systemOneProvider.value === 'laya' ? t('admin.accounts.laya.baseUrlHint') : t('admin.accounts.jev.baseUrlHint')
+  if (form.platform === 'v0') return t('admin.accounts.v0.baseUrlHint')
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
   if (form.platform === 'grok') return ''
@@ -4354,6 +4356,7 @@ const apiKeyHint = computed(() => {
   if (form.platform === 'madao') return t('admin.accounts.madao.apiKeyHint')
   if (form.platform === 'arena') return t('admin.accounts.arena.apiKeyHint')
   if (form.platform === 'systemone') return systemOneProvider.value === 'laya' ? t('admin.accounts.laya.apiKeyHint') : t('admin.accounts.jev.apiKeyHint')
+  if (form.platform === 'v0') return t('admin.accounts.v0.apiKeyHint')
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
   if (form.platform === 'grok') return ''
@@ -4769,6 +4772,14 @@ function selectTeleagentPlatform() {
 // Laya / JEV 是 System One 决策模型：属内置适配器平台，地址与共享密钥由后端注入。
 // 协议由平台固定为 systemone（见 buildCredentials），表单不提供协议选择——
 // 决策模型不生成文本，不存在 chat / anthropic / responses 变体。
+function selectV0Platform() {
+  form.platform = 'v0'
+  form.type = 'apikey'
+  accountCategory.value = 'apikey'
+  apiKeyBaseUrl.value = 'https://api.v0.dev/v2'
+  apiKeyValue.value = ''
+}
+
 function selectModel3DPlatform() {
   upstreamBillingAutoProbeEnabled.value = false
   form.platform = 'model3d'
@@ -5494,7 +5505,9 @@ watch(
     // Reset base URL based on platform.
     // 内置适配器平台（豆包 / TRAE / WorkBuddy / ZCode / Laya / JEV）地址由后端注入，
     // 必须清空 base_url，否则会保留上一个平台的默认值（例如 Anthropic）而打到错误上游。
-    if (newPlatform === 'model3d' || newPlatform === 'cursor' || newPlatform === 'windsurf' || newPlatform === 'teleagent') {
+    if (newPlatform === 'v0') {
+      apiKeyBaseUrl.value = 'https://api.v0.dev/v2'
+    } else if (newPlatform === 'model3d' || newPlatform === 'cursor' || newPlatform === 'windsurf' || newPlatform === 'teleagent') {
       apiKeyBaseUrl.value = ''
       accountCategory.value = 'apikey'
       apiProtocol.value = 'chat_completions'
@@ -5947,7 +5960,7 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
       )
     const needsModelCatalog = (payload.platform === 'openai' || usesAutomaticMixedScheduling(payload.platform)) &&
       (payload.type === 'apikey' || payload.extra?.openai_passthrough === true)
-    if (payload.platform !== 'model3d' && (upstreamModelsPreviewed.value || hasConcreteMappedTarget || needsModelCatalog)) {
+    if (payload.platform !== 'v0' && payload.platform !== 'model3d' && (upstreamModelsPreviewed.value || hasConcreteMappedTarget || needsModelCatalog)) {
       try {
         const result = typeof accountAPI.value.syncUpstreamModels === 'function'
           ? await accountAPI.value.syncUpstreamModels(account.id)
@@ -6545,7 +6558,7 @@ const handleSubmit = async () => {
   // Determine default base URL based on platform.
   // 内置适配器平台（含 Laya / JEV）地址由后端按平台注入，不能落到 Anthropic 默认值，
   // 否则会把决策请求发到错误的上游。
-  const defaultBaseUrl = form.platform === 'model3d' ? '' : isBuiltinAdapterPlatform.value || form.platform === 'windsurf'
+  const defaultBaseUrl = form.platform === 'v0' ? 'https://api.v0.dev/v2' : form.platform === 'model3d' ? '' : isBuiltinAdapterPlatform.value || form.platform === 'windsurf'
     ? ''
     : form.platform === 'openai'
       ? 'https://api.openai.com'

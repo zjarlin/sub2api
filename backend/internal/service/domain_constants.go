@@ -63,6 +63,7 @@ const (
 	PlatformQoder       = domain.PlatformQoder
 	PlatformSystemOne   = domain.PlatformSystemOne
 	PlatformModel3D     = domain.PlatformModel3D
+	PlatformV0          = domain.PlatformV0
 	PlatformLaya        = domain.PlatformLaya
 	PlatformJev         = domain.PlatformJev
 	PlatformOpenCodeGo  = domain.PlatformOpenCodeGo

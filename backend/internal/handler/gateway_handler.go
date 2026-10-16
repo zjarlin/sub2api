@@ -1206,6 +1206,13 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		return
 	}
 
+	// v0 是应用生成平台，没有上游 /models 探测端点，回退到内置档位目录，
+	// 避免 v0 分组错误地列出 Claude 模型。
+	if platform == service.PlatformV0 {
+		writeModelsList(c, service.PlatformV0, service.V0DefaultModelIDs())
+		return
+	}
+
 	writeModelsListResponse(c, claude.DefaultModels)
 }
 
@@ -1490,6 +1497,8 @@ func defaultModelIDsForPlatform(platform string) []string {
 		return service.DefaultLayaModelIDs()
 	case service.PlatformJev:
 		return service.DefaultJevModelIDs()
+	case service.PlatformV0:
+		return service.V0DefaultModelIDs()
 	case service.PlatformOpenCodeGo:
 		return service.DefaultOpenCodeGoModelIDs()
 	case service.PlatformKilo:

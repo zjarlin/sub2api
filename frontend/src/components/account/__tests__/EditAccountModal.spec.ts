@@ -330,6 +330,26 @@ function mountModal(account = buildAccount(), renderGroupSelector = false) {
 }
 
 describe('EditAccountModal', () => {
+  it('allows an OAuth account to be updated without filling in an API key', async () => {
+    // OAuth 账号的凭据不在 api_key 字段里，留空不应被“必须填写 API Key”拦截。
+    const account = buildAccount()
+    account.type = 'oauth'
+    account.credentials = { access_token: 'oauth-access-token', base_url: 'https://api.openai.com' }
+    account.credentials_status = { has_api_key: false }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+
+    // “留空以保持当前密钥”只对密钥账号有意义。
+    expect(wrapper.text()).not.toContain('admin.accounts.leaveEmptyToKeep')
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.lastCall?.[1]?.credentials?.api_key).toBeUndefined()
+  })
+
   it('preserves a redacted Hi3D client secret and supports rotating it', async () => {
     const account = buildAccount()
     account.platform = 'model3d'

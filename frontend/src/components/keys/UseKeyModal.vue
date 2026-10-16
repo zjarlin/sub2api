@@ -1398,6 +1398,7 @@ function generateRoutedCodexFiles(
   const labels: Record<GroupPlatform, string> = {
     mail: t('admin.accounts.mail.title'),
     model3d: '3D',
+    v0: 'v0 (Vercel)',
     anthropic: 'Anthropic',
     openai: 'OpenAI',
     gemini: 'Gemini',

@@ -97,6 +97,13 @@ describe('useModelWhitelist', () => {
     expect(models).toContain('composer-2.5')
   })
 
+  it('v0 平台返回应用生成档位而不是回退到 Claude 目录', () => {
+    const models = getModelsByPlatform('v0')
+
+    expect(models).toEqual(['v0-mini', 'v0-pro', 'v0-max', 'v0-max-fast'])
+    expect(models).not.toContain('claude-fable-5')
+  })
+
   it('gemini 模型列表包含原生生图模型', () => {
     const models = getModelsByPlatform('gemini')
 

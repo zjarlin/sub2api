@@ -26,6 +26,7 @@ const PROVIDER_BY_PLATFORM: Record<GroupPlatform, KeyGroupProvider> = {
   qoder: 'domestic',
   systemone: 'domestic',
   model3d: 'other',
+  v0: 'other',
   laya: 'domestic',
   jev: 'domestic',
   minimax: 'domestic',

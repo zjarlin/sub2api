@@ -249,6 +249,10 @@ const perplexityModels = [
   'llama-3-sonar-small-32k-chat', 'llama-3-sonar-large-32k-chat'
 ]
 
+// v0（Vercel）应用生成模型的官方档位。
+// v0 没有 /models 探测端点，档位来自官方文档的 modelConfiguration.modelId。
+export const v0Models = ['v0-mini', 'v0-pro', 'v0-max', 'v0-max-fast']
+
 // 所有模型（去重）
 const allModelsList: string[] = [
   ...openaiModels,
@@ -268,7 +272,8 @@ const allModelsList: string[] = [
   ...baiduModels,
   ...sparkModels,
   ...hunyuanModels,
-  ...perplexityModels
+  ...perplexityModels,
+  ...v0Models
 ]
 
 // 转换为下拉选项格式
@@ -480,6 +485,7 @@ export function getModelsByPlatform(platform: string): string[] {
       'qwen3.8-max', 'qwen3.8-flash', 'qwen3.7-max', 'qwen3.7-plus', 'qwen3.6-plus',
       'hy4-preview', 'hy3', 'omen-alpha'
     ]
+    case 'v0': return v0Models
     case 'minimax': return minimaxModels
     case 'baidu': return baiduModels
     case 'spark': return sparkModels
