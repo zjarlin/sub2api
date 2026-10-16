@@ -201,6 +201,9 @@ func RegisterGatewayRoutes(
 	gateway.Use(opsErrorLogger)
 	gateway.Use(endpointNorm)
 	gateway.Use(gin.HandlerFunc(apiKeyAuth))
+	// v0 是应用生成平台，只有原型端点有语义；其余文本端点一律拒绝，
+	// 避免 auto 选路或误用的分组键把聊天请求调度到 v0 账号。
+	gateway.Use(rejectNonPrototypeEndpointsForV0Groups)
 	gateway.GET("/sub2api/billing", h.Gateway.KeyBillingInfo)
 	// v0 应用生成与客户端源码取回。
 	gateway.Any("/v0/*proxyPath", h.Gateway.V0Proxy)
@@ -570,6 +573,27 @@ func dispatchCodexModelsGateway(c *gin.Context, openAIHandler, generatedHandler 
 }
 
 // getGroupPlatform extracts the group platform from the API Key stored in context.
+// rejectNonPrototypeEndpointsForV0Groups 只放行 v0 分组上的 /v1/v0/*、模型目录与计费端点。
+// 放开会让 model=auto 之类的文本请求被调度到 v0 账号，产生无意义的用量记录和上游报错。
+func rejectNonPrototypeEndpointsForV0Groups(c *gin.Context) {
+	if getGroupPlatform(c) != service.PlatformV0 {
+		c.Next()
+		return
+	}
+	switch c.FullPath() {
+	case "/v1/v0/*proxyPath", "/v1/models", "/v1/models/:model", "/v1/sub2api/billing", "/v1/usage", "/v1/auto/routes":
+		c.Next()
+		return
+	}
+	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+	c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{
+		"error": gin.H{
+			"type":    "invalid_request_error",
+			"message": "v0 groups only serve the /v1/v0 prototype endpoints",
+		},
+	})
+}
+
 func getGroupPlatform(c *gin.Context) string {
 	apiKey, ok := middleware.GetAPIKeyFromContext(c)
 	if !ok || apiKey.Group == nil {
