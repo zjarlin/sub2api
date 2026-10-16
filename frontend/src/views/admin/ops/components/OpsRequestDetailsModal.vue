@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useMediaQuery } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -44,6 +44,9 @@ const items = ref<OpsRequestDetail[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
+// 调度账号搜索：输入账号名或账号号（支持「#905」），后端按账号名/账号 ID 匹配。
+const accountName = ref('')
+let searchTimer: ReturnType<typeof setTimeout> | undefined
 
 const close = () => emit('update:modelValue', false)
 
@@ -86,6 +89,9 @@ const fetchData = async () => {
     const platform = (props.platform || '').trim()
     if (platform) params.platform = platform
     if (typeof props.groupId === 'number' && props.groupId > 0) params.group_id = props.groupId
+
+    const dispatchQuery = accountName.value.trim()
+    if (dispatchQuery) params.account_name = dispatchQuery
 
     if (typeof props.preset.min_duration_ms === 'number') params.min_duration_ms = props.preset.min_duration_ms
     if (typeof props.preset.max_duration_ms === 'number') params.max_duration_ms = props.preset.max_duration_ms
@@ -131,6 +137,31 @@ watch(
     fetchData()
   }
 )
+
+// 调度账号搜索：输入停顿 300ms 再查询，避免逐字打请求；回车立即查询。
+watch(accountName, () => {
+  if (!props.modelValue) return
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    page.value = 1
+    fetchData()
+  }, 300)
+})
+
+function handleSearchSubmit() {
+  if (searchTimer) clearTimeout(searchTimer)
+  page.value = 1
+  fetchData()
+}
+
+function clearDispatchSearch() {
+  // 交给 accountName 的 watch 触发一次查询，避免重复请求。
+  accountName.value = ''
+}
+
+onBeforeUnmount(() => {
+  if (searchTimer) clearTimeout(searchTimer)
+})
 
 function handlePageChange(next: number) {
   page.value = next
@@ -213,9 +244,26 @@ const kindBadgeClass = (kind: string) => {
   <BaseDialog :show="modelValue" :title="props.preset.title || t('admin.ops.requestDetails.title')" width="full" @close="close">
     <template #default>
       <div class="flex h-full min-h-0 flex-col">
-        <div class="mb-4 flex flex-shrink-0 items-center justify-between">
-          <div class="text-xs text-gray-500 dark:text-gray-400">
+        <div class="mb-4 flex flex-shrink-0 items-center justify-between gap-3">
+          <div class="whitespace-nowrap text-xs text-gray-500 dark:text-gray-400">
             {{ t('admin.ops.requestDetails.rangeLabel', { range: rangeLabel }) }}
+          </div>
+          <div class="relative min-w-0 max-w-xs flex-1">
+            <input
+              v-model="accountName"
+              type="text"
+              class="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 pr-8 text-xs text-gray-700 placeholder-gray-400 focus:border-blue-400 focus:outline-none dark:border-dark-700 dark:bg-dark-800 dark:text-gray-200"
+              :placeholder="t('admin.ops.requestDetails.dispatchSearchPlaceholder')"
+              @keyup.enter="handleSearchSubmit"
+            />
+            <button
+              v-if="accountName"
+              type="button"
+              class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+              @click="clearDispatchSearch"
+            >
+              ✕
+            </button>
           </div>
           <button
             type="button"

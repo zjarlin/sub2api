@@ -158,6 +158,8 @@ export interface OpsRequestDetailsParams {
   model?: string
   request_id?: string
   q?: string
+  // account_name 按调度账号搜索：匹配账号名（不区分大小写）或账号 ID。
+  account_name?: string
 
   min_duration_ms?: number
   max_duration_ms?: number

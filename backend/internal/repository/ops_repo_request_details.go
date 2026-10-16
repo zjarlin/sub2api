@@ -53,6 +53,18 @@ func (r *opsRepository) ListRequestDetails(ctx context.Context, filter *service.
 		if filter.AccountID != nil && *filter.AccountID > 0 {
 			addCondition(fmt.Sprintf("account_id = $%d", len(args)+1), *filter.AccountID)
 		}
+		// 按调度账号搜索：同时匹配账号名（不区分大小写）与账号 ID，支持直接粘贴「#905」。
+		if accountName := strings.TrimSpace(filter.AccountName); accountName != "" {
+			needle := strings.ToLower(strings.TrimPrefix(accountName, "#"))
+			like := "%" + needle + "%"
+			startIdx := len(args) + 1
+			addCondition(
+				fmt.Sprintf("(LOWER(COALESCE(account_name,'')) LIKE $%d OR account_id::text = $%d)",
+					startIdx, startIdx+1,
+				),
+				like, needle,
+			)
+		}
 
 		if model := strings.TrimSpace(filter.Model); model != "" {
 			addCondition(fmt.Sprintf("model = $%d", len(args)+1), model)
@@ -64,10 +76,10 @@ func (r *opsRepository) ListRequestDetails(ctx context.Context, filter *service.
 			like := "%" + strings.ToLower(q) + "%"
 			startIdx := len(args) + 1
 			addCondition(
-				fmt.Sprintf("(LOWER(COALESCE(request_id,'')) LIKE $%d OR LOWER(COALESCE(model,'')) LIKE $%d OR LOWER(COALESCE(message,'')) LIKE $%d OR LOWER(COALESCE(user_account,'')) LIKE $%d OR LOWER(COALESCE(user_email,'')) LIKE $%d OR LOWER(COALESCE(username,'')) LIKE $%d)",
-					startIdx, startIdx+1, startIdx+2, startIdx+3, startIdx+4, startIdx+5,
+				fmt.Sprintf("(LOWER(COALESCE(request_id,'')) LIKE $%d OR LOWER(COALESCE(model,'')) LIKE $%d OR LOWER(COALESCE(message,'')) LIKE $%d OR LOWER(COALESCE(user_account,'')) LIKE $%d OR LOWER(COALESCE(user_email,'')) LIKE $%d OR LOWER(COALESCE(username,'')) LIKE $%d OR LOWER(COALESCE(account_name,'')) LIKE $%d)",
+					startIdx, startIdx+1, startIdx+2, startIdx+3, startIdx+4, startIdx+5, startIdx+6,
 				),
-				like, like, like, like, like, like,
+				like, like, like, like, like, like, like,
 			)
 		}
 

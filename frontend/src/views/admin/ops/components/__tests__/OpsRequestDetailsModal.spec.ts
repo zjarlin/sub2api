@@ -102,6 +102,16 @@ describe('Ops request latency details', () => {
     wrapper.unmount()
   })
 
+  it('searches request details by dispatch account', async () => {
+    const wrapper = await openDetails('duration_desc')
+    const input = wrapper.get('input[type="text"]')
+    await input.setValue('yueyue_workbuddy')
+    await input.trigger('keyup.enter')
+    await flushPromises()
+    expect(listRequestDetails).toHaveBeenLastCalledWith(expect.objectContaining({ account_name: 'yueyue_workbuddy' }))
+    wrapper.unmount()
+  })
+
   it('shows the concrete Auto failure model below the requested model', async () => {
     listRequestDetails.mockResolvedValue({
       items: [{

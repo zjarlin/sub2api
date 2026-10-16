@@ -65,3 +65,45 @@ func TestOpsRepositoryListRequestDetails_LatencySort(t *testing.T) {
 		})
 	}
 }
+
+// 调度账号搜索必须同时匹配账号名与账号 ID，并容忍「#905」这种带井号粘贴。
+func TestOpsRepositoryListRequestDetails_FiltersByDispatchAccount(t *testing.T) {
+	var capturedSQL []string
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(captureEntQueryMatcherList{actual: &capturedSQL}))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	repo := &opsRepository{db: db}
+
+	start := time.Date(2026, 10, 16, 16, 0, 0, 0, time.UTC)
+	end := start.Add(time.Hour)
+	filter := &service.OpsRequestDetailFilter{
+		StartTime:   &start,
+		EndTime:     &end,
+		AccountName: "#yueyue_workbuddy",
+		Page:        1,
+		PageSize:    10,
+	}
+
+	mock.ExpectQuery(`SELECT COUNT\(1\) FROM combined`).
+		WithArgs(start, end, "%yueyue_workbuddy%", "yueyue_workbuddy").
+		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+	mock.ExpectQuery(`FROM combined`).
+		WithArgs(start, end, "%yueyue_workbuddy%", "yueyue_workbuddy", 10, 0).
+		WillReturnRows(sqlmock.NewRows([]string{
+			"kind", "created_at", "request_id", "platform", "model", "requested_model", "upstream_model", "error_model", "duration_ms", "first_token_ms",
+			"status_code", "error_id", "phase", "severity", "message", "user_id", "user_email", "username", "user_account", "api_key_id", "account_id", "account_name", "group_id", "stream",
+		}).AddRow("success", start, "req-1", "openai", "deepseek-v4.1-flash", "deepseek-v4.1-flash", "cn:deepseek-v4.1-flash", nil, 6305, 100, nil, nil, nil, nil, nil, 4, "zjarlin@outlook.com", "zjarlin", "zjarlin", 1, 905, "yueyue_workbuddy", 2, true))
+
+	items, total, err := repo.ListRequestDetails(context.Background(), filter)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, total)
+	require.Len(t, items, 1)
+	require.Equal(t, "yueyue_workbuddy", items[0].AccountName)
+	require.NotNil(t, items[0].AccountID)
+	require.Equal(t, int64(905), *items[0].AccountID)
+	require.NoError(t, mock.ExpectationsWereMet())
+
+	condition := findSQL(capturedSQL, "account_name")
+	require.Contains(t, condition, "LOWER(COALESCE(account_name,'')) LIKE $3")
+	require.Contains(t, condition, "account_id::text = $4")
+}

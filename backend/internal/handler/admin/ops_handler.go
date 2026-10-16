@@ -590,6 +590,14 @@ func (h *OpsHandler) ListRequestDetails(c *gin.Context) {
 	filter.Query = strings.TrimSpace(c.Query("q"))
 	filter.Sort = strings.TrimSpace(c.Query("sort"))
 
+	// 调度账号搜索：账号名或账号 ID；按 rune 截断，避免多字节名称被切断。
+	if accountName := strings.TrimSpace(c.Query("account_name")); accountName != "" {
+		if runes := []rune(accountName); len(runes) > 128 {
+			accountName = string(runes[:128])
+		}
+		filter.AccountName = accountName
+	}
+
 	if v := strings.TrimSpace(c.Query("user_id")); v != "" {
 		id, err := strconv.ParseInt(v, 10, 64)
 		if err != nil || id <= 0 {
