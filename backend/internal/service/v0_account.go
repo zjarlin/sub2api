@@ -44,6 +44,35 @@ func ValidateV0Account(platform, accountType string, credentials map[string]any)
 	return nil
 }
 
+// V0ModelInfo 描述一个 v0 应用生成模型档位。
+type V0ModelInfo struct {
+	ID          string
+	DisplayName string
+}
+
+// V0ModelCatalog 返回 v0 官方文档公开的模型档位。
+//
+// v0 没有 OpenAI 风格的 /models 探测端点，模型只作为 chats 请求里的
+// modelConfiguration.modelId 生效，因此目录内置在网关侧而不是向上游探测。
+func V0ModelCatalog() []V0ModelInfo {
+	return []V0ModelInfo{
+		{ID: "v0-mini", DisplayName: "v0 Mini"},
+		{ID: "v0-pro", DisplayName: "v0 Pro"},
+		{ID: "v0-max", DisplayName: "v0 Max"},
+		{ID: "v0-max-fast", DisplayName: "v0 Max Fast"},
+	}
+}
+
+// V0DefaultModelIDs 返回目录中的模型 ID，供分组默认模型与上游目录同步复用。
+func V0DefaultModelIDs() []string {
+	catalog := V0ModelCatalog()
+	ids := make([]string, 0, len(catalog))
+	for _, model := range catalog {
+		ids = append(ids, model.ID)
+	}
+	return ids
+}
+
 // V0AccountBaseURL 返回已通过校验的上游基地址，未填写时使用官方地址。
 func V0AccountBaseURL(account *Account) string {
 	if account == nil {

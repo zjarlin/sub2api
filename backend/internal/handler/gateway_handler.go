@@ -1490,6 +1490,8 @@ func defaultModelIDsForPlatform(platform string) []string {
 		return service.DefaultLayaModelIDs()
 	case service.PlatformJev:
 		return service.DefaultJevModelIDs()
+	case service.PlatformV0:
+		return service.V0DefaultModelIDs()
 	case service.PlatformOpenCodeGo:
 		return service.DefaultOpenCodeGoModelIDs()
 	case service.PlatformKilo:

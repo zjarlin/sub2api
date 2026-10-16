@@ -324,9 +324,9 @@ func (s *AccountTestService) FetchUpstreamSupportedModels(ctx context.Context, a
 // snapshot. When no model is complete, the existing account snapshot is left
 // untouched.
 func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, account *Account) (*UpstreamModelCatalog, error) {
-	// v0 是应用生成平台，不探测聊天协议的模型目录。
+	// v0 是应用生成平台，上游没有聊天协议的模型目录，使用内置档位目录。
 	if account != nil && account.Platform == PlatformV0 {
-		return &UpstreamModelCatalog{Models: []string{}, Metadata: make(map[string]UpstreamModelMetadata)}, nil
+		return &UpstreamModelCatalog{Models: V0DefaultModelIDs(), Metadata: make(map[string]UpstreamModelMetadata)}, nil
 	}
 	// 3D 官方接口没有聊天模型列表，使用适配器目录，避免误探测 /models。
 	if account != nil && account.Platform == PlatformModel3D {

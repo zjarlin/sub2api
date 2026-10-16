@@ -3027,7 +3027,12 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	}
 
 	if account.Platform == service.PlatformV0 {
-		response.Success(c, []gin.H{})
+		catalog := service.V0ModelCatalog()
+		models := make([]gin.H, 0, len(catalog))
+		for _, model := range catalog {
+			models = append(models, gin.H{"id": model.ID, "display_name": model.DisplayName, "type": "model"})
+		}
+		response.Success(c, models)
 		return
 	}
 	if account.Platform == service.PlatformModel3D {
