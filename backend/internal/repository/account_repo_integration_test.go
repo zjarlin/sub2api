@@ -421,6 +421,30 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 		validate    func(accounts []service.Account)
 	}{
 		{
+			// 邮件账号属于边缘服务的「适配上下文」配置，默认列表不应出现。
+			name: "default_list_excludes_mail_platform",
+			setup: func(client *dbent.Client) {
+				mustCreateAccount(s.T(), client, &service.Account{Name: "mail-hidden", Platform: service.PlatformMail})
+				mustCreateAccount(s.T(), client, &service.Account{Name: "openai-visible", Platform: service.PlatformOpenAI})
+			},
+			wantCount: 1,
+			validate: func(accounts []service.Account) {
+				s.Require().Equal(service.PlatformOpenAI, accounts[0].Platform)
+			},
+		},
+		{
+			// 显式 platform=mail 仍可查询，供边缘服务上下文页读取。
+			name: "explicit_mail_platform_is_reachable",
+			setup: func(client *dbent.Client) {
+				mustCreateAccount(s.T(), client, &service.Account{Name: "mail-explicit", Platform: service.PlatformMail})
+			},
+			platform:  service.PlatformMail,
+			wantCount: 1,
+			validate: func(accounts []service.Account) {
+				s.Require().Equal(service.PlatformMail, accounts[0].Platform)
+			},
+		},
+		{
 			name: "filter_by_platform",
 			setup: func(client *dbent.Client) {
 				mustCreateAccount(s.T(), client, &service.Account{Name: "a1", Platform: service.PlatformAnthropic})

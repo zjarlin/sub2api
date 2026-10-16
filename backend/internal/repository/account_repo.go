@@ -941,6 +941,10 @@ func (r *accountRepository) accountListFilteredQuery(platform, accountType, stat
 
 	if platform != "" {
 		q = q.Where(dbaccount.PlatformEQ(platform))
+	} else {
+		// 邮件账号属于边缘服务的「适配上下文」配置，不在账号管理列表出现；
+		// 显式 platform=mail 查询仍然保留，供边缘服务上下文页读取。
+		q = q.Where(dbaccount.PlatformNEQ(service.PlatformMail))
 	}
 	if accountType != "" {
 		q = q.Where(dbaccount.TypeEQ(accountType))

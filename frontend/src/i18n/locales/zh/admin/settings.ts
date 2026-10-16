@@ -1684,7 +1684,7 @@ export default {
     endpointMailProviders: '查询可接入的邮箱服务商', endpointMailFolders: '查询邮箱文件夹', endpointMailMessages: '查询邮件列表', endpointMailMessage: '读取单封邮件', endpointMailSend: '发送邮件',
     categoryMail: '邮件服务', categoryMailDescription: '通过保存的邮箱账号执行 IMAP 收件与 SMTP 发件。',
     mailStatus: '邮件服务',
-    mailContext: { title: '邮箱账号与代理', description: '邮件凭据和出站代理由账号管理统一保存。', addAccount: '添加邮箱账号', gatewayManaged: '网关托管凭据', proxy: '支持 HTTP CONNECT 与 SOCKS5', credentials: '凭据不会返回给浏览器', hint: '添加 Outlook、Gmail、QQ 或 163 邮箱，绑定调用分组并按需选择代理。调试接口只填写账号 ID，网关自动注入授权码和代理。', manageAccounts: '管理邮箱账号' },
+    mailContext: { title: '邮箱账号与代理', description: '邮件收发的邮箱凭据与出站代理在这里维护，不需要去账号管理配置。', addAccount: '添加邮箱账号', gatewayManaged: '网关托管凭据', proxy: '支持 HTTP CONNECT 与 SOCKS5', credentials: '凭据保存在网关，不返回给浏览器', hint: '添加 Outlook、Gmail、QQ 或 163 邮箱，绑定调用分组并按需选择代理。调试接口只填写账号 ID，网关自动注入授权码和代理。', manageAccounts: '管理邮箱账号', emptyTitle: '还没有邮箱账号', saved: '邮箱账号已保存', removed: '邮箱账号已删除', removeFailed: '删除邮箱账号失败', edit: '编辑 / 测试', test: '收发自检', remove: '删除', testPassed: '收发自检通过：已列文件夹并发送测试邮件给自己。', testFailed: '收发自检失败', testSubject: '邮件收发测试', testBody: '这是一封来自边缘邮件网关的测试邮件。', confirmRemove: '删除邮箱账号 {email}？该账号将不再可用于邮件收发。', providerUnknown: '未知服务商', proxyOn: '已选代理', proxyOff: '直连', rowHint: 'Gmail 用应用专用密码；QQ / 163 用 IMAP/SMTP 授权码；Outlook 用 OAuth2 refresh_token。' },
     catalog: {
       model3dTitle: '3D 生成', model3dDescription: '统一 3D 生成接口，支持文生 3D、图生 3D 与多视角生成。',
       subtitle: '边缘 API 服务', services: '服务目录', categories: '服务分类', all: '全部服务', language: '语言服务', vision: '视觉智能', media: '音视频', communication: '通信服务', decision: '决策模型', search: '搜索服务或适配器', noResults: '没有匹配的服务',
