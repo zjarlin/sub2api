@@ -388,6 +388,44 @@ func createTestPayload(modelID string) (map[string]any, error) {
 	}, nil
 }
 
+// testV0Account 用只读的 GET /v2/chats 验证 v0 凭据是否可用。
+// v0 只提供应用生成接口，发送聊天请求只会得到上游 404。
+func (s *AccountTestService) testV0Account(ctx context.Context, c *gin.Context, account *Account) error {
+	s.sendEvent(c, TestEvent{Type: "test_start", Model: "v0"})
+
+	apiKey := V0AccountAPIKey(account)
+	if apiKey == "" {
+		return s.sendErrorAndEnd(c, "v0 API key is missing")
+	}
+	requestURL := strings.TrimRight(V0AccountBaseURL(account), "/") + "/chats"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, requestURL, nil)
+	if err != nil {
+		return s.sendErrorAndEnd(c, "v0 request could not be created: "+err.Error())
+	}
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	req.Header.Set("Accept", "application/json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return s.sendErrorAndEnd(c, "v0 unreachable: "+err.Error())
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if readErr != nil {
+		return s.sendErrorAndEnd(c, "v0 response could not be read: "+readErr.Error())
+	}
+	if resp.StatusCode != http.StatusOK {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("v0 returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body))))
+	}
+
+	chats := gjson.GetBytes(body, "chats")
+	s.sendEvent(c, TestEvent{Type: "content", Text: fmt.Sprintf("v0 credentials verified via GET /v2/chats (%d chats). No prototype generated.", len(chats.Array()))})
+	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+	return nil
+}
+
 // TestAccountConnection tests an account's connection by sending a test request
 // All account types use full Claude Code client characteristics, only auth header differs
 // modelID is optional - if empty, defaults to claude.DefaultTestModel
@@ -409,6 +447,11 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	// 用户显式测试会让「可测模型」结论过期，下一次列表请求重新探测凭证。
 	invalidateAccountTestableAuthCache(accountID)
 
+	// v0 是应用生成平台，没有聊天端点；用一次只读的会话列表请求验证凭据，
+	// 而不是把 chat prompt 发到上游换回一个 404。
+	if account.Platform == PlatformV0 {
+		return s.testV0Account(ctx, c, account)
+	}
 	if account.Platform == PlatformModel3D {
 		s.sendEvent(c, TestEvent{Type: "test_start", Model: account.GetCredential("default_model")})
 		provider, err := Model3DAccountProvider(account)
