@@ -128,7 +128,16 @@
 
 
           <template #cell-capacity="{ row }">
-            <AccountCapacityCell :account="row" />
+            <div class="flex flex-col gap-1">
+              <AccountCapacityCell :account="row" />
+              <!-- WorkBuddy / TRAE Work 的积分来自内置适配器账号池，用户侧走 /user/accounts/:id/sidecar/checkins。 -->
+              <BuiltinCheckinCell
+                v-if="row.platform === 'workbuddy' || row.platform === 'traework'"
+                :account="row"
+                scope="user"
+                @open="openCheckins(row)"
+              />
+            </div>
           </template>
 
           <template #cell-priority="{ value }">
@@ -209,6 +218,12 @@
       @close="showAccountDialog = false"
       @updated="handleAccountUpdated"
     />
+    <BuiltinCheckinDialog
+      :show="showCheckinDialog"
+      :account="checkinAcc"
+      scope="user"
+      @close="closeCheckinDialog"
+    />
   </AppLayout>
 </template>
 
@@ -225,8 +240,10 @@ import type { Column } from '@/components/common/types'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
+import BuiltinCheckinDialog from '@/components/admin/account/BuiltinCheckinDialog.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
+import BuiltinCheckinCell from '@/components/account/BuiltinCheckinCell.vue'
 import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
 import CreateAccountModal from '@/components/account/CreateAccountModal.vue'
 import EditAccountModal from '@/components/account/EditAccountModal.vue'
@@ -243,6 +260,8 @@ const loading = ref(false)
 const showAccountDialog = ref(false)
 const testingId = ref<number | null>(null)
 const editingAccount = ref<Account | null>(null)
+const showCheckinDialog = ref(false)
+const checkinAcc = ref<Account | null>(null)
 const groups = ref<Group[]>([])
 const rebate = reactive({ total_rebated: 0, total_consumed_basis: 0, settle_count: 0, owned_account_count: 0 })
 const filters = reactive({ search: '', platform: '', type: '', status: '', sort_by: 'created_at', sort_order: 'desc' as 'asc' | 'desc' })
@@ -386,6 +405,17 @@ function formatRebate(value: number) {
   if (parts.length === 1) return formatted + '.00'
   if (parts[1].length === 1) return formatted + '0'
   return formatted
+}
+
+// 内置适配器（WorkBuddy / TRAE Work）积分与签到明细走用户侧只读接口。
+function openCheckins(row: Account) {
+  checkinAcc.value = row
+  showCheckinDialog.value = true
+}
+
+function closeCheckinDialog() {
+  showCheckinDialog.value = false
+  checkinAcc.value = null
 }
 
 async function loadRebate() {

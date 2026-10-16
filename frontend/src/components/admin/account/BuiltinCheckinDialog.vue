@@ -42,7 +42,7 @@
       </div>
 
       <template v-else>
-        <div v-if="overview.binding_required" class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800/40 dark:bg-amber-900/20 dark:text-amber-200">
+        <div v-if="overview.binding_required && canBind" class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800/40 dark:bg-amber-900/20 dark:text-amber-200">
           {{ t('admin.accounts.builtinCheckin.bindExistingHint') }}
         </div>
         <!-- 账号列表 -->
@@ -88,9 +88,9 @@
                     type="button"
                     class="rounded px-2 py-0.5 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
                     :disabled="binding"
-                    @click.stop="overview.binding_required ? bindAccount(acc.uid) : selectAccount(acc.uid)"
+                    @click.stop="overview.binding_required && canBind ? bindAccount(acc.uid) : selectAccount(acc.uid)"
                   >
-                    {{ t(overview.binding_required ? 'admin.accounts.builtinCheckin.bindAccount' : 'admin.accounts.builtinCheckin.title') }}
+                    {{ t(overview.binding_required && canBind ? 'admin.accounts.builtinCheckin.bindAccount' : 'admin.accounts.builtinCheckin.title') }}
                   </button>
                 </td>
               </tr>
@@ -148,12 +148,18 @@ import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import { adminAPI } from '@/api/admin'
 import type { BuiltinAdapterCheckinOverview } from '@/api/admin/accounts'
+import type { BuiltinAdapterScope } from '@/api/admin/builtinAdapters'
 import type { Account } from '@/types'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   show: boolean
   account: Account | null
-}>()
+  // 普通用户「我的账号」页传入 user，走 /user/accounts/:id/sidecar/checkins；
+  // 关联已有登录账号是管理端能力，用户侧不提供。
+  scope?: BuiltinAdapterScope
+}>(), {
+  scope: 'admin'
+})
 
 const emit = defineEmits<{ close: []; updated: [account: Account] }>()
 const { t } = useI18n()
@@ -164,6 +170,8 @@ const overview = ref<BuiltinAdapterCheckinOverview | null>(null)
 const selectedUid = ref('')
 const binding = ref(false)
 
+// 只有管理端可以把账号关联到账号池中的已有登录；用户侧只读当前绑定账号。
+const canBind = computed(() => props.scope === 'admin')
 const totalCredits = computed(() => overview.value?.total_credits ?? 0)
 const selectedAccount = computed(() =>
   overview.value?.accounts.find((a) => a.uid === selectedUid.value) || null
@@ -224,7 +232,7 @@ const load = async () => {
   loading.value = true
   error.value = null
   try {
-    overview.value = await adminAPI.accounts.getBuiltinAdapterCheckins(props.account.id)
+    overview.value = await adminAPI.accounts.getBuiltinAdapterCheckins(props.account.id, props.scope)
     if (selectedUid.value && !overview.value.accounts.some((a) => a.uid === selectedUid.value)) {
       selectedUid.value = ''
     }
@@ -253,7 +261,7 @@ const bindAccount = async (uid: string) => {
 }
 
 watch(
-  () => [props.show, props.account?.id],
+  () => [props.show, props.account?.id, props.scope],
   ([show]) => {
     if (show) {
       selectedUid.value = ''

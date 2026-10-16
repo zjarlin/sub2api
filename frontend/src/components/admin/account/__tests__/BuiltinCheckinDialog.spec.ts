@@ -59,3 +59,37 @@ describe('BuiltinCheckinDialog existing login recovery', () => {
     wrapper.unmount()
   })
 })
+
+describe('BuiltinCheckinDialog user scope', () => {
+  beforeEach(() => {
+    vi.resetAllMocks()
+    getBuiltinAdapterCheckins.mockResolvedValue({ ...unbound, binding_required: false, total_credits: 1450, accounts: [accounts[0]] })
+  })
+
+  it('reads the user-side sidecar endpoint and never offers pool binding', async () => {
+    const wrapper = mount(BuiltinCheckinDialog, {
+      props: { show: true, account, scope: 'user' },
+      global: { stubs: { BaseDialog: { template: '<div><slot /></div>' } } }
+    })
+    await flushPromises()
+    expect(getBuiltinAdapterCheckins).toHaveBeenCalledWith(893, 'user')
+    expect(wrapper.text()).toContain('1,450')
+    wrapper.unmount()
+  })
+
+  it('keeps binding admin-only even if the payload asks for it', async () => {
+    getBuiltinAdapterCheckins.mockResolvedValue(unbound)
+    const wrapper = mount(BuiltinCheckinDialog, {
+      props: { show: true, account, scope: 'user' },
+      global: { stubs: { BaseDialog: { template: '<div><slot /></div>' } } }
+    })
+    await flushPromises()
+    expect(getBuiltinAdapterCheckins).toHaveBeenCalledWith(893, 'user')
+    expect(wrapper.text()).not.toContain('admin.accounts.builtinCheckin.bindAccount')
+    const button = wrapper.findAll('button').find(b => b.text() === 'admin.accounts.builtinCheckin.title')!
+    await button.trigger('click')
+    await flushPromises()
+    expect(bindBuiltinAdapterAccount).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+})
