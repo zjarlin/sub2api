@@ -46,7 +46,9 @@ type fakeUpstream struct {
 	checkinCalls   atomic.Int32
 	claimCalls     atomic.Int32
 	refreshCalls   atomic.Int32
+	entUsageCalls  atomic.Int32
 	resourceRemain int64
+	resourceUsed   int64
 }
 
 func (f *fakeUpstream) server() *httptest.Server {
@@ -59,8 +61,9 @@ func (f *fakeUpstream) server() *httptest.Server {
 			f.claimCalls.Add(1)
 			w.Write([]byte(`{"code":0,"message":"success"}`))
 		case strings.HasSuffix(r.URL.Path, "/ide_user_ent_usage"):
+			f.entUsageCalls.Add(1)
 			w.Write([]byte(`{"is_credits_billing":true,"user_entitlement_pack_list":[{"entitlement_base_info":{"quota":{"credits_limit":` +
-				jsonI64(f.resourceRemain) + `}}}]}`))
+				jsonI64(f.resourceRemain) + `}},"usage":{"credits_amount":` + jsonI64(f.resourceUsed) + `}}]}`))
 		case strings.HasSuffix(r.URL.Path, "/ExchangeToken"):
 			f.refreshCalls.Add(1)
 			w.Write([]byte(`{"Result":{"Token":"newat","RefreshToken":"newrt","TokenExpireAt":1786805537,"TokenExpireDuration":1209600}}`))
@@ -116,6 +119,56 @@ func TestRunCheckinReenablesCoolingAccount(t *testing.T) {
 	}
 	if st.Credits != 500 {
 		t.Errorf("credits=%d want 500", st.Credits)
+	}
+}
+
+func TestRunCreditsRefreshNowKeepsExhaustedAccountCooling(t *testing.T) {
+	f := &fakeUpstream{resourceRemain: 8500, resourceUsed: 8500}
+	srv := f.server()
+	defer srv.Close()
+
+	p := pool.New("")
+	p.Add(&auth.Auth{UID: "u1", AccessToken: "at", RefreshToken: "rt", ExpiresAt: 9999999999})
+	p.ReenableIfCredits("u1", 8500)
+	p.Cooldown("u1", pool.CoolPlan, time.Hour, "exceeded the quota")
+
+	s := newTestScheduler(f, p, srv)
+	s.RunCreditsRefreshNow()
+
+	if f.entUsageCalls.Load() != 1 {
+		t.Errorf("ent usage calls=%d want 1", f.entUsageCalls.Load())
+	}
+	if f.checkinCalls.Load() != 0 || f.claimCalls.Load() != 0 {
+		t.Errorf("credits refresh must not check in: status=%d claim=%d", f.checkinCalls.Load(), f.claimCalls.Load())
+	}
+	st, _ := p.Status("u1")
+	if st.Credits != 0 {
+		t.Errorf("credits=%d want 0 for exhausted account", st.Credits)
+	}
+	if !st.Cooling {
+		t.Errorf("exhausted account must stay cooling: %+v", st)
+	}
+}
+
+func TestRunCreditsRefreshNowReenablesAccountWithCredits(t *testing.T) {
+	f := &fakeUpstream{resourceRemain: 800, resourceUsed: 300}
+	srv := f.server()
+	defer srv.Close()
+
+	p := pool.New("")
+	p.Add(&auth.Auth{UID: "u1", AccessToken: "at", RefreshToken: "rt", ExpiresAt: 9999999999})
+	p.ReenableIfCredits("u1", 800)
+	p.Cooldown("u1", pool.CoolPlan, time.Hour, "exceeded the quota")
+
+	s := newTestScheduler(f, p, srv)
+	s.RunCreditsRefreshNow()
+
+	st, _ := p.Status("u1")
+	if st.Credits != 500 {
+		t.Errorf("credits=%d want 500", st.Credits)
+	}
+	if st.Cooling {
+		t.Errorf("account with remaining credits should be reenabled: %+v", st)
 	}
 }
 

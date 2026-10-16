@@ -265,6 +265,39 @@ func TestUserEntUsageAggregation(t *testing.T) {
 			return nil, errors.New("missing auth header")
 		}
 		return jsonResp(200, `{"is_credits_billing":true,"user_entitlement_pack_list":[
+			{"entitlement_base_info":{"quota":{"credits_limit":2000}},"usage":{"credits_amount":1500}},
+			{"entitlement_base_info":{"quota":{"credits_limit":500}},"usage":{"credits_amount":500}}
+		]}`), nil
+	})
+	remain, err := c.UserEntUsage(&auth.Auth{AccessToken: "at"})
+	if err != nil {
+		t.Fatalf("ent usage: %v", err)
+	}
+	if remain != 500 {
+		t.Errorf("remain=%d want 500 (额度上限-已用)", remain)
+	}
+}
+
+func TestUserEntUsageExhaustedIsZero(t *testing.T) {
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		return jsonResp(200, `{"is_credits_billing":true,"usage_summary":{"total_amount":8500,"consumed_amount":8500},"user_entitlement_pack_list":[
+			{"display_desc":"权益包A","entitlement_base_info":{"quota":{"credits_limit":4000}},"usage":{"credits_amount":4000}},
+			{"display_desc":"权益包B","entitlement_base_info":{"quota":{"credits_limit":4000}},"usage":{"credits_amount":4000}},
+			{"display_desc":"权益包C","entitlement_base_info":{"quota":{"credits_limit":500}},"usage":{"credits_amount":500}}
+		]}`), nil
+	})
+	remain, err := c.UserEntUsage(&auth.Auth{AccessToken: "at"})
+	if err != nil {
+		t.Fatalf("ent usage: %v", err)
+	}
+	if remain != 0 {
+		t.Errorf("remain=%d want 0 for exhausted account", remain)
+	}
+}
+
+func TestUserEntUsageWithoutUsageFieldKeepsLimit(t *testing.T) {
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		return jsonResp(200, `{"is_credits_billing":true,"user_entitlement_pack_list":[
 			{"entitlement_base_info":{"quota":{"credits_limit":2000}}},
 			{"entitlement_base_info":{"quota":{"credits_limit":500}}}
 		]}`), nil
@@ -274,7 +307,45 @@ func TestUserEntUsageAggregation(t *testing.T) {
 		t.Fatalf("ent usage: %v", err)
 	}
 	if remain != 2500 {
-		t.Errorf("remain=%d want 2500", remain)
+		t.Errorf("remain=%d want 2500 (无 usage 字段时退回额度上限)", remain)
+	}
+}
+
+func TestUserEntUsageFallsBackToUsageSummary(t *testing.T) {
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		return jsonResp(200, `{"is_credits_billing":true,"usage_summary":{"total_amount":850,"consumed_amount":850}}`), nil
+	})
+	remain, err := c.UserEntUsage(&auth.Auth{AccessToken: "at"})
+	if err != nil {
+		t.Fatalf("ent usage: %v", err)
+	}
+	if remain != 0 {
+		t.Errorf("remain=%d want 0 from usage_summary", remain)
+	}
+}
+
+func TestCheckinClaimAcceptsBusinessSuccess(t *testing.T) {
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		if !strings.HasSuffix(r.URL.Path, EpCheckinClaim) {
+			return nil, errors.New("wrong path: " + r.URL.Path)
+		}
+		return jsonResp(200, `{"code":0,"message":"success"}`), nil
+	})
+	if err := c.CheckinClaim(&auth.Auth{AccessToken: "at"}); err != nil {
+		t.Fatalf("claim should succeed: %v", err)
+	}
+}
+
+func TestCheckinClaimSurfacesBusinessError(t *testing.T) {
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		return jsonResp(200, `{"code":9074,"message":"当前参与用户太多，请稍后再试"}`), nil
+	})
+	err := c.CheckinClaim(&auth.Auth{AccessToken: "at"})
+	if err == nil {
+		t.Fatal("HTTP 200 + code 9074 must not be treated as success")
+	}
+	if !strings.Contains(err.Error(), "9074") {
+		t.Errorf("error should carry upstream code: %v", err)
 	}
 }
 

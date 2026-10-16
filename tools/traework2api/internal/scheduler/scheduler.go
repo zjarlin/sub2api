@@ -144,6 +144,28 @@ func (s *Scheduler) RunCheckinNow() {
 	}
 }
 
+// RunCreditsRefreshNow 只刷新剩余积分并按需解冻，不执行签到。
+//
+// 启动时调用：state.json 里保存的是上一次查询到的积分，重启后直接沿用会让面板
+// 和调度都用过期数字（例如额度已用尽却仍显示有积分并解除冷却）。
+func (s *Scheduler) RunCreditsRefreshNow() {
+	for _, st := range s.cfg.Pool.List() {
+		if st.Disabled {
+			continue
+		}
+		a := s.cfg.Pool.AuthByUID(st.UID)
+		if a == nil || a.RefreshTokenValue() == "" {
+			continue
+		}
+		remain, err := s.cfg.Upstream.UserEntUsage(a)
+		if err != nil {
+			log.Printf("credits refresh %s: %v", st.UID, err)
+			continue
+		}
+		s.cfg.Pool.ReenableIfCredits(st.UID, remain)
+	}
+}
+
 // RunRefreshNow 立即对所有账号刷新 token；session 失效的自动禁用。
 func (s *Scheduler) RunRefreshNow() {
 	for _, st := range s.cfg.Pool.List() {

@@ -348,17 +348,39 @@ func (c *Client) CheckinStatus(a *auth.Auth) (checkedIn bool, credits int64, ena
 }
 
 // CheckinClaim 执行签到。
+//
+// 上游用 HTTP 200 + 业务码表示失败（如 9074「当前参与用户太多，请稍后再试」），
+// 只看 HTTP 状态会把「没签到成功」记成成功，签到奖励也就再也补不上，
+// 所以这里必须校验 code。
 func (c *Client) CheckinClaim(a *auth.Auth) error {
 	req, err := http.NewRequest(http.MethodPost, c.ugBase()+EpCheckinClaim, bytes.NewReader([]byte("{}")))
 	if err != nil {
 		return err
 	}
 	UgHeaders(req, a)
-	_, err = c.doJSON(req)
-	return err
+	data, err := c.doJSON(req)
+	if err != nil {
+		return err
+	}
+	var resp struct {
+		Code    int64  `json:"code"`
+		Message string `json:"message"`
+	}
+	if err := json.Unmarshal(data, &resp); err != nil {
+		return fmt.Errorf("checkin claim parse: %w", err)
+	}
+	if resp.Code != 0 {
+		return fmt.Errorf("checkin claim rejected: code=%d msg=%s", resp.Code, resp.Message)
+	}
+	return nil
 }
 
-// UserEntUsage 聚合积分（ide_user_ent_usage 的 credits_limit 求和）。
+// UserEntUsage 查询真实剩余积分（ide_user_ent_usage）。
+//
+// 每个权益包同时给出额度上限 quota.credits_limit 与本包已用量 usage.credits_amount，
+// 剩余 = Σ max(0, credits_limit-credits_amount)。旧实现只把 credits_limit 求和，
+// 于是「额度上限」被当成「剩余积分」：额度用尽的账号既会在面板显示虚高的剩余积分，
+// 又会被 ReenableIfCredits 解冻后反复重试。没有权益包时退回 usage_summary。
 func (c *Client) UserEntUsage(a *auth.Auth) (remain int64, err error) {
 	req, err := http.NewRequest(http.MethodPost, c.ugBase()+EpEntUsage, bytes.NewReader([]byte("{}")))
 	if err != nil {
@@ -370,20 +392,35 @@ func (c *Client) UserEntUsage(a *auth.Auth) (remain int64, err error) {
 		return 0, err
 	}
 	var resp struct {
-		IsCreditsBilling        bool `json:"is_credits_billing"`
+		IsCreditsBilling bool `json:"is_credits_billing"`
+		UsageSummary     struct {
+			TotalAmount    int64 `json:"total_amount"`
+			ConsumedAmount int64 `json:"consumed_amount"`
+		} `json:"usage_summary"`
 		UserEntitlementPackList []struct {
 			EntitlementBaseInfo struct {
 				Quota struct {
 					CreditsLimit int64 `json:"credits_limit"`
 				} `json:"quota"`
 			} `json:"entitlement_base_info"`
+			Usage struct {
+				CreditsAmount int64 `json:"credits_amount"`
+			} `json:"usage"`
 		} `json:"user_entitlement_pack_list"`
 	}
 	if err := json.Unmarshal(data, &resp); err != nil {
 		return 0, fmt.Errorf("ent usage parse: %w", err)
 	}
+	if len(resp.UserEntitlementPackList) == 0 {
+		if remain = resp.UsageSummary.TotalAmount - resp.UsageSummary.ConsumedAmount; remain < 0 {
+			remain = 0
+		}
+		return remain, nil
+	}
 	for _, p := range resp.UserEntitlementPackList {
-		remain += p.EntitlementBaseInfo.Quota.CreditsLimit
+		if left := p.EntitlementBaseInfo.Quota.CreditsLimit - p.Usage.CreditsAmount; left > 0 {
+			remain += left
+		}
 	}
 	return remain, nil
 }

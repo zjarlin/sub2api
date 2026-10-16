@@ -66,6 +66,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	go sch.Run(ctx)
+	// 启动即刷新一次真实剩余积分，避免沿用过期的 state.json 数字。
+	go sch.RunCreditsRefreshNow()
 
 	srv := &http.Server{
 		Addr:              cfg.Listen,
