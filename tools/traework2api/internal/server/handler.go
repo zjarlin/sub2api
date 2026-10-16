@@ -2,6 +2,7 @@
 package server
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -108,9 +109,34 @@ func (h *Handler) healthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{
-		"accounts": h.cfg.Pool.List(),
-	})
+	accounts := h.cfg.Pool.List()
+	if uid := r.URL.Query().Get("uid"); uid != "" {
+		selected := make([]pool.Status, 0, 1)
+		for _, account := range accounts {
+			if account.UID == uid {
+				selected = append(selected, account)
+			}
+		}
+		accounts = selected
+	}
+	if r.URL.Query().Get("refresh_credits") == "true" {
+		ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+		defer cancel()
+		for i := range accounts {
+			a := h.cfg.Pool.AuthByUID(accounts[i].UID)
+			if a == nil || h.cfg.Upstream == nil {
+				writeOpenAIError(w, http.StatusBadGateway, "balance_unavailable", "unable to query upstream balance")
+				return
+			}
+			credits, err := h.cfg.Upstream.UserEntUsageContext(ctx, a)
+			if err != nil {
+				writeOpenAIError(w, http.StatusBadGateway, "balance_unavailable", "unable to query upstream balance")
+				return
+			}
+			accounts[i].Credits = credits
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"accounts": accounts, "credits_refreshed": r.URL.Query().Get("refresh_credits") == "true"})
 }
 
 // checkins 返回签到历史。无 uid 查询参数时返回全池（uid → 历史），

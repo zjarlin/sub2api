@@ -598,8 +598,11 @@ func ProvideOpsAlertEvaluatorService(
 	redisClient *redis.Client,
 	cfg *config.Config,
 	proxyRepo ProxyRepository,
+	accountRepo AccountRepository,
+	balances *CNProviderBalanceService,
 ) *OpsAlertEvaluatorService {
 	svc := NewOpsAlertEvaluatorService(opsService, opsRepo, emailService, redisClient, cfg, proxyRepo)
+	svc.creditMonitor = NewCreditForecastMonitor(accountRepo, balances)
 	svc.Start()
 	return svc
 }

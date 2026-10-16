@@ -182,6 +182,15 @@ func (h *Handler) healthz(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 	// 页面主动查询官方精确余额；常规状态轮询仍只读取调度池快照。
 	snapshot := h.cfg.Pool.List()
+	if uid := r.URL.Query().Get("uid"); uid != "" {
+		selected := make([]pool.Status, 0, 1)
+		for _, account := range snapshot {
+			if account.UID == uid {
+				selected = append(selected, account)
+			}
+		}
+		snapshot = selected
+	}
 	var accounts any = snapshot
 	if r.URL.Query().Get("refresh_credits") == "true" {
 		ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
@@ -223,12 +232,13 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 	// realm_totals 按域分组的计数汇总（双 realm 并存时运维一眼看到各域可用性）：
 	// 只新增字段，既有 total/healthy/cooling/disabled/in_flight_full 汇总键不变（零回归）。
 	writeJSON(w, http.StatusOK, map[string]any{
-		"accounts":       accounts,
-		"total":          total,
-		"healthy":        healthy,
-		"cooling":        cooling,
-		"disabled":       disabled,
-		"in_flight_full": inFlightFull,
+		"credits_refreshed": r.URL.Query().Get("refresh_credits") == "true",
+		"accounts":          accounts,
+		"total":             total,
+		"healthy":           healthy,
+		"cooling":           cooling,
+		"disabled":          disabled,
+		"in_flight_full":    inFlightFull,
 		"realm_totals": map[string]map[string]int{
 			"cn":     countsMapFrom(h.cfg.Pool.CountsDetailedForRealm("cn")),
 			"global": countsMapFrom(h.cfg.Pool.CountsDetailedForRealm("global")),

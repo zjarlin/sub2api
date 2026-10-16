@@ -526,6 +526,7 @@ export default {
           account: '账号级别指标'
         },
         metrics: {
+          creditRunwayHours: '预计积分/余额耗尽时间（小时）',
           successRate: '成功率 (%)',
           errorRate: '错误率 (%)',
           upstreamErrorRate: '上游错误率 (%)',
@@ -544,6 +545,7 @@ export default {
           overloadAccountCount: '过载账号数'
         },
         metricDescriptions: {
+          creditRunwayHours: '监控 WorkBuddy、TRAE Work 积分及 Kimi、DeepSeek 按量余额。按消耗速度与加速度估算，通常每小时查询，按趋势调整至 15 分钟～6 小时；积分增长后重置趋势。',
           successRate: '统计窗口内成功请求占比（0~100）。',
           errorRate: '统计窗口内失败请求占比（0~100）。',
           upstreamErrorRate: '统计窗口内上游错误占比（0~100）。',

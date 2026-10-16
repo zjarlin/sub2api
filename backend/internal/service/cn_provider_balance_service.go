@@ -181,7 +181,13 @@ func (s *CNProviderBalanceService) queryBalanceForAccount(ctx context.Context, a
 	switch provider {
 	case PlatformKimi:
 		// Moonshot：code==0 成功；data.available_balance（number），单币种 CNY。
-		balance, _ := cnParseF64(gjson.GetBytes(bodyBytes, "data.available_balance").Value())
+		value := gjson.GetBytes(bodyBytes, "data.available_balance")
+		balance, ok := cnParseF64(value.Value())
+		code := gjson.GetBytes(bodyBytes, "code")
+		if !value.Exists() || !ok || (code.Exists() && code.Raw != "0") {
+			result.Error = "Invalid balance response: missing or invalid available_balance"
+			return result, nil
+		}
 		entries = append(entries, CNProviderBalanceEntry{Currency: "CNY", Balance: balance})
 	case PlatformDeepseek:
 		// is_available 缺省视为 true（健康）；显式存在时取其值。

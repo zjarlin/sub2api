@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -32,10 +33,11 @@ return 0
 `)
 
 type OpsAlertEvaluatorService struct {
-	opsService   *OpsService
-	opsRepo      OpsRepository
-	emailService *EmailService
-	proxyRepo    ProxyRepository
+	opsService    *OpsService
+	opsRepo       OpsRepository
+	emailService  *EmailService
+	proxyRepo     ProxyRepository
+	creditMonitor *CreditForecastMonitor
 
 	redisClient *redis.Client
 	cfg         *config.Config
@@ -211,6 +213,13 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 	// Cleanup stale state for removed rules.
 	s.pruneRuleStates(rules)
 
+	// 上游余额查询可能较慢，先评估已有健康指标，避免积分采样耗尽本轮预算。
+	sort.SliceStable(rules, func(i, j int) bool {
+		iCredit := rules[i] != nil && rules[i].MetricType == "credit_runway_hours"
+		jCredit := rules[j] != nil && rules[j].MetricType == "credit_runway_hours"
+		return !iCredit && jCredit
+	})
+
 	for _, rule := range rules {
 		if rule == nil || !rule.Enabled || rule.ID <= 0 {
 			continue
@@ -276,7 +285,7 @@ func (s *OpsAlertEvaluatorService) evaluateOnce(interval time.Duration) {
 				Severity:       strings.TrimSpace(rule.Severity),
 				Status:         OpsAlertStatusFiring,
 				Title:          fmt.Sprintf("%s: %s", strings.TrimSpace(rule.Severity), strings.TrimSpace(rule.Name)),
-				Description:    buildOpsAlertDescription(rule, metricValue, windowMinutes, scopePlatform, scopeGroupID),
+				Description:    s.alertDescription(rule, metricValue, windowMinutes, scopePlatform, scopeGroupID),
 				MetricValue:    float64Ptr(metricValue),
 				ThresholdValue: float64Ptr(rule.Threshold),
 				Dimensions:     buildOpsAlertDimensions(scopePlatform, scopeGroupID),
@@ -445,6 +454,11 @@ func (s *OpsAlertEvaluatorService) computeRuleMetric(
 		return 0, false
 	}
 	switch strings.TrimSpace(rule.MetricType) {
+	case "credit_runway_hours":
+		value, complete := s.creditMonitor.Runway(ctx, platform, groupID, time.Now().UTC())
+		// 已知账号耗尽仍应告警，其他账号查询失败只阻止自动解除告警。
+		knownBreach := value < creditRunwayUnknown && (rule.Operator == "<" || rule.Operator == "<=") && compareMetric(value, rule.Operator, rule.Threshold)
+		return value, complete || knownBreach
 	case "cpu_usage_percent":
 		if systemMetrics != nil && systemMetrics.CPUUsagePercent != nil {
 			return *systemMetrics.CPUUsagePercent, true
@@ -1073,4 +1087,13 @@ func countAccountsByCondition(accounts map[int64]*AccountAvailability, condition
 		}
 	}
 	return count
+}
+
+// alertDescription 为积分预警附上实际余额、速度、加速度及采样时间。
+func (s *OpsAlertEvaluatorService) alertDescription(rule *OpsAlertRule, value float64, window int, platform string, groupID *int64) string {
+	description := buildOpsAlertDescription(rule, value, window, platform, groupID)
+	if rule.MetricType == "credit_runway_hours" && s.creditMonitor != nil && s.creditMonitor.details != "" {
+		description += "\n" + s.creditMonitor.details
+	}
+	return description
 }

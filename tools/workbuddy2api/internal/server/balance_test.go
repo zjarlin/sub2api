@@ -52,3 +52,21 @@ func TestStatusRefreshCreditsDoesNotFallBackToEstimate(t *testing.T) {
 		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
 	}
 }
+
+func TestStatusRefreshCreditsFiltersBoundAccount(t *testing.T) {
+	calls := 0
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		w.Write([]byte(`{"code":0,"data":{"Response":{"Data":{"Accounts":[{"CycleCapacityRemainPrecise":"79.75"}]}}}}`))
+	}))
+	defer up.Close()
+	p := testPoolWith(&auth.Auth{UID: "target", AccessToken: "secret"}, &auth.Auth{UID: "other", AccessToken: "other"})
+	c := upstream.New()
+	c.BillingBaseCN = up.URL
+	h := NewHandler(Config{Pool: p, Upstream: c})
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/status?refresh_credits=true&uid=target", nil))
+	if w.Code != 200 || calls != 1 || strings.Contains(w.Body.String(), `"uid":"other"`) || !strings.Contains(w.Body.String(), `"credits_refreshed":true`) {
+		t.Fatalf("calls=%d status=%d body=%s", calls, w.Code, w.Body.String())
+	}
+}

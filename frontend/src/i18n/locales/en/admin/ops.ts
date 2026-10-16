@@ -526,6 +526,7 @@ export default {
           account: 'Account-level Metrics'
         },
         metrics: {
+          creditRunwayHours: 'Estimated credit/balance runway (hours)',
           successRate: 'Success Rate (%)',
           errorRate: 'Error Rate (%)',
           upstreamErrorRate: 'Upstream Error Rate (%)',
@@ -544,6 +545,7 @@ export default {
           overloadAccountCount: 'Overloaded Accounts'
         },
         metricDescriptions: {
+          creditRunwayHours: 'Monitors WorkBuddy/TRAE Work credits and Kimi/DeepSeek pay-as-you-go balances. Uses spending rate and acceleration; checks hourly, adapting to 15 minutes–6 hours. Balance increases reset the trend.',
           successRate: 'Percentage of successful requests in the window (0-100).',
           errorRate: 'Percentage of failed requests in the window (0-100).',
           upstreamErrorRate: 'Percentage of upstream failures in the window (0-100).',

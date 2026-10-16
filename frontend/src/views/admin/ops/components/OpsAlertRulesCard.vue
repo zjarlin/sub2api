@@ -199,6 +199,17 @@ const metricDefinitions = computed(() => {
       unit: '%'
     },
 
+    // 积分与余额使用原始单位预测，不跨平台相加。
+    {
+      type: 'credit_runway_hours',
+      group: 'account',
+      label: t('admin.ops.alertRules.metrics.creditRunwayHours'),
+      description: t('admin.ops.alertRules.metricDescriptions.creditRunwayHours'),
+      recommendedOperator: '<=',
+      recommendedThreshold: 24,
+      unit: 'h'
+    },
+
     // Account-level metrics
     {
       type: 'account_rate_limited_count',

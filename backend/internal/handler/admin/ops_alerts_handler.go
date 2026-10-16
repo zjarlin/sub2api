@@ -17,6 +17,7 @@ import (
 )
 
 var validOpsAlertMetricTypes = []string{
+	"credit_runway_hours",
 	"success_rate",
 	"error_rate",
 	"upstream_error_rate",

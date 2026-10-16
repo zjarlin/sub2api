@@ -685,6 +685,7 @@ export type OpsPhase = string
 export type AlertSeverity = 'critical' | 'warning' | 'info'
 export type ThresholdMode = 'count' | 'percentage' | 'both'
 export type MetricType =
+  | 'credit_runway_hours'
   | 'success_rate'
   | 'error_rate'
   | 'upstream_error_rate'

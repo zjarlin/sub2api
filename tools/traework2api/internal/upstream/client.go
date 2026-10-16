@@ -382,7 +382,12 @@ func (c *Client) CheckinClaim(a *auth.Auth) error {
 // 于是「额度上限」被当成「剩余积分」：额度用尽的账号既会在面板显示虚高的剩余积分，
 // 又会被 ReenableIfCredits 解冻后反复重试。没有权益包时退回 usage_summary。
 func (c *Client) UserEntUsage(a *auth.Auth) (remain int64, err error) {
-	req, err := http.NewRequest(http.MethodPost, c.ugBase()+EpEntUsage, bytes.NewReader([]byte("{}")))
+	return c.UserEntUsageContext(context.Background(), a)
+}
+
+// UserEntUsageContext 让主动余额查询遵守请求取消和超时。
+func (c *Client) UserEntUsageContext(ctx context.Context, a *auth.Auth) (remain int64, err error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.ugBase()+EpEntUsage, bytes.NewReader([]byte("{}")))
 	if err != nil {
 		return 0, err
 	}
@@ -393,7 +398,7 @@ func (c *Client) UserEntUsage(a *auth.Auth) (remain int64, err error) {
 	}
 	var resp struct {
 		IsCreditsBilling bool `json:"is_credits_billing"`
-		UsageSummary     struct {
+		UsageSummary     *struct {
 			TotalAmount    int64 `json:"total_amount"`
 			ConsumedAmount int64 `json:"consumed_amount"`
 		} `json:"usage_summary"`
@@ -412,6 +417,9 @@ func (c *Client) UserEntUsage(a *auth.Auth) (remain int64, err error) {
 		return 0, fmt.Errorf("ent usage parse: %w", err)
 	}
 	if len(resp.UserEntitlementPackList) == 0 {
+		if resp.UsageSummary == nil {
+			return 0, fmt.Errorf("ent usage: missing credit balance")
+		}
 		if remain = resp.UsageSummary.TotalAmount - resp.UsageSummary.ConsumedAmount; remain < 0 {
 			remain = 0
 		}

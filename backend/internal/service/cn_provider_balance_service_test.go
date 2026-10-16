@@ -128,3 +128,18 @@ func TestCNProviderBalanceService_DeepSeekValidZeroBalanceRemainsSuccessful(t *t
 	require.Len(t, result.Balances, 1)
 	require.Len(t, repo.extraWrites, 1, "a valid upstream zero balance must still be persisted")
 }
+
+func TestCNProviderBalanceService_KimiRejectsUnknownBalance(t *testing.T) {
+	for _, body := range []string{`{}`, `{"data":{"available_balance":"bad"}}`, `{"code":42,"data":{"available_balance":0}}`} {
+		t.Run(body, func(t *testing.T) {
+			a := newDeepSeekBalanceProbeAccount()
+			a.Platform = PlatformKimi
+			repo := &cnBalanceProbeRepo{account: a}
+			svc := NewCNProviderBalanceService(repo, nil, &cnBalanceResponseUpstream{statusCode: http.StatusOK, body: body}, nil)
+			result, err := svc.QueryBalance(context.Background(), a.ID)
+			require.NoError(t, err)
+			require.False(t, result.Success)
+			require.Empty(t, repo.extraWrites)
+		})
+	}
+}
