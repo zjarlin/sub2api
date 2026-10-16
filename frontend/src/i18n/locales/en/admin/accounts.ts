@@ -377,6 +377,11 @@ export default {
       kilo: 'Kilo',
       },
       builtinCheckin: {
+        bindingRequired: 'Upstream account link needed',
+        bindExisting: 'Link signed-in account',
+        bindExistingHint: 'Reuse an existing sign-in. Select the upstream account for this record to display its points without signing in again.',
+        bindAccount: 'Link this account',
+        bindingMissing: 'Authorization did not return an upstream account identity. Retry before saving the link.',
         title: 'Check-in Records',
         panelTitle: 'Points & Check-in',
         remaining: 'Remaining points',

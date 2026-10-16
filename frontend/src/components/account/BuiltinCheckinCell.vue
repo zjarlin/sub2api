@@ -14,13 +14,13 @@
         type="button"
         class="inline-flex items-center gap-0.5 whitespace-nowrap rounded px-1.5 py-0.5 text-[10px] font-medium leading-4 text-blue-600 transition-colors hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
         :disabled="loading"
-        :title="t('admin.accounts.builtinCheckin.title')"
+        :title="t(bindingRequired ? 'admin.accounts.builtinCheckin.bindExisting' : 'admin.accounts.builtinCheckin.title')"
         @click="emit('open')"
       >
         <svg class="h-2.5 w-2.5" :class="{ 'animate-spin': loading }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
         </svg>
-        {{ t('admin.accounts.builtinCheckin.title') }}
+        {{ t(bindingRequired ? 'admin.accounts.builtinCheckin.bindExisting' : 'admin.accounts.builtinCheckin.title') }}
       </button>
       <button
         type="button"
@@ -59,8 +59,10 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const totalCredits = ref<number | null>(null)
 const accountCount = ref(0)
+const bindingRequired = ref(false)
 
 const summaryLabel = computed(() => {
+  if (bindingRequired.value) return t('admin.accounts.builtinCheckin.bindingRequired')
   if (error.value) return t('admin.accounts.builtinCheckin.remaining')
   if (totalCredits.value == null) return t('admin.accounts.builtinCheckin.remaining')
   return `${t('admin.accounts.builtinCheckin.remaining')} ${new Intl.NumberFormat().format(totalCredits.value)}`
@@ -90,8 +92,10 @@ const load = async () => {
     const overview = await adminAPI.accounts.getBuiltinAdapterCheckins(props.account.id, props.scope)
     totalCredits.value = overview.total_credits
     accountCount.value = overview.accounts.length
+    bindingRequired.value = overview.binding_required === true
   } catch (e) {
     totalCredits.value = null
+    bindingRequired.value = false
     error.value = extractErrorMessage(e)
   } finally {
     loading.value = false
@@ -103,9 +107,10 @@ onMounted(() => {
 })
 
 watch(
-  () => props.account.id,
+  () => [props.account.id, props.account.extra?.builtin_adapter_uid],
   () => {
     totalCredits.value = null
+    bindingRequired.value = false
     accountCount.value = 0
     error.value = null
     if (visible.value) void load()

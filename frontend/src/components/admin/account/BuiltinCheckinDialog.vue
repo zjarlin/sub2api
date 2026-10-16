@@ -9,7 +9,7 @@
               {{ t('admin.accounts.builtinCheckin.remaining') }}
             </div>
             <div class="text-2xl font-bold text-gray-900 dark:text-white">
-              {{ loading || error ? '—' : formatCredits(totalCredits) }}
+              {{ loading || error || overview?.binding_required ? '—' : formatCredits(totalCredits) }}
             </div>
           </div>
           <div v-if="!loading && !error" class="text-xs text-gray-500 dark:text-gray-400">
@@ -42,6 +42,9 @@
       </div>
 
       <template v-else>
+        <div v-if="overview.binding_required" class="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800/40 dark:bg-amber-900/20 dark:text-amber-200">
+          {{ t('admin.accounts.builtinCheckin.bindExistingHint') }}
+        </div>
         <!-- 账号列表 -->
         <div class="overflow-hidden rounded-lg border border-gray-200 dark:border-dark-600">
           <table class="w-full text-sm">
@@ -84,9 +87,10 @@
                   <button
                     type="button"
                     class="rounded px-2 py-0.5 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
-                    @click.stop="selectAccount(acc.uid)"
+                    :disabled="binding"
+                    @click.stop="overview.binding_required ? bindAccount(acc.uid) : selectAccount(acc.uid)"
                   >
-                    {{ t('admin.accounts.builtinCheckin.title') }}
+                    {{ t(overview.binding_required ? 'admin.accounts.builtinCheckin.bindAccount' : 'admin.accounts.builtinCheckin.title') }}
                   </button>
                 </td>
               </tr>
@@ -151,13 +155,14 @@ const props = defineProps<{
   account: Account | null
 }>()
 
-const emit = defineEmits<{ close: [] }>()
+const emit = defineEmits<{ close: []; updated: [account: Account] }>()
 const { t } = useI18n()
 
 const loading = ref(false)
 const error = ref<string | null>(null)
 const overview = ref<BuiltinAdapterCheckinOverview | null>(null)
 const selectedUid = ref('')
+const binding = ref(false)
 
 const totalCredits = computed(() => overview.value?.total_credits ?? 0)
 const selectedAccount = computed(() =>
@@ -231,6 +236,22 @@ const load = async () => {
   }
 }
 
+const bindAccount = async (uid: string) => {
+  if (!props.account || binding.value) return
+  binding.value = true
+  error.value = null
+  try {
+    const updated = await adminAPI.accounts.bindBuiltinAdapterAccount(props.account.id, uid)
+    emit('updated', updated)
+    selectedUid.value = uid
+    await load()
+  } catch (e) {
+    error.value = extractErrorMessage(e)
+  } finally {
+    binding.value = false
+  }
+}
+
 watch(
   () => [props.show, props.account?.id],
   ([show]) => {
@@ -239,6 +260,7 @@ watch(
       overview.value = null
       void load()
     }
-  }
+  },
+  { immediate: true }
 )
 </script>

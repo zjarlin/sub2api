@@ -1106,6 +1106,13 @@ export interface BuiltinAdapterCheckinOverview {
   fetched_at: number
   total_credits: number
   accounts: BuiltinAdapterCheckinAccount[]
+  binding_required?: boolean
+}
+
+/** 管理员从已有登录账号恢复关联，不覆盖其他账号配置或运行状态。 */
+export async function bindBuiltinAdapterAccount(id: number, uid: string): Promise<Account> {
+  const { data } = await apiClient.put<Account>(`/admin/accounts/${id}/sidecar/account`, { uid })
+  return data
 }
 
 /**
@@ -1181,6 +1188,7 @@ export const accountsAPI = {
   updateOllamaCloudUsageSettings,
   getOllamaCloudUsage,
   getBuiltinAdapterCheckins,
+  bindBuiltinAdapterAccount,
   saveOllamaCloudUsageSession,
   deleteOllamaCloudUsageSession,
   setOllamaCloudUsageAutoRefresh,

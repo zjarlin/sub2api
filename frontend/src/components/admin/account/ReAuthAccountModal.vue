@@ -218,7 +218,7 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import BuiltinAdapterLogin from '@/components/account/BuiltinAdapterLogin.vue'
 import OAuthAuthorizationFlow from '@/components/account/OAuthAuthorizationFlow.vue'
-import type { BuiltinLoginPlatform } from '@/api/admin/builtinAdapters'
+import type { BuiltinLoginPlatform, BuiltinLoginSession } from '@/api/admin/builtinAdapters'
 
 // Type for exposed OAuthAuthorizationFlow component
 // Note: defineExpose automatically unwraps refs, so we use the unwrapped types
@@ -383,9 +383,17 @@ const handleClose = () => {
   emit('close')
 }
 
-const handleBuiltinAuthorized = async () => {
+const handleBuiltinAuthorized = async (session: BuiltinLoginSession) => {
   if (!props.account) return
   try {
+    if (['workbuddy', 'traework'].includes(props.account.platform)) {
+      const uid = session?.account?.uid?.trim()
+      if (session?.status !== 'completed' || !uid) {
+        appStore.showError(t('admin.accounts.builtinCheckin.bindingMissing'))
+        return
+      }
+      await adminAPI.accounts.bindBuiltinAdapterAccount(props.account.id, uid)
+    }
     const updatedAccount = await adminAPI.accounts.clearError(props.account.id)
     appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
     emit('reauthorized', updatedAccount)

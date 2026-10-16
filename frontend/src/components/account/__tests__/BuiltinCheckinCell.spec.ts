@@ -64,6 +64,20 @@ describe('BuiltinCheckinCell', () => {
     expect(wrapper.text()).toBe('')
   })
 
+  it('offers existing logins without showing a pool total as the account balance', async () => {
+    getBuiltinAdapterCheckins.mockResolvedValue({ ...overview, binding_required: true, total_credits: 0 })
+    const wrapper = mount(BuiltinCheckinCell, { props: { account } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('admin.accounts.builtinCheckin.bindExisting')
+    expect(wrapper.text()).toContain('admin.accounts.builtinCheckin.bindingRequired')
+    expect(wrapper.text()).not.toContain('2,250')
+    getBuiltinAdapterCheckins.mockResolvedValue({ ...overview, total_credits: 79.75, accounts: [overview.accounts[0]] })
+    await wrapper.setProps({ account: { ...account, extra: { builtin_adapter_uid: 'u1' } } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('79.75')
+    expect(wrapper.text()).not.toContain('admin.accounts.builtinCheckin.bindingRequired')
+  })
+
   it('opens the detail dialog via the button', async () => {
     const wrapper = mount(BuiltinCheckinCell, { props: { account } })
     await flushPromises()

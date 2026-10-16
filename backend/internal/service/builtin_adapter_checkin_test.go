@@ -121,3 +121,33 @@ func TestBuiltinAdapterCheckinOverviewForUnboundAccountDoesNotQueryPool(t *testi
 	_, err := BuiltinAdapterCheckinOverviewForAccount(context.Background(), &Account{Platform: PlatformWorkbuddy})
 	require.ErrorContains(t, err, "未绑定上游账号")
 }
+
+func TestBuiltinAdapterCheckinAdminCanReuseExistingLogins(t *testing.T) {
+	adapter := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/status" {
+			_, _ = w.Write([]byte(`{"accounts":[{"uid":"mine","credits":79.75},{"uid":"other","credits":23050}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"checkins":{}}`))
+	}))
+	defer adapter.Close()
+	SetBuiltinAdapterConfig(&config.BuiltinAdapterConfig{Enabled: true, WorkbuddyURL: adapter.URL, WorkbuddyKey: "key"})
+	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
+	account := &Account{Platform: PlatformWorkbuddy}
+
+	overview, err := BuiltinAdapterCheckinOverviewForAdminAccount(context.Background(), account)
+	require.NoError(t, err)
+	require.True(t, overview.BindingRequired)
+	require.Zero(t, overview.TotalCredits)
+	require.Len(t, overview.Accounts, 2)
+	// 管理员恢复关联的能力不能放宽普通用户的账号隔离。
+	_, err = BuiltinAdapterCheckinOverviewForAccount(context.Background(), account)
+	require.ErrorContains(t, err, "未绑定上游账号")
+
+	account.Extra = map[string]any{"builtin_adapter_uid": "mine"}
+	overview, err = BuiltinAdapterCheckinOverviewForAdminAccount(context.Background(), account)
+	require.NoError(t, err)
+	require.False(t, overview.BindingRequired)
+	require.Len(t, overview.Accounts, 1)
+	require.Equal(t, 79.75, overview.TotalCredits)
+}

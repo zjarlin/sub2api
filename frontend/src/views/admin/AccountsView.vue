@@ -459,7 +459,7 @@
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" @updated="handleAccountUpdated" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <BuiltinCheckinDialog :show="showCheckinDialog" :account="checkinAcc" @close="closeCheckinDialog" />
+    <BuiltinCheckinDialog :show="showCheckinDialog" :account="checkinAcc" @close="closeCheckinDialog" @updated="handleAccountUpdated" />
     <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @checkins="handleViewCheckins" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />

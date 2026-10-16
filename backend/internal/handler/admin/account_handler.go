@@ -1729,7 +1729,7 @@ func (h *AccountHandler) GetBuiltinAdapterCheckins(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	overview, err := service.BuiltinAdapterCheckinOverviewForAccount(c.Request.Context(), account)
+	overview, err := service.BuiltinAdapterCheckinOverviewForAdminAccount(c.Request.Context(), account)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

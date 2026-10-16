@@ -580,6 +580,11 @@ export default {
       kilo: 'Kilo',
       },
       builtinCheckin: {
+        bindingRequired: '待关联上游账号',
+        bindExisting: '关联已登录账号',
+        bindExistingHint: '已有登录凭据可直接复用。请选择此记录对应的上游账号，关联后显示该账号的积分，无需重新登录。',
+        bindAccount: '关联此账号',
+        bindingMissing: '授权未返回上游账号身份，请重试后再保存关联',
         title: '签到记录',
         panelTitle: '积分与签到',
         remaining: '剩余积分',

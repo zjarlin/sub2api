@@ -35,10 +35,11 @@ type BuiltinAdapterCheckinAccount struct {
 
 // BuiltinAdapterCheckinOverview 是管理端账号页消费的积分与签到汇总。
 type BuiltinAdapterCheckinOverview struct {
-	Platform     string                         `json:"platform"`
-	FetchedAt    int64                          `json:"fetched_at"`
-	TotalCredits float64                        `json:"total_credits"`
-	Accounts     []BuiltinAdapterCheckinAccount `json:"accounts"`
+	Platform        string                         `json:"platform"`
+	FetchedAt       int64                          `json:"fetched_at"`
+	TotalCredits    float64                        `json:"total_credits"`
+	Accounts        []BuiltinAdapterCheckinAccount `json:"accounts"`
+	BindingRequired bool                           `json:"binding_required,omitempty"`
 }
 
 type builtinAdapterStatusResponse struct {
@@ -59,9 +60,24 @@ type builtinAdapterCheckinsResponse struct {
 func BuiltinAdapterCheckinOverviewForAccount(ctx context.Context, account *Account) (*BuiltinAdapterCheckinOverview, error) {
 	uid := strings.TrimSpace(account.GetExtraString("builtin_adapter_uid"))
 	if uid == "" {
-		return nil, infraerrors.BadRequest("BUILTIN_ACCOUNT_UNBOUND", "未绑定上游账号，请先绑定当前账号后查询积分")
+		return nil, infraerrors.BadRequest("BUILTIN_ACCOUNT_UNBOUND", "未绑定上游账号，请由管理员关联已有登录账号，或重新授权后保存关联")
 	}
 	return builtinAdapterCheckinOverview(ctx, account.Platform, uid)
+}
+
+// 管理员可从已有登录账号中恢复旧记录的关联，不把账号池合计当成当前账号余额。
+// 普通用户继续使用严格的单账号查询，不能借旧记录枚举其他人的账号。
+func BuiltinAdapterCheckinOverviewForAdminAccount(ctx context.Context, account *Account) (*BuiltinAdapterCheckinOverview, error) {
+	if strings.TrimSpace(account.GetExtraString("builtin_adapter_uid")) != "" {
+		return BuiltinAdapterCheckinOverviewForAccount(ctx, account)
+	}
+	overview, err := BuiltinAdapterCheckinOverviewForPlatform(ctx, account.Platform)
+	if err != nil {
+		return nil, err
+	}
+	overview.BindingRequired = true
+	overview.TotalCredits = 0
+	return overview, nil
 }
 
 // BuiltinAdapterCheckinOverviewForPlatform 从 WorkBuddy/TRAE Work sidecar 拉取
