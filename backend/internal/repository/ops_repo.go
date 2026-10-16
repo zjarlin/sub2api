@@ -281,7 +281,8 @@ SELECT
     NULLIF(BTRIM(e.upstream_model), ''),
     NULLIF(BTRIM(amr.resolved_model), ''),
     NULLIF(BTRIM(amr.selected_model), ''),
-    NULLIF(BTRIM(e.model), '')
+    NULLIF(BTRIM(e.model), ''),
+    ''
   ),
   COALESCE(e.user_agent, ''),
   e.request_type,
@@ -335,6 +336,9 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 		var apiKeyName string
 		var apiKeyDeletedAt sql.NullTime
 		var accountAttemptsJSON string
+		// ErrorModel 的取值链（尝试记录 / upstream_model / Auto 路由 / model）可能全为空，
+		// 用可空类型接住，避免单行 NULL 让整个错误列表查询报错。
+		var errorModel sql.NullString
 		if err := rows.Scan(
 			&item.ID,
 			&item.CreatedAt,
@@ -367,7 +371,7 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 			&item.UpstreamEndpoint,
 			&item.RequestedModel,
 			&item.UpstreamModel,
-			&item.ErrorModel,
+			&errorModel,
 			&item.UserAgent,
 			&requestType,
 			&apiKeyName,
@@ -384,6 +388,7 @@ LIMIT $` + itoa(len(args)+1) + ` OFFSET $` + itoa(len(args)+2)
 			v := resolvedBy.Int64
 			item.ResolvedByUserID = &v
 		}
+		item.ErrorModel = errorModel.String
 		item.ResolvedByUserName = resolvedByName
 		item.StatusCode = int(statusCode.Int64)
 		if clientIP.Valid {
