@@ -24,7 +24,7 @@ async function openEndpoint(key: string) {
 
 enableAutoUnmount(afterEach)
 
-const { getStatus, getAllGroups, getCandidates, updateGroup, listKeys, showSuccess, showError } = vi.hoisted(() => ({
+const { getStatus, getAllGroups, getCandidates, updateGroup, listKeys, showSuccess, showError, listMailAccounts, listProxies, post } = vi.hoisted(() => ({
   getStatus: vi.fn(),
   getAllGroups: vi.fn(),
   getCandidates: vi.fn(),
@@ -32,13 +32,16 @@ const { getStatus, getAllGroups, getCandidates, updateGroup, listKeys, showSucce
   listKeys: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn(),
+  listMailAccounts: vi.fn(),
+  listProxies: vi.fn(),
+  post: vi.fn(),
 }))
 
 vi.mock('@/api/client', async () => {
   const actual = await vi.importActual<typeof import('@/api/client')>('@/api/client')
   return {
     ...actual,
-    apiClient: { get: getStatus },
+    apiClient: { get: getStatus, post },
   }
 })
 
@@ -46,9 +49,12 @@ vi.mock('@/api/admin', () => ({
   adminAPI: {
     groups: {
       getAll: getAllGroups,
+      getAllIncludingInactive: getAllGroups,
       getModelAllowlistCandidates: getCandidates,
       update: updateGroup,
     },
+    accounts: { list: listMailAccounts, delete: vi.fn() },
+    proxies: { getAll: listProxies },
   },
 }))
 
@@ -151,6 +157,9 @@ describe('VisionEdgeView workbench', () => {
       page_size: 100,
       pages: 1,
     })
+    listMailAccounts.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 100, pages: 0 })
+    listProxies.mockResolvedValue([])
+    post.mockResolvedValue({ data: {} })
   })
 
   it('imports a curl into editable fields and generates a gateway curl', async () => {
