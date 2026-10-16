@@ -73,6 +73,7 @@
             class="absolute left-0 top-0 h-px w-px opacity-0"
             autocomplete="off"
             @input="relayTextInput"
+            @paste="relayPaste"
             @compositionstart="composing = true"
             @compositionend="finishComposition"
             @click.stop
@@ -207,6 +208,19 @@ function stop() {
   authorizedEmitted = false
 }
 
+function isSessionGone(err: unknown): boolean {
+  const detail = err as { status?: number; code?: number | string }
+  return detail?.status === 404 || detail?.code === 404
+}
+
+// 会话过期后画面不再可用：复位会话让按钮回到「重新登录」，并给出明确提示，
+// 避免画面看似可用但所有点击/输入都被静默丢弃。
+function inactivateSession() {
+  stop()
+  session.value = null
+  error.value = t('admin.accounts.builtinLogin.expired')
+}
+
 function showError(err: unknown) {
   const detail = err as { code?: string; message?: string }
   if (props.platform === 'arena') {
@@ -289,8 +303,13 @@ async function drainInput() {
       if (!next) break
       try {
         await sendBuiltinLoginInput(props.platform, current.session_id, next, undefined, props.scope)
-      } catch {
-        // 会话过期或适配器未就绪时忽略单次转发失败；轮询会同步最终状态。
+      } catch (err) {
+        // 会话过期或适配器未就绪时忽略单次转发失败；但会话确认消失时要明确提示。
+        if (isSessionGone(err)) {
+          inputQueue.length = 0
+          inactivateSession()
+          return
+        }
       }
     }
   } finally {
@@ -317,7 +336,15 @@ function relayWheel(event: WheelEvent) {
 function relayKeydown(event: KeyboardEvent) {
   if (!viewInteractive.value) return
   if (event.isComposing || composing || event.ctrlKey || event.metaKey || event.altKey) return
-  if (event.key.length === 1) return
+  if (event.key.length === 1) {
+    // 隐藏输入框未取得焦点时（部分浏览器不会把焦点交给 1px 透明输入框），
+    // 直接转发可打印字符，避免「点了画面却输入不了」。
+    if (typeof document === 'undefined' || document.activeElement !== loginInputRef.value) {
+      event.preventDefault()
+      enqueueInput({ type: 'text', text: event.key })
+    }
+    return
+  }
   const allowed = ['Enter', 'Tab', 'Backspace', 'Escape', 'ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown', 'Delete', ' ']
   if (allowed.includes(event.key)) {
     event.preventDefault()
@@ -333,6 +360,14 @@ function relayTextInput() {
   input.value = ''
 }
 
+// 粘贴同样按文本转发；隐藏输入框承接到的内容提交后立即清空。
+function relayPaste(event: ClipboardEvent) {
+  const text = event.clipboardData?.getData('text') ?? ''
+  if (!text) return
+  event.preventDefault()
+  enqueueInput({ type: 'text', text })
+}
+
 function finishComposition() {
   composing = false
   relayTextInput()
@@ -345,10 +380,11 @@ async function refreshLoginView(current: BuiltinLoginSession, version: number) {
     if (version !== generation) return
     // 输入框不随截图变化；若重渲染影响焦点则恢复。
     const hadFocus = typeof document !== 'undefined' && document.activeElement === loginInputRef.value
+    const isFirstView = !loginViewURL.value
     const nextURL = URL.createObjectURL(blob)
     if (loginViewURL.value) URL.revokeObjectURL(loginViewURL.value)
     loginViewURL.value = nextURL
-    if (hadFocus) {
+    if (hadFocus || (isFirstView && viewInteractive.value)) {
       await nextTick()
       loginInputRef.value?.focus({ preventScroll: true })
     }
@@ -435,9 +471,13 @@ async function complete() {
     }
   } catch (err) {
     if (version === generation) {
-      showError(err)
-      if (props.platform === 'arena') {
-        await cancel()
+      if (isSessionGone(err)) {
+        inactivateSession()
+      } else {
+        showError(err)
+        if (props.platform === 'arena') {
+          await cancel()
+        }
       }
     }
   } finally {

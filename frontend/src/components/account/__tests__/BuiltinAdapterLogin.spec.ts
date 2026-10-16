@@ -473,6 +473,55 @@ describe('BuiltinAdapterLogin madao interaction', () => {
     wrapper.unmount()
   })
 
+  it('relays printable keys when the hidden input lost focus', async () => {
+    start.mockResolvedValue({ ...pending('poll'), auth_url: undefined })
+    const wrapper = mount(BuiltinAdapterLogin, { props: { platform: 'teleagent' }, attachTo: document.body })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    const input = wrapper.get('[data-testid="builtin-login-input"]').element as HTMLTextAreaElement
+    input.blur()
+    expect(document.activeElement).not.toBe(input)
+    await wrapper.get('[data-testid="builtin-login-view-surface"]').trigger('keydown', { key: '1' })
+    await flushPromises()
+    expect(sendInput).toHaveBeenLastCalledWith('teleagent', 'abc', { type: 'text', text: '1' }, undefined, 'admin')
+    // 隐藏输入框持有焦点时交给 input 事件，避免重复转发。
+    input.focus()
+    sendInput.mockClear()
+    await wrapper.get('[data-testid="builtin-login-view-surface"]').trigger('keydown', { key: '2' })
+    await flushPromises()
+    expect(sendInput).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('relays pasted text once', async () => {
+    start.mockResolvedValue({ ...pending('poll'), auth_url: undefined })
+    const wrapper = mount(BuiltinAdapterLogin, { props: { platform: 'teleagent' } })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    const input = wrapper.get('[data-testid="builtin-login-input"]')
+    const event = new Event('paste', { cancelable: true })
+    Object.defineProperty(event, 'clipboardData', { value: { getData: () => '13800001111' } })
+    input.element.dispatchEvent(event)
+    await flushPromises()
+    expect(sendInput).toHaveBeenCalledTimes(1)
+    expect(sendInput).toHaveBeenLastCalledWith('teleagent', 'abc', { type: 'text', text: '13800001111' }, undefined, 'admin')
+    wrapper.unmount()
+  })
+
+  it('resets the session with an explicit message when the login session is gone', async () => {
+    start.mockResolvedValue({ ...pending('poll'), auth_url: undefined })
+    complete.mockRejectedValue({ status: 404, code: 404, message: 'Login session expired or unavailable; start a new login' })
+    const wrapper = mount(BuiltinAdapterLogin, { props: { platform: 'teleagent' } })
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(2500)
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toBe('admin.accounts.builtinLogin.expired')
+    expect(wrapper.get('button').text()).toBe('admin.accounts.builtinLogin.teleagentStart')
+    expect(wrapper.find('[data-testid="teleagent-login-view"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('does not relay input for deepseek_web (no server-side input support)', async () => {
     start.mockResolvedValue(pending('poll'))
     const wrapper = mount(BuiltinAdapterLogin, { props: { platform: 'deepseek_web' } })
