@@ -82,6 +82,9 @@ const responseExample = computed(() => {
     generation: { id: 'task_...' },
     model3d: { code: 0, data: { task_id: 'v1.xxx.signature', mode: 'text-to-3d', provider: 'meshy', status: 'queued', progress: 0 } },
     mail: props.endpoint.key === 'mail-providers' ? { providers: [{ key: 'google', label: 'Google / Gmail' }] } : props.endpoint.key === 'mail-send' ? { ok: true, provider: 'google' } : { account: 'user@example.com', provider: 'google', messages: [] },
+    weather: props.endpoint.method === 'GET'
+      ? { code: 0, data: { providers: [{ name: 'openmeteo', current: true, forecast: true, history: true, score: 100 }, { name: 'tianqi2345', current: false, forecast: false, history: true, score: 100 }] } }
+      : { code: 0, data: { provider: 'openmeteo', resolved: '中国 河南省 洛阳', current: { temperature_c: 18.6, condition: '多云' }, forecast: [{ date: '2026-10-16', high_c: 22, low_c: 15 }], history: [{ date: '2026-01-01', high_c: 3, low_c: -4 }], attempts: [{ provider: 'wttr', status: 'failed' }] } },
   }
   return JSON.stringify(examples[props.service.key] || { model: props.service.key === 'jev' ? 'typesafe/jev' : 'laya', answers: { urgent: { answer: 'yes' } }, usage: { input_tokens: 12, output_tokens: 0 } }, null, 2)
 })
@@ -93,6 +96,7 @@ const fields = computed(() => {
     tts: [{ name: 'text', type: 'string', required: true, description: 'text' }, { name: 'language', type: 'string', description: 'language' }, { name: 'response_format', type: 'string', description: 'audioFormat' }, { name: 'speed', type: 'number', description: 'speed' }, { name: 'return_base64', type: 'boolean', description: 'base64' }],
     model3d: [{ name: 'provider', type: 'string', description: 'provider' }, { name: 'mode', type: 'string', required: true, description: 'mode3d' }, { name: 'prompt', type: 'string', description: 'prompt3d' }, { name: 'image_url', type: 'string', description: 'imageUrl3d' }, { name: 'format', type: 'string', description: 'format3d' }, { name: 'options.preview_task_id', type: 'string', description: 'previewTask3d' }],
     generation: [{ name: 'model', type: 'string', required: true, description: 'arkModel' }, { name: 'content', type: 'object[]', required: true, description: 'content' }, { name: 'duration', type: 'number', description: 'duration' }, { name: 'resolution', type: 'string', description: 'resolution' }],
+    weather: [{ name: 'location', type: 'string', required: true, description: 'weatherLocation' }, { name: 'days', type: 'integer', description: 'weatherDays' }, { name: 'history', type: 'boolean', description: 'weatherHistory' }, { name: 'start / end', type: 'string', description: 'weatherRange' }, { name: 'provider', type: 'string', description: 'weatherProvider' }],
     mail: [{ name: 'account_id', type: 'integer', required: true, description: 'mailAccount' }, { name: 'folder', type: 'string', description: 'mailFolder' }, { name: 'uid', type: 'string', description: 'mailUid' }, { name: 'to', type: 'string[]', description: 'mailTo' }, { name: 'subject', type: 'string', description: 'mailSubject' }, { name: 'text', type: 'string', description: 'mailText' }],
   }
   return schemas[props.service.key] ?? [{ name: 'model', type: 'string', required: true, description: 'decisionModel' }, { name: 'state', type: 'string', required: true, description: 'state' }, { name: 'questions', type: 'object', required: true, description: 'questions' }]

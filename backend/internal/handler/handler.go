@@ -74,6 +74,7 @@ type Handlers struct {
 	AsyncImage        *AsyncImageHandler
 	BatchImage        *BatchImageHandler
 	Translate         *TranslateHandler
+	Weather           *WeatherHandler
 	Model3D           *Model3DHandler
 }
 

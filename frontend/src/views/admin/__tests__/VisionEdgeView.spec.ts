@@ -177,7 +177,7 @@ describe('VisionEdgeView workbench', () => {
     const wrapper = mount(VisionEdgeView)
     await flushPromises()
     expect(wrapper.find('[data-testid="edge-request-detail"]').exists()).toBe(false)
-    expect(wrapper.findAll('[data-testid^="edge-service-"]')).toHaveLength(10)
+    expect(wrapper.findAll('[data-testid^="edge-service-"]')).toHaveLength(11)
     await wrapper.get('[data-testid="edge-service-vision"]').trigger('click')
     expect(wrapper.find('[data-testid="edge-service-docs"]').exists()).toBe(true)
     await wrapper.get('[data-testid="edge-tab-debug"]').trigger('click')

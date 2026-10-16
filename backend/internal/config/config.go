@@ -1097,6 +1097,8 @@ type GatewayConfig struct {
 	// Model3D 是第三方 3D 生成服务（Meshy / Tripo / Hi3D）的接入开关。
 	// 服务商凭据只从环境变量读取（MESHY_API_KEY / TRIPO_API_KEY / HI3D_CLIENT_ID + HI3D_CLIENT_SECRET）。
 	Model3D GatewayModel3DConfig `mapstructure:"model3d"`
+	// Weather 是边缘天气服务开关；数据源全部为免密钥公开源，无需配置凭据。
+	Weather GatewayWeatherConfig `mapstructure:"weather"`
 	// AutoContinue 在助手提前停顿时用 System One 判断并继续已授权任务。
 	AutoContinue GatewayAutoContinueConfig `mapstructure:"auto_continue"`
 	// Degeneration 遏制上游"退化重复"流：模型卡在短周期复读直到输出上限。
@@ -1361,6 +1363,14 @@ type GatewayDegenerationConfig struct {
 	LineMinCount    int `mapstructure:"line_min_count"`
 	LineMaxDistinct int `mapstructure:"line_max_distinct"`
 	LineMaxRunes    int `mapstructure:"line_max_runes"`
+}
+
+// GatewayWeatherConfig 控制边缘天气服务；/api/v1/weather 的查询与发现端点共用该开关。
+type GatewayWeatherConfig struct {
+	// Enabled 控制天气端点是否开放。默认关闭，避免未确认上游可用时暴露空端点。
+	Enabled bool `mapstructure:"enabled"`
+	// TimeoutSeconds 是单次天气请求的等待上限（秒），0 表示默认 12 秒。
+	TimeoutSeconds int `mapstructure:"timeout_seconds"`
 }
 
 // GatewayMailConfig 指向边缘邮件服务（edge-mail）的内部地址。

@@ -220,6 +220,11 @@ gateway:
     enabled: false
     url: "http://edge-media:18083"
     timeout_seconds: 3600
+  # 边缘天气服务；数据源全部为免密钥公开源，无需配置凭据。
+  # 公网请求统一经网关鉴权；发现端点 /api/v1/weather/providers 公开只读。
+  weather:
+    enabled: false
+    timeout_seconds: 12
   # 本地 Laya 决策模型；仅在权重已预置且内部服务健康后启用。
   laya:
     enabled: false

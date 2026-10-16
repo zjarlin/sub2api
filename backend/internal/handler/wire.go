@@ -4,6 +4,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
 	"github.com/Wei-Shaw/sub2api/internal/platform/translate"
+	"github.com/Wei-Shaw/sub2api/internal/platform/weather"
 	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -204,6 +205,7 @@ func ProvideHandlers(
 	asyncImageHandler *AsyncImageHandler,
 	batchImageHandler *BatchImageHandler,
 	translateHandler *TranslateHandler,
+	weatherHandler *WeatherHandler,
 	model3DHandler *Model3DHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
@@ -233,6 +235,7 @@ func ProvideHandlers(
 		AsyncImage:       asyncImageHandler,
 		BatchImage:       batchImageHandler,
 		Translate:        translateHandler,
+		Weather:          weatherHandler,
 		Model3D:          model3DHandler,
 	}
 }
@@ -266,6 +269,8 @@ var ProviderSet = wire.NewSet(
 	ProvideModel3DHandler,
 	service.NewModel3DAccountPool,
 	ProvideTranslateAggregator,
+	NewWeatherHandler,
+	ProvideWeatherAggregator,
 
 	// Admin handlers
 	admin.NewDashboardHandler,
@@ -314,6 +319,11 @@ var ProviderSet = wire.NewSet(
 // ProvideTranslateAggregator 从环境变量构建翻译聚合器
 func ProvideTranslateAggregator() *translate.Aggregator {
 	return translate.NewAggregator(translate.ConfigFromEnvironment())
+}
+
+// ProvideWeatherAggregator 从环境变量构建天气聚合器，内置数据源全部为免密钥公开源。
+func ProvideWeatherAggregator() *weather.Aggregator {
+	return weather.NewAggregator(weather.ConfigFromEnvironment())
 }
 
 // ProvideModel3DHandler 将官方 3D 接口接入账号池与统一计费。

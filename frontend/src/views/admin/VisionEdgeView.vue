@@ -362,11 +362,12 @@ interface VisionStatus {
   translate_enabled?: boolean
   model3d_enabled?: boolean
   mail_enabled?: boolean
+  weather_enabled?: boolean
   translate_providers?: string[]
 }
 
-type Preset = 'model3d' | 'model3d-providers' | 'vision' | 'jev' | 'laya' | 'manbo' | 'video-dub' | 'video-generation' | 'translate' | 'translate-providers' | 'mail-providers' | 'mail-folders' | 'mail-messages' | 'mail-message' | 'mail-send'
-type EndpointCategory = 'vision' | 'media' | 'decision' | 'translate' | 'mail'
+type Preset = 'model3d' | 'model3d-providers' | 'vision' | 'jev' | 'laya' | 'manbo' | 'video-dub' | 'video-generation' | 'translate' | 'translate-providers' | 'mail-providers' | 'mail-folders' | 'mail-messages' | 'mail-message' | 'mail-send' | 'weather' | 'weather-providers'
+type EndpointCategory = 'vision' | 'media' | 'decision' | 'translate' | 'mail' | 'weather'
 
 interface EndpointDefinition {
   key: string
@@ -473,6 +474,8 @@ const endpoints = computed<EndpointDefinition[]>(() => [
   { key: 'mail-messages', path: '/v1/mail/messages', method: 'POST', description: t('admin.vision.endpointMailMessages'), category: 'mail', preset: 'mail-messages' },
   { key: 'mail-message', path: '/v1/mail/message', method: 'POST', description: t('admin.vision.endpointMailMessage'), category: 'mail', preset: 'mail-message' },
   { key: 'mail-send', path: '/v1/mail/send', method: 'POST', description: t('admin.vision.endpointMailSend'), category: 'mail', preset: 'mail-send' },
+  { key: 'weather', path: '/api/v1/weather', method: 'POST', description: t('admin.vision.endpointWeather'), category: 'weather', preset: 'weather' },
+  { key: 'weather-providers', path: '/api/v1/weather/providers', method: 'GET', description: t('admin.vision.endpointWeatherProviders'), category: 'weather', preset: 'weather-providers' },
 ])
 
 const endpointGroups = computed(() => {
@@ -482,6 +485,7 @@ const endpointGroups = computed(() => {
     { key: 'decision', title: t('admin.vision.categoryDecision'), description: t('admin.vision.categoryDecisionDescription') },
     { key: 'translate', title: t('admin.vision.categoryTranslate'), description: t('admin.vision.categoryTranslateDescription') },
     { key: 'mail', title: t('admin.vision.categoryMail'), description: t('admin.vision.categoryMailDescription') },
+    { key: 'weather', title: t('admin.vision.catalog.categoryUtility'), description: t('admin.vision.catalog.categoryUtilityDescription') },
   ]
   return categories.map(category => ({
     ...category,
@@ -529,6 +533,7 @@ function endpointEnabled(endpoint: EndpointDefinition): boolean {
   if (endpoint.category === 'vision') return status.value.enabled
   if (endpoint.category === 'media') return status.value.media_enabled
   if (endpoint.category === 'translate') return !!status.value.translate_enabled
+  if (endpoint.category === 'weather') return !!status.value.weather_enabled
   return status.value.laya_enabled
 }
 
@@ -681,6 +686,30 @@ function presetRequest(preset: Preset) {
     return {
       method: 'GET' as EdgeRequestMethod,
       url: buildGatewayUrl('/api/v1/translate/providers'),
+      headers: [] as EdgeKeyValue[],
+      query: [] as EdgeKeyValue[],
+      body: '',
+      bodyMode: 'none' as EdgeBodyMode,
+      model: '',
+    }
+  }
+  if (preset === 'weather') {
+    gatewayPath.value = '/api/v1/weather'
+    return {
+      method: 'POST' as EdgeRequestMethod,
+      url: buildGatewayUrl('/api/v1/weather'),
+      headers: [{ name: 'Content-Type', value: 'application/json' }],
+      query: [] as EdgeKeyValue[],
+      body: JSON.stringify({ location: '洛阳', days: 3, history: true, start: '2026-01-01', end: '2026-01-31' }, null, 2),
+      bodyMode: 'json' as EdgeBodyMode,
+      model: '',
+    }
+  }
+  if (preset === 'weather-providers') {
+    gatewayPath.value = '/api/v1/weather/providers'
+    return {
+      method: 'GET' as EdgeRequestMethod,
+      url: buildGatewayUrl('/api/v1/weather/providers'),
       headers: [] as EdgeKeyValue[],
       query: [] as EdgeKeyValue[],
       body: '',

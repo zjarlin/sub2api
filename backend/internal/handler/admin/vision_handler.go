@@ -46,6 +46,7 @@ func (h *VisionHandler) GetStatus(c *gin.Context) {
 			"laya_enabled":        false,
 			"media_enabled":       false,
 			"mail_enabled":        false,
+			"weather_enabled":     false,
 			"translate_enabled":   len(providers) > 0,
 			"translate_providers": providers,
 		})
@@ -57,6 +58,7 @@ func (h *VisionHandler) GetStatus(c *gin.Context) {
 		"laya_enabled":        h.cfg.Gateway.Laya.Enabled,
 		"media_enabled":       h.cfg.Gateway.Media.Enabled,
 		"mail_enabled":        h.cfg.Gateway.Mail.Enabled,
+		"weather_enabled":     h.cfg.Gateway.Weather.Enabled,
 		"model3d_enabled":     h.cfg.Gateway.Model3D.Enabled,
 		"translate_enabled":   len(providers) > 0,
 		"translate_providers": providers,
