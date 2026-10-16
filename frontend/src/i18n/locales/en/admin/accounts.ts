@@ -8,6 +8,10 @@ export default {
     keepSecret: 'Leave blank to keep the saved credential.', authorization: 'Meshy and Tripo use official API keys. Hi3D uses client credentials; access tokens are managed by the server.',
     billingHint: 'Bind a 3D group, enable image generation, and configure per-request model pricing. Accepted tasks incur one submission fee; queries and downloads are free.', clientIdRequired: 'Enter the Hi3D client ID.'
   },
+  v0: {
+    baseUrlHint: 'Only the official endpoint https://api.v0.dev/v2 is supported; leave blank to use it.',
+    apiKeyHint: 'Enter a v0 team API key (v1:<teamId>:vcp_...), not an OpenAI or Anthropic key.'
+  },
       arena: {
         modelsHint: 'Models are dedicated sessions for logged-in accounts. Log in again to create a new session or sync existing sessions; aliases do not verify the underlying model identity.',
         modelsEmpty: 'No sessions are available. Log in to Arena on the account edit page to create one automatically, then reload this list.',

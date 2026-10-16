@@ -4337,6 +4337,7 @@ const baseUrlHint = computed(() => {
   if (form.platform === 'madao') return t('admin.accounts.madao.baseUrlHint')
   if (form.platform === 'arena') return t('admin.accounts.arena.baseUrlHint')
   if (form.platform === 'systemone') return systemOneProvider.value === 'laya' ? t('admin.accounts.laya.baseUrlHint') : t('admin.accounts.jev.baseUrlHint')
+  if (form.platform === 'v0') return t('admin.accounts.v0.baseUrlHint')
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
   if (form.platform === 'grok') return ''
@@ -4355,6 +4356,7 @@ const apiKeyHint = computed(() => {
   if (form.platform === 'madao') return t('admin.accounts.madao.apiKeyHint')
   if (form.platform === 'arena') return t('admin.accounts.arena.apiKeyHint')
   if (form.platform === 'systemone') return systemOneProvider.value === 'laya' ? t('admin.accounts.laya.apiKeyHint') : t('admin.accounts.jev.apiKeyHint')
+  if (form.platform === 'v0') return t('admin.accounts.v0.apiKeyHint')
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
   if (form.platform === 'grok') return ''

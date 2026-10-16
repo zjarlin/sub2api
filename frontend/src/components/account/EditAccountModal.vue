@@ -285,11 +285,14 @@
                     ? 'sk-...'
                     : account.platform === 'grok'
                       ? 'xai-...'
-                      : 'sk-ant-...'
+                      : account.platform === 'v0'
+                        ? 'v1:team_...:vcp_...'
+                        : 'sk-ant-...'
             "
           />
           <p v-if="account.platform === 'cursor'" class="input-hint">{{ t('admin.accounts.cursor.apiKeyHint') }}</p>
           <p v-if="account.platform === 'windsurf'" class="input-hint">{{ t('admin.accounts.windsurf.apiKeyHint') }}</p>
+          <p v-if="account.platform === 'v0'" class="input-hint">{{ t('admin.accounts.v0.apiKeyHint') }}</p>
           <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
           <p v-if="account.platform === 'cursor' && cursorLinkedEmail" class="input-hint" data-testid="cursor-linked-email">
             {{ t('admin.accounts.cursor.linkedAccount', { email: cursorLinkedEmail }) }}
@@ -3304,6 +3307,7 @@ const baseUrlHint = computed(() => {
   if (props.account?.platform === 'cursor') return t('admin.accounts.cursor.baseUrlHint')
   if (props.account?.platform === 'teleagent') return t('admin.accounts.teleagent.baseUrlHint')
   if (props.account?.platform === 'windsurf') return t('admin.accounts.windsurf.baseUrlHint')
+  if (props.account?.platform === 'v0') return t('admin.accounts.v0.baseUrlHint')
   if (props.account?.platform === 'doubao') return t('admin.accounts.doubao.baseUrlHint')
   if (props.account?.platform === 'traework') return t('admin.accounts.traework.baseUrlHint')
   if (props.account?.platform === 'zcode') return t('admin.accounts.zcode.baseUrlHint')

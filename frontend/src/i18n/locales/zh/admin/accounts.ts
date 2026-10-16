@@ -8,6 +8,10 @@ export default {
     keepSecret: '留空保留已保存的凭据。', authorization: 'Meshy、Tripo 使用官方 API Key；Hi3D 使用客户端凭据，令牌由服务端自动管理。',
     billingHint: '绑定 3D 分组并开启图片生成权限；为模型配置按次定价。任务受理后收取一次提交费，查询和下载不收费。', clientIdRequired: '请输入 Hi3D 客户端 ID。'
   },
+  v0: {
+    baseUrlHint: '仅支持 v0 官方地址 https://api.v0.dev/v2，留空即使用官方端点。',
+    apiKeyHint: '填写 v0 团队的 API Key（形如 v1:<teamId>:vcp_...），不是 OpenAI 或 Anthropic 密钥。'
+  },
       arena: {
         modelsHint: '模型列表来自已登录账号的专属会话。可重新登录创建新会话，或同步已有会话列表；会话别名不代表已确认的底层模型身份。',
         modelsEmpty: '暂无可用会话。请在账号编辑页登录 Arena，系统会自动创建会话；完成后刷新模型列表。',
