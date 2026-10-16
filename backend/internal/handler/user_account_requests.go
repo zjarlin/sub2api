@@ -1,7 +1,6 @@
 package handler
 
 type userCreateAccountRequest struct {
-	Shared                  bool           `json:"shared"`
 	Name                    string         `json:"name" binding:"required"`
 	Notes                   *string        `json:"notes"`
 	Platform                string         `json:"platform" binding:"required"`
@@ -21,7 +20,6 @@ type userCreateAccountRequest struct {
 }
 
 type userUpdateAccountRequest struct {
-	Shared                  *bool          `json:"shared"`
 	Name                    string         `json:"name"`
 	Notes                   *string        `json:"notes"`
 	Type                    string         `json:"type" binding:"omitempty,oneof=oauth setup-token apikey upstream bedrock service_account"`

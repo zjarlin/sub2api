@@ -32,8 +32,8 @@ func NewUserAccountRebateRepository(client *dbent.Client, _ *sql.DB) service.Use
 var _ service.UserAccountRebateRepository = (*userAccountRebateRepository)(nil)
 
 // ListCandidateAccounts 返回参与返额结算的自带账号（号主非空、未删除）。
-// requireShared 为 true 时只统计开启了公共调度共享的账号。
-func (r *userAccountRebateRepository) ListCandidateAccounts(ctx context.Context, requireShared bool, limit int) ([]service.AccountRebateCandidate, error) {
+// 所有自带账号均参与共享，兼容保留接口中的共享筛选参数。
+func (r *userAccountRebateRepository) ListCandidateAccounts(ctx context.Context, _ bool, limit int) ([]service.AccountRebateCandidate, error) {
 	if limit <= 0 {
 		limit = 200
 	}
@@ -42,9 +42,8 @@ SELECT a.id, a.owner_user_id
 FROM accounts a
 WHERE a.deleted_at IS NULL
   AND a.owner_user_id IS NOT NULL
-  AND ($1 = false OR COALESCE(a.extra->>'shared_for_public_scheduling', '') = 'true')
 ORDER BY a.id
-LIMIT $2`, requireShared, limit)
+LIMIT $1`, limit)
 	if err != nil {
 		return nil, fmt.Errorf("list account rebate candidates: %w", err)
 	}

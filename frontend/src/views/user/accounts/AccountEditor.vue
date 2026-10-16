@@ -109,10 +109,6 @@
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <label v-if="account" class="input-label">{{ t('myAccounts.status') }}</label>
         <Select v-if="account" v-model="form.status" :options="statuses" />
-        <label class="mt-3 flex items-center gap-2 text-sm">
-          <input v-model="form.shared" type="checkbox" class="accent-primary-600" data-testid="owned-account-shared" />
-          <span>{{ t('myAccounts.sharePublicly') }}</span>
-        </label>
 
         <div
           v-if="requiresMixedSchedulingOptIn(form.platform)"
@@ -248,7 +244,6 @@ const form = reactive({
   baseUrl: String(credentials.base_url || ''),
   apiKey: '',
   groupIds: props.account?.group_ids || [],
-  shared: props.account?.shared ?? false,
   concurrency: props.account?.concurrency ?? 3,
   loadFactor: props.account?.load_factor ?? null as number | null,
   priority: props.account?.priority ?? 50,
@@ -361,7 +356,6 @@ async function save() {
       concurrency: form.concurrency, load_factor: loadFactor, priority: form.priority,
       rate_multiplier: form.rateMultiplier, group_ids: form.groupIds,
       expires_at: form.expiresAt ?? 0, auto_pause_on_expired: form.autoPauseOnExpired,
-      shared: form.shared,
     }
     if (props.account) {
       await userAccountsAPI.update(props.account.id, { ...payload, status: form.status })

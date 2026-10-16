@@ -126,19 +126,6 @@
             <AccountGroupsCell :groups="row.groups" />
           </template>
 
-          <template #cell-shared="{ row }">
-            <label class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input
-                type="checkbox"
-                class="accent-primary-600"
-                :checked="row.shared === true"
-                :disabled="sharingId === row.id"
-                :aria-label="t('myAccounts.sharePublicly')"
-                @change="toggleSharing(row)"
-              />
-              {{ row.shared ? t('myAccounts.shared') : t('myAccounts.private') }}
-            </label>
-          </template>
 
           <template #cell-capacity="{ row }">
             <AccountCapacityCell :account="row" />
@@ -255,7 +242,6 @@ const accounts = ref<Account[]>([])
 const loading = ref(false)
 const showAccountDialog = ref(false)
 const testingId = ref<number | null>(null)
-const sharingId = ref<number | null>(null)
 const editingAccount = ref<Account | null>(null)
 const groups = ref<Group[]>([])
 const rebate = reactive({ total_rebated: 0, total_consumed_basis: 0, settle_count: 0, owned_account_count: 0 })
@@ -266,7 +252,6 @@ const columns = computed<Column[]>(() => [
   { key: 'platform_type', label: t('myAccounts.platform'), class: 'min-w-[180px]' },
   { key: 'status', label: t('myAccounts.status'), class: 'min-w-[160px]' },
   { key: 'groups', label: t('keys.group'), class: 'min-w-[180px]' },
-  { key: 'shared', label: t('myAccounts.sharing'), class: 'min-w-[120px]' },
   { key: 'capacity', label: t('admin.accounts.columns.capacity'), class: 'min-w-[140px]' },
   { key: 'priority', label: t('myAccounts.priority'), sortable: true },
   { key: 'last_used_at', label: t('admin.accounts.columns.lastUsed'), sortable: true },
@@ -377,21 +362,6 @@ async function testAccount(account: Account) {
     appStore.showError(extractApiErrorMessage(err, t('myAccounts.testFailed')))
   } finally {
     testingId.value = null
-  }
-}
-
-async function toggleSharing(account: Account) {
-  const previous = account.shared === true
-  account.shared = !previous
-  sharingId.value = account.id
-  try {
-    const updated = await userAccountsAPI.update(account.id, { shared: account.shared })
-    account.shared = updated.shared
-  } catch (err: unknown) {
-    account.shared = previous
-    appStore.showError(extractApiErrorMessage(err, t('myAccounts.saveFailed')))
-  } finally {
-    sharingId.value = null
   }
 }
 

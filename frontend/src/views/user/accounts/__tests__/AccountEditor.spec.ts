@@ -66,17 +66,17 @@ describe('我的账号编辑', () => {
     await flushPromises()
     expect(update).toHaveBeenCalledWith(12, expect.objectContaining({
       priority: 0, load_factor: 0, rate_multiplier: 0.25, expires_at: 0, auto_pause_on_expired: true,
-      credentials: account.credentials, extra: { custom: true }, group_ids: [4], shared: false
+      credentials: account.credentials, extra: { custom: true }, group_ids: [4]
     }))
     expect(update.mock.calls[0][1].credentials).not.toHaveProperty('api_key')
     expect(wrapper.emitted('saved')).toHaveLength(1)
   })
-  it('仅在勾选共享后提交公共调度状态', async () => {
+  it('不再提供共享开关或提交共享选项', async () => {
     const wrapper = editor(account)
-    await wrapper.get('[data-testid="owned-account-shared"]').setValue(true)
+    expect(wrapper.find('[data-testid="owned-account-shared"]').exists()).toBe(false)
     await wrapper.find('form').trigger('submit')
     await flushPromises()
-    expect(update).toHaveBeenCalledWith(12, expect.objectContaining({ shared: true }))
+    expect(update.mock.lastCall?.[1]).not.toHaveProperty('shared')
   })
   it('非法 JSON 阻止保存并展示错误', async () => {
     const wrapper = editor(account)

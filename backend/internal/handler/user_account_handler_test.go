@@ -102,7 +102,7 @@ func TestUserAccountCreateIgnoresForgedOwner(t *testing.T) {
 	require.NotNil(t, admin.created.RateMultiplier)
 	require.Equal(t, 0.25, *admin.created.RateMultiplier)
 	require.NotContains(t, result.Body.String(), "secret-key")
-	require.Equal(t, false, admin.created.Extra[service.AccountPublicSharingExtraKey])
+	require.Equal(t, true, admin.created.Extra[service.AccountPublicSharingExtraKey])
 }
 
 func TestUserAccountUpdateForwardsSchedulingFields(t *testing.T) {
@@ -143,7 +143,7 @@ func TestUserAccountUpdateForwardsGroupAndBillingFields(t *testing.T) {
 	require.True(t, admin.updated.SkipMixedChannelCheck)
 }
 
-func TestUserAccountSharingRequiresExplicitOwnerChoice(t *testing.T) {
+func TestUserAccountAlwaysSharedWithOwnershipEnforced(t *testing.T) {
 	owner := int64(11)
 	repo := &ownedAccountRepoStub{account: &service.Account{
 		ID: 3, OwnerUserID: &owner,
@@ -154,9 +154,9 @@ func TestUserAccountSharingRequiresExplicitOwnerChoice(t *testing.T) {
 
 	result := ownedAccountRequest(h, "update", owner, `{"shared":false}`)
 	require.Equal(t, http.StatusOK, result.Code)
-	require.Equal(t, false, admin.updated.Extra[service.AccountPublicSharingExtraKey])
+	require.Equal(t, true, admin.updated.Extra[service.AccountPublicSharingExtraKey])
 	require.Equal(t, "kept", admin.updated.Extra["existing"])
-	require.Contains(t, result.Body.String(), `"shared":false`)
+	require.Contains(t, result.Body.String(), `"shared":true`)
 
 	result = ownedAccountRequest(h, "update", owner, `{"extra":{"shared_for_public_scheduling":false}}`)
 	require.Equal(t, http.StatusOK, result.Code)

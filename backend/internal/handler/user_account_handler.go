@@ -114,7 +114,7 @@ func (h *UserAccountHandler) Create(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	extra := ownedAccountExtra(req.Extra, req.Shared)
+	extra := ownedAccountExtra(req.Extra)
 	skipCheck := req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk
 	account, err := h.adminService.CreateAccount(c.Request.Context(), &service.CreateAccountInput{
 		Name:                  req.Name,
@@ -166,17 +166,9 @@ func (h *UserAccountHandler) Update(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-	var extra map[string]any
-	if req.Extra != nil || req.Shared != nil {
-		shared := account.IsPubliclyShared()
-		if req.Shared != nil {
-			shared = *req.Shared
-		}
-		if req.Extra != nil {
-			extra = ownedAccountExtra(req.Extra, shared)
-		} else {
-			extra = ownedAccountExtra(account.Extra, shared)
-		}
+	extra := ownedAccountExtra(account.Extra)
+	if req.Extra != nil {
+		extra = ownedAccountExtra(req.Extra)
 	}
 	skipCheck := req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk
 	updated, err := h.adminService.UpdateAccount(c.Request.Context(), accountID, &service.UpdateAccountInput{
@@ -205,12 +197,12 @@ func (h *UserAccountHandler) Update(c *gin.Context) {
 	response.Success(c, dto.AccountFromService(updated))
 }
 
-func ownedAccountExtra(source map[string]any, shared bool) map[string]any {
+func ownedAccountExtra(source map[string]any) map[string]any {
 	extra := make(map[string]any, len(source)+1)
 	for key, value := range source {
 		extra[key] = value
 	}
-	extra[service.AccountPublicSharingExtraKey] = shared
+	extra[service.AccountPublicSharingExtraKey] = true
 	return extra
 }
 

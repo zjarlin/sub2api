@@ -196,7 +196,7 @@ func TestListCandidateAccountsSQL(t *testing.T) {
 	repo := &userAccountRebateRepository{client: client}
 
 	mock.ExpectQuery("candidates").
-		WithArgs(true, 50).
+		WithArgs(50).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "owner_user_id"}).AddRow(int64(9), int64(5)))
 
 	candidates, err := repo.ListCandidateAccounts(context.Background(), true, 50)
@@ -209,7 +209,7 @@ func TestListCandidateAccountsSQL(t *testing.T) {
 	normalized := normalizeSQLWhitespace(capturedSQL)
 	require.Contains(t, normalized, "a.deleted_at IS NULL")
 	require.Contains(t, normalized, "a.owner_user_id IS NOT NULL")
-	require.Contains(t, normalized, "shared_for_public_scheduling")
+	require.NotContains(t, normalized, "shared_for_public_scheduling")
 }
 
 type captureEntQueryMatcherList struct {

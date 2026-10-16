@@ -14,7 +14,7 @@ import (
 	entsql "entgo.io/ent/dialect/sql"
 )
 
-func TestPublicSchedulingPredicateAppliesToAllAndGroupedCandidates(t *testing.T) {
+func TestPublicSchedulingIncludesOwnedAccountsWithoutSharingFilter(t *testing.T) {
 	var capturedSQL string
 	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(captureEntQueryMatcher{actual: &capturedSQL}))
 	require.NoError(t, err)
@@ -26,14 +26,14 @@ func TestPublicSchedulingPredicateAppliesToAllAndGroupedCandidates(t *testing.T)
 	mock.ExpectQuery("schedulable loads").WillReturnRows(sqlmock.NewRows([]string{"id", "concurrency", "load_factor"}))
 	_, err = repo.ListSchedulableAccountLoads(context.Background())
 	require.NoError(t, err)
-	require.Contains(t, capturedSQL, "owner_user_id")
-	require.Contains(t, capturedSQL, "shared_for_public_scheduling")
+	require.NotContains(t, capturedSQL, "owner_user_id")
+	require.NotContains(t, capturedSQL, "shared_for_public_scheduling")
 
 	mock.ExpectQuery("group accounts").WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	_, err = repo.ListSchedulableByGroupID(context.Background(), 7)
 	require.NoError(t, err)
-	require.Contains(t, capturedSQL, "owner_user_id")
-	require.Contains(t, capturedSQL, "shared_for_public_scheduling")
+	require.NotContains(t, capturedSQL, "owner_user_id")
+	require.NotContains(t, capturedSQL, "shared_for_public_scheduling")
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
@@ -48,7 +48,7 @@ func TestSchedulerMetadataRetainsPublicSharingBoundary(t *testing.T) {
 	}
 	metadata := buildSchedulerMetadataAccount(account)
 	require.Equal(t, &owner, metadata.OwnerUserID)
-	require.False(t, metadata.IsPubliclyShared())
+	require.True(t, metadata.IsPubliclyShared())
 	require.Equal(t, false, metadata.Extra[service.AccountPublicSharingExtraKey])
 	require.NotContains(t, metadata.Extra, "unrelated")
 

@@ -96,14 +96,7 @@ type Account struct {
 const AccountPublicSharingExtraKey = "shared_for_public_scheduling"
 
 func (a *Account) IsPubliclyShared() bool {
-	if a == nil {
-		return false
-	}
-	if a.OwnerUserID == nil {
-		return true
-	}
-	shared, ok := a.Extra[AccountPublicSharingExtraKey].(bool)
-	return ok && shared
+	return a != nil
 }
 
 type OpenAIEndpointCapability string

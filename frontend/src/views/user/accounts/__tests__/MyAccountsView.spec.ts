@@ -6,7 +6,9 @@ import type { Account } from '@/types'
 const { list, update, getAvailable, showError } = vi.hoisted(() => ({
   list: vi.fn(), update: vi.fn(), getAvailable: vi.fn(), showError: vi.fn()
 }))
-vi.mock('@/api/user/accounts', () => ({ default: { list, update } }))
+vi.mock('@/api/user/accounts', () => ({ default: {
+  list, update, getAccountRebateSummary: vi.fn().mockResolvedValue({})
+} }))
 vi.mock('@/api/groups', () => ({ userGroupsAPI: { getAvailable } }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showError, showSuccess: vi.fn() }) }))
 vi.mock('vue-i18n', async original => ({
@@ -21,7 +23,8 @@ function mountView() {
     AppLayout: { template: '<div><slot /></div>' },
     TablePageLayout: { template: '<div><slot name="actions"/><slot name="filters"/><slot name="table"/><slot name="pagination"/></div>' },
     DataTable: {
-      props: ['data'],
+      name: 'DataTable',
+      props: ['data', 'columns'],
       template: '<div><div v-for="row in data" :key="row.id"><slot name="cell-shared" :row="row" /></div></div>'
     },
     SearchInput: true, Select: true, AccountTableActions: true, Pagination: true,
@@ -35,26 +38,15 @@ beforeEach(() => {
   getAvailable.mockResolvedValue([])
 })
 
-describe('我的账号共享开关', () => {
-  it('提交当前账号的共享状态', async () => {
-    update.mockResolvedValue({ ...account, shared: true })
+describe('我的账号默认共享', () => {
+  it('移除共享列和开关', async () => {
     const wrapper = mountView()
     await flushPromises()
-    await wrapper.get('input[type="checkbox"]').setValue(true)
-    await flushPromises()
-    expect(update).toHaveBeenCalledWith(12, { shared: true })
-    expect(wrapper.get('input[type="checkbox"]').element.checked).toBe(true)
-    wrapper.unmount()
-  })
-
-  it('提交失败后恢复原状态', async () => {
-    update.mockRejectedValue(new Error('offline'))
-    const wrapper = mountView()
-    await flushPromises()
-    await wrapper.get('input[type="checkbox"]').setValue(true)
-    await flushPromises()
-    expect(wrapper.get('input[type="checkbox"]').element.checked).toBe(false)
-    expect(showError).toHaveBeenCalled()
+    expect(wrapper.find('input[type="checkbox"]').exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'DataTable' }).props('columns')).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ key: 'shared' })])
+    )
+    expect(update).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })
