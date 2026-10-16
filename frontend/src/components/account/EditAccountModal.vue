@@ -293,7 +293,7 @@
           <p v-if="account.platform === 'cursor'" class="input-hint">{{ t('admin.accounts.cursor.apiKeyHint') }}</p>
           <p v-if="account.platform === 'windsurf'" class="input-hint">{{ t('admin.accounts.windsurf.apiKeyHint') }}</p>
           <p v-if="account.platform === 'v0'" class="input-hint">{{ t('admin.accounts.v0.apiKeyHint') }}</p>
-          <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
+          <p v-if="account.type === 'apikey'" class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
           <p v-if="account.platform === 'cursor' && cursorLinkedEmail" class="input-hint" data-testid="cursor-linked-email">
             {{ t('admin.accounts.cursor.linkedAccount', { email: cursorLinkedEmail }) }}
           </p>
@@ -3250,6 +3250,11 @@ interface Props {
 
 const props = defineProps<Props>()
 const adapterScope = computed<BuiltinAdapterScope>(() => props.adapterScope ?? 'admin')
+// 只有以密钥认证的账号才强制要求 API Key。OAuth / setup-token / bedrock /
+// service_account 账号的凭据不在 api_key 字段里，编辑时留空必须允许提交。
+const requiresApiKeyCredential = computed(() =>
+  props.account?.type === 'apikey' && props.account?.platform !== 'kilo'
+)
 const isBuiltinAdapterAccount = computed(() => ['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'madao', 'arena'].includes(props.account?.platform ?? ''))
 const cursorLinkedEmail = computed(() => {
   const credentials = props.account?.credentials as Record<string, unknown> | undefined
@@ -5293,7 +5298,7 @@ const handleSubmit = async () => {
         (props.account.platform === 'model3d' && model3dProvider.value === 'hi3d' ? props.account.credentials_status?.has_client_secret : props.account.credentials_status?.has_api_key) ?? Boolean(currentCredentials.api_key)
       if (editApiKey.value.trim()) {
         newCredentials[props.account.platform === 'model3d' && model3dProvider.value === 'hi3d' ? 'client_secret' : 'api_key'] = editApiKey.value.trim()
-      } else if (!hasExistingApiKey && props.account.platform !== 'kilo') {
+      } else if (requiresApiKeyCredential.value && !hasExistingApiKey) {
         appStore.showError(t('admin.accounts.apiKeyIsRequired'))
         return
       }
