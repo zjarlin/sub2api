@@ -583,7 +583,7 @@ export default {
         title: '签到记录',
         panelTitle: '积分与签到',
         remaining: '剩余积分',
-        totalCredits: '剩余合计',
+        totalCredits: '账号池剩余合计',
         accountCount: '{n} 个账号',
         refresh: '刷新',
         loading: '加载中...',

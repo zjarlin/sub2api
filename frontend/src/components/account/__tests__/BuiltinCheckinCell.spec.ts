@@ -44,6 +44,15 @@ describe('BuiltinCheckinCell', () => {
     expect(wrapper.text()).toContain('2,250')
   })
 
+  it('shows individual decimal balances alongside the pool total', async () => {
+    getBuiltinAdapterCheckins.mockResolvedValue({ ...overview, total_credits: 879.75,
+      accounts: [{ uid: 'u1', nickname: '🤔', credits: 79.75 }, { uid: 'u2', nickname: 'n2', credits: 800 }] })
+    const wrapper = mount(BuiltinCheckinCell, { props: { account } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('879.75')
+    expect(wrapper.text()).toContain('🤔: 79.75')
+  })
+
   it('does not fetch for unrelated platforms', async () => {
     const wrapper = mount(BuiltinCheckinCell, {
       props: { account: { id: 9, platform: 'openai' } as Account }

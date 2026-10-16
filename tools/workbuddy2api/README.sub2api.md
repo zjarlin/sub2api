@@ -5,6 +5,12 @@
 
 Sub2API 把它作为 `workbuddy` 平台的内部服务一起部署，无需另找中转服务或在账号表单填写 Base URL / API Key。适配器是独立进程，和主服务使用同一套 Compose 编排，不是编进主服务二进制。
 
+## 积分显示
+
+Sub2API 路由账号共用 WorkBuddy 上游账号池，列表中的「账号池剩余合计」是池内全部上游账号的余额总和；下方逐行显示昵称与余额，签到弹窗也可查看单个账号。
+
+账号页面通过鉴权的 `GET /status?refresh_credits=true` 查询官方套餐余额，优先使用 `CycleCapacityRemainPrecise` / `CapacityRemainPrecise`，保留两位小数。普通 `/status` 继续返回调度池的整数估算值。查询失败会显示错误，不使用估算值冒充官方余额；签到历史中的余额仍是签到时的历史快照。
+
 ## 部署
 
 启用 `deploy/docker-compose.builtin-adapters.yml`，并为 `TRAEWORK_ADAPTER_KEY`、`WORKBUDDY_ADAPTER_KEY` 设置不同的随机共享密钥。豆包仍需按桌面适配器文档准备其已有登录会话。TRAE / WorkBuddy 凭证与状态默认保存在 Docker 命名卷中，首次启动可以为空，不需要先运行登录脚本。

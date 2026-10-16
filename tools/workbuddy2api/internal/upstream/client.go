@@ -1405,9 +1405,14 @@ func (c *Client) fetchV3Models(a *auth.Auth) ([]ModelInfo, error) {
 // billingMeterJSON 按 realm 候选路径发 billing/meter 域请求，ErrNotFound 时换下一候选路径
 // （global：/billing/meter/* → /v2/billing/meter/*；cn：单路径 /v2/billing/meter/* 现状）。
 func (c *Client) billingMeterJSON(a *auth.Auth, paths []string, method string, body any) (json.RawMessage, error) {
+	return c.billingMeterJSONContext(context.Background(), a, paths, method, body)
+}
+
+// billingMeterJSONContext 保留域与路径回退规则，同时传递查询超时。
+func (c *Client) billingMeterJSONContext(ctx context.Context, a *auth.Auth, paths []string, method string, body any) (json.RawMessage, error) {
 	var lastErr error
 	for i, p := range paths {
-		data, err := c.billingJSON(a, method, p, body)
+		data, err := c.billingJSONContext(ctx, a, method, p, body)
 		if err != nil {
 			lastErr = err
 			var ue *Error
@@ -1494,14 +1499,16 @@ type userResourceResp struct {
 		Data struct {
 			TotalDosage int64 `json:"TotalDosage"`
 			Accounts    []struct {
-				PackageName         string `json:"PackageName"`
-				CycleEndTime        string `json:"CycleEndTime"` // "2006-01-02 15:04:05"，缺省/空 = 无到期
-				CapacitySize        int64  `json:"CapacitySize"`
-				CapacityRemain      int64  `json:"CapacityRemain"`
-				CapacityUsed        int64  `json:"CapacityUsed"`
-				CycleCapacitySize   int64  `json:"CycleCapacitySize"`
-				CycleCapacityRemain int64  `json:"CycleCapacityRemain"`
-				CycleCapacityUsed   int64  `json:"CycleCapacityUsed"`
+				CapacityRemainPrecise      *float64 `json:"CapacityRemainPrecise,string"`
+				CycleCapacityRemainPrecise *float64 `json:"CycleCapacityRemainPrecise,string"`
+				PackageName                string   `json:"PackageName"`
+				CycleEndTime               string   `json:"CycleEndTime"` // "2006-01-02 15:04:05"，缺省/空 = 无到期
+				CapacitySize               int64    `json:"CapacitySize"`
+				CapacityRemain             int64    `json:"CapacityRemain"`
+				CapacityUsed               int64    `json:"CapacityUsed"`
+				CycleCapacitySize          int64    `json:"CycleCapacitySize"`
+				CycleCapacityRemain        int64    `json:"CycleCapacityRemain"`
+				CycleCapacityUsed          int64    `json:"CycleCapacityUsed"`
 			} `json:"Accounts"`
 		} `json:"Data"`
 	} `json:"Response"`
@@ -1512,6 +1519,11 @@ type userResourceResp struct {
 // workbuddy.ai /billing/meter/*（404 fallback /v2），CN 账号维持
 // /v2/billing/meter/get-user-resource（现状逐字，零回归）。
 func (c *Client) getUserResourceBody(a *auth.Auth) (*userResourceResp, error) {
+	return c.getUserResourceBodyContext(context.Background(), a)
+}
+
+// getUserResourceBodyContext 共享套餐查询，展示与调度使用同一请求规则。
+func (c *Client) getUserResourceBodyContext(ctx context.Context, a *auth.Auth) (*userResourceResp, error) {
 	now := time.Now()
 	body := map[string]any{
 		"PageNumber":               1,
@@ -1521,7 +1533,7 @@ func (c *Client) getUserResourceBody(a *auth.Auth) (*userResourceResp, error) {
 		"PackageEndTimeRangeBegin": now.Format(packageEndLayout),
 		"PackageEndTimeRangeEnd":   now.Add(365 * 101 * 24 * time.Hour).Format(packageEndLayout),
 	}
-	data, err := c.billingMeterJSON(a, c.billingMeterPaths(a), http.MethodPost, body)
+	data, err := c.billingMeterJSONContext(ctx, a, c.billingMeterPaths(a), http.MethodPost, body)
 	if err != nil {
 		return nil, err
 	}

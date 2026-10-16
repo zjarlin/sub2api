@@ -380,7 +380,7 @@ export default {
         title: 'Check-in Records',
         panelTitle: 'Points & Check-in',
         remaining: 'Remaining points',
-        totalCredits: 'Total remaining',
+        totalCredits: 'Account pool remaining',
         accountCount: '{n} accounts',
         refresh: 'Refresh',
         loading: 'Loading...',

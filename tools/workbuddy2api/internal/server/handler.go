@@ -180,6 +180,33 @@ func (h *Handler) healthz(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
+	// 页面主动查询官方精确余额；常规状态轮询仍只读取调度池快照。
+	snapshot := h.cfg.Pool.List()
+	var accounts any = snapshot
+	if r.URL.Query().Get("refresh_credits") == "true" {
+		ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
+		defer cancel()
+		type balanceStatus struct {
+			pool.Status
+			Credits float64 `json:"credits"`
+		}
+		refreshed := make([]balanceStatus, 0, len(snapshot))
+		for _, status := range snapshot {
+			a := h.cfg.Pool.AuthByUID(status.UID)
+			if a == nil || h.cfg.Upstream == nil {
+				writeOpenAIError(w, http.StatusBadGateway, "balance_unavailable", "unable to query upstream balance")
+				return
+			}
+			balance, err := h.cfg.Upstream.UserResourceBalance(ctx, a)
+			if err != nil {
+				writeOpenAIError(w, http.StatusBadGateway, "balance_unavailable", "unable to query upstream balance")
+				return
+			}
+			refreshed = append(refreshed, balanceStatus{status, balance})
+		}
+		accounts = refreshed
+	}
+
 	total, healthy, cooling, disabled, inFlightFull := h.cfg.Pool.CountsDetailed()
 	sticky := 0
 	if h.cfg.StickyCount != nil {
@@ -196,7 +223,7 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 	// realm_totals 按域分组的计数汇总（双 realm 并存时运维一眼看到各域可用性）：
 	// 只新增字段，既有 total/healthy/cooling/disabled/in_flight_full 汇总键不变（零回归）。
 	writeJSON(w, http.StatusOK, map[string]any{
-		"accounts":       h.cfg.Pool.List(),
+		"accounts":       accounts,
 		"total":          total,
 		"healthy":        healthy,
 		"cooling":        cooling,

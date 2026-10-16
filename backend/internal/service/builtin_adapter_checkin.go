@@ -28,7 +28,7 @@ type BuiltinAdapterCheckinRecord struct {
 type BuiltinAdapterCheckinAccount struct {
 	UID      string                        `json:"uid"`
 	Nickname string                        `json:"nickname,omitempty"`
-	Credits  int64                         `json:"credits"`
+	Credits  float64                       `json:"credits"`
 	Checkin  *BuiltinAdapterCheckinRecord  `json:"checkin,omitempty"`
 	Checkins []BuiltinAdapterCheckinRecord `json:"checkins"`
 }
@@ -37,7 +37,7 @@ type BuiltinAdapterCheckinAccount struct {
 type BuiltinAdapterCheckinOverview struct {
 	Platform     string                         `json:"platform"`
 	FetchedAt    int64                          `json:"fetched_at"`
-	TotalCredits int64                          `json:"total_credits"`
+	TotalCredits float64                        `json:"total_credits"`
 	Accounts     []BuiltinAdapterCheckinAccount `json:"accounts"`
 }
 
@@ -45,7 +45,7 @@ type builtinAdapterStatusResponse struct {
 	Accounts []struct {
 		UID      string                       `json:"uid"`
 		Nickname string                       `json:"nickname"`
-		Credits  int64                        `json:"credits"`
+		Credits  float64                      `json:"credits"`
 		Checkin  *BuiltinAdapterCheckinRecord `json:"checkin"`
 	} `json:"accounts"`
 }
@@ -66,8 +66,12 @@ func BuiltinAdapterCheckinOverviewForPlatform(ctx context.Context, platform stri
 	}
 	base = strings.TrimSuffix(strings.TrimRight(base, "/"), "/v1")
 
+	statusURL := base + "/status"
+	if platform == PlatformWorkbuddy {
+		statusURL += "?refresh_credits=true"
+	}
 	var status builtinAdapterStatusResponse
-	if err := fetchBuiltinAdapterJSON(ctx, base+"/status", key, &status); err != nil {
+	if err := fetchBuiltinAdapterJSON(ctx, statusURL, key, &status); err != nil {
 		return nil, err
 	}
 	var history builtinAdapterCheckinsResponse

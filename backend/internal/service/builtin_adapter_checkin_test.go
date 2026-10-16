@@ -22,11 +22,12 @@ func TestBuiltinAdapterCheckinOverviewMergesStatusAndHistory(t *testing.T) {
 		require.Equal(t, "Bearer builtin-workbuddy-key", r.Header.Get("Authorization"))
 		switch r.URL.Path {
 		case "/status":
+			require.Equal(t, "true", r.URL.Query().Get("refresh_credits"))
 			gotStatusAuth = true
 			require.Empty(t, r.Header.Get("X-Login-Owner"))
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"accounts": []map[string]any{
-					{"uid": "u1", "nickname": "n1", "credits": 1450, "checkin": map[string]any{"at": "2026-10-04T09:00:00Z", "status": "ok", "credits": 1450, "delta": 100}},
+					{"uid": "u1", "nickname": "n1", "credits": 79.75, "checkin": map[string]any{"at": "2026-10-04T09:00:00Z", "status": "ok", "credits": 1450, "delta": 100}},
 					{"uid": "u2", "nickname": "n2", "credits": 800},
 				},
 				"total": 2,
@@ -55,10 +56,10 @@ func TestBuiltinAdapterCheckinOverviewMergesStatusAndHistory(t *testing.T) {
 	require.True(t, gotStatusAuth)
 	require.True(t, gotCheckinsAuth)
 	require.Equal(t, PlatformWorkbuddy, overview.Platform)
-	require.Equal(t, int64(2250), overview.TotalCredits)
+	require.Equal(t, 879.75, overview.TotalCredits)
 	require.Len(t, overview.Accounts, 2)
 	require.Equal(t, "u1", overview.Accounts[0].UID)
-	require.Equal(t, int64(1450), overview.Accounts[0].Credits)
+	require.Equal(t, 79.75, overview.Accounts[0].Credits)
 	require.NotNil(t, overview.Accounts[0].Checkin)
 	require.Equal(t, int64(100), overview.Accounts[0].Checkin.Delta)
 	require.Len(t, overview.Accounts[0].Checkins, 2)

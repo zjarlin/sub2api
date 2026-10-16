@@ -9,10 +9,10 @@
               {{ t('admin.accounts.builtinCheckin.totalCredits') }}
             </div>
             <div class="text-2xl font-bold text-gray-900 dark:text-white">
-              {{ formatCredits(totalCredits) }}
+              {{ loading || error ? '—' : formatCredits(totalCredits) }}
             </div>
           </div>
-          <div class="text-xs text-gray-500 dark:text-gray-400">
+          <div v-if="!loading && !error" class="text-xs text-gray-500 dark:text-gray-400">
             {{ t('admin.accounts.builtinCheckin.accountCount', { n: overview?.accounts?.length || 0 }) }}
           </div>
         </div>
@@ -224,6 +224,7 @@ const load = async () => {
       selectedUid.value = ''
     }
   } catch (e) {
+    overview.value = null
     error.value = extractErrorMessage(e)
   } finally {
     loading.value = false

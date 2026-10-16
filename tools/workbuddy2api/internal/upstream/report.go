@@ -9,6 +9,7 @@ package upstream
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -24,6 +25,11 @@ const reportPath = "/v2/report"
 // 与 travel.go 的 growthJSON 对称（growth 域走 chatBase + BillingHeaders；billing 域走 billingBase）。
 // report/checkin 等 billing 端点共用：请求头统一 BillingHeaders，信封与错误语义同 doJSON。
 func (c *Client) billingJSON(a *auth.Auth, method, path string, body any) (json.RawMessage, error) {
+	return c.billingJSONContext(context.Background(), a, method, path, body)
+}
+
+// billingJSONContext 让页面余额查询随请求取消，避免客户端离开后继续访问上游。
+func (c *Client) billingJSONContext(ctx context.Context, a *auth.Auth, method, path string, body any) (json.RawMessage, error) {
 	var rdr io.Reader
 	if body != nil {
 		raw, err := json.Marshal(body)
@@ -32,7 +38,7 @@ func (c *Client) billingJSON(a *auth.Auth, method, path string, body any) (json.
 		}
 		rdr = bytes.NewReader(raw)
 	}
-	req, err := http.NewRequest(method, c.billingBase(a)+path, rdr)
+	req, err := http.NewRequestWithContext(ctx, method, c.billingBase(a)+path, rdr)
 	if err != nil {
 		return nil, err
 	}
