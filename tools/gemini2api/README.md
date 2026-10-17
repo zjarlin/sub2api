@@ -25,7 +25,8 @@ python3 server.py
 模型示例不代表账号拥有权限。`G2A_LISTEN` 可调整监听地址。
 生产部署走仓库内置适配器约定：在 `/opt/sub2api/.env` 设置 `SUB2API_GEMINI=1`、
 `GEMINI_API_KEY` 和 `GEMINI_MODELS` 后，通过 TeamCity `sub2api / Deploy 252 Cluster`
-或 `deploy/cluster/deploy-252.sh` 叠加 `deploy/docker-compose.gemini.yml`。
+或 `deploy/cluster/deploy-252.sh` 启用统一的 `deploy/docker-compose.adapters.yml` 里
+`gemini` profile。
 部署脚本会自动生成 `GEMINI_ADAPTER_KEY`，适配器容器名为 `sub2api-gemini`，
 主服务通过 `http://sub2api-gemini:7877` 访问，不发布宿主端口。
 默认上游代理为 `http://sub2api-openai-egress:7890`，可用 `G2A_UPSTREAM_PROXY` 覆盖。
@@ -93,14 +94,15 @@ GEMINI_MODELS=gemini-2.5-flash
 ```
 
 然后通过 TeamCity `sub2api / Deploy 252 Cluster`，或在已授权生产部署时执行
-`deploy/cluster/deploy-252.sh`。脚本会叠加 `deploy/docker-compose.gemini.yml`、生成
+`deploy/cluster/deploy-252.sh`。脚本会按 `SUB2API_GEMINI=1` 启用统一 overlay 的
+`gemini` profile、生成
 `GEMINI_ADAPTER_KEY`、构建并启动 `sub2api-gemini`。不要恢复独立 GeminiQA 项目或
 独立部署脚本。
 
 源码验证：
 
 ```sh
-bash deploy/tests/gemini-deploy-test.sh
+bash deploy/tests/adapter-registry-test.sh
 python3 -m unittest -v
 ```
 

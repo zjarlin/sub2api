@@ -1,0 +1,618 @@
+# =============================================================================
+# 内置适配器统一编排（单文件 + 环境变量开关）
+# =============================================================================
+# 设计目标：所有内置适配器（豆包桌面 / TRAE Work / WorkBuddy / VibeX / ZCode /
+# DeepSeek 网页 / 码道 / Gemini / Cursor / Windsurf / TeleAgent / Arena /
+# Laya / JEV）都写在这一个文件里，用环境变量决定启用哪些。任意机器只要换
+# 部署目标（SSH 主机 / 部署目录），不需要各机维护不同的 compose 叠加清单。
+#
+# 与旧方案的对应关系：过去每个适配器一个 docker-compose.<name>.yml，由
+# deploy/cluster/deploy-252.sh 按 SUB2API_<NAME>=1 依次 -f 叠加。这里把它们
+# 合并进一个文件，改成「按开关计算 COMPOSE_PROFILES + 逐平台注入环境变量」。
+#
+# 启用方式（两者配合）：
+#   1. 开关：`.env` 里 SUB2API_<PLATFORM>=1（例如 SUB2API_WORKBUDDY=1）。
+#      部署脚本据此设置 COMPOSE_PROFILES，compose 只启动被点名的适配器容器。
+#   2. 共享密钥：<PLATFORM>_ADAPTER_KEY 非空（首次部署脚本自动生成并回写 .env）。
+#
+# 关键点：Sub2API 主服务要「感知」某个平台是否可用，靠的是该平台自己的
+# BUILTIN_ADAPTER_<PLATFORM>_URL / _KEY 是否同时非空（见
+# backend/internal/service/builtin_adapter_login.go）。未启用的平台在这里注入
+# 空串，主服务的 builtinAdapterBaseURL/APIKey 返回空，前端即判为未启用，
+# 账号页相应平台会提示先启用适配器——不会因为「服务没起」而连接超时。
+#
+# 平台服务名/端口（与历史配置保持一致，避免破坏已有命名卷与账号数据）：
+#   豆包桌面   sub2api-desktop      :8080
+#   TRAE Work  sub2api-traework     :7864
+#   WorkBuddy  sub2api-workbuddy    :7863
+#   VibeX      sub2api-vibex        :7866
+#   ZCode      sub2api-zcode        :7865
+#   DeepSeek 网页 sub2api-deepseek-web :7867
+#   码道       sub2api-madao        :7870
+#   Gemini     sub2api-gemini       :7877
+#   Cursor     sub2api-cursor       :7868
+#   Windsurf   sub2api-windsurf     :7869
+#   TeleAgent  sub2api-teleagent    :7872
+#   Arena      sub2api-arena        :7867
+#   Laya / JEV 由 edge-laya / 远端 System One 承担，这里只注入地址与密钥。
+# =============================================================================
+services:
+
+  # ---------------------------------------------------------------------------
+  # Sub2API 主服务：一次性注入全部平台的地址与密钥。
+  # 动态取值而非写死 URL，是为了让「未启用」明确落成空串。
+  # ---------------------------------------------------------------------------
+  sub2api:
+    environment:
+      - BUILTIN_ADAPTER_ENABLED=${BUILTIN_ADAPTER_ENABLED:-true}
+      # 豆包（桌面会话）
+      - BUILTIN_ADAPTER_DESKTOP_URL=${BUILTIN_ADAPTER_DESKTOP_URL:-}
+      - BUILTIN_ADAPTER_DESKTOP_KEY=${DESKTOP_ADAPTER_KEY:-}
+      # TRAE Work
+      - BUILTIN_ADAPTER_TRAEWORK_URL=${BUILTIN_ADAPTER_TRAEWORK_URL:-}
+      - BUILTIN_ADAPTER_TRAEWORK_KEY=${TRAEWORK_ADAPTER_KEY:-}
+      # WorkBuddy
+      - BUILTIN_ADAPTER_WORKBUDDY_URL=${BUILTIN_ADAPTER_WORKBUDDY_URL:-}
+      - BUILTIN_ADAPTER_WORKBUDDY_KEY=${WORKBUDDY_ADAPTER_KEY:-}
+      # VibeX
+      - BUILTIN_ADAPTER_VIBEX_URL=${BUILTIN_ADAPTER_VIBEX_URL:-}
+      - BUILTIN_ADAPTER_VIBEX_KEY=${VIBEX_ADAPTER_KEY:-}
+      # ZCode
+      - BUILTIN_ADAPTER_ZCODE_URL=${BUILTIN_ADAPTER_ZCODE_URL:-}
+      - BUILTIN_ADAPTER_ZCODE_KEY=${ZCODE_ADAPTER_KEY:-}
+      # DeepSeek 网页版
+      - BUILTIN_ADAPTER_DEEPSEEK_WEB_URL=${BUILTIN_ADAPTER_DEEPSEEK_WEB_URL:-}
+      - BUILTIN_ADAPTER_DEEPSEEK_WEB_KEY=${DEEPSEEK_WEB_ADAPTER_KEY:-}
+      # 码道 CodeArts
+      - BUILTIN_ADAPTER_MADAO_URL=${BUILTIN_ADAPTER_MADAO_URL:-}
+      - BUILTIN_ADAPTER_MADAO_KEY=${MADAO_ADAPTER_KEY:-}
+      # Gemini
+      - BUILTIN_ADAPTER_GEMINI_URL=${BUILTIN_ADAPTER_GEMINI_URL:-}
+      - BUILTIN_ADAPTER_GEMINI_KEY=${GEMINI_ADAPTER_KEY:-}
+      # Cursor
+      - BUILTIN_ADAPTER_CURSOR_URL=${BUILTIN_ADAPTER_CURSOR_URL:-}
+      - BUILTIN_ADAPTER_CURSOR_KEY=${CURSOR_ADAPTER_KEY:-}
+      # Windsurf
+      - BUILTIN_ADAPTER_WINDSURF_URL=${BUILTIN_ADAPTER_WINDSURF_URL:-}
+      - BUILTIN_ADAPTER_WINDSURF_KEY=${WINDSURF_ADAPTER_KEY:-}
+      # TeleAgent
+      - BUILTIN_ADAPTER_TELEAGENT_URL=${BUILTIN_ADAPTER_TELEAGENT_URL:-}
+      - BUILTIN_ADAPTER_TELEAGENT_KEY=${TELEAGENT_ADAPTER_KEY:-}
+      # Arena
+      - BUILTIN_ADAPTER_ARENA_URL=${BUILTIN_ADAPTER_ARENA_URL:-}
+      - BUILTIN_ADAPTER_ARENA_KEY=${ARENA_AGENT_BRIDGE_KEY:-}
+      # Laya（本地/远端 System One）：地址与密钥独立配置。
+      - BUILTIN_ADAPTER_LAYA_URL=${BUILTIN_ADAPTER_LAYA_URL:-}
+      - BUILTIN_ADAPTER_LAYA_KEY=${LAYA_API_KEY:-}
+      # JEV（TypeSafe / CommandCode System One）。
+      - BUILTIN_ADAPTER_JEV_URL=${BUILTIN_ADAPTER_JEV_URL:-}
+      - BUILTIN_ADAPTER_JEV_KEY=${JEV_ADAPTER_KEY:-}
+
+  # ===========================================================================
+  # 以下每个适配器都带自己的 profile，只有开关打开时才启动。
+  # profile 名统一为平台小写名（desktop / traework / workbuddy / ...）。
+  # ===========================================================================
+
+  # 豆包桌面会话；会话快照通过只读目录挂载提供。
+  sub2api-desktop:
+    profiles: [desktop]
+    build:
+      context: ./tools/desktop_session
+      dockerfile: Dockerfile
+    image: ${DESKTOP_IMAGE:-sub2api-desktop:local}
+    container_name: sub2api-desktop
+    restart: unless-stopped
+    depends_on:
+      sub2api:
+        condition: service_healthy
+        required: false
+    environment:
+      DESKTOP_MAX_REQUEST_BODY_BYTES: "${DESKTOP_MAX_REQUEST_BODY_BYTES:-33554432}"
+      DESKTOP_STATE_FILE: /var/lib/desktop-session/conversations.json
+      DESKTOP_PROFILE_STATE_DIR: /var/lib/desktop-session/profile-state
+      DESKTOP_PROFILE_DIR: /var/lib/desktop-session/profiles
+      DESKTOP_UPSTREAM_TIMEOUT_SECONDS: "${DESKTOP_UPSTREAM_TIMEOUT_SECONDS:-120}"
+      DESKTOP_GENERATION_TIMEOUT_SECONDS: "${DESKTOP_GENERATION_TIMEOUT_SECONDS:-600}"
+    volumes:
+      - "${DESKTOP_SECRET_DIR:-./deploy/data/adapters/desktop/secrets}:/run/secrets:ro"
+      - "${DESKTOP_STATE_DIR:-./deploy/data/adapters/desktop/state}:/var/lib/desktop-session"
+    networks:
+      - sub2api-network
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 64
+    mem_limit: 512m
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # TRAE Work (SOLO CN)。
+  sub2api-traework:
+    profiles: [traework]
+    build:
+      context: ./tools
+      dockerfile: traework2api/Dockerfile.sub2api
+      args:
+        # 国内网络下加速 apk 包下载；留空则用官方 CDN。
+        ALPINE_MIRROR: ${ADAPTER_ALPINE_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/alpine}
+    image: ${TRAEWORK_IMAGE:-sub2api-traework:local}
+    container_name: sub2api-traework
+    restart: unless-stopped
+    depends_on:
+      sub2api:
+        condition: service_healthy
+        required: false
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      TW2A_API_KEY: "${TRAEWORK_ADAPTER_KEY:-}"
+      TW2A_AUTH_DIR: /app/auths
+      TW2A_STATE_FILE: /app/data/state.json
+      TW2A_DEFAULT_MODEL: ${TRAEWORK_DEFAULT_MODEL:-glm-5.2}
+    volumes:
+      - "${TRAEWORK_AUTH_DIR:-traework-auths}:/app/auths"
+      - "${TRAEWORK_STATE_DIR:-traework-data}:/app/data"
+    networks:
+      - sub2api-network
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    healthcheck:
+      test: [CMD, wget, -qO-, http://127.0.0.1:7864/healthz]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # WorkBuddy 国内版。
+  sub2api-workbuddy:
+    profiles: [workbuddy]
+    build:
+      context: ./tools
+      dockerfile: workbuddy2api/Dockerfile.sub2api
+      args:
+        # 国内网络下加速 apk 包下载；留空则用官方 CDN。
+        ALPINE_MIRROR: ${ADAPTER_ALPINE_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/alpine}
+    image: ${WORKBUDDY_IMAGE:-sub2api-workbuddy:local}
+    container_name: sub2api-workbuddy
+    restart: unless-stopped
+    depends_on:
+      sub2api:
+        condition: service_healthy
+        required: false
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      WB2A_API_KEY: "${WORKBUDDY_ADAPTER_KEY:-}"
+      WB2A_AUTH_DIR: /app/auths
+      WB2A_STATE_FILE: /app/data/state.json
+    volumes:
+      - "${WORKBUDDY_AUTH_DIR:-workbuddy-auths}:/app/auths"
+      - "${WORKBUDDY_STATE_DIR:-workbuddy-data}:/app/data"
+    networks:
+      - sub2api-network
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 512m
+    healthcheck:
+      test: [CMD, wget, -qO-, http://127.0.0.1:7863/livez]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # VibeX。
+  sub2api-vibex:
+    profiles: [vibex]
+    build:
+      context: ./tools
+      dockerfile: vibex2api/Dockerfile
+      args:
+        # 国内网络下加速 apk 包下载；留空则用官方 CDN。
+        ALPINE_MIRROR: ${ADAPTER_ALPINE_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/alpine}
+    image: ${VIBEX_IMAGE:-sub2api-vibex:local}
+    container_name: sub2api-vibex
+    restart: unless-stopped
+    depends_on:
+      sub2api:
+        condition: service_healthy
+        required: false
+    environment:
+      V2A_LISTEN: 0.0.0.0:7866
+      V2A_API_KEY: "${VIBEX_ADAPTER_KEY:-}"
+      V2A_STATE_FILE: /app/data/credential.json
+    volumes:
+      - "${VIBEX_STATE_DIR:-vibex-data}:/app/data"
+    networks:
+      - sub2api-network
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 256m
+    healthcheck:
+      test: [CMD, wget, -qO-, http://127.0.0.1:7866/livez]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # ZCode。
+  sub2api-zcode:
+    profiles: [zcode]
+    build:
+      context: ./tools
+      dockerfile: zcode2api/Dockerfile.sub2api
+      args:
+        # 国内网络下加速 apk 包下载；留空则用官方 CDN。
+        ALPINE_MIRROR: ${ADAPTER_ALPINE_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/alpine}
+    image: ${ZCODE_IMAGE:-sub2api-zcode:local}
+    container_name: sub2api-zcode
+    restart: unless-stopped
+    depends_on:
+      sub2api:
+        condition: service_healthy
+        required: false
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      Z2A_LISTEN: 0.0.0.0:7865
+      Z2A_API_KEY: "${ZCODE_ADAPTER_KEY:-}"
+      Z2A_UPSTREAM_PLAN: "${ZCODE_UPSTREAM_PLAN:-coding-plan}"
+      Z2A_OAUTH_PROVIDER: "${ZCODE_OAUTH_PROVIDER:-zai}"
+      Z2A_UPSTREAM_API_KEY: "${ZCODE_UPSTREAM_KEY:-}"
+      Z2A_UPSTREAM_BASE_URL: "${ZCODE_UPSTREAM_BASE_URL:-https://open.bigmodel.cn/api/anthropic}"
+      Z2A_UPSTREAM_PROVIDER_ID: "${ZCODE_UPSTREAM_PROVIDER_ID:-builtin:bigmodel-coding-plan}"
+      Z2A_THINKING_EFFORT: "${ZCODE_THINKING_EFFORT:-max}"
+      Z2A_START_PLAN_VERIFIER_URL: "${ZCODE_START_PLAN_VERIFIER_URL:-}"
+      Z2A_START_PLAN_VERIFIER_KEY: "${ZCODE_START_PLAN_VERIFIER_KEY:-}"
+      Z2A_CREDENTIAL_STORE_PATH: /app/data/credential.json
+    volumes:
+      - "${ZCODE_STATE_DIR:-zcode-data}:/app/data"
+    networks:
+      - sub2api-network
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 256m
+    healthcheck:
+      test: [CMD, wget, -qO-, http://127.0.0.1:7865/livez]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # DeepSeek 网页版。
+  sub2api-deepseek-web:
+    profiles: [deepseek-web]
+    build:
+      context: ./tools
+      dockerfile: deepseek2api/Dockerfile.sub2api
+      args:
+        # 国内网络下加速 apk 包下载；留空则用官方 CDN。
+        ALPINE_MIRROR: ${ADAPTER_ALPINE_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/alpine}
+    image: ${DEEPSEEK_WEB_IMAGE:-sub2api-deepseek-web:local}
+    container_name: sub2api-deepseek-web
+    restart: unless-stopped
+    depends_on:
+      sub2api:
+        condition: service_healthy
+        required: false
+    init: true
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      DEEPSEEK_WEB_LISTEN: 0.0.0.0:7867
+      DEEPSEEK_WEB_ADAPTER_KEY: ${DEEPSEEK_WEB_ADAPTER_KEY:-}
+      DEEPSEEK_WEB_STATE_FILE: /app/data/accounts.json
+      DEEPSEEK_WEB_BROWSER_EXECUTABLE: /usr/bin/chromium-browser
+      DEEPSEEK_WEB_WASM_URL: ${DEEPSEEK_WEB_WASM_URL:-https://fe-static.deepseek.com/chat/static/sha3_wasm_bg.7b9ca65ddd.wasm}
+    volumes:
+      - "${DEEPSEEK_WEB_STATE_DIR:-deepseek-web-data}:/app/data"
+    networks:
+      - sub2api-network
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    shm_size: 256m
+    mem_limit: 768m
+    memswap_limit: 768m
+    mem_swappiness: 0
+    pids_limit: 256
+    oom_score_adj: 500
+    healthcheck:
+      test: [CMD, wget, -qO-, "http://127.0.0.1:7867/livez"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # 码道（华为云 CodeArts）。
+  sub2api-madao:
+    profiles: [madao]
+    build:
+      context: ./tools
+      dockerfile: madao2api/Dockerfile.sub2api
+      args:
+        # 国内网络下加速 apk 包下载；留空则用官方 CDN。
+        ALPINE_MIRROR: ${ADAPTER_ALPINE_MIRROR:-https://mirrors.tuna.tsinghua.edu.cn/alpine}
+    image: ${MADAO_IMAGE:-sub2api-madao:local}
+    container_name: sub2api-madao
+    restart: unless-stopped
+    depends_on:
+      sub2api:
+        condition: service_healthy
+        required: false
+    init: true
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      MADAO_LISTEN: 0.0.0.0:7870
+      MADAO_ADAPTER_KEY: ${MADAO_ADAPTER_KEY:-}
+      MADAO_STATE_FILE: /app/data/credential.json
+      MADAO_BROWSER_EXECUTABLE: /usr/bin/chromium-browser
+      MADAO_ASK_BASE_URL: ${MADAO_ASK_BASE_URL:-https://snap-access.cn-north-4.myhuaweicloud.com}
+    volumes:
+      - "${MADAO_STATE_DIR:-madao-data}:/app/data"
+    networks:
+      - sub2api-network
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    shm_size: 256m
+    mem_limit: 768m
+    memswap_limit: 768m
+    mem_swappiness: 0
+    pids_limit: 256
+    oom_score_adj: 500
+    healthcheck:
+      test: [CMD, wget, -qO-, "http://127.0.0.1:7870/livez"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Gemini AI Studio。
+  sub2api-gemini:
+    profiles: [gemini]
+    build:
+      context: ./tools
+      dockerfile: gemini2api/Dockerfile.sub2api
+    image: ${GEMINI_IMAGE:-sub2api-gemini:local}
+    container_name: sub2api-gemini
+    restart: unless-stopped
+    depends_on:
+      sub2api:
+        condition: service_healthy
+        required: false
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+      G2A_API_KEY: ${GEMINI_ADAPTER_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      G2A_MODELS: ${GEMINI_MODELS:-}
+      G2A_LISTEN: 0.0.0.0:7877
+      # 默认走 OpenAI 专用出口；没有该代理时用 G2A_UPSTREAM_PROXY 显式覆盖为空/直连。
+      G2A_UPSTREAM_PROXY: ${G2A_UPSTREAM_PROXY:-http://sub2api-openai-egress:7890}
+    networks:
+      - sub2api-network
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    healthcheck:
+      test: [CMD, python, -c, "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7877/livez', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Cursor 官方 SDK。
+  sub2api-cursor:
+    profiles: [cursor]
+    build:
+      context: ./tools/cursor2api
+      dockerfile: Dockerfile
+    image: ${CURSOR_IMAGE:-sub2api-cursor:local}
+    container_name: sub2api-cursor
+    restart: unless-stopped
+    depends_on:
+      sub2api:
+        condition: service_healthy
+        required: false
+    environment:
+      CURSOR_ADAPTER_KEY: ${CURSOR_ADAPTER_KEY:-}
+      CURSOR_REQUEST_TIMEOUT_MS: ${CURSOR_REQUEST_TIMEOUT_MS:-300000}
+      CURSOR_MAX_CONCURRENT: ${CURSOR_MAX_CONCURRENT:-4}
+      CURSOR_MAX_BODY_BYTES: ${CURSOR_MAX_BODY_BYTES:-4194304}
+    networks: [sub2api-network]
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=0700,size=256m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 1g
+    stop_grace_period: 30s
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:7868/livez').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Windsurf (Devin Connect)。
+  sub2api-windsurf:
+    profiles: [windsurf]
+    build:
+      context: ./tools/windsurf2api
+      dockerfile: Dockerfile
+    image: ${WINDSURF_IMAGE:-sub2api-windsurf:local}
+    container_name: sub2api-windsurf
+    restart: unless-stopped
+    depends_on:
+      sub2api:
+        condition: service_healthy
+        required: false
+    environment:
+      WINDSURF_ADAPTER_KEY: ${WINDSURF_ADAPTER_KEY:-}
+      WINDSURF_REQUEST_TIMEOUT_MS: ${WINDSURF_REQUEST_TIMEOUT_MS:-600000}
+      WINDSURF_MAX_CONCURRENT: ${WINDSURF_MAX_CONCURRENT:-4}
+      WINDSURF_MAX_BODY_BYTES: ${WINDSURF_MAX_BODY_BYTES:-4194304}
+    networks: [sub2api-network]
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:uid=1000,gid=1000,mode=0700,size=64m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    pids_limit: 128
+    mem_limit: 512m
+    stop_grace_period: 30s
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:7869/livez').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # TeleAgent；网页登录、签名与每日积分领取均在服务器执行。
+  sub2api-teleagent:
+    profiles: [teleagent]
+    build:
+      context: ./tools/teleagent2api
+      dockerfile: Dockerfile
+    image: ${TELEAGENT_IMAGE:-sub2api-teleagent:local}
+    container_name: sub2api-teleagent
+    restart: unless-stopped
+    depends_on:
+      sub2api:
+        condition: service_healthy
+        required: false
+    environment:
+      TELEAGENT_ADAPTER_KEY: ${TELEAGENT_ADAPTER_KEY:-}
+      TELEAGENT_DATA_DIR: /app/data
+      TELEAGENT_REQUEST_TIMEOUT_MS: ${TELEAGENT_REQUEST_TIMEOUT_MS:-300000}
+      TELEAGENT_MAX_CONCURRENT: ${TELEAGENT_MAX_CONCURRENT:-4}
+      TELEAGENT_WELFARE_ENABLED: ${TELEAGENT_WELFARE_ENABLED:-1}
+      TZ: Asia/Shanghai
+    volumes:
+      - "${TELEAGENT_STATE_DIR:-teleagent-data}:/app/data"
+    networks: [sub2api-network]
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:uid=1001,gid=1001,mode=0700,size=256m
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    shm_size: 256m
+    pids_limit: 256
+    mem_limit: 1g
+    stop_grace_period: 30s
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:7872/livez').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Arena 文本试接；专属代理单独一张开关控制。
+  sub2api-arena:
+    profiles: [arena]
+    build:
+      context: ./tools/arena2api
+      dockerfile: Dockerfile
+      args:
+        DEBIAN_MIRROR: ${ARENA_DEBIAN_MIRROR:-}
+    image: ${ARENA_IMAGE:-sub2api-arena:local}
+    container_name: sub2api-arena
+    restart: unless-stopped
+    depends_on:
+      sub2api:
+        condition: service_healthy
+        required: false
+    init: true
+    environment:
+      ARENA_AGENT_BRIDGE_KEY: ${ARENA_AGENT_BRIDGE_KEY:-}
+      ARENA_REQUEST_TIMEOUT_MS: ${ARENA_REQUEST_TIMEOUT_MS:-300000}
+      ARENA_AGENT_PROXY: ${ARENA_AGENT_PROXY:-}
+    volumes:
+      - ${ARENA_STATE_DIR:-arena-data}:/app/data
+    networks: [sub2api-network]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    shm_size: 256m
+    mem_limit: 2g
+    memswap_limit: 2g
+    mem_swappiness: 0
+    pids_limit: 512
+    oom_score_adj: 500
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:7867/livez').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Arena 专属代理（仅在 SUB2API_ARENA_PROXY=1 时随 arena profile 启动）。
+  sub2api-arena-proxy:
+    profiles: [arena-proxy]
+    image: ${ARENA_PROXY_IMAGE:-sub2api-arena:local}
+    container_name: sub2api-arena-proxy
+    entrypoint: [/usr/bin/tini, --]
+    command: [/usr/local/bin/mihomo, -d, /app/proxy, -f, /app/proxy/config.json]
+    restart: unless-stopped
+    user: "1000:1000"
+    read_only: true
+    volumes:
+      - type: bind
+        source: ${ARENA_PROXY_BINARY_PATH:-/dev/null}
+        target: /usr/local/bin/mihomo
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${ARENA_PROXY_STATE_DIR:-./deploy/data/adapters/arena-proxy}
+        target: /app/proxy
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    networks: [sub2api-network]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 512m
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:9090/version',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  # OpenAI OAuth 专用美国出口；独立开关。
+  sub2api-openai-egress:
+    profiles: [openai-egress]
+    image: ${OPENAI_EGRESS_IMAGE:-sub2api-openai-egress:local}
+    container_name: sub2api-openai-egress
+    entrypoint: ["/usr/local/bin/mihomo"]
+    command: ["-d", "/app/proxy", "-f", "/app/proxy/config.json"]
+    restart: unless-stopped
+    user: "1000:1000"
+    read_only: true
+    volumes:
+      - type: bind
+        source: ${OPENAI_EGRESS_BINARY_PATH:-/dev/null}
+        target: /usr/local/bin/mihomo
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${OPENAI_EGRESS_STATE_DIR:-./deploy/data/adapters/openai-egress}
+        target: /app/proxy
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    networks: [sub2api-network]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 512m
+    healthcheck:
+      test: [CMD, wget, -qO-, "http://127.0.0.1:9090/version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  traework-auths:
+  traework-data:
+  workbuddy-auths:
+  workbuddy-data:
+  zcode-data:
+  vibex-data:
+  deepseek-web-data:
+  madao-data:
+  teleagent-data:
+  arena-data:

@@ -6,6 +6,8 @@ test_dir="$(mktemp -d "${TMPDIR:-/tmp}/sub2api-single-node-deploy.XXXXXX")"
 trap 'rm -rf "$test_dir"' EXIT
 mkdir -p "$test_dir/deploy/cluster" "$test_dir/bin" "$test_dir/logs"
 cp "$repo_root/deploy/cluster/deploy-252.sh" "$test_dir/deploy/cluster/deploy-252.sh"
+cp "$repo_root/deploy/cluster/adapters.env.sh" "$test_dir/deploy/cluster/adapters.env.sh"
+cp "$repo_root/deploy/docker-compose.adapters.yml" "$test_dir/deploy/docker-compose.adapters.yml"
 cp "$repo_root/deploy/cluster/nginx.conf" "$test_dir/deploy/cluster/nginx.conf"
 touch "$test_dir/deploy/docker-compose.yml" "$test_dir/deploy/cluster/docker-compose.yml" "$test_dir/docker-compose.override.yml"
 : > "$test_dir/.env"

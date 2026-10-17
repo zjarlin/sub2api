@@ -34,8 +34,8 @@ Sub2API 已提供独立的 **TRAE Work（traework）** 平台类型。账号为 
    ```sh
    docker compose --project-directory . \
      -f deploy/docker-compose.yml \
-     -f deploy/docker-compose.builtin-adapters.yml \
-     up -d --build
+     -f deploy/docker-compose.adapters.yml \
+     --profile traework up -d --build
    ```
 
    252 集群部署脚本在 `SUB2API_BUILTIN_ADAPTERS=1` 时会自动叠加该文件。

@@ -4,16 +4,18 @@ on:
   push:
     paths:
       - 'tools/cursor2api/**'
-      - 'deploy/docker-compose.cursor.yml'
+      - 'deploy/docker-compose.adapters.yml'
+      - 'deploy/cluster/adapters.env.sh'
       - 'deploy/cluster/deploy-252.sh'
-      - 'deploy/tests/cursor-deploy-test.sh'
+      - 'deploy/tests/adapter-registry-test.sh'
       - '.github/workflows/cursor2api-ci.yml'
   pull_request:
     paths:
       - 'tools/cursor2api/**'
-      - 'deploy/docker-compose.cursor.yml'
+      - 'deploy/docker-compose.adapters.yml'
+      - 'deploy/cluster/adapters.env.sh'
       - 'deploy/cluster/deploy-252.sh'
-      - 'deploy/tests/cursor-deploy-test.sh'
+      - 'deploy/tests/adapter-registry-test.sh'
       - '.github/workflows/cursor2api-ci.yml'
 
 permissions:
@@ -37,5 +39,5 @@ jobs:
         run: npm test
       - name: Deployment tests
         run: |
-          bash -n deploy/cluster/deploy-252.sh deploy/tests/cursor-deploy-test.sh
-          bash deploy/tests/cursor-deploy-test.sh
+          bash -n deploy/cluster/deploy-252.sh deploy/tests/adapter-registry-test.sh
+          bash deploy/tests/adapter-registry-test.sh

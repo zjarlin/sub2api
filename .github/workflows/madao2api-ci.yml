@@ -5,17 +5,19 @@ on:
     paths:
       - 'tools/madao2api/**'
       - 'tools/builtinlogin/**'
-      - 'deploy/docker-compose.madao.yml'
+      - 'deploy/docker-compose.adapters.yml'
+      - 'deploy/cluster/adapters.env.sh'
       - 'deploy/cluster/deploy-252.sh'
-      - 'deploy/tests/madao-deploy-test.sh'
+      - 'deploy/tests/adapter-registry-test.sh'
       - '.github/workflows/madao2api-ci.yml'
   pull_request:
     paths:
       - 'tools/madao2api/**'
       - 'tools/builtinlogin/**'
-      - 'deploy/docker-compose.madao.yml'
+      - 'deploy/docker-compose.adapters.yml'
+      - 'deploy/cluster/adapters.env.sh'
       - 'deploy/cluster/deploy-252.sh'
-      - 'deploy/tests/madao-deploy-test.sh'
+      - 'deploy/tests/adapter-registry-test.sh'
       - '.github/workflows/madao2api-ci.yml'
 
 permissions:
@@ -41,5 +43,5 @@ jobs:
           go test ./...
       - name: Deployment tests
         run: |
-          bash -n deploy/cluster/deploy-252.sh deploy/tests/madao-deploy-test.sh
-          bash deploy/tests/madao-deploy-test.sh
+          bash -n deploy/cluster/deploy-252.sh deploy/tests/adapter-registry-test.sh
+          bash deploy/tests/adapter-registry-test.sh

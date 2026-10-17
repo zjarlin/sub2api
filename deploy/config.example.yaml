@@ -1093,8 +1093,9 @@ rate_limit:
 # 随 Sub2API 部署一起启动豆包桌面会话与 TRAE Work (traework2api) sidecar，
 # 账号创建时自动注入内部地址与共享密钥，表单无需手填。
 #
-# Compose overlay: deploy/docker-compose.builtin-adapters.yml
-# Enable on the 252 cluster deploy with SUB2API_BUILTIN_ADAPTERS=1.
+# Compose overlay: deploy/docker-compose.adapters.yml
+# Enable per platform with SUB2API_<PLATFORM>=1 in .env. The legacy
+# SUB2API_BUILTIN_ADAPTERS=1 still enables desktop/traework/workbuddy/vibex/zcode.
 builtin_adapter:
   enabled: false
   # Internal service URLs; defaults match the compose service names.

@@ -13,14 +13,14 @@ WorkBuddy 账号页面通过鉴权的 `GET /status?refresh_credits=true` 查询�
 
 ## 部署
 
-启用 `deploy/docker-compose.builtin-adapters.yml`，并为 `TRAEWORK_ADAPTER_KEY`、`WORKBUDDY_ADAPTER_KEY` 设置不同的随机共享密钥。豆包仍需按桌面适配器文档准备其已有登录会话。TRAE / WorkBuddy 凭证与状态默认保存在 Docker 命名卷中，首次启动可以为空，不需要先运行登录脚本。
+启用 `deploy/docker-compose.adapters.yml` 的 `workbuddy` profile（`.env` 设 `SUB2API_WORKBUDDY=1`，或命令行加 `--profile workbuddy`），并为 `TRAEWORK_ADAPTER_KEY`、`WORKBUDDY_ADAPTER_KEY` 设置不同的随机共享密钥。豆包仍需按桌面适配器文档准备其已有登录会话。TRAE / WorkBuddy 凭证与状态默认保存在 Docker 命名卷中，首次启动可以为空，不需要先运行登录脚本。
 
 在仓库根目录执行（基础 Compose 还需要数据库等已有配置）：
 
 ```sh
 docker compose --project-directory . \
   -f deploy/docker-compose.yml \
-  -f deploy/docker-compose.builtin-adapters.yml up -d --build
+  -f deploy/docker-compose.adapters.yml --profile workbuddy up -d --build
 ```
 
 252 集群脚本使用 `SUB2API_BUILTIN_ADAPTERS=1` 启用上述编排。后台读取 `BUILTIN_ADAPTER_WORKBUDDY_URL` 和 `BUILTIN_ADAPTER_WORKBUDDY_KEY`，默认内部地址 `http://sub2api-workbuddy:7863`；适配器端口不发布到公网。自定义 bind mount 时目录必须允许 UID 10001 读写，或直接使用默认命名卷。

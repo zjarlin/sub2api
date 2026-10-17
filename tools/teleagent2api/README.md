@@ -26,13 +26,14 @@ TELEAGENT_DATA_DIR=/secure/teleagent TELEAGENT_LOGIN_OWNER=admin:<用户ID> \
 
 默认每天 **Asia/Shanghai 00:10** 自动领取每日登录积分。服务器启动后补领当天漏签，已成功日期持久化至 `welfare.json`，失败有限重试。`TELEAGENT_WELFARE_ENABLED=0` 可关闭。令牌过期时须重新网页登录，不假设桌面客户端会自动刷新服务器凭据。
 
-252 集群部署叠加 `deploy/docker-compose.teleagent.yml`，`.env` 设置 `SUB2API_TELEAGENT=1`，`deploy-252.sh` 会生成并持久化内部密钥。必须走完整集群或 TeamCity 发布流程。账号创建时选择已有 `codex` 分组，不自动创建或硬编码分组 ID。
+252 集群部署按 `SUB2API_TELEAGENT=1` 启用统一的 `deploy/docker-compose.adapters.yml`
+里的 `teleagent` profile，`deploy-252.sh` 会生成并持久化内部密钥。必须走完整集群或 TeamCity 发布流程。账号创建时选择已有 `codex` 分组，不自动创建或硬编码分组 ID。
 
 ## 验证与来源
 
 ```sh
 npm test
-bash ../../deploy/tests/teleagent-deploy-test.sh
+bash ../../deploy/tests/adapter-registry-test.sh
 ```
 
 Linux 包来自官网页面 `https://www.teleai.com.cn/product/teleagent` 的下载接口：`https://agent.teleai.com.cn/superCowork/sapi/api/download/redirect/linux-x64`，2026-10-15 返回 `TeleAgent-2.7.0-amd64.deb`。包内 Go 内核为静态链接 ELF，可在 CentOS 7 启动。实际云端签名以 Linux 内核反汇编和已有账号的服务器直连 HTTP 200 响应交叉验证。

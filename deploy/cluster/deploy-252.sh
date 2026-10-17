@@ -11,187 +11,13 @@ CANARY_WAIT_SECONDS="${CANARY_WAIT_SECONDS:-180}"
 CANARY_OBSERVE_SECONDS="${CANARY_OBSERVE_SECONDS:-20}"
 COMPOSE=(docker compose --project-name "$PROJECT_NAME" --project-directory "$DEPLOY_DIR" --env-file "$DEPLOY_DIR/.env" -f "$DEPLOY_DIR/deploy/docker-compose.yml" -f "$DEPLOY_DIR/docker-compose.override.yml" -f "$DEPLOY_DIR/deploy/cluster/docker-compose.yml")
 
-# 只读取编排开关，不执行 .env 中的 shell 内容；显式环境变量优先。
-BUILTIN_ADAPTERS_ENABLED="${SUB2API_BUILTIN_ADAPTERS:-}"
-if [ -z "$BUILTIN_ADAPTERS_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
-  BUILTIN_ADAPTERS_ENABLED="$(awk -F= '
-    $1 ~ /^[[:space:]]*(export[[:space:]]+)?SUB2API_BUILTIN_ADAPTERS[[:space:]]*$/ {
-      value=$2
-      sub(/#.*/, "", value)
-      gsub(/[[:space:]"\047]/, "", value)
-      result=value
-    }
-    END { if (result == "1") print "1"; else print "0" }
-  ' "$DEPLOY_DIR/.env")"
-fi
-
-# 显式开启后叠加豆包、TRAE Work、WorkBuddy 与 ZCode 内置服务；编排文件缺失立即报错。
-if [ "$BUILTIN_ADAPTERS_ENABLED" = "1" ]; then
-  test -f "$DEPLOY_DIR/deploy/docker-compose.builtin-adapters.yml"
-  COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.builtin-adapters.yml")
-fi
-
-# DeepSeek 网页适配器独立启用，不要求同时启动其他内置服务。
-DEEPSEEK_WEB_ENABLED="${SUB2API_DEEPSEEK_WEB:-}"
-if [ -z "$DEEPSEEK_WEB_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
-  DEEPSEEK_WEB_ENABLED="$(awk -F= '
-    $1 ~ /^[[:space:]]*(export[[:space:]]+)?SUB2API_DEEPSEEK_WEB[[:space:]]*$/ {
-      value=$2
-      sub(/#.*/, "", value)
-      gsub(/[[:space:]"\047]/, "", value)
-      result=value
-    }
-    END { if (result == "1") print "1"; else print "0" }
-  ' "$DEPLOY_DIR/.env")"
-fi
-if [ "$DEEPSEEK_WEB_ENABLED" = "1" ]; then
-  test -f "$DEPLOY_DIR/deploy/docker-compose.deepseek-web.yml"
-  COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.deepseek-web.yml")
-fi
-
-# 码道（华为云 CodeArts 代码智能体 Web 端）适配器独立启用。
-MADAO_ENABLED="${SUB2API_MADAO:-}"
-if [ -z "$MADAO_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
-  MADAO_ENABLED="$(awk -F= '
-    $1 ~ /^[[:space:]]*(export[[:space:]]+)?SUB2API_MADAO[[:space:]]*$/ {
-      value=$2
-      sub(/#.*/, "", value)
-      gsub(/[[:space:]"\047]/, "", value)
-      result=value
-    }
-    END { if (result == "1") print "1"; else print "0" }
-  ' "$DEPLOY_DIR/.env")"
-fi
-if [ "$MADAO_ENABLED" = "1" ]; then
-  test -f "$DEPLOY_DIR/deploy/docker-compose.madao.yml"
-  COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.madao.yml")
-fi
-
-# Gemini AI Studio text Q&A adapter.
-GEMINI_ENABLED="${SUB2API_GEMINI:-}"
-if [ -z "$GEMINI_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
-  GEMINI_ENABLED="$(awk -F= '
-    $1 ~ /^[[:space:]]*(export[[:space:]]+)?SUB2API_GEMINI[[:space:]]*$/ {
-      value=$2
-      sub(/#.*/, "", value)
-      gsub(/[[:space:]"\047]/, "", value)
-      result=value
-    }
-    END { if (result == "1") print "1"; else print "0" }
-  ' "$DEPLOY_DIR/.env")"
-fi
-if [ "$GEMINI_ENABLED" = "1" ]; then
-  test -f "$DEPLOY_DIR/deploy/docker-compose.gemini.yml"
-  COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.gemini.yml")
-fi
-
-# Cursor 独立启用，真实账号 Key 在管理页面保存，部署仅生成内部共享密钥。
-CURSOR_ENABLED="${SUB2API_CURSOR:-}"
-if [ -z "$CURSOR_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
-  CURSOR_ENABLED="$(awk -F= '
-    $1 ~ /^[[:space:]]*(export[[:space:]]+)?SUB2API_CURSOR[[:space:]]*$/ {
-      value=$2
-      sub(/#.*/, "", value)
-      gsub(/[[:space:]"\047]/, "", value)
-      result=value
-    }
-    END { if (result == "1") print "1"; else print "0" }
-  ' "$DEPLOY_DIR/.env")"
-fi
-if [ "$CURSOR_ENABLED" = "1" ]; then
-  test -f "$DEPLOY_DIR/deploy/docker-compose.cursor.yml"
-  COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.cursor.yml")
-fi
-
-# TeleAgent 签名与网页登录均在服务器执行，不依赖桌面客户端。
-TELEAGENT_ENABLED="${SUB2API_TELEAGENT:-}"
-if [ -z "$TELEAGENT_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
-  TELEAGENT_ENABLED="$(awk -F= '
-    $1 ~ /^[[:space:]]*(export[[:space:]]+)?SUB2API_TELEAGENT[[:space:]]*$/ {
-      value=$2
-      sub(/#.*/, "", value)
-      gsub(/[[:space:]"\047]/, "", value)
-      result=value
-    }
-    END { if (result == "1") print "1"; else print "0" }
-  ' "$DEPLOY_DIR/.env")"
-fi
-if [ "$TELEAGENT_ENABLED" = "1" ]; then
-  test -f "$DEPLOY_DIR/deploy/docker-compose.teleagent.yml"
-  COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.teleagent.yml")
-fi
-
-# Windsurf 独立启用，真实账号 Token 在管理页面保存，部署仅生成内部共享密钥。
-WINDSURF_ENABLED="${SUB2API_WINDSURF:-}"
-if [ -z "$WINDSURF_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
-  WINDSURF_ENABLED="$(awk -F= '
-    $1 ~ /^[[:space:]]*(export[[:space:]]+)?SUB2API_WINDSURF[[:space:]]*$/ {
-      value=$2
-      sub(/#.*/, "", value)
-      gsub(/[[:space:]"\047]/, "", value)
-      result=value
-    }
-    END { if (result == "1") print "1"; else print "0" }
-  ' "$DEPLOY_DIR/.env")"
-fi
-if [ "$WINDSURF_ENABLED" = "1" ]; then
-  test -f "$DEPLOY_DIR/deploy/docker-compose.windsurf.yml"
-  COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.windsurf.yml")
-fi
-
-# Arena 独立启用，只启动私网文本适配器；真实登录与专属会话另行配置。
-ARENA_ENABLED="${SUB2API_ARENA:-}"
-if [ -z "$ARENA_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
-  ARENA_ENABLED="$(awk -F= '
-    $1 ~ /^[[:space:]]*(export[[:space:]]+)?SUB2API_ARENA[[:space:]]*$/ {
-      value=$2
-      sub(/#.*/, "", value)
-      gsub(/[[:space:]"\047]/, "", value)
-      result=value
-    }
-    END { if (result == "1") print "1"; else print "0" }
-  ' "$DEPLOY_DIR/.env")"
-fi
-ARENA_PROXY_ENABLED=0
-if [ "$ARENA_ENABLED" = "1" ]; then
-  test -f "$DEPLOY_DIR/deploy/docker-compose.arena.yml"
-  COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.arena.yml" --profile arena)
-
-  # 专属代理只随 Arena 启用；显式环境变量优先于私有 .env。
-  ARENA_PROXY_ENABLED="${SUB2API_ARENA_PROXY:-}"
-  if [ -z "$ARENA_PROXY_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
-    ARENA_PROXY_ENABLED="$(awk -F= '
-      $1 ~ /^[[:space:]]*(export[[:space:]]+)?SUB2API_ARENA_PROXY[[:space:]]*$/ {
-        value=$2
-        sub(/#.*/, "", value)
-        gsub(/[[:space:]"\047]/, "", value)
-        result=value
-      }
-      END { if (result == "1") print "1"; else print "0" }
-    ' "$DEPLOY_DIR/.env")"
-  fi
-  if [ "$ARENA_PROXY_ENABLED" = "1" ]; then
-    test -f "$DEPLOY_DIR/deploy/docker-compose.arena-proxy.yml"
-    COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.arena-proxy.yml")
-  fi
-fi
-
-# OpenAI OAuth 专用美国出口：显式开启后叠加编排文件；缺失立即报错。
-OPENAI_EGRESS_ENABLED="${SUB2API_OPENAI_EGRESS:-}"
-if [ -z "$OPENAI_EGRESS_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
-  OPENAI_EGRESS_ENABLED="$(awk -F= '
-    $1 ~ /^[[:space:]]*(export[[:space:]]+)?SUB2API_OPENAI_EGRESS[[:space:]]*$/ {
-      value=$2
-      sub(/#.*/, "", value)
-      gsub(/[[:space:]"\047]/, "", value)
-      result=value
-    }
-    END { if (result == "1") print "1"; else print "0" }
-  ' "$DEPLOY_DIR/.env")"
-fi
-if [ "$OPENAI_EGRESS_ENABLED" = "1" ]; then
-  test -f "$DEPLOY_DIR/deploy/docker-compose.openai-egress.yml"
-  COMPOSE+=(-f "$DEPLOY_DIR/deploy/docker-compose.openai-egress.yml")
+# 内置适配器：由 deploy/cluster/adapters.env.sh 的平台注册表统一解析。
+# 每个平台一个 .env 开关（SUB2API_<PLATFORM>=1），profile 由开关计算得出，
+# 不再为每个平台单独维护 -f 叠加清单。
+source "$DEPLOY_DIR/deploy/cluster/adapters.env.sh"
+ADAPTER_COMPOSE="$DEPLOY_DIR/deploy/docker-compose.adapters.yml"
+if [ -f "$ADAPTER_COMPOSE" ]; then
+  COMPOSE+=(-f "$ADAPTER_COMPOSE")
 fi
 
 # 只读取编排开关，不执行 .env 中的 shell 内容；显式环境变量优先。
@@ -258,31 +84,14 @@ ensure_adapter_key() {
   fi
   unset "$key_name"
 }
-if [ "$BUILTIN_ADAPTERS_ENABLED" = "1" ]; then
-  ensure_adapter_key ZCODE_ADAPTER_KEY
-  ensure_adapter_key VIBEX_ADAPTER_KEY
+# 按注册表为已启用平台补齐共享密钥（首次部署生成并回写 .env）。
+resolve_enabled_adapters "$DEPLOY_DIR/.env"
+if [ -f "$ADAPTER_COMPOSE" ] && [ "${#ADAPTER_KEY_VARS[@]}" -gt 0 ]; then
+  for _key in "${ADAPTER_KEY_VARS[@]}"; do
+    ensure_env_key "$_key" "$DEPLOY_DIR/.env" "$RELEASE_DIR"
+  done
 fi
-if [ "$DEEPSEEK_WEB_ENABLED" = "1" ]; then
-  ensure_adapter_key DEEPSEEK_WEB_ADAPTER_KEY
-fi
-if [ "$MADAO_ENABLED" = "1" ]; then
-  ensure_adapter_key MADAO_ADAPTER_KEY
-fi
-if [ "$GEMINI_ENABLED" = "1" ]; then
-  ensure_adapter_key GEMINI_ADAPTER_KEY
-fi
-if [ "$CURSOR_ENABLED" = "1" ]; then
-  ensure_adapter_key CURSOR_ADAPTER_KEY
-fi
-if [ "$TELEAGENT_ENABLED" = "1" ]; then
-  ensure_adapter_key TELEAGENT_ADAPTER_KEY
-fi
-if [ "$WINDSURF_ENABLED" = "1" ]; then
-  ensure_adapter_key WINDSURF_ADAPTER_KEY
-fi
-if [ "$ARENA_ENABLED" = "1" ]; then
-  ensure_adapter_key ARENA_AGENT_BRIDGE_KEY
-fi
+
 docker image inspect "$IMAGE" > "$RELEASE_DIR/image.json"
 
 CURRENT_IMAGE="$(docker ps --filter 'label=com.docker.compose.service=sub2api' --format '{{.Image}}' | head -n1)"
@@ -448,11 +257,21 @@ start_canary() {
     env_file="$DEPLOY_DIR/.env"
     network="${PROJECT_NAME}_sub2api-network"
   fi
+  # 适配器地址以显式 --env 传入：首次部署（无既有容器可 inspect）时 .env 里
+  # 没有 BUILTIN_ADAPTER_*_URL，docker run 也不会自动继承宿主环境变量。
+  local -a ADAPTER_ENV_ARGS=()
+  if [ "${#ADAPTER_URL_EXPORTS[@]}" -gt 0 ]; then
+    local _kv
+    for _kv in "${ADAPTER_URL_EXPORTS[@]}"; do
+      [ -n "$_kv" ] && ADAPTER_ENV_ARGS+=(--env "$_kv")
+    done
+  fi
   echo "Starting isolated candidate $CANARY_CONTAINER behind $publish"
   docker run -d --name "$CANARY_CONTAINER" \
     --network "$network" \
     --network-alias sub2api-canary \
     --env-file "$env_file" \
+    ${ADAPTER_ENV_ARGS[@]+"${ADAPTER_ENV_ARGS[@]}"} \
     --volumes-from "$BASE_CONTAINER" \
     --publish "$publish" \
     --env SERVER_HOST=0.0.0.0 \
@@ -494,46 +313,52 @@ trap rollback ERR
 export SUB2API_IMAGE="$IMAGE"
 "${COMPOSE[@]}" config >/dev/null
 "${COMPOSE[@]}" up -d --no-recreate postgres redis
-if [ "$BUILTIN_ADAPTERS_ENABLED" = "1" ]; then
-  echo "Building and starting built-in adapters (doubao / traework / workbuddy / vibex / zcode)"
-  "${COMPOSE[@]}" up -d --build sub2api-desktop sub2api-traework sub2api-workbuddy sub2api-vibex sub2api-zcode
+
+# 统一按注册表启动内置适配器：profile 由 .env 开关计算，URL/KEY 注入主服务。
+# 与旧逻辑等价（旧的每个平台一个 -f 叠加文件），但单一数据源、换机只换开关。
+ADAPTER_PROFILES_CSV="$(adapter_profiles_csv)"
+ADAPTER_PROXY_ENABLED="${SUB2API_ARENA_PROXY:-}"
+if [ -z "$ADAPTER_PROXY_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
+  ADAPTER_PROXY_ENABLED="$(read_env_flag SUB2API_ARENA_PROXY "$DEPLOY_DIR/.env")"
 fi
-if [ "$DEEPSEEK_WEB_ENABLED" = "1" ]; then
-  echo "Building and starting DeepSeek web adapter"
-  "${COMPOSE[@]}" up -d --build sub2api-deepseek-web
+if [ "$ADAPTER_PROXY_ENABLED" = "1" ]; then
+  ADAPTER_PROFILES_CSV="${ADAPTER_PROFILES_CSV:+$ADAPTER_PROFILES_CSV,}arena-proxy"
 fi
-if [ "$MADAO_ENABLED" = "1" ]; then
-  echo "Building and starting CodeArts (码道) adapter"
-  "${COMPOSE[@]}" up -d --build --wait --wait-timeout 180 sub2api-madao
+EGRESS_ENABLED="${SUB2API_OPENAI_EGRESS:-}"
+if [ -z "$EGRESS_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then
+  EGRESS_ENABLED="$(read_env_flag SUB2API_OPENAI_EGRESS "$DEPLOY_DIR/.env")"
 fi
-if [ "$GEMINI_ENABLED" = "1" ]; then
-  echo "Building and starting Gemini Q&A adapter"
-  "${COMPOSE[@]}" up -d --build --wait --wait-timeout 180 sub2api-gemini
+if [ "$EGRESS_ENABLED" = "1" ]; then
+  ADAPTER_PROFILES_CSV="${ADAPTER_PROFILES_CSV:+$ADAPTER_PROFILES_CSV,}openai-egress"
 fi
-if [ "$CURSOR_ENABLED" = "1" ]; then
-  echo "Building and starting Cursor SDK adapter"
-  "${COMPOSE[@]}" up -d --build --wait --wait-timeout 180 sub2api-cursor
-fi
-if [ "$TELEAGENT_ENABLED" = "1" ]; then
-  echo "Building and starting TeleAgent adapter"
-  "${COMPOSE[@]}" up -d --build --wait --wait-timeout 180 sub2api-teleagent
-fi
-if [ "$WINDSURF_ENABLED" = "1" ]; then
-  echo "Building and starting Windsurf adapter"
-  "${COMPOSE[@]}" up -d --build --wait --wait-timeout 180 sub2api-windsurf
-fi
-if [ "$ARENA_ENABLED" = "1" ]; then
-  if [ "$ARENA_PROXY_ENABLED" = "1" ]; then
-    echo "Starting dedicated Arena proxy"
-    "${COMPOSE[@]}" up -d --wait --wait-timeout 180 sub2api-arena-proxy
-  fi
-  echo "Building and starting Arena adapter"
-  "${COMPOSE[@]}" up -d --build sub2api-arena
+export COMPOSE_PROFILES="$ADAPTER_PROFILES_CSV"
+# 空数组在 set -u 下展开会报错，先判断长度。
+if [ "${#ADAPTER_URL_EXPORTS[@]}" -gt 0 ]; then
+  for _kv in "${ADAPTER_URL_EXPORTS[@]}"; do
+    [ -n "$_kv" ] && export "$_kv"
+  done
 fi
 
-if [ "$OPENAI_EGRESS_ENABLED" = "1" ]; then
-  echo "Starting OpenAI OAuth US egress proxy"
-  "${COMPOSE[@]}" up -d --wait --wait-timeout 180 sub2api-openai-egress
+# 只启动适配器服务本身：绝不能在这里不带服务名 `up`，否则会连带重建
+# sub2api 主容器与 gateway，直接破坏下面的蓝绿切换。
+ADAPTER_UP_SERVICES=()
+if [ "${#ADAPTER_SERVICES[@]}" -gt 0 ]; then
+  ADAPTER_UP_SERVICES+=("${ADAPTER_SERVICES[@]}")
+fi
+if [ "$ADAPTER_PROXY_ENABLED" = "1" ]; then
+  ADAPTER_UP_SERVICES+=(sub2api-arena-proxy)
+fi
+if [ "$EGRESS_ENABLED" = "1" ]; then
+  ADAPTER_UP_SERVICES+=(sub2api-openai-egress)
+fi
+
+if [ "${#ADAPTER_UP_SERVICES[@]}" -gt 0 ]; then
+  echo "Building and starting built-in adapters (profiles=$ADAPTER_PROFILES_CSV): ${ADAPTER_UP_SERVICES[*]}"
+  # --no-deps：适配器的 depends_on: sub2api 会把主服务一起带上，
+  # 那样会在候选验证前就重建主容器，破坏蓝绿。
+  "${COMPOSE[@]}" up -d --build --wait --wait-timeout 180 --no-deps "${ADAPTER_UP_SERVICES[@]}"
+else
+  echo "No built-in adapters enabled"
 fi
 
 # The existing gateway process stays alive. If it is already serving, pin it to

@@ -18,7 +18,7 @@ Anthropic Messages 通道包装成 OpenAI 兼容接口（`/v1/chat/completions`�
 
 ## 部署
 
-启用 `deploy/docker-compose.builtin-adapters.yml`，并设置：
+启用 `deploy/docker-compose.adapters.yml` 的 `zcode` profile（`.env` 设 `SUB2API_ZCODE=1`，或命令行加 `--profile zcode`），并设置：
 
 - `ZCODE_ADAPTER_KEY`：Sub2API 与 sidecar 之间的共享密钥；252 部署脚本首次部署时自动生成并保存，其他编排方式需配置随机值。
 - `ZCODE_UPSTREAM_KEY`：可选。显式指定的 z.ai / 智谱 GLM Coding Plan API key；留空时使用网页授权结果。
@@ -95,9 +95,9 @@ Coding Plan 不经过这条 Start Plan 验证链。SDK 无感验证通过并不�
 ```sh
 docker compose --project-directory . --env-file .env \
   -f deploy/docker-compose.yml \
-  -f deploy/docker-compose.builtin-adapters.yml \
+  -f deploy/docker-compose.adapters.yml \
   -f deploy/docker-compose.zcode-start-plan.yml \
-  up -d --build sub2api-zcode sub2api-zcode-verifier
+  --profile zcode up -d --build sub2api-zcode sub2api-zcode-verifier
 ```
 
 已有集群需在自己的完整 Compose 文件组合中追加 Start Plan 叠加文件，并保持原项目名。

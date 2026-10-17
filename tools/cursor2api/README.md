@@ -70,13 +70,14 @@ npm test
 主服务必须先更新为包含 Cursor 支持的代码或镜像。迁移 `256_add_cursor_platform.sql`
 随新版主服务启动执行，允许 Cursor 配额与 Composite 路由。
 
-标准 Compose 在仓库根目录叠加 `deploy/docker-compose.cursor.yml`，并在私有 `.env`
-配置 `CURSOR_ADAPTER_KEY`。按部署原有方式配置主服务镜像，构建并启动：
+标准 Compose 在仓库根目录叠加 `deploy/docker-compose.adapters.yml` 的 `cursor` profile
+（`.env` 设 `SUB2API_CURSOR=1`），并在私有 `.env` 配置 `CURSOR_ADAPTER_KEY`。
+按部署原有方式配置主服务镜像，构建并启动：
 
 ```sh
 docker compose --project-directory . --env-file .env \
-  -f deploy/docker-compose.yml -f deploy/docker-compose.cursor.yml \
-  up -d --build sub2api-cursor sub2api
+  -f deploy/docker-compose.yml -f deploy/docker-compose.adapters.yml \
+  --profile cursor up -d --build sub2api-cursor sub2api
 ```
 
 镜像以非 root 用户运行，根文件系统只读，临时会话写入 `/tmp`，不发布宿主机端口。

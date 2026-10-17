@@ -154,7 +154,7 @@ Responses 的 `prompt_cache_key` 也可作为会话身份。缺少稳定身份�
 
 ```sh
 docker compose --project-directory . \
-  -f deploy/docker-compose.yml -f deploy/docker-compose.arena.yml \
+  -f deploy/docker-compose.yml -f deploy/docker-compose.adapters.yml \
   --profile arena up -d --build sub2api-arena
 ```
 
@@ -167,7 +167,7 @@ docker compose --project-directory . \
 ### 可选专属代理
 
 252 集群在私有 `.env` 中同时设置 `SUB2API_ARENA=1` 和 `SUB2API_ARENA_PROXY=1`，
-部署脚本会叠加 `deploy/docker-compose.arena-proxy.yml`，等待代理健康后再启动 Arena。
+部署脚本会在同一份 `deploy/docker-compose.adapters.yml` 上追加 `arena-proxy` profile，等待代理健康后再启动 Arena。
 设置 `ARENA_PROXY_BINARY_PATH` 为匹配服务器架构的 Linux mihomo 可执行文件，
 `ARENA_PROXY_STATE_DIR` 为含 `config.json` 的私有目录；目录须允许 UID 1000 读写缓存。
 代理镜像默认复用已构建的 `sub2api-arena:local`，可通过 `ARENA_PROXY_IMAGE` 指定已有镜像，
@@ -177,7 +177,7 @@ docker compose --project-directory . \
 `bind-address: 0.0.0.0`、`allow-lan: true` 和 `external-controller: 127.0.0.1:9090`，
 禁用 TUN；使用带定时可用性检查的 `fallback` 代理组，使主节点故障后自动切换到下一可用节点。
 Arena 浏览器固定使用私网代理 `http://sub2api-arena-proxy:7890`，代理及控制器均不发布宿主机端口。
-手动部署时在 Arena overlay 后追加 `-f deploy/docker-compose.arena-proxy.yml`。
+手动部署时在同一份 overlay 上追加 `--profile arena-proxy`。
 健康检查验证代理进程，实际 Arena 登录和生成仍需单独验收。
 
 ## 验证

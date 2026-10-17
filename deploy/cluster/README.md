@@ -57,3 +57,46 @@ short handoff window, because that old container owns the port itself. Every
 later release has no application-container cutover gap. A host, Docker daemon,
 network interface, or Cloudflare Tunnel failure still requires host-level
 redundancy; this mechanism only protects the application release path.
+
+## 内置适配器：单文件 + 环境变量开关
+
+所有可选适配器统一写在 `deploy/docker-compose.adapters.yml` 一个文件里，
+每个服务带自己的 compose `profile`；启不启用只由目标机 `.env` 的开关决定：
+
+```env
+SUB2API_WORKBUDDY=1     # 只开 WorkBuddy
+SUB2API_CURSOR=0        # 关
+```
+
+部署时 `deploy/cluster/adapters.env.sh` 把开关解析成：
+
+- `COMPOSE_PROFILES`（决定启动哪些适配器容器）
+- `BUILTIN_ADAPTER_<P>_URL`（注入主服务；未启用平台为空串 → 管理页判为未启用）
+- `<P>_ADAPTER_KEY`（首次部署自动生成并回写 `.env`）
+
+`SUB2API_BUILTIN_ADAPTERS=1` 作为兼容开关保留，等价于同时启用
+`desktop / traework / workbuddy / vibex / zcode`。
+
+单一数据源在 `deploy/cluster/adapters.env.sh` 的 `ADAPTER_REGISTRY`：新增平台
+只需加一行，不需要再改 compose 叠加清单或流水线。
+
+## 通用主机部署脚本
+
+`deploy/tianjin/deploy-adapter-host.sh` 可在任意主机部署同一套栈，换机器只换
+目标：
+
+```bash
+TARGET_SSH_HOST=tianjin-media \
+TARGET_DEPLOY_DIR=/opt/reeve/stacks/sub2api \
+SUB2API_IMAGE=zjarlin/sub2api:<sha> \
+  deploy/tianjin/deploy-adapter-host.sh
+```
+
+执行体 `deploy/tianjin/deploy-adapter-host-remote.sh` 只做四件事：读开关、
+补密钥、切镜像、按 profile 重建 `sub2api` 与已启用适配器。它**不碰**
+postgres/redis（不同机器的数据库容器名可能不同，按 compose 拉起会新建空库），
+也不在目标机重建主镜像（镜像由流水线构建后传入）。
+
+TeamCity 对应 `Deploy Tianjin Sub2API`：构建镜像 → 经 SSH 传到目标机 →
+同步 `deploy/` 与 `tools/` → 在目标机执行上述执行体 → 健康检查。当前该流水线
+只通过 `SUB2API_WORKBUDDY=1` 启用 WorkBuddy。

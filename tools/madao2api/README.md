@@ -43,8 +43,9 @@ Ask 使用官方插件的独立 OAuth 授权。网页 Cookie/cftk 不能用于�
 - `MADAO_ASK_BASE_URL`：原生 Ask 上游地址。
 - `MADAO_BROWSER_EXECUTABLE`：授权所用 Chromium 路径。
 
-252 通过 TeamCity `Deploy 252 Cluster` 部署。`SUB2API_MADAO=1` 启用
-`deploy/docker-compose.madao.yml`，凭据保存在持久化卷，适配器端口不发布到公网。
+252 通过 TeamCity `Deploy 252 Cluster` 部署。`SUB2API_MADAO=1` 启用统一的
+`deploy/docker-compose.adapters.yml` 里的 `madao` profile，凭据保存在持久化卷，
+适配器端口不发布到公网。
 
 ## 验证
 

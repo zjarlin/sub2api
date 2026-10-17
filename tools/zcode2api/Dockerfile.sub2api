@@ -12,7 +12,13 @@ COPY zcode2api/internal ./internal
 RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/adapter ./cmd/server
 
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates tzdata wget \
+# 构建机在国内网络时可用 ALPINE_MIRROR 指向镜像站（例如 https://mirrors.tuna.tsinghua.edu.cn/alpine）。
+ARG ALPINE_MIRROR=
+
+RUN if [ -n "$ALPINE_MIRROR" ]; then \
+      sed -i "s|https://dl-cdn.alpinelinux.org/alpine|$ALPINE_MIRROR|g" /etc/apk/repositories; \
+    fi \
+ && apk add --no-cache ca-certificates tzdata wget \
  && adduser -D -u 10001 app \
  && mkdir -p /app/data && chown -R app:app /app
 WORKDIR /app

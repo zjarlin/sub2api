@@ -5,7 +5,7 @@
 
 ## 启动
 
-部署使用 `deploy/docker-compose.builtin-adapters.yml`，设置独立的
+部署使用 `deploy/docker-compose.adapters.yml` 的 `vibex` profile（`.env` 设 `SUB2API_VIBEX=1`），设置独立的
 `VIBEX_ADAPTER_KEY`。后台配置为 `BUILTIN_ADAPTER_ENABLED=true`、
 `BUILTIN_ADAPTER_VIBEX_URL=http://sub2api-vibex:7866`、
 `BUILTIN_ADAPTER_VIBEX_KEY`。适配器端口不发布到公网。
