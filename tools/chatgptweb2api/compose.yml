@@ -7,8 +7,8 @@ services:
     restart: unless-stopped
     shm_size: 512m
     # Chromium 不允许把宿主 swap 吃满：内存与 swap 上限相同 = 禁用该容器的 swap。
-    mem_limit: 1g
-    memswap_limit: 1g
+    mem_limit: 1536m
+    memswap_limit: 1536m
     mem_swappiness: 0
     pids_limit: 256
     # 宿主内存真的告急时优先杀浏览器适配器，保住 sshd / gateway / sub2api。
