@@ -14,6 +14,10 @@
 - `POST /videos/generations` 调用 `MEDIA_VIDEO_GENERATION_COMMAND` 或视频生成上游
 - `POST /videos/transcode` 使用镜像内 ffmpeg 做基础 H.264/AAC 转码
 - 视频链路中的 ASR、人声分离、TTS、时间轴对齐和混音由接入的上游实现，服务只负责任务与文件边界
+- `GET|POST /relay/{provider}/{path}`：素材与文生视频服务商透明中继。网关侧集中持有
+  各家真实凭据，调用方只持 Sub2API API Key；中继只做「前缀剥离 + 注入凭据 + 原样透传」，
+  不做协议转换，因此各平台仍保留自己的原生请求与响应格式
+- `GET /relay/providers`：列出已在网关侧配置凭据的服务商
 
 ## 配置
 
@@ -24,6 +28,29 @@
 - `MEDIA_TRANSCODE_COMMAND`：可选，覆盖内置 ffmpeg 转码命令；同样使用 `MEDIA_INPUT`、`MEDIA_OUTPUT`
 - `MEDIA_VIDEO_GENERATION_COMMAND` / `MEDIA_VIDEO_GENERATION_UPSTREAM_URL`：视频生成后端
 - `MEDIA_DATA_DIR`：任务输入输出持久化目录，默认 `/data`
+- `PROVIDER_<NAME>_API_KEY`：各中继服务商的上游凭据；未设置即该服务商保持关闭
+  （请求 503，`/relay/providers` 也不列出）
+- `PROVIDER_<NAME>_API_KEY_BASE_URL`：可选，覆盖该服务商的上游基地址
+  （自建网关或区域端点）
+
+## 服务商中继
+
+网关集中持有各家素材 / 文生视频凭据，调用方把各平台 Base URL 指向网关前缀即可：
+
+| 平台 | 中继前缀 | 凭据环境变量 |
+| --- | --- | --- |
+| Pexels | `/media/relay/pexels` | `PROVIDER_PEXELS_API_KEY` |
+| Pixabay | `/media/relay/pixabay` | `PROVIDER_PIXABAY_API_KEY` |
+| Coverr | `/media/relay/coverr` | `PROVIDER_COVERR_API_KEY` |
+| OFoxAI | `/media/relay/ofox` | `PROVIDER_OFOX_API_KEY` |
+| 秘塔 MiniMax | `/media/relay/metaso` | `PROVIDER_METASO_MINIMAX_API_KEY` |
+| MuAPI | `/media/relay/muapi` | `PROVIDER_MUAPI_API_KEY` |
+| WaveSpeed AI | `/media/relay/wavespeed` | `PROVIDER_WAVESPEED_API_KEY` |
+| Seedance (Ark) | `/media/relay/seedance` | `PROVIDER_SEEDANCE_API_KEY` |
+
+安全边界：只转发白名单服务商与固定上游主机，不构成开放代理；上游凭据只从环境变量
+读取，请求与响应都不回声密钥；入站的 `Authorization` / `x-api-key` 一律不向上游
+透传，改用服务端凭据，避免调用方用自己的网关 Key 冒充上游 Key。
 
 ## 模型
 
