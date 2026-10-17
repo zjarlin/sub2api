@@ -3,6 +3,7 @@
 - `EdgeServiceCatalog.vue`：服务卡片矩阵，支持分类与搜索。
 - `catalog.ts`：服务目录和 URL 契约。`service`、`tab`、`endpoint`、`adapter` 可分享；请求和凭据草稿不写入 URL。
 - `EdgeServiceDocs.vue`：服务专属端点、请求参数、鉴权和响应文档。
+- `EdgeServiceSkill.vue` / `skill.ts`：把当前服务、端点与请求示例生成成可安装的 `SKILL.md`；目录名与 frontmatter `name` 由 `edgeSkillName` 统一派生。
 - `TranslateProvidersCard.vue`：翻译适配上下文；服务开关、优先级和脱敏凭据由管理员配置接口保存，运行时立即读取。
 - `EdgeServiceContext.vue` / `contexts.ts`：展示视觉、TTS、配音运行配置及 Ark / Laya / JEV 实际账号。部署参数只读；账号密钥通过专用脱敏接口更新，留空保留原值。
 - `edge-console.css`：仅作用于边缘服务的控制台样式，包含详情文档、请求示例、上下文及移动端布局。

@@ -410,6 +410,24 @@ describe('VisionEdgeView workbench', () => {
     expect((wrapper.get('[data-testid="edge-request-url"]').element as HTMLInputElement).value).toContain('/api/v1/translate/providers')
   })
 
+  it('renders an installable skill generated from the current service', async () => {
+    navigation.query = edgeQuery({}, EDGE_SERVICES.find(item => item.key === 'translate'), 'skill') as Record<string, string>
+    const wrapper = mount(VisionEdgeView)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="edge-skill-name"]').text()).toBe('sub2api-edge-translate')
+    expect(wrapper.get('[data-testid="edge-skill-path"]').text()).toBe('~/.codex/skills/sub2api-edge-translate/SKILL.md')
+    const preview = wrapper.get('[data-testid="edge-skill-preview"]').text()
+    expect(preview).toContain('name: sub2api-edge-translate')
+    expect(preview).toContain('/api/v1/translate')
+    expect(preview).toContain('$SUB2API_KEY')
+
+    // 切换端点后 Skill 内容随之更新
+    navigation.query = edgeQuery({}, EDGE_SERVICES.find(item => item.key === 'translate'), 'skill', 'translate-providers') as Record<string, string>
+    await flushPromises()
+    expect(wrapper.get('[data-testid="edge-skill-preview"]').text()).toContain('/api/v1/translate/providers')
+  })
+
   it('ignores a response after switching endpoints', async () => {
     let resolve!: (response: Response) => void
     vi.stubGlobal('fetch', vi.fn().mockReturnValue(new Promise<Response>(done => { resolve = done })))

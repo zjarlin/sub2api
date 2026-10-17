@@ -39,6 +39,7 @@
 
       <p v-if="error" role="alert" class="edge-notice error">{{ error }}</p>
       <EdgeServiceDocs v-if="selection.tab === 'docs'" :service="selection.service" :endpoints="serviceEndpoints" :endpoint="selectedEndpoint" :code="documentationCode" :base-url="baseUrl" :adapter="selection.adapter" />
+      <EdgeServiceSkill v-else-if="selection.tab === 'skill'" :service="selection.service" :service-title="serviceTitle" :service-description="t('admin.vision.catalog.' + selection.service.title + 'Description')" :endpoints="serviceEndpoints" :endpoint="selectedEndpoint" :gateway-origin="baseUrl" :example="documentationCode" />
       <TranslateProvidersCard v-if="selection.tab === 'context' && selection.service.key === 'translate'" class="edge-translate-context" :adapter="selection.adapter" @select="selectAdapter" @saved="loadStatus" />
       <MailServiceContext v-else-if="selection.tab === 'context' && selection.service.key === 'mail'" />
       <EdgeServiceContext v-else-if="selection.tab === 'context'" :key="selection.service.key" :service="selection.service" :context="contexts[selection.service.key]" :loading="contextsLoading" :error="contextsError" @refresh="loadContexts" @saved="loadContexts" />
@@ -334,6 +335,7 @@ import { useEdgeResponse } from '@/features/edge/useEdgeResponse'
 import KeyValueEditor from '@/features/edge/KeyValueEditor.vue'
 import EdgeServiceCatalog from '@/features/edge/EdgeServiceCatalog.vue'
 import EdgeServiceDocs from '@/features/edge/EdgeServiceDocs.vue'
+import EdgeServiceSkill from '@/features/edge/EdgeServiceSkill.vue'
 import TranslateProvidersCard from '@/features/edge/TranslateProvidersCard.vue'
 import EdgeServiceContext from '@/features/edge/EdgeServiceContext.vue'
 import MailServiceContext from '@/features/edge/MailServiceContext.vue'
@@ -384,7 +386,7 @@ const route = useRoute()
 const router = useRouter()
 const selection = computed(() => edgeSelection(route.query))
 const serviceTitle = computed(() => selection.value.service ? t('admin.vision.catalog.' + selection.value.service.title + 'Title') : '')
-const detailTabs: Array<{ key: EdgeDetailTab; icon: 'book' | 'play' | 'terminal' | 'cog' }> = [{ key: 'docs', icon: 'book' }, { key: 'debug', icon: 'play' }, { key: 'code', icon: 'terminal' }, { key: 'context', icon: 'cog' }]
+const detailTabs: Array<{ key: EdgeDetailTab; icon: 'book' | 'play' | 'terminal' | 'sparkles' | 'cog' }> = [{ key: 'docs', icon: 'book' }, { key: 'debug', icon: 'play' }, { key: 'code', icon: 'terminal' }, { key: 'skill', icon: 'sparkles' }, { key: 'context', icon: 'cog' }]
 const { copyToClipboard } = useClipboard()
 const loading = ref(true)
 const error = ref('')

@@ -14,13 +14,13 @@ export const EDGE_SERVICES = [
 ] as const
 
 export type EdgeService = typeof EDGE_SERVICES[number]
-export type EdgeDetailTab = 'docs' | 'debug' | 'code' | 'context'
+export type EdgeDetailTab = 'docs' | 'debug' | 'code' | 'skill' | 'context'
 export const EDGE_ADAPTERS = ['baidu', 'tencent', 'youdao', 'mymemory', 'libretranslate', 'hymt', 'caiyun', 'google_web'] as const
 export type EdgeAdapter = typeof EDGE_ADAPTERS[number]
 
 export function edgeSelection(query: LocationQuery) {
   const service = EDGE_SERVICES.find(item => item.key === query.service)
-  const tab = ['docs', 'debug', 'code', 'context'].includes(String(query.tab)) ? query.tab as EdgeDetailTab : 'docs'
+  const tab = ['docs', 'debug', 'code', 'skill', 'context'].includes(String(query.tab)) ? query.tab as EdgeDetailTab : 'docs'
   const endpoint = service?.endpoints.find(key => key === query.endpoint) ?? service?.endpoints[0]
   const adapter = EDGE_ADAPTERS.find(key => key === query.adapter) ?? 'baidu'
   return { service, tab, endpoint, adapter }

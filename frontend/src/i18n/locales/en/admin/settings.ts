@@ -1703,7 +1703,7 @@ export default {
       layaTitle: 'Laya Decisions', layaDescription: 'Local decision inference with structured questions.',
       jevTitle: 'JEV Decisions', jevDescription: 'TypeSafe JEV with the shared System One protocol.',
       mailTitle: 'Mail', mailDescription: 'Unified IMAP receiving and SMTP sending with account proxies and group authorization.',
-      docs: 'API Documentation', debug: 'API Explorer', code: 'Code Samples', context: 'Adapter Context',
+      docs: 'API Documentation', debug: 'API Explorer', code: 'Code Samples', skill: 'Integration Skill', context: 'Adapter Context',
       endpoints: 'API Endpoints', requestParameters: 'Request Parameters', parameter: 'Parameter', type: 'Type', description: 'Description', response: 'Example Response', authentication: 'Authentication', gateway: 'Gateway URL', adapters: 'Service Adapters',
       authDescription: 'Authenticate with a gateway API key. Provider credentials are used only on the server.',
       translationLimits: 'An explicit provider never falls back to another service. Hy-MT2 supports text only, up to 16 items and 4096 UTF-8 bytes per item. MyMemory supports up to 500 UTF-8 bytes per item.',
@@ -1719,6 +1719,11 @@ export default {
       },
     },
 
+    skill: {
+      description: 'Turn this service into an installable Codex skill so an agent can call it against the gateway contract without reading the docs manually.',
+      name: 'Skill name', installPath: 'Install path', copy: 'Copy SKILL.md', download: 'Download SKILL.md',
+      installHint: 'Save the content below as SKILL.md under the install path; Codex loads it when this service is needed. The gateway URL and endpoints come from this service, and the key is always the $SUB2API_KEY placeholder.',
+    },
     detail: {
       required: 'Required', noParameters: 'This endpoint takes no request parameters.', requestExample: 'Request example', moreLanguages: 'More languages',
       audioResponse: 'Returns an audio file for playback or download.', audioLimits: 'Up to 20,000 characters. Save using the response Content-Type; the upstream may return WAV.',

@@ -1696,7 +1696,7 @@ export default {
       layaTitle: 'Laya 决策', layaDescription: '本地决策模型，以结构化问题获取判断结果。',
       jevTitle: 'JEV 决策', jevDescription: 'TypeSafe JEV 接口，共用 System One 调用协议。',
       mailTitle: '邮件收发', mailDescription: '统一 IMAP 收件与 SMTP 发件，支持账号代理和分组授权。',
-      docs: '调用文档', debug: '在线调试', code: '接入代码', context: '适配上下文',
+      docs: '调用文档', debug: '在线调试', code: '接入代码', skill: '接入 Skill', context: '适配上下文',
       endpoints: 'API 端点', requestParameters: '请求参数', parameter: '参数', type: '类型', description: '说明', response: '响应示例', authentication: '鉴权', gateway: '网关地址', adapters: '服务适配器',
       authDescription: '使用网关 API Key 鉴权。上游服务商凭据仅在服务端使用。',
       translationLimits: '显式指定 provider 时不会回退到其他服务。Hy-MT2 仅支持 text，单批最多 16 项，每项最多 4096 UTF-8 字节。MyMemory 单项最多 500 UTF-8 字节。',
@@ -1712,6 +1712,11 @@ export default {
       },
     },
 
+    skill: {
+      description: '把当前服务生成成可安装的 Codex Skill，让智能体直接按网关契约调用，无需人工翻文档。',
+      name: 'Skill 名称', installPath: '安装路径', copy: '复制 SKILL.md', download: '下载 SKILL.md',
+      installHint: '把下方内容保存为 SKILL.md 并放到安装路径；Codex 会在需要调用本服务时自动加载。网关地址与端点均来自当前服务，密钥统一用 $SUB2API_KEY 占位。',
+    },
     detail: {
       required: '必填', noParameters: '此接口不需要请求参数。', requestExample: '请求示例', moreLanguages: '更多语言',
       audioResponse: '直接返回音频文件，可播放或下载。', audioLimits: '最多 20,000 字符。以响应 Content-Type 为准保存文件；上游可能返回 WAV。',
