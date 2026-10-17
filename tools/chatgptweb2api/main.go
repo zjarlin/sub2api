@@ -33,7 +33,7 @@ func run() error {
 		os.Getenv("CGW_HEADLESS") != "0",
 		answerWait,
 	)
-	if err := browser.start(); err != nil {
+	if err := startBrowserWithBackoff(browser); err != nil {
 		return err
 	}
 	defer browser.stop()
@@ -65,6 +65,24 @@ func splitModels(raw string) []string {
 		}
 	}
 	return models
+}
+
+// startBrowserWithBackoff 防止“启动失败 -> 容器退出 -> 立即重启”把宿主拖入
+// chromium fork 风暴；持续失败时交给 Docker 的退避策略处理。
+func startBrowserWithBackoff(browser *chatgptBrowser) error {
+	delays := []time.Duration{5 * time.Second, 15 * time.Second, 30 * time.Second}
+	var err error
+	for attempt := 0; ; attempt++ {
+		if err = browser.start(); err == nil {
+			return nil
+		}
+		if attempt >= len(delays) {
+			return err
+		}
+		log.Printf("ChatGPT web browser start failed (attempt %d/%d): %v; retrying in %s",
+			attempt+1, len(delays)+1, err, delays[attempt])
+		time.Sleep(delays[attempt])
+	}
 }
 
 func main() {
