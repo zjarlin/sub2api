@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -30,6 +31,39 @@ func TestModelSystemPromptPersistenceAndValidation(t *testing.T) {
 	require.Empty(t, (&ModelSystemPromptPolicy{}).PromptFor("deepseek-v4-pro"))
 	require.Equal(t, "始终使用简体中文回答。", policy.PromptFor("deepseek-v4-pro"))
 	require.Empty(t, policy.PromptFor("deepseek-v4-flash"))
+}
+
+// 与模型别名同入口的提示词策略在 DB 瞬时故障时同样沿用最近一次成功快照。
+func TestModelSystemPromptPolicySurvivesSettingsReadFailure(t *testing.T) {
+	ctx := context.Background()
+	repo := newMockSettingRepo()
+	settings := NewSettingService(repo, nil)
+	policy := &ModelSystemPromptPolicy{Entries: []ModelSystemPromptEntry{{Model: "deepseek-v4-pro", Prompt: "始终使用简体中文回答。"}}}
+	require.NoError(t, settings.SetModelSystemPromptPolicy(ctx, policy))
+	_, err := settings.GetModelSystemPromptPolicy(ctx)
+	require.NoError(t, err)
+
+	repo.getValueErr = errors.New("the database system is in recovery mode")
+	degraded, err := settings.GetModelSystemPromptPolicy(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "始终使用简体中文回答。", degraded.PromptFor("deepseek-v4-pro"))
+}
+
+// 冷启动读库失败与非法配置都必须显式报错，不能被降级掩盖。
+func TestModelSystemPromptPolicyFailsClosedWithoutSnapshot(t *testing.T) {
+	repo := newMockSettingRepo()
+	repo.getValueErr = errors.New("the database system is in recovery mode")
+	_, err := NewSettingService(repo, nil).GetModelSystemPromptPolicy(context.Background())
+	require.Error(t, err)
+
+	repo = newMockSettingRepo()
+	settings := NewSettingService(repo, nil)
+	require.NoError(t, settings.SetModelSystemPromptPolicy(context.Background(), &ModelSystemPromptPolicy{Entries: []ModelSystemPromptEntry{{Model: "m", Prompt: "p"}}}))
+	_, err = settings.GetModelSystemPromptPolicy(context.Background())
+	require.NoError(t, err)
+	repo.data[SettingKeyModelSystemPrompts] = `{bad`
+	_, err = settings.GetModelSystemPromptPolicy(context.Background())
+	require.Error(t, err)
 }
 
 func TestInjectModelSystemPromptChatCompletions(t *testing.T) {

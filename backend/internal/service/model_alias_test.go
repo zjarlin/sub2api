@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"testing"
 	"time"
 
@@ -38,6 +39,93 @@ func TestGlobalModelAliasPersistenceAndValidation(t *testing.T) {
 	_, err = settings.GetModelAliasPolicy(ctx)
 	require.Error(t, err)
 	require.Equal(t, "global:deepseek-v4-flash", p.Canonicalize("global:deepseek-v4-flash"))
+}
+
+// DB 瞬时故障后必须沿用最近一次成功解析的别名快照，而不是把读库失败放大成网关 503。
+func TestGlobalModelAliasPolicySurvivesSettingsReadFailure(t *testing.T) {
+	ctx := context.Background()
+	repo := newMockSettingRepo()
+	settings := NewSettingService(repo, nil)
+	policy := aliasTestPolicy()
+	require.NoError(t, settings.SetModelAliasPolicy(ctx, policy))
+
+	warm, err := settings.GetModelAliasPolicy(ctx)
+	require.NoError(t, err)
+	require.Equal(t, policy, warm)
+
+	repo.getValueErr = errors.New("the database system is in recovery mode")
+	degraded, err := settings.GetModelAliasPolicy(ctx)
+	require.NoError(t, err)
+	require.Equal(t, policy, degraded)
+	require.Equal(t, "deepseek-v4-flash", degraded.Canonicalize("DeepSeek-V4-Flash"))
+
+	repo.getValueErr = nil
+	recovered, err := settings.GetModelAliasPolicy(ctx)
+	require.NoError(t, err)
+	require.Equal(t, policy, recovered)
+}
+
+// 冷启动（进程内从未成功读取过）时读库失败仍必须显式报错，不能凭默认值放行。
+func TestGlobalModelAliasPolicyColdStartReadFailureStillFails(t *testing.T) {
+	repo := newMockSettingRepo()
+	repo.getValueErr = errors.New("the database system is in recovery mode")
+	_, err := NewSettingService(repo, nil).GetModelAliasPolicy(context.Background())
+	require.Error(t, err)
+}
+
+// 配置本身解码/校验失败属于真实缺陷，即使有旧快照也必须显式报错，不能被降级掩盖。
+func TestGlobalModelAliasPolicyInvalidConfigurationIsNotMasked(t *testing.T) {
+	ctx := context.Background()
+	repo := newMockSettingRepo()
+	settings := NewSettingService(repo, nil)
+	require.NoError(t, settings.SetModelAliasPolicy(ctx, aliasTestPolicy()))
+	_, err := settings.GetModelAliasPolicy(ctx)
+	require.NoError(t, err)
+
+	repo.data[SettingKeyModelAliases] = `{bad`
+	_, err = settings.GetModelAliasPolicy(ctx)
+	require.Error(t, err)
+
+	repo.data[SettingKeyModelAliases] = `{"groups":[{"canonical":"x","aliases":["x"]}]}`
+	_, err = settings.GetModelAliasPolicy(ctx)
+	require.Error(t, err)
+}
+
+// 降级返回的快照必须是深拷贝，调用方改写不能污染进程内缓存。
+func TestGlobalModelAliasPolicyFallbackSnapshotIsIsolated(t *testing.T) {
+	ctx := context.Background()
+	repo := newMockSettingRepo()
+	settings := NewSettingService(repo, nil)
+	require.NoError(t, settings.SetModelAliasPolicy(ctx, aliasTestPolicy()))
+	_, err := settings.GetModelAliasPolicy(ctx)
+	require.NoError(t, err)
+
+	repo.getValueErr = errors.New("settings unavailable")
+	first, err := settings.GetModelAliasPolicy(ctx)
+	require.NoError(t, err)
+	first.Groups[0].Canonical = "mutated"
+	first.Groups[0].Aliases[0] = "mutated-alias"
+
+	second, err := settings.GetModelAliasPolicy(ctx)
+	require.NoError(t, err)
+	require.Equal(t, "deepseek-v4-flash", second.Groups[0].Canonical)
+	require.Equal(t, "DeepSeek-V4-Flash", second.Groups[0].Aliases[0])
+}
+
+// 未配置别名（缺键或空值）应返回空策略并写入缓存，供后续读库失败时降级。
+func TestGlobalModelAliasPolicyEmptySettingPopulatesFallback(t *testing.T) {
+	ctx := context.Background()
+	repo := newMockSettingRepo()
+	settings := NewSettingService(repo, nil)
+
+	empty, err := settings.GetModelAliasPolicy(ctx)
+	require.NoError(t, err)
+	require.Empty(t, empty.Groups)
+
+	repo.getValueErr = errors.New("settings unavailable")
+	degraded, err := settings.GetModelAliasPolicy(ctx)
+	require.NoError(t, err)
+	require.Empty(t, degraded.Groups)
 }
 
 func TestGlobalModelAliasAccountRoutingAndIsolation(t *testing.T) {

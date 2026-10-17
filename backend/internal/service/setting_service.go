@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -15,6 +17,9 @@ import (
 	"golang.org/x/sync/singleflight"
 	"sync"
 )
+
+// modelPolicyFallbackLogInterval 限定降级日志的最小输出间隔。
+const modelPolicyFallbackLogInterval = time.Minute
 
 const (
 	GrokDefaultBaseURLModeAPI     = "api"
@@ -155,6 +160,14 @@ type SettingService struct {
 	openAIQuotaAutoPauseSettingsCache atomic.Value // *cachedOpenAIQuotaAutoPauseSettings
 	openAIQuotaAutoPauseSettingsSF    singleflight.Group
 	openAIAPIKeyHealthBreakerCache    atomic.Value // *cachedOpenAIAPIKeyHealthBreakerSettings
+
+	// modelAliasPolicyCache / modelSystemPromptPolicyCache 保存最近一次成功解析的别名与提示词
+	// 策略快照。网关文本入口每次请求都会读取这两项配置，DB 瞬时不可用时用最近一次成功值降级，
+	// 避免把一次读库失败放大成整个网关的 503；配置本身非法仍显式报错。
+	modelAliasPolicyCache        atomic.Value // *ModelAliasPolicy
+	modelSystemPromptPolicyCache atomic.Value // *ModelSystemPromptPolicy
+	// modelPolicyFallbackLogAt 为别名/提示词降级日志做进程内限流；DB 故障期间每个请求都会读取配置，避免刷屏。
+	modelPolicyFallbackLogAt atomic.Int64
 
 	channelMonitorRuntimeListenersMu sync.Mutex
 	channelMonitorRuntimeListeners   []func()
@@ -297,6 +310,21 @@ func NewSettingService(settingRepo SettingRepository, cfg *config.Config) *Setti
 		settingRepo: settingRepo,
 		cfg:         cfg,
 	}
+}
+
+// logModelPolicyFallback 为「读配置失败改用最近一次成功快照」输出限流日志。
+// 网关文本入口每次请求都会读取别名与提示词配置，DB 故障期间必须保留可观测性又不刷屏；
+// 与 openai_proxy_stream_circuit.go 的限流日志一致，用 CAS 保证同一窗口只打印一条。
+func (s *SettingService) logModelPolicyFallback(settingKey string, err error) {
+	if s == nil || err == nil {
+		return
+	}
+	now := time.Now().UnixNano()
+	last := s.modelPolicyFallbackLogAt.Load()
+	if now-last < int64(modelPolicyFallbackLogInterval) || !s.modelPolicyFallbackLogAt.CompareAndSwap(last, now) {
+		return
+	}
+	slog.Warn("gateway.model_policy_stale_fallback", "setting_key", settingKey, "error", err)
 }
 
 // SetDefaultSubscriptionGroupReader injects an optional group reader for default subscription validation.

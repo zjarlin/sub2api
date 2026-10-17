@@ -57,6 +57,22 @@ func (p *ModelAliasPolicy) Canonicalize(model string) string {
 	return model
 }
 
+// cloneModelAliasPolicy 深拷贝别名策略，避免进程内降级快照与调用方共享底层切片。
+func cloneModelAliasPolicy(policy *ModelAliasPolicy) *ModelAliasPolicy {
+	if policy == nil {
+		return nil
+	}
+	clone := &ModelAliasPolicy{Groups: make([]ModelAliasGroup, len(policy.Groups))}
+	for i, group := range policy.Groups {
+		clone.Groups[i] = ModelAliasGroup{Canonical: group.Canonical, Aliases: slices.Clone(group.Aliases)}
+	}
+	return clone
+}
+
+// GetModelAliasPolicy 读取全局模型别名策略。
+// 网关文本入口每个请求都会读取该配置，读库失败时沿用最近一次成功解析的快照，
+// 避免一次瞬时 DB 故障被放大成整个网关的 503。解码/校验失败与冷启动（从未成功
+// 读取过）仍显式报错，不掩盖真正的配置缺陷。
 func (s *SettingService) GetModelAliasPolicy(ctx context.Context) (*ModelAliasPolicy, error) {
 	if policy := ModelAliasesFromContext(ctx); policy != nil {
 		return policy, nil
@@ -66,9 +82,15 @@ func (s *SettingService) GetModelAliasPolicy(ctx context.Context) (*ModelAliasPo
 	}
 	raw, err := s.settingRepo.GetValue(ctx, SettingKeyModelAliases)
 	if errors.Is(err, ErrSettingNotFound) || (err == nil && raw == "") {
-		return &ModelAliasPolicy{}, nil
+		empty := &ModelAliasPolicy{}
+		s.storeModelAliasPolicy(empty)
+		return empty, nil
 	}
 	if err != nil {
+		if cached := s.cachedModelAliasPolicy(); cached != nil {
+			s.logModelPolicyFallback(SettingKeyModelAliases, err)
+			return cached, nil
+		}
 		return nil, err
 	}
 	var policy ModelAliasPolicy
@@ -78,7 +100,17 @@ func (s *SettingService) GetModelAliasPolicy(ctx context.Context) (*ModelAliasPo
 	if err := policy.Validate(); err != nil {
 		return nil, err
 	}
+	s.storeModelAliasPolicy(&policy)
 	return &policy, nil
+}
+
+func (s *SettingService) storeModelAliasPolicy(policy *ModelAliasPolicy) {
+	s.modelAliasPolicyCache.Store(cloneModelAliasPolicy(policy))
+}
+
+func (s *SettingService) cachedModelAliasPolicy() *ModelAliasPolicy {
+	cached, _ := s.modelAliasPolicyCache.Load().(*ModelAliasPolicy)
+	return cloneModelAliasPolicy(cached)
 }
 
 func (s *SettingService) SetModelAliasPolicy(ctx context.Context, policy *ModelAliasPolicy) error {

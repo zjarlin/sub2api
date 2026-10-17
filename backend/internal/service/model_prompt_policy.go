@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -55,6 +56,18 @@ func (p *ModelSystemPromptPolicy) PromptFor(model string) string {
 	return ""
 }
 
+// cloneModelSystemPromptPolicy 深拷贝提示词策略，避免进程内降级快照与调用方共享底层切片。
+func cloneModelSystemPromptPolicy(policy *ModelSystemPromptPolicy) *ModelSystemPromptPolicy {
+	if policy == nil {
+		return nil
+	}
+	clone := &ModelSystemPromptPolicy{Entries: slices.Clone(policy.Entries)}
+	return clone
+}
+
+// GetModelSystemPromptPolicy 读取按模型注入的 system 提示词策略。
+// 与模型别名在同一次入口绑定，读库失败时沿用最近一次成功解析的快照，避免同一入口
+// 因 DB 瞬时故障产生与别名一致的 503；解码/校验失败与冷启动仍显式报错。
 func (s *SettingService) GetModelSystemPromptPolicy(ctx context.Context) (*ModelSystemPromptPolicy, error) {
 	if policy := ModelSystemPromptsFromContext(ctx); policy != nil {
 		return policy, nil
@@ -64,9 +77,15 @@ func (s *SettingService) GetModelSystemPromptPolicy(ctx context.Context) (*Model
 	}
 	raw, err := s.settingRepo.GetValue(ctx, SettingKeyModelSystemPrompts)
 	if errors.Is(err, ErrSettingNotFound) || (err == nil && raw == "") {
-		return &ModelSystemPromptPolicy{}, nil
+		empty := &ModelSystemPromptPolicy{}
+		s.storeModelSystemPromptPolicy(empty)
+		return empty, nil
 	}
 	if err != nil {
+		if cached := s.cachedModelSystemPromptPolicy(); cached != nil {
+			s.logModelPolicyFallback(SettingKeyModelSystemPrompts, err)
+			return cached, nil
+		}
 		return nil, err
 	}
 	var policy ModelSystemPromptPolicy
@@ -76,7 +95,17 @@ func (s *SettingService) GetModelSystemPromptPolicy(ctx context.Context) (*Model
 	if err := policy.Validate(); err != nil {
 		return nil, err
 	}
+	s.storeModelSystemPromptPolicy(&policy)
 	return &policy, nil
+}
+
+func (s *SettingService) storeModelSystemPromptPolicy(policy *ModelSystemPromptPolicy) {
+	s.modelSystemPromptPolicyCache.Store(cloneModelSystemPromptPolicy(policy))
+}
+
+func (s *SettingService) cachedModelSystemPromptPolicy() *ModelSystemPromptPolicy {
+	cached, _ := s.modelSystemPromptPolicyCache.Load().(*ModelSystemPromptPolicy)
+	return cloneModelSystemPromptPolicy(cached)
 }
 
 func (s *SettingService) SetModelSystemPromptPolicy(ctx context.Context, policy *ModelSystemPromptPolicy) error {
