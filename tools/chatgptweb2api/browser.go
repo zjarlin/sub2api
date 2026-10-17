@@ -157,7 +157,7 @@ func (b *chatgptBrowser) startLocked() error {
 		chromedp.Flag("disable-software-rasterizer", true),
 		// 限制渲染进程的 JS 堆与进程数，避免长跑页把宿主 swap 吃满。
 		chromedp.Flag("js-flags", fmt.Sprintf("--max-old-space-size=%d", b.jsHeapMB)),
-		chromedp.Flag("renderer-process-limit", 2),
+		chromedp.Flag("renderer-process-limit", "2"),
 		chromedp.Flag("hide-scrollbars", true),
 		chromedp.Flag("lang", "en-US"),
 		chromedp.UserAgent(b.userAgent),
