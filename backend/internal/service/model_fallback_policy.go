@@ -640,6 +640,14 @@ func ModelAccountCompatible(account *Account, model string, body []byte) bool {
 }
 
 func modelAccountCompatible(account *Account, model string, body []byte, assistedVision bool) bool {
+	return modelAccountCompatibleWithOptions(account, model, body, assistedVision, false)
+}
+
+// assistedReference 为 true 时，账号级检查不再把「服务端引用型条目」当作能力缺失：
+// 这些条目由真实转发路径规范化或丢弃，同一账号池可以正常服务（Auto 选模用）。
+// 为 false 时保持严格判定，供换模型重放（failover）使用——重放到别的上游会
+// 丢掉服务端引用并 400/404。
+func modelAccountCompatibleWithOptions(account *Account, model string, body []byte, assistedVision, assistedReference bool) bool {
 	if account == nil || !modelAccountPreservesSearchTools(account, model, body) {
 		return false
 	}
@@ -676,13 +684,14 @@ func modelAccountCompatible(account *Account, model string, body []byte, assiste
 	if known && string(metadata.CodexToolCapabilities["supports_function_calling"]) == "false" && gjson.GetBytes(body, "tools.#").Int() > 0 {
 		return false
 	}
-	return modelInputCompatible(gjson.GetBytes(body, "input"), account, model, assistedVision) && modelInputCompatible(gjson.GetBytes(body, "messages"), account, model, assistedVision)
+	return modelInputCompatible(gjson.GetBytes(body, "input"), account, model, assistedVision, assistedReference) &&
+		modelInputCompatible(gjson.GetBytes(body, "messages"), account, model, assistedVision, assistedReference)
 }
 
 // 请求级先排除不可移植输入；加密推理会在真正换模型时剔除，图片能力仍在每个候选账号上检查。
 func ModelFallbackRequestPortable(body []byte) bool {
-	return modelInputCompatible(gjson.GetBytes(body, "input"), nil, "", false) &&
-		modelInputCompatible(gjson.GetBytes(body, "messages"), nil, "", false)
+	return modelInputCompatible(gjson.GetBytes(body, "input"), nil, "", false, false) &&
+		modelInputCompatible(gjson.GetBytes(body, "messages"), nil, "", false, false)
 }
 
 func modelInputImageDataBytes(value gjson.Result) int64 {
@@ -711,12 +720,16 @@ func modelInputImageDataBytes(value gjson.Result) int64 {
 	return size
 }
 
-func modelInputCompatible(value gjson.Result, account *Account, model string, assistedVision bool) bool {
+func modelInputCompatible(value gjson.Result, account *Account, model string, assistedVision, assistedReference bool) bool {
 	if !value.IsObject() && !value.IsArray() {
 		return true
 	}
 	if value.Get("role").String() == "assistant" && value.Get("audio.id").String() != "" {
-		return false
+		// 历史里带服务端音频引用的助手消息：换模型重放不可移植（严格），但真实转发
+		// 会丢弃该引用，Auto 的账号级预检不应因此把整池账号判成不兼容。
+		if !assistedReference {
+			return false
+		}
 	}
 	switch value.Get("type").String() {
 	case "input_image", "image_url", "image":
@@ -729,8 +742,19 @@ func modelInputCompatible(value gjson.Result, account *Account, model string, as
 			}
 		}
 	case "input_file", "file", "input_audio", "audio", "video", "video_url", "input_video", "item_reference":
-		return false
+		// 引用型/媒体型条目只影响「请求级可移植性」：换模型重放会丢掉服务端引用或
+		// 媒体，落到别的上游会 400/404，所以请求级检查与换模型重放一律排除它们。
+		//
+		// Auto 的账号级预检则是另一回事：真实转发路径（Responses 原生直转或
+		// Responses→Chat 桥接）会规范化或丢弃这些条目，同一账号池可以正常服务，
+		// 因此带 assistedReference 时不算账号能力缺失。2026-10-12 事故中 Auto 预检
+		// 把全部候选判成 no_compatible_account，使 /v1/responses 对 model=auto
+		// 一律返回 503「no eligible model」。
+		if account == nil || !assistedReference {
+			return false
+		}
 	case "redacted_thinking":
+		// 上游明确拒绝加密思考项（400），任何账号都无法转发。
 		return false
 	case "thinking":
 		if value.Get("signature").String() != "" {
@@ -750,7 +774,7 @@ func modelInputCompatible(value gjson.Result, account *Account, model string, as
 	}
 	compatible := true
 	value.ForEach(func(_, child gjson.Result) bool {
-		compatible = modelInputCompatible(child, account, model, assistedVision)
+		compatible = modelInputCompatible(child, account, model, assistedVision, assistedReference)
 		return compatible
 	})
 	return compatible
