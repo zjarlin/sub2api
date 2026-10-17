@@ -23,6 +23,8 @@ python3 -m pytest -q edge-media/tests
 | `POST /videos/transcode` | `multipart/form-data`，字段 `video` 与 `options`，内置 ffmpeg H.264/AAC |
 | `GET /tasks/{task_id}` | 查询任务状态（状态持久化在 `/data/tasks/<id>/task.json`） |
 | `GET /tasks/{task_id}/content` | 下载任务产物 |
+| `GET /relay/providers` | 列出网关侧已配置凭据的素材 / 文生视频服务商 |
+| `GET|POST /relay/{provider}/{path}` | 素材与文生视频服务商透明中继（前缀剥离 + 注入凭据 + 原样透传） |
 
 ## 视频配音用法
 

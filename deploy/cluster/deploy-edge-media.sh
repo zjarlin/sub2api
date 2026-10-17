@@ -19,6 +19,25 @@ docker network inspect "$NETWORK" >/dev/null 2>&1 || {
   exit 1
 }
 
+# 服务商中继凭据：显式环境变量优先，否则读取 $DEPLOY_DIR/.env 中同名键。
+# 只取白名单键值，不执行 .env 的 shell 内容。
+for key in \
+  PROVIDER_PEXELS_API_KEY PROVIDER_PIXABAY_API_KEY PROVIDER_COVERR_API_KEY \
+  PROVIDER_OFOX_API_KEY PROVIDER_METASO_MINIMAX_API_KEY PROVIDER_MUAPI_API_KEY \
+  PROVIDER_WAVESPEED_API_KEY PROVIDER_SEEDANCE_API_KEY; do
+  if [ -z "${!key:-}" ] && [ -f "$DEPLOY_DIR/.env" ]; then
+    value="$(awk -F= -v name="$key" '
+      $1 ~ "^[[:space:]]*(export[[:space:]]+)?" name "[[:space:]]*$" {
+        v=$2; sub(/#.*/, "", v); gsub(/^[[:space:]"\047]+|[[:space:]"\047]+$/, "", v); result=v
+      }
+      END { print result }
+    ' "$DEPLOY_DIR/.env")"
+    if [ -n "$value" ]; then
+      export "$key=$value"
+    fi
+  fi
+done
+
 echo "构建边缘媒体镜像 $IMAGE"
 docker build \
   -t "$IMAGE" \
@@ -47,6 +66,14 @@ EDGE_MEDIA_IMAGE="$IMAGE" \
   MEDIA_VIDEO_GENERATION_UPSTREAM_URL="${MEDIA_VIDEO_GENERATION_UPSTREAM_URL:-}" \
   MEDIA_VIDEO_GENERATION_COMMAND="${MEDIA_VIDEO_GENERATION_COMMAND:-}" \
   MEDIA_TRANSCODE_COMMAND="${MEDIA_TRANSCODE_COMMAND:-}" \
+  PROVIDER_PEXELS_API_KEY="${PROVIDER_PEXELS_API_KEY:-}" \
+  PROVIDER_PIXABAY_API_KEY="${PROVIDER_PIXABAY_API_KEY:-}" \
+  PROVIDER_COVERR_API_KEY="${PROVIDER_COVERR_API_KEY:-}" \
+  PROVIDER_OFOX_API_KEY="${PROVIDER_OFOX_API_KEY:-}" \
+  PROVIDER_METASO_MINIMAX_API_KEY="${PROVIDER_METASO_MINIMAX_API_KEY:-}" \
+  PROVIDER_MUAPI_API_KEY="${PROVIDER_MUAPI_API_KEY:-}" \
+  PROVIDER_WAVESPEED_API_KEY="${PROVIDER_WAVESPEED_API_KEY:-}" \
+  PROVIDER_SEEDANCE_API_KEY="${PROVIDER_SEEDANCE_API_KEY:-}" \
   SUB2API_NETWORK="$NETWORK" \
   docker compose -f "$EDGE_MEDIA_DIR/compose/docker-compose.yml" up -d --force-recreate
 

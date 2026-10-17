@@ -31,12 +31,7 @@ func (h *GatewayHandler) MediaProxy(c *gin.Context) {
 	}
 
 	endpoint := strings.TrimPrefix(c.Param("proxyPath"), "/")
-	switch endpoint {
-	case "tts", "v1/audio/speech", "videos/dub", "videos/generations", "videos/transcode":
-	default:
-		if c.Request.Method == http.MethodGet && strings.HasPrefix(endpoint, "tasks/") {
-			break
-		}
+	if !isAllowedMediaEndpoint(endpoint, c.Request.Method) {
 		c.JSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "Media endpoint not found"}})
 		return
 	}
@@ -202,4 +197,21 @@ func mediaTextCharacters(contentType string, body []byte) int {
 // isTTSEndpoint 标记需要按文本长度计费的端点。
 func isTTSEndpoint(endpoint string) bool {
 	return endpoint == "tts" || endpoint == "v1/audio/speech"
+}
+
+// isAllowedMediaEndpoint 判定媒体入口允许的端点与方法。
+//
+// 除固定的媒体能力端点外，还放行两类：
+//   - GET tasks/*：任务状态与产物下载复用已生成结果，不再次计费。
+//   - relay/*：服务商中继。网关集中持有各家素材 / 文生视频凭据，调用方只持
+//     Sub2API API Key；上游凭据由 edge-media 注入，此层不接触密钥。
+func isAllowedMediaEndpoint(endpoint string, method string) bool {
+	switch endpoint {
+	case "tts", "v1/audio/speech", "videos/dub", "videos/generations", "videos/transcode":
+		return true
+	}
+	if method == http.MethodGet && strings.HasPrefix(endpoint, "tasks/") {
+		return true
+	}
+	return strings.HasPrefix(endpoint, "relay/")
 }

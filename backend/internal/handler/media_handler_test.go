@@ -50,3 +50,37 @@ func TestMediaProxyDisabledReturnsNotFound(t *testing.T) {
 		t.Fatalf("disabled media proxy status = %d, want %d", recorder.Code, http.StatusNotFound)
 	}
 }
+
+func TestIsAllowedMediaEndpoint(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name     string
+		endpoint string
+		method   string
+		want     bool
+	}{
+		{"tts", "tts", http.MethodPost, true},
+		{"openai speech", "v1/audio/speech", http.MethodPost, true},
+		{"dub", "videos/dub", http.MethodPost, true},
+		{"generations", "videos/generations", http.MethodPost, true},
+		{"transcode", "videos/transcode", http.MethodPost, true},
+		{"task status", "tasks/dub_abc", http.MethodGet, true},
+		{"task content", "tasks/dub_abc/content", http.MethodGet, true},
+		{"task status via POST rejected", "tasks/dub_abc", http.MethodPost, false},
+		// 服务商中继：GET 搜索与 POST 生成都在白名单内。
+		{"relay stock search", "relay/pexels/v1/videos/search", http.MethodGet, true},
+		{"relay video create", "relay/ofox/videos", http.MethodPost, true},
+		{"relay provider root", "relay/pixabay", http.MethodGet, true},
+		{"unknown endpoint", "secrets", http.MethodPost, false},
+		{"unknown relay-like", "relay", http.MethodGet, false},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isAllowedMediaEndpoint(tc.endpoint, tc.method); got != tc.want {
+				t.Fatalf("isAllowedMediaEndpoint(%q, %q) = %v, want %v", tc.endpoint, tc.method, got, tc.want)
+			}
+		})
+	}
+}

@@ -7,11 +7,12 @@ import os
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api import media_tasks, tts
+from app import relay
 from app.config import MediaConfig, load_config
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -44,6 +45,7 @@ async def health() -> dict[str, Any]:
         "tts_enabled": config.tts_enabled,
         "video_generation_enabled": config.video_generation_enabled,
         "dubbing_enabled": config.dubbing_enabled,
+        "relay_providers": [item["key"] for item in relay.configured_providers()],
     }
 
 
@@ -60,6 +62,8 @@ async def root() -> dict[str, Any]:
             "/videos/generations",
             "/videos/transcode",
             "/tasks/{task_id}/content",
+            "/relay/providers",
+            "/relay/{provider}/{path}",
         ],
     }
 
@@ -89,6 +93,24 @@ async def runtime_context() -> dict[str, Any]:
             "max_upload_bytes": config.max_upload_bytes,
         },
     }
+
+
+@app.get("/relay/providers")
+async def relay_providers() -> dict[str, Any]:
+    """列出已在网关侧配置凭据的素材 / 视频生成服务商。"""
+    return {"providers": relay.configured_providers()}
+
+
+@app.api_route("/relay/{provider}", methods=["GET", "POST"])
+async def relay_provider_root(provider: str, request: Request):
+    """中继服务商根路径请求。"""
+    return await relay.forward(provider, "", request)
+
+
+@app.api_route("/relay/{provider}/{path:path}", methods=["GET", "POST"])
+async def relay_provider_path(provider: str, path: str, request: Request):
+    """按前缀透明中继到白名单服务商，保留其原生协议。"""
+    return await relay.forward(provider, path, request)
 
 
 @app.post("/tts")
