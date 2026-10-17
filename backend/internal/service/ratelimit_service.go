@@ -2457,6 +2457,34 @@ func (s *RateLimitService) HandleTempUnschedulable(ctx context.Context, account 
 	return s.tryTempUnschedulable(ctx, account, statusCode, responseBody, firstRequestedModel(requestedModel))
 }
 
+// HandleUpstreamCreditsExhausted 应用内置的「上游额度/余额耗尽」规则。
+//
+// 与 HandleTempUnschedulable 不同，它不受池模式与自定义错误码开关约束：
+// 额度耗尽属于账号级可用性问题，任何模式下都应隔离当前账号并换号，否则空钱包
+// 账号会被反复选中（实测 14 小时 142 次）。返回 true 表示已隔离（模型级临时不可调度）。
+func (s *RateLimitService) HandleUpstreamCreditsExhausted(ctx context.Context, account *Account, statusCode int, responseBody []byte, requestedModel ...string) bool {
+	if s == nil || account == nil {
+		return false
+	}
+	match, ok := builtinTempUnschedulableRuleMatch(account, statusCode, responseBody)
+	if !ok {
+		return false
+	}
+	ctx = withTempUnschedulableModel(ctx, requestedModel)
+	handled := s.triggerTempUnschedulable(ctx, account, match.rule, match.ruleIndex, statusCode, match.matchedKeyword, responseBody, firstRequestedModel(requestedModel))
+	if handled {
+		slog.Info("upstream_credits_exhausted_model_temp_unschedulable",
+			"account_id", account.ID,
+			"model", firstRequestedModel(requestedModel),
+			"status_code", statusCode,
+			"matched_keyword", match.matchedKeyword,
+			"reason", upstreamCreditsExhaustedReason,
+			"duration_minutes", match.rule.DurationMinutes,
+		)
+	}
+	return handled
+}
+
 func (s *RateLimitService) HandleOpenAIImageRateLimit(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte) bool {
 	if s == nil || account == nil || s.accountRepo == nil {
 		return false
@@ -2794,9 +2822,37 @@ func matchTempUnschedulableRules(account *Account, statusCode int, responseBody 
 	return matches
 }
 
+// builtinTempUnschedulableRuleMatch 判定是否命中内置的「上游额度/余额耗尽」规则。
+//
+// 与账号自定义规则不同，内置规则默认对所有 OpenAI 兼容账号生效，不要求账号打开
+// temp_unschedulable_enabled，也不需要管理员逐账号配置。它复用同一套
+// temp_unschedulable 机制，只是匹配源是抽取后的结构化字段文本（而非整段 body），
+// 以避免命中回显的请求内容。返回 ok=false 表示本次不适用内置规则。
+func builtinTempUnschedulableRuleMatch(account *Account, statusCode int, responseBody []byte) (tempUnschedulableRuleMatch, bool) {
+	if account == nil || !account.IsOpenAICompatible() || len(responseBody) == 0 {
+		return tempUnschedulableRuleMatch{}, false
+	}
+	if !isUpstreamCreditsExhaustedError(statusCode, responseBody) {
+		return tempUnschedulableRuleMatch{}, false
+	}
+	text := upstreamCreditsExhaustedText(responseBody)
+	return tempUnschedulableRuleMatch{
+		rule:           builtinUpstreamCreditsExhaustedRule(),
+		ruleIndex:      upstreamCreditsExhaustedRuleIndex,
+		matchedKeyword: matchTempUnschedKeyword(text, upstreamCreditsExhaustedKeywords),
+	}, true
+}
+
 func (s *RateLimitService) tryTempUnschedulable(ctx context.Context, account *Account, statusCode int, responseBody []byte, requestedModel ...string) bool {
 	if account == nil {
 		return false
+	}
+	// 内置的「上游额度/余额耗尽」规则先于账号开关判定：它是平台级保护，
+	// 默认启用，不受账号是否手工开启 temp_unschedulable 影响。
+	if match, ok := builtinTempUnschedulableRuleMatch(account, statusCode, responseBody); ok {
+		if s.triggerTempUnschedulable(ctx, account, match.rule, match.ruleIndex, statusCode, match.matchedKeyword, responseBody, tempUnschedulableModel(ctx, requestedModel)) {
+			return true
+		}
 	}
 	if !account.IsTempUnschedulableEnabled() {
 		return false

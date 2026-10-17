@@ -329,6 +329,11 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(account *Acc
 	if isOpenAIHTTPUpstreamAccessStateError(statusCode, upstreamMsg, upstreamBody) {
 		return true
 	}
+	// 上游用 400 + 自由文本声明「额度/余额耗尽」时，账号对当前请求不可用：允许换号，
+	// 并交由内置 temp_unschedulable 规则隔离账号。判定只采信结构化字段，不扫描回显。
+	if isUpstreamCreditsExhaustedError(statusCode, upstreamBody) {
+		return true
+	}
 	if isOpenAIRequestBodyTooLargeError(statusCode, upstreamMsg, upstreamBody) {
 		return true
 	}

@@ -887,6 +887,11 @@ func shouldFailoverOpenAIPassthroughResponse(account *Account, statusCode int, r
 	if isOpenAIHTTPUpstreamAccessStateError(statusCode, "", responseBody) {
 		return true
 	}
+	// 上游用 400 + 自由文本声明「额度/余额耗尽」时，账号对当前请求不可用：允许换号
+	// （透传账号亦然），并交由内置 temp_unschedulable 规则隔离账号。
+	if isUpstreamCreditsExhaustedError(statusCode, responseBody) {
+		return true
+	}
 	if isOpenAIRequestBodyTooLargeError(statusCode, "", responseBody) {
 		return true
 	}
