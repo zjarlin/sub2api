@@ -3173,7 +3173,9 @@ func (s *GeminiMessagesCompatService) handleGeminiThirdParty429(ctx context.Cont
 		return
 	}
 	if s.rateLimitService != nil {
-		s.rateLimitService.apply429FallbackRateLimit(ctx, account, "gemini_third_party_no_reset_time")
+		// 该路径按响应正文（Gemini 的 retryDelay / RetryInfo）判定重试时间，已在上方解析；
+		// 走到这里说明正文没给出时间，交给全局 429 兜底冷却（不读 Retry-After 头）。
+		s.rateLimitService.apply429FallbackRateLimit(ctx, account, nil, "gemini_third_party_no_reset_time")
 		return
 	}
 	_ = s.accountRepo.SetRateLimited(ctx, account.ID, time.Now().Add(defaultRateLimit429CooldownSeconds*time.Second))

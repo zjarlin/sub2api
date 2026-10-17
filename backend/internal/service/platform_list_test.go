@@ -9,42 +9,66 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// 以下为重构前各处手写的平台列表 / switch，作为平台清单派生结果的等价基准；
-// 重构后新登记的平台（Command Code、Cline）按同类平台（OpenCode）的位置补入。
+// 以下为重构前各处手写的平台列表 / switch，作为平台清单派生结果的等价基准。
+// 本仓库（zjarlin fork）在清单里额外登记了网页会话适配器与自建平台，因此基准取
+// fork 历史顺序（见 domain/platforms.go 的 platformList）。
 var (
 	legacyAllPlatforms = []string{
 		PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformGrok,
-		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformTypeSafe,
-		PlatformCommandCode,
-		PlatformCline,
+		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformMadao,
+		PlatformArena, PlatformMiniMax, PlatformCursor, PlatformWindsurf, PlatformTeleagent,
+		PlatformOpenCodeGo, PlatformKilo, PlatformTypeSafe, PlatformCommandCode, PlatformCline,
+		PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode,
+		PlatformQoder, PlatformSystemOne, PlatformLaya, PlatformJev, PlatformModel3D, PlatformV0,
 	}
+	// schedulerSnapshotPlatforms / matchingPlatforms(composite) 沿用 fork 历史顺序：
+	// systemone 与历史值 laya/jev 在 Model3D / v0 之前。
 	legacySchedulerSnapshotPlatforms = []string{
 		PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok,
-		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformTypeSafe,
-		PlatformCommandCode,
-		PlatformCline,
+		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformMadao,
+		PlatformArena, PlatformMiniMax, PlatformCursor, PlatformWindsurf, PlatformTeleagent,
+		PlatformOpenCodeGo, PlatformKilo, PlatformTypeSafe, PlatformCommandCode, PlatformCline,
+		PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode,
+		PlatformQoder, PlatformSystemOne, PlatformLaya, PlatformJev, PlatformModel3D, PlatformV0,
 	}
 	legacyCompositeMatchingPlatforms = legacySchedulerSnapshotPlatforms
-	legacyMultiProtocolProviders     = []string{PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformCommandCode, PlatformCline}
-	platformProbeValues              = append(append([]string{}, legacyAllPlatforms...), PlatformComposite, "", "moonshot", "Kimi", "openai ", "glm", "bogus")
-	platformProbeAccountTypes        = []string{AccountTypeAPIKey, AccountTypeOAuth, AccountTypeSetupToken, AccountTypeUpstream, ""}
+	legacyMultiProtocolProviders     = []string{
+		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformMadao,
+		PlatformArena, PlatformMiniMax, PlatformCursor, PlatformWindsurf, PlatformTeleagent,
+		PlatformOpenCodeGo, PlatformKilo, PlatformCommandCode, PlatformCline, PlatformDoubao,
+		PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder,
+		PlatformSystemOne, PlatformLaya, PlatformJev,
+	}
+	platformProbeValues       = append(append([]string{}, legacyAllPlatforms...), PlatformComposite, "", "moonshot", "Kimi", "openai ", "glm", "bogus")
+	platformProbeAccountTypes = []string{AccountTypeAPIKey, AccountTypeOAuth, AccountTypeSetupToken, AccountTypeUpstream, ""}
 )
 
 func legacyIsCNProvider(platform string) bool {
+	// 与平台清单的 CNProvider 标记同源：fork 的国产兼容平台 + System One。
 	switch platform {
-	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax:
+	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformMadao,
+		PlatformArena, PlatformMiniMax, PlatformKilo, PlatformDoubao, PlatformTraework,
+		PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformLaya, PlatformJev,
+		PlatformSystemOne:
 		return true
 	}
 	return false
 }
 
+// IsOpenAICompatible 以平台清单的 OpenAI 网关归属为准（domain.UsesOpenAIGateway）：
+// 即清单里 Gateway=openai 的全部平台（含 fork 适配器与 CN 供应商）。
+// 注意 systemone 走 Anthropic 协议族，因此不在其中。
 func legacyIsOpenAICompatible(platform string) bool {
-	return platform == PlatformOpenAI || platform == PlatformGrok || legacyIsCNProvider(platform) || platform == PlatformOpenCodeGo || platform == PlatformCommandCode || platform == PlatformCline
+	if platform == PlatformOpenAI {
+		return true
+	}
+	return domain.UsesOpenAIGateway(platform)
 }
 
+// NormalizeOpenAICompatiblePlatform 以平台清单的 OpenAI 网关归属为准（domain.UsesOpenAIGateway），
+// 因此除 openai 自身外，清单里登记为 OpenAI 网关的平台都原样返回。
 func legacyNormalizeOpenAICompatiblePlatform(platform string) string {
-	switch platform {
-	case PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformCommandCode, PlatformCline:
+	if platform != PlatformOpenAI && domain.UsesOpenAIGateway(platform) {
 		return platform
 	}
 	return PlatformOpenAI
@@ -56,19 +80,29 @@ func legacyIsUpstreamBillingProbeIdentity(platform, accountType string) bool {
 	}
 	switch platform {
 	case PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformAntigravity, PlatformGrok,
-		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo,
-		PlatformTypeSafe, PlatformCommandCode, PlatformCline:
+		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformMadao,
+		PlatformArena, PlatformMiniMax, PlatformCursor, PlatformWindsurf, PlatformTeleagent,
+		PlatformOpenCodeGo, PlatformKilo, PlatformTypeSafe, PlatformCommandCode, PlatformCline,
+		PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode,
+		PlatformQoder, PlatformSystemOne, PlatformModel3D, PlatformV0, PlatformLaya, PlatformJev:
 		return true
 	}
 	return false
 }
 
+// 与 account_header_override.go 同源：anthropic / openai / 多协议 API Key 供应商可覆写，
+// grok 额外允许 OAuth。多协议集合用本文件的 legacyMultiProtocolProviders（含 systemone）。
 func legacyIsHeaderOverrideEligible(platform, accountType string) bool {
 	switch platform {
-	case PlatformAnthropic, PlatformOpenAI, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformCommandCode, PlatformCline:
+	case PlatformAnthropic, PlatformOpenAI:
 		return accountType == AccountTypeAPIKey
 	case PlatformGrok:
 		return accountType == AccountTypeAPIKey || accountType == AccountTypeOAuth
+	}
+	for _, p := range legacyMultiProtocolProviders {
+		if p == platform {
+			return accountType == AccountTypeAPIKey
+		}
 	}
 	return false
 }
@@ -127,9 +161,14 @@ func TestProviderProfilesUseOpenAIGateway(t *testing.T) {
 func TestProviderProfileAccountPredicatesMatchLegacy(t *testing.T) {
 	for _, platform := range platformProbeValues {
 		account := &Account{Platform: platform, Type: AccountTypeAPIKey}
-		// Cline 只有 Chat Completions 一个端点，按入站协议分流（其余入站转换）。
-		require.Equal(t, legacyIsCNProvider(platform) || platform == PlatformCline, account.RoutesProtocolByInbound(), platform)
-		require.Equal(t, legacyIsCNProvider(platform) || platform == PlatformOpenCodeGo || platform == PlatformCommandCode || platform == PlatformCline, account.IsMultiProtocolAPIKey(), platform)
+		// Cline 只有 Chat Completions 一个端点，按入站协议分流（其余入站转换）；
+		// System One 只有 /v1/systemone 决策端点，既不分流也不属多协议供应商
+		// （虽然按国产供应商登记，用于额度 / 余额探测）。
+		forkByInbound := (legacyIsCNProvider(platform) && platform != PlatformSystemOne) || platform == PlatformCline
+		require.Equal(t, forkByInbound, account.RoutesProtocolByInbound(), platform)
+		require.Equal(t, (legacyIsCNProvider(platform) && platform != PlatformSystemOne) ||
+			platform == PlatformOpenCodeGo || platform == PlatformCommandCode || platform == PlatformCline,
+			account.IsMultiProtocolAPIKey(), platform)
 	}
 	var nilAccount *Account
 	require.False(t, nilAccount.RoutesProtocolByInbound())

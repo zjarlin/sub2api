@@ -413,7 +413,10 @@ func openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx context.Con
 			return "account_model_not_owned"
 		}
 	}
-	if account.Platform != platform || !account.IsOpenAICompatible() {
+	// fork：账号来源与目标平台按网关能力匹配（混合调度 / 适配器平台经
+	// openAIAccountMatchesPlatform 判定），而不是要求平台字面相等——上游用
+	// 严格相等，会让经 OpenAI 网关转发的适配器平台账号全部落 platform_mismatch。
+	if !openAIAccountMatchesPlatform(account, platform) || !account.IsOpenAICompatible() {
 		return "platform_mismatch"
 	}
 	if (account.IsCursor() || account.IsWindsurf() || account.IsTeleagent()) && openAIRequestProtocol(ctx, requiredCapability) == OpenAIRequestProtocolMessages {

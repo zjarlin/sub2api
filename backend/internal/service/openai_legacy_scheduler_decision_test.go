@@ -10,19 +10,27 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// 与上游差异：上游认为 OpenAI API Key「空映射 = 允许所有模型」，本分支要求有模型支持
+// 依据（见 account.go isModelMappingSupported 与
+// TestIsModelSupported_OpenAIAPIKeyEmptyMappingRejectsUnknownModels）：空映射的 API Key
+// 账号会被判定 model_not_supported，无法参与选号。因此在夹具上显式声明用例请求的
+// gpt-5.1，让本文件专注验证 legacy 调度决策层（粘性会话 / previous_response 归属），
+// 而不是被模型资格门提前挡掉。
 func newLegacySchedulerDecisionTestAccounts(groupID int64, secondWSEnabled bool) []Account {
 	return []Account{
 		{
 			ID: 38101, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 			Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 0,
-			GroupIDs: []int64{groupID},
-			Extra:    map[string]any{"openai_apikey_responses_websockets_v2_enabled": true},
+			GroupIDs:    []int64{groupID},
+			Credentials: map[string]any{"model_mapping": map[string]any{"gpt-5.1": "gpt-5.1"}},
+			Extra:       map[string]any{"openai_apikey_responses_websockets_v2_enabled": true},
 		},
 		{
 			ID: 38102, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 			Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5,
-			GroupIDs: []int64{groupID},
-			Extra:    map[string]any{"openai_apikey_responses_websockets_v2_enabled": secondWSEnabled},
+			GroupIDs:    []int64{groupID},
+			Credentials: map[string]any{"model_mapping": map[string]any{"gpt-5.1": "gpt-5.1"}},
+			Extra:       map[string]any{"openai_apikey_responses_websockets_v2_enabled": secondWSEnabled},
 		},
 	}
 }

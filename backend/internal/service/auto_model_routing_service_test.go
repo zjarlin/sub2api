@@ -75,15 +75,19 @@ func TestAutoModelFallbackCandidatesKeepExcludedTierSnapshot(t *testing.T) {
 func TestAutoModelFallbackCandidatesRejectCompactHighestTier(t *testing.T) {
 	repo := newMockSettingRepo()
 	settings := NewSettingService(repo, nil)
+	// 与上游差异（合并引入）：GPT-5.5 已从 Codex 订阅侧退役，OAuth/setup-token 账号
+	// 映射到 gpt-5.5 会先被退役守卫拦成 model_not_supported，盖过本用例关心的
+	// 「compact 映射到最高档 ⇒ auto_model_excluded」判定。这里改用同为低档、
+	// 但未退役的 gpt-5.4 作为账号侧普通模型，其余断言语义不变。
 	require.NoError(t, settings.SetModelFallbackPolicy(context.Background(), &ModelFallbackPolicy{Enabled: true, Tiers: []ModelCapabilityTier{
 		{Name: "highest", Models: []string{"gpt-6-astra"}},
-		{Name: "lower", Models: []string{"gpt-5.6-sol", "gpt-5.5", "gpt-5.3-codex"}},
+		{Name: "lower", Models: []string{"gpt-5.6-sol", "gpt-5.4", "gpt-5.3-codex"}},
 	}}))
 	ctx, err := settings.BindAutoModelRoutingPolicy(context.Background())
 	require.NoError(t, err)
-	account := autoRoutingTestAccount(1, testModelMapping("gpt-5.5", "gpt-5.3-codex"))
+	account := autoRoutingTestAccount(1, testModelMapping("gpt-5.4", "gpt-5.3-codex"))
 	account.Type = AccountTypeOAuth
-	account.Credentials["compact_model_mapping"] = map[string]any{"gpt-5.5": "gpt-6-astra"}
+	account.Credentials["compact_model_mapping"] = map[string]any{"gpt-5.4": "gpt-6-astra"}
 	svc := &OpenAIGatewayService{
 		settingService: settings,
 		accountRepo:    schedulerTestOpenAIAccountRepo{accounts: []Account{account}},
@@ -95,7 +99,7 @@ func TestAutoModelFallbackCandidatesRejectCompactHighestTier(t *testing.T) {
 	require.Equal(t, []ModelFallbackCandidate{{Model: "gpt-5.3-codex", Tier: "lower"}}, candidates)
 	ordinary, err := svc.ModelFallbackCandidates(ctx, nil, "gpt-5.6-sol", body)
 	require.NoError(t, err)
-	expected := []ModelFallbackCandidate{{Model: "gpt-5.5", Tier: "lower"}, {Model: "gpt-5.3-codex", Tier: "lower"}}
+	expected := []ModelFallbackCandidate{{Model: "gpt-5.4", Tier: "lower"}, {Model: "gpt-5.3-codex", Tier: "lower"}}
 	require.Equal(t, expected, ordinary)
 	manual := WithOpenAIForwardModel(context.Background(), "gpt-5.6-sol", true)
 	manualCandidates, err := svc.ModelFallbackCandidates(manual, nil, "gpt-5.6-sol", body)
@@ -106,6 +110,10 @@ func TestAutoModelFallbackCandidatesRejectCompactHighestTier(t *testing.T) {
 func TestAutoModelAccountAdmissionRejectsHighestTierMappings(t *testing.T) {
 	ctx, err := (&SettingService{}).BindAutoModelRoutingPolicy(context.Background())
 	require.NoError(t, err)
+	// 与上游差异（合并引入）：GPT-5.5 已从 Codex 订阅侧退役，OAuth 账号把请求映射到
+	// gpt-5.5 时先被退役守卫拦成 model_not_supported，盖过本用例要验的最高档排除语义。
+	// 账号侧普通模型因此改用未退役的 gpt-5.4；判定顺序与断言（auto_model_excluded、
+	// 手工模式放行）仍与上游一致。
 	for _, tc := range []struct {
 		name           string
 		requestedModel string
@@ -114,13 +122,13 @@ func TestAutoModelAccountAdmissionRejectsHighestTierMappings(t *testing.T) {
 		compact        bool
 		allowed        bool
 	}{
-		{name: "requested highest", requestedModel: "gpt-6-astra", accountModel: "gpt-5.5"},
-		{name: "account highest", requestedModel: "gpt-5.5", accountModel: "gpt-6-astra"},
-		{name: "account doubao", requestedModel: "gpt-5.5", accountModel: "volcengine/doubao-seed"},
-		{name: "compact doubao", requestedModel: "gpt-5.5", accountModel: "gpt-5.5", compactModel: "doubao-pro", compact: true},
-		{name: "compact highest", requestedModel: "gpt-5.5", accountModel: "gpt-5.5", compactModel: "gpt-6-astra", compact: true},
-		{name: "compact mapping unused", requestedModel: "gpt-5.5", accountModel: "gpt-5.5", compactModel: "gpt-6-astra", allowed: true},
-		{name: "allowed ordinary", requestedModel: "gpt-5.5", accountModel: "gpt-5.5", allowed: true},
+		{name: "requested highest", requestedModel: "gpt-6-astra", accountModel: "gpt-5.4"},
+		{name: "account highest", requestedModel: "gpt-5.4", accountModel: "gpt-6-astra"},
+		{name: "account doubao", requestedModel: "gpt-5.4", accountModel: "volcengine/doubao-seed"},
+		{name: "compact doubao", requestedModel: "gpt-5.4", accountModel: "gpt-5.4", compactModel: "doubao-pro", compact: true},
+		{name: "compact highest", requestedModel: "gpt-5.4", accountModel: "gpt-5.4", compactModel: "gpt-6-astra", compact: true},
+		{name: "compact mapping unused", requestedModel: "gpt-5.4", accountModel: "gpt-5.4", compactModel: "gpt-6-astra", allowed: true},
+		{name: "allowed ordinary", requestedModel: "gpt-5.4", accountModel: "gpt-5.4", allowed: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			account := autoRoutingTestAccount(1, map[string]any{tc.requestedModel: tc.accountModel})
@@ -165,9 +173,12 @@ func TestAutoModelSchedulerSkipsHighestTierAccountMappings(t *testing.T) {
 				settings := NewSettingService(repo, nil)
 				ctx, err := settings.BindAutoModelRoutingPolicy(context.Background())
 				require.NoError(t, err)
+				// 与上游差异（合并引入）：OAuth 账号映射到 gpt-5.5 会被订阅退役守卫拦下
+				// （见 TestGPT55RetirementSchedulerAndDiagnosis），此处用未退役的 gpt-5.4
+				// 保持「最高档映射账号该被跳过」的调度断言。
 				accounts := []Account{
-					autoRoutingTestAccount(1, map[string]any{"gpt-5.5": "gpt-6-astra"}),
-					autoRoutingTestAccount(2, testModelMapping("gpt-5.5")),
+					autoRoutingTestAccount(1, map[string]any{"gpt-5.4": "gpt-6-astra"}),
+					autoRoutingTestAccount(2, testModelMapping("gpt-5.4")),
 				}
 				groupID := int64(10)
 				for i := range accounts {
@@ -179,10 +190,10 @@ func TestAutoModelSchedulerSkipsHighestTierAccountMappings(t *testing.T) {
 					}
 				}
 				if compact {
-					accounts[0].Credentials["model_mapping"] = testModelMapping("gpt-5.5")
-					accounts[0].Credentials["compact_model_mapping"] = map[string]any{"gpt-5.5": "gpt-6-astra"}
+					accounts[0].Credentials["model_mapping"] = testModelMapping("gpt-5.4")
+					accounts[0].Credentials["compact_model_mapping"] = map[string]any{"gpt-5.4": "gpt-6-astra"}
 				}
-				require.Equal(t, "gpt-6-astra", ResolveOpenAIAccountUpstreamModelForRequest(&accounts[0], "gpt-5.5", compact))
+				require.Equal(t, "gpt-6-astra", ResolveOpenAIAccountUpstreamModelForRequest(&accounts[0], "gpt-5.4", compact))
 				svc := &OpenAIGatewayService{
 					settingService: settings, cfg: newSchedulerTestSubscriptionPriorityConfig(),
 					rateLimitService:   &RateLimitService{settingService: settings},
@@ -190,14 +201,14 @@ func TestAutoModelSchedulerSkipsHighestTierAccountMappings(t *testing.T) {
 					concurrencyService: NewConcurrencyService(schedulerTestConcurrencyCache{}),
 				}
 				require.Equal(t, advanced, svc.isOpenAIAdvancedSchedulerEnabled(ctx))
-				selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "gpt-5.5", nil, OpenAIUpstreamTransportAny, compact)
+				selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "gpt-5.4", nil, OpenAIUpstreamTransportAny, compact)
 				require.NoError(t, err)
 				require.NotNil(t, selection)
 				require.Equal(t, int64(2), selection.Account.ID)
 				if selection.ReleaseFunc != nil {
 					selection.ReleaseFunc()
 				}
-				manual, _, err := svc.SelectAccountWithScheduler(context.Background(), &groupID, "", "", "gpt-5.5", nil, OpenAIUpstreamTransportAny, compact)
+				manual, _, err := svc.SelectAccountWithScheduler(context.Background(), &groupID, "", "", "gpt-5.4", nil, OpenAIUpstreamTransportAny, compact)
 				require.NoError(t, err)
 				require.NotNil(t, manual)
 				require.Equal(t, int64(1), manual.Account.ID)

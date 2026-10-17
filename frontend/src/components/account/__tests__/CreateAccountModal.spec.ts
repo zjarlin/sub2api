@@ -999,6 +999,8 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
         { pattern: 'gpt-*', protocol: 'responses' },
         { pattern: 'muse-spark-*', protocol: 'responses' },
         { pattern: 'claude-*', protocol: 'anthropic' },
+        // fork：Kilo / OpenCode free lane 提交新增的 Zen 分流规则。
+        { pattern: 'union-alpha', protocol: 'anthropic' },
         { pattern: 'qwen3.8-max', protocol: 'chat_completions' },
         { pattern: 'qwen*', protocol: 'anthropic' }
       ]

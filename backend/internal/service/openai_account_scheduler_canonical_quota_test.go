@@ -107,7 +107,7 @@ func TestOpenAISchedulerScoreSnapshotUsesNeutralErrorAffinityWithoutRuntimeSampl
 	accounts := []*Account{{ID: 1}}
 	weights := GatewayOpenAIWSSchedulerScoreWeightsView{ErrorRate: 0.8}
 
-	snapshots := buildOpenAIAccountSchedulerScoreSnapshot(accounts, nil, weights, false, defaultOpenAIOAuthSchedulingRateMultiplier)
+	snapshots := buildOpenAIAccountSchedulerScoreSnapshot(accounts, nil, weights, false, floatPtr(defaultOpenAIOAuthSchedulingRateMultiplier))
 	require.InDelta(t, 0.4, snapshots[1].BaseScore, 1e-9)
 }
 

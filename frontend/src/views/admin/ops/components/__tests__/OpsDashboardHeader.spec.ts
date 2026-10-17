@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 import { flushPromises, mount } from '@vue/test-utils'
 import OpsDashboardHeader from '../OpsDashboardHeader.vue'
 import type { OpsDashboardOverview } from '@/api/admin/ops'
@@ -12,6 +13,13 @@ vi.mock('vue-i18n', async () => ({
 }))
 
 const overview = { tps: { avg: 242.7 } } as OpsDashboardOverview
+
+// 组件 setup 里的 useClipboard 会取 app store（绝运行期由 app.use(pinia) 提供），
+// 测试里显式安装 pinia，否则报 getActivePinia() 无活动实例。
+beforeEach(() => {
+  setActivePinia(createPinia())
+})
+
 function mountHeader(value = overview) {
   return mount(OpsDashboardHeader, {
     props: { overview: value, platform: '', groupId: null, timeRange: '1h', queryMode: 'auto', loading: false, lastUpdated: null },

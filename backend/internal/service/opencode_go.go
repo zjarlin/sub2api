@@ -416,8 +416,29 @@ func openCodeGoNativeProtocol(account *Account, model string) string {
 	}
 }
 
+// IsMultiProtocolAPIKey 报告账号是否为"多上游协议"的 API Key 供应商：
+// 同一凭据可走 Chat Completions / Responses / Anthropic 多个原生端点，因此
+// 上游协议需按模型或入站协议决定（国产厂商 + OpenCode Go + Command Code + Cline）。
+//
+// 与上游差异：上游以 provider profile 登记为准，fork 的网页会话适配器
+// （豆包 / TRAE / WorkBuddy / VibeX / ZCode / Cursor / Windsurf / TeleAgent /
+// Qoder / Kilo / DeepseekWeb / Madao / Arena / Laya / JEV）只有
+// Chat Completions 一个端点，不属于"多协议"；它们仍经 OpenAI 网关转发，
+// 但订阅式判定改用 IsMultiProtocolAPIKeyProvider（见域常量）。
 func (a *Account) IsMultiProtocolAPIKey() bool {
-	return a != nil && IsMultiProtocolAPIKeyProvider(a.Platform)
+	if a == nil {
+		return false
+	}
+	// 新登记的 provider profile 自动获得多协议行为（与上游一致）。
+	if LookupProviderProfile(a.Platform) != nil {
+		return true
+	}
+	// System One 只有 /v1/systemone 一个端点（见 RoutesProtocolByInbound 注释），
+	// 不算多协议供应商；其余 fork 适配器平台与国产厂商同属多协议 API Key 供应商。
+	return (IsCNProvider(a.Platform) && a.Platform != PlatformSystemOne) ||
+		a.Platform == PlatformOpenCodeGo ||
+		a.Platform == PlatformCommandCode ||
+		a.Platform == PlatformCline
 }
 
 // openCodeGoQuotaURL 根据 base_url 解析 OpenCode Go 额度端点。

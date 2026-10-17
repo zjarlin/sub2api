@@ -114,6 +114,24 @@
       }
     },
     {
+      "id": "deepseek_web",
+      "display_name": "DeepSeek Web",
+      "gateway": "openai",
+      "cn_provider": true
+    },
+    {
+      "id": "madao",
+      "display_name": "CodeArts (Madao)",
+      "gateway": "openai",
+      "cn_provider": true
+    },
+    {
+      "id": "arena",
+      "display_name": "Arena",
+      "gateway": "openai",
+      "cn_provider": true
+    },
+    {
       "id": "minimax",
       "display_name": "MiniMax",
       "gateway": "openai",
@@ -141,6 +159,24 @@
           }
         ]
       }
+    },
+    {
+      "id": "cursor",
+      "display_name": "Cursor",
+      "gateway": "openai",
+      "cn_provider": false
+    },
+    {
+      "id": "windsurf",
+      "display_name": "Windsurf",
+      "gateway": "openai",
+      "cn_provider": false
+    },
+    {
+      "id": "teleagent",
+      "display_name": "TeleAgent",
+      "gateway": "openai",
+      "cn_provider": false
     },
     {
       "id": "opencode_go",
@@ -207,6 +243,10 @@
                 "protocol": "anthropic"
               },
               {
+                "pattern": "union-alpha",
+                "protocol": "anthropic"
+              },
+              {
                 "pattern": "qwen3.8-max",
                 "protocol": "chat_completions"
               },
@@ -218,6 +258,12 @@
           }
         ]
       }
+    },
+    {
+      "id": "kilo",
+      "display_name": "Kilo",
+      "gateway": "openai",
+      "cn_provider": true
     },
     {
       "id": "typesafe",
@@ -278,6 +324,72 @@
           }
         ]
       }
+    },
+    {
+      "id": "doubao",
+      "display_name": "Doubao",
+      "gateway": "openai",
+      "cn_provider": true
+    },
+    {
+      "id": "traework",
+      "display_name": "TRAE Work",
+      "gateway": "openai",
+      "cn_provider": true
+    },
+    {
+      "id": "workbuddy",
+      "display_name": "WorkBuddy",
+      "gateway": "openai",
+      "cn_provider": true
+    },
+    {
+      "id": "vibex",
+      "display_name": "VibeX",
+      "gateway": "openai",
+      "cn_provider": true
+    },
+    {
+      "id": "zcode",
+      "display_name": "ZCode",
+      "gateway": "openai",
+      "cn_provider": true
+    },
+    {
+      "id": "qoder",
+      "display_name": "Qoder",
+      "gateway": "openai",
+      "cn_provider": true
+    },
+    {
+      "id": "systemone",
+      "display_name": "System One",
+      "gateway": "anthropic",
+      "cn_provider": true
+    },
+    {
+      "id": "laya",
+      "display_name": "Laya",
+      "gateway": "openai",
+      "cn_provider": true
+    },
+    {
+      "id": "jev",
+      "display_name": "Jev",
+      "gateway": "openai",
+      "cn_provider": true
+    },
+    {
+      "id": "model3d",
+      "display_name": "3D (Meshy / Tripo / Hi3D)",
+      "gateway": "anthropic",
+      "cn_provider": false
+    },
+    {
+      "id": "v0",
+      "display_name": "v0 (Vercel)",
+      "gateway": "anthropic",
+      "cn_provider": false
     }
   ],
   "composite_precedence": [
@@ -289,10 +401,28 @@
     "kimi",
     "zhipu",
     "deepseek",
+    "deepseek_web",
+    "madao",
+    "arena",
     "minimax",
+    "cursor",
+    "windsurf",
+    "teleagent",
     "opencode_go",
+    "kilo",
     "typesafe",
     "command_code",
-    "cline"
+    "cline",
+    "doubao",
+    "traework",
+    "workbuddy",
+    "vibex",
+    "zcode",
+    "qoder",
+    "systemone",
+    "laya",
+    "jev",
+    "model3d",
+    "v0"
   ]
 }

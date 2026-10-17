@@ -139,7 +139,9 @@ const expectRangeQueries = (start: string, end: string, granularity = 'day') => 
     start_date: start,
     end_date: end,
     granularity,
-    limit: 12
+    limit: 12,
+    // fork：用量趋势图可切换 tokens / actual_cost 两个指标。
+    metric: 'tokens'
   })
   expect(getUserSpendingRanking).toHaveBeenLastCalledWith({
     start_date: start,
@@ -189,21 +191,6 @@ describe('admin DashboardView', () => {
     expect(chart.props('data').datasets[0].data).toEqual([5])
   })
 
-  it('uses last 24 hours as default dashboard range', async () => {
-    mount(DashboardView, {
-      global: {
-        stubs: {
-          AppLayout: { template: '<div><slot /></div>' },
-          LoadingSpinner: true,
-          Icon: true,
-          DateRangePicker: true,
-          Select: true,
-          ModelDistributionChart: true,
-          TokenUsageTrend: true,
-          Line: true
-        }
-      }
-    })
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()

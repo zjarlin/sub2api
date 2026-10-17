@@ -149,13 +149,20 @@ func IsOpenCodeGo(platform string) bool {
 // 网页会话适配器（豆包 / TRAE / WorkBuddy / VibeX / ZCode / Cursor / Windsurf /
 // TeleAgent / Qoder / Kilo）固定 Chat Completions，不参与上游协议分流。
 func IsMultiProtocolAPIKeyProvider(platform string) bool {
+	// 多协议供应商（kimi/zhipu/deepseek/minimax/opencode_go/command_code/cline）
+	// 以 provider profile 登记为准。
 	if LookupProviderProfile(platform) != nil {
 		return true
 	}
+	// 本仓库（fork）的国产兼容平台经由 OpenAI /v1/models 探测与 adaptive 分流，
+	// 与上游同属多协议 API Key 供应商：CN 单一厂商由平台清单的 CNProvider 标记派生
+	// （kimi/zhipu/deepseek/deepseek_web/madao/arena/minimax/kilo/doubao/traework/
+	// workbuddy/vibex/zcode/qoder/laya/jev），其余适配器平台在此显式列出。
+	if domain.IsCNProviderPlatform(platform) {
+		return true
+	}
 	switch platform {
-	case PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode,
-		PlatformQoder, PlatformKilo, PlatformCursor, PlatformWindsurf, PlatformTeleagent,
-		PlatformLaya, PlatformJev, PlatformSystemOne:
+	case PlatformCursor, PlatformWindsurf, PlatformTeleagent, PlatformSystemOne:
 		return true
 	default:
 		return false

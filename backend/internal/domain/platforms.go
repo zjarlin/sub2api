@@ -43,11 +43,36 @@ var platformList = []PlatformSpec{
 	{ID: PlatformKimi, DisplayName: "Kimi", Gateway: PlatformGatewayOpenAI, CNProvider: true, LiteLLMProvider: "moonshot"},
 	{ID: PlatformZhipu, DisplayName: "Zhipu GLM", Gateway: PlatformGatewayOpenAI, CNProvider: true, LiteLLMProvider: "zhipu"},
 	{ID: PlatformDeepseek, DisplayName: "DeepSeek", Gateway: PlatformGatewayOpenAI, CNProvider: true, LiteLLMProvider: "deepseek"},
+	// 以下为本仓库（zjarlin fork）新增的平台：网页会话适配器与自建出口。
+	// 顺序沿用 fork 历史顺序，composite 回退顺序与旧实现一致。
+	{ID: PlatformDeepseekWeb, DisplayName: "DeepSeek Web", Gateway: PlatformGatewayOpenAI, CNProvider: true},
+	{ID: PlatformMadao, DisplayName: "CodeArts (Madao)", Gateway: PlatformGatewayOpenAI, CNProvider: true},
+	{ID: PlatformArena, DisplayName: "Arena", Gateway: PlatformGatewayOpenAI, CNProvider: true},
 	{ID: PlatformMiniMax, DisplayName: "MiniMax", Gateway: PlatformGatewayOpenAI, CNProvider: true, LiteLLMProvider: "minimax"},
+	{ID: PlatformCursor, DisplayName: "Cursor", Gateway: PlatformGatewayOpenAI},
+	{ID: PlatformWindsurf, DisplayName: "Windsurf", Gateway: PlatformGatewayOpenAI},
+	{ID: PlatformTeleagent, DisplayName: "TeleAgent", Gateway: PlatformGatewayOpenAI},
 	{ID: PlatformOpenCodeGo, DisplayName: "OpenCode", Gateway: PlatformGatewayOpenAI, LiteLLMProvider: "opencode-go"},
+	{ID: PlatformKilo, DisplayName: "Kilo", Gateway: PlatformGatewayOpenAI, CNProvider: true},
 	{ID: PlatformTypeSafe, DisplayName: "TypeSafe / Jev", Gateway: PlatformGatewayAnthropic, LiteLLMProvider: "typesafe"},
 	{ID: PlatformCommandCode, DisplayName: "Command Code", Gateway: PlatformGatewayOpenAI},
 	{ID: PlatformCline, DisplayName: "Cline", Gateway: PlatformGatewayOpenAI},
+	{ID: PlatformDoubao, DisplayName: "Doubao", Gateway: PlatformGatewayOpenAI, CNProvider: true},
+	{ID: PlatformTraework, DisplayName: "TRAE Work", Gateway: PlatformGatewayOpenAI, CNProvider: true},
+	{ID: PlatformWorkbuddy, DisplayName: "WorkBuddy", Gateway: PlatformGatewayOpenAI, CNProvider: true},
+	{ID: PlatformVibex, DisplayName: "VibeX", Gateway: PlatformGatewayOpenAI, CNProvider: true},
+	{ID: PlatformZcode, DisplayName: "ZCode", Gateway: PlatformGatewayOpenAI, CNProvider: true},
+	{ID: PlatformQoder, DisplayName: "Qoder", Gateway: PlatformGatewayOpenAI, CNProvider: true},
+	// System One（Laya / JEV 共用）经 /v1/systemone 走账号池转发，不在 OpenAI 网关族内；
+	// 但沿用 fork 语义按国产供应商处理（额度 / 余额探测与国产供应商同源）。
+	{ID: PlatformSystemOne, DisplayName: "System One", Gateway: PlatformGatewayAnthropic, CNProvider: true},
+	// Laya / JEV 是 System One 的历史平台值：旧账号按 OpenAI 兼容供应商读取与转发，
+	// 新建账号统一使用 systemone（见 account.SystemOneProvider）。
+	{ID: PlatformLaya, DisplayName: "Laya", Gateway: PlatformGatewayOpenAI, CNProvider: true},
+	{ID: PlatformJev, DisplayName: "Jev", Gateway: PlatformGatewayOpenAI, CNProvider: true},
+	// 3D 生成与 v0 应用生成是独立的异步/原型端点处理器，不属于文本网关族。
+	{ID: PlatformModel3D, DisplayName: "3D (Meshy / Tripo / Hi3D)", Gateway: PlatformGatewayAnthropic},
+	{ID: PlatformV0, DisplayName: "v0 (Vercel)", Gateway: PlatformGatewayAnthropic},
 }
 
 var platformIndex = func() map[string]int {

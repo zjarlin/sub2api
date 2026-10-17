@@ -40,7 +40,8 @@ describe('UserBalanceHistoryModal request ordering', () => {
     await flushPromises()
     expect(wrapper.text()).toContain('History 20')
     expect(wrapper.text()).not.toContain('History 10')
-    expect(wrapper.text()).toContain('$20.00')
+    // fork 全站人民币展示（见 utils/userCurrency.ts 的 USER_CURRENCY_SYMBOL）。
+    expect(wrapper.text()).toContain('¥20.00')
   })
 
   it('does not end the current filter loading state when an old request finishes', async () => {

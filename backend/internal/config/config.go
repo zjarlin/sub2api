@@ -2838,6 +2838,10 @@ func setDefaults() {
 	viper.SetDefault("gateway.model3d.priority", "")
 	viper.SetDefault("gateway.model3d.timeout_seconds", 60)
 	viper.SetDefault("gateway.model3d.task_handle_ttl_hours", 168)
+	// 边缘天气服务：默认关闭。必须注册键，否则 viper 只读 config.yaml，
+	// GATEWAY_WEATHER_ENABLED / GATEWAY_WEATHER_TIMEOUT_SECONDS 会被静默忽略。
+	viper.SetDefault("gateway.weather.enabled", false)
+	viper.SetDefault("gateway.weather.timeout_seconds", 12)
 	viper.SetDefault("gateway.degeneration.enabled", true)
 	viper.SetDefault("gateway.degeneration.min_total_runes", 12000)
 	viper.SetDefault("gateway.degeneration.window_runes", 2048)

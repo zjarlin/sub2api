@@ -23,9 +23,15 @@ func applyFreeLaneRequestHeaders(account *Account, headers http.Header, sessionS
 	case account.IsOpenCodeFree():
 		headers.Set("Authorization", "Bearer public")
 		headers.Del("x-api-key")
-		if strings.TrimSpace(headers.Get("User-Agent")) == "" {
-			headers.Set("User-Agent", openCodeFreeUserAgent)
+		// 免费池的指纹闸门按 opencode 客户端 UA 放行；必须在规范 UA 兜底
+		// （applyOpenCodeUpstreamUserAgent 的 opencode/1.0.0）之后显式覆盖，
+		// 否则免费池会带着付费渠道的版本号出站。
+		for key := range headers {
+			if strings.EqualFold(key, "User-Agent") {
+				delete(headers, key)
+			}
 		}
+		headers.Set("User-Agent", openCodeFreeUserAgent)
 		headers.Set(openCodeClientHeader, openCodeClientName)
 		headers.Set(openCodeProjectHeader, openCodeProjectName)
 		if session := kiloSessionForConversation(sessionSeed); session != "" {

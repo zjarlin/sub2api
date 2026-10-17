@@ -485,7 +485,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 					"[OpenAI passthrough] Retrying Responses request via Chat Completions after generic upstream rejection (account: %s)",
 					account.Name,
 				)
-				return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
+				return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body, startTime)
 			}
 			if retryBody, fallbackModel, retry := s.prepareOpenAICompactFallbackRetry(
 				c, account, requestedModel, body, resp.StatusCode, upstreamMsg, probeBody, compactModelFallbackRetried,

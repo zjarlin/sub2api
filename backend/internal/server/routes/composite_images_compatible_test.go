@@ -51,6 +51,13 @@ func (r compatibleImagesAccounts) ListModelAvailabilityCandidates(context.Contex
 	return r.accounts, nil
 }
 
+// 本仓库的混合调度让 openai 分组同时查询兼容来源平台（grok/kimi/.../laya/jev），
+// 调度器因此走 ListSchedulableByGroupIDAndPlatforms；上游测试桩只实现了单平台
+// 查询，未覆盖的方法会落到内嵌接口的 nil 上 panic。这里补上同一份账号。
+func (r compatibleImagesAccounts) ListSchedulableByGroupIDAndPlatforms(context.Context, int64, []string) ([]service.Account, error) {
+	return r.accounts, nil
+}
+
 type compatibleImagesUpstream struct {
 	service.HTTPUpstream
 	accountIDs []int64

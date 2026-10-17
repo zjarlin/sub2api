@@ -135,7 +135,11 @@ func (s *OpenAIGatewayService) BuildGroupConfiguredCodexModelsManifest(
 		return nil, false, fmt.Errorf("load group configured Codex models: %w", err)
 	}
 	configuredModels := openAIConfiguredCodexModelIDsForGroup(catalog, group)
-	if configuredModels == nil && len(catalog) > 0 {
+	// 上游按 len()==0 判定「无管理员模型配置」并回落上游发现；本分支沿用同一判据。
+	// 注意 fork 的 openAIConfiguredCodexModelIDs 以 nil 表示「无目录」，
+	// 但 openAIConfiguredCodexModelIDsForGroup 会经过 filterRetiredOpenAIModelIDs
+	// 变成非 nil 空切片，故这里必须用 len() 而不是 == nil。
+	if len(configuredModels) == 0 {
 		return nil, false, nil
 	}
 
@@ -482,7 +486,6 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 		Priority:                          configuredCodexModelPriority,
 		AdditionalSpeedTiers:              []string{},
 		ServiceTiers:                      []configuredCodexServiceTier{},
-		ModelMessages:                     configuredCodexModelMessages{InstructionsTemplate: codexInstructionsTemplateForModel(modelID)},
 		IncludeSkillsUsageInstructions:    true,
 		IncludePluginUsageInstructions:    true,
 		IncludeAppsUsageInstructions:      true,
@@ -554,7 +557,13 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 
 	if isOpenAICodexGPTModel(modelID) {
 		// 仅 GPT 模型使用内嵌 Codex 提示词，其他模型保留空模板以满足客户端目录协议。
-		descriptor.ModelMessages.InstructionsTemplate = openai.CodexBaseInstructionsForModel(modelID)
+		//
+		// 与上游差异：上游在这个构造函数里对全部模型预填模板，并在非 GPT 模型上去掉
+		// "based on GPT-N" 身份声明（避免 Antigravity 对「Codex 提示词 + GPT-5 身份」
+		// 回 429）。fork 的立场是「非 GPT 模型不下发任何内置提示词」，空模板同样是
+		// 无 GPT 身份，因此两者在该风险上等价；gpt-oss 属于 GPT 家族但由第三方托管，
+		// 仍沿用上游的去身份处理。
+		descriptor.ModelMessages.InstructionsTemplate = codexInstructionsTemplateForModel(modelID)
 		descriptor.DisplayName = openaiCodexDisplayName(modelID)
 		descriptor.Description = "OpenAI GPT coding model routed through Sub2API."
 		descriptor.SupportsParallelToolCalls = true

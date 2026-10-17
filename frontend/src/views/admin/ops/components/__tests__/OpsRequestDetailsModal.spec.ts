@@ -99,17 +99,35 @@ describe('Ops request latency details', () => {
     expect(wrapper.text()).not.toContain('12000 ms')
     expect(wrapper.text()).not.toContain('9000 ms')
     expect(wrapper.text()).not.toContain('5000 ms')
-    if (desktop) expect(wrapper.findAll('tbody tr')[2].findAll('td')[5].text()).toBe('-')
+    // fork 双列（登录账号 + 调度账号）下延迟列是第 7 列；第三行 first_token_ms 为 null。
+    if (desktop) expect(wrapper.findAll('tbody tr')[2].findAll('td')[6].text()).toBe('-')
     else expect(wrapper.text()).toContain('admin.ops.ttftLabel: -')
     wrapper.unmount()
   })
 
-  it('shows account names with id fallback in the account column', async () => {
+  // fork 保留「登录账号 + 调度账号」双列（上游为单列 account）。
+  it('keeps the fork login/dispatch account columns with id fallback', async () => {
     const wrapper = await openDetails('ttft_desc')
-    expect(wrapper.text()).toContain('admin.ops.requestDetails.table.account')
-    const accountCells = wrapper.findAll('tbody tr').map(tr => tr.findAll('td')[4].text())
-    expect(accountCells).toEqual(['acc-alpha', 'acc-beta', '#999'])
+    expect(wrapper.text()).toContain('admin.ops.requestDetails.table.loginAccount')
+    expect(wrapper.text()).toContain('admin.ops.requestDetails.table.dispatchAccount')
+    // 桌面表格：第 5 列登录账号、第 6 列调度账号。
+    // 明细行只带 account_id 时，调度账号回退到 lite 账号名映射，缺项再回退 #id。
+    const dispatchCells = wrapper.findAll('tbody tr').map(tr => tr.findAll('td')[5].text())
+    expect(dispatchCells).toEqual(['acc-alpha', 'acc-beta', '#999'])
     // 999 不在账号映射里，应触发一次强制刷新重建缓存
+    expect(listAccounts).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+  })
+
+  // 移动端卡片用 dispatchAccount(row) || accountLabel(row)：账号名来自 lite 账号映射，
+  // 缺项时回退到 #id。
+  it('falls back to the account-name map and then the raw id on small screens', async () => {
+    viewport.desktop = false
+    const wrapper = await openDetails('ttft_desc')
+    expect(wrapper.text()).toContain('acc-alpha')
+    expect(wrapper.text()).toContain('acc-beta')
+    expect(wrapper.text()).toContain('#999')
+    expect(wrapper.text()).toContain('admin.ops.requestDetails.table.dispatchAccount')
     expect(listAccounts).toHaveBeenCalledTimes(2)
     wrapper.unmount()
   })

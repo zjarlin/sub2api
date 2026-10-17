@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
@@ -100,7 +101,7 @@ func TestVibexResponsesOmitsUnsupportedReasoningEffort(t *testing.T) {
 	}}
 	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
 
-	result, err := svc.forwardResponsesViaRawChatCompletions(context.Background(), c, vibexBridgeTestAccount(), body)
+	result, err := svc.forwardResponsesViaRawChatCompletions(context.Background(), c, vibexBridgeTestAccount(), body, time.Now())
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.Nil(t, result.ReasoningEffort)

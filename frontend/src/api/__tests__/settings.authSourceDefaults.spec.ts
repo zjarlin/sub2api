@@ -10,11 +10,17 @@ import {
 } from "@/api/admin/settings";
 import { listPlatformIds } from "@/constants/platformCatalog";
 
-/** 与后端 AllowedQuotaPlatforms 一致的全部具体平台（平台清单）。 */
-const quotaPlatforms = [
+/** 上游登记的 13 个平台：用于确认平台清单未漏登记上游平台（不直接等于清单全量）。 */
+const upstreamQuotaPlatforms = [
   "anthropic", "openai", "gemini", "antigravity", "grok",
   "kimi", "zhipu", "deepseek", "minimax", "opencode_go", "typesafe", "command_code", "cline",
 ];
+
+/**
+ * 与后端 AllowedQuotaPlatforms 同源：平台清单中的全部具体平台（含本仓库 fork 平台）。
+ * 不硬编码数量——清单一扩容，这里随之变化。
+ */
+const quotaPlatforms = listPlatformIds();
 
 /** 全部平台全 null 的 map，用于断言归一化默认值 */
 const allNullQuotas: DefaultPlatformQuotasMap = Object.fromEntries(
@@ -247,7 +253,9 @@ describe("normalizePlatformQuotasMap", () => {
 
   it("无参数时返回平台清单中的全部平台全 null", () => {
     const result = normalizePlatformQuotasMap();
-    expect(listPlatformIds()).toEqual(quotaPlatforms);
+    // 上游 13 平台必须全部仍在清单中（fork 平台是增量，不是替换）。
+    expect(listPlatformIds()).toEqual(expect.arrayContaining(upstreamQuotaPlatforms));
+    expect(quotaPlatforms).toEqual(listPlatformIds());
     expect(Object.keys(result)).toEqual(quotaPlatforms);
     for (const v of Object.values(result)) {
       expect(v).toEqual({ daily: null, weekly: null, monthly: null });

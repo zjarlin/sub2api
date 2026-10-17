@@ -65,7 +65,10 @@ func TestNormalizeDeepSeekResponsesRequestBodyAliasesInputImageURL(t *testing.T)
 		require.Equal(t, deepSeekInputImageDataURI, gjson.GetBytes(got, "input.0.content.1.image_url").String())
 		require.Equal(t, deepSeekInputImageDataURI, gjson.GetBytes(got, "input.0.content.1.url").String())
 		require.Equal(t, "what is this?", gjson.GetBytes(got, "input.0.content.0.text").String())
-		require.True(t, gjson.GetBytes(got, "store").Bool(), "mapped openai 账号不应被无状态适配改掉 store")
+		// 与上游差异：fork 让 base_url 指向 api.deepseek.com 的 OpenAI API Key
+		// 映射账号也走同一套无状态改写（store=false + 去 previous_response_id），
+		// 上游只对 UsesNativeCNResponses 生效。图片改写断言与上游一致。
+		require.False(t, gjson.GetBytes(got, "store").Bool(), "mapped openai 账号同样走 DeepSeek 无状态改写")
 	})
 
 	t.Run("nested_image_url_object_flattened", func(t *testing.T) {

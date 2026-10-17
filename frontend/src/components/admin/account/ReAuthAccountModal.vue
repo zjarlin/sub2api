@@ -267,9 +267,13 @@ const isAnthropic = computed(() => props.account?.platform === 'anthropic')
 const isAntigravity = computed(() => props.account?.platform === 'antigravity')
 const isGrok = computed(() => props.account?.platform === 'grok')
 const isBuiltinAdapterAccount = computed(() => ['traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web'].includes(props.account?.platform ?? ''))
+const BUILTIN_ADAPTER_LOGIN_PLATFORMS: readonly BuiltinLoginPlatform[] = ['traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web']
 const builtinAdapterPlatform = computed<BuiltinLoginPlatform | null>(() => {
   const platform = props.account?.platform
-  return platform === 'traework' || platform === 'workbuddy' || platform === 'vibex' || platform === 'zcode' || platform === 'deepseek_web' ? platform : null
+  // AccountPlatform 现在是 KnownAccountPlatform | (string & {})（平台清单可动态扩展），
+  // 需要显式收窄成 BuiltinLoginPlatform 常量联合后才能传给内置适配器登录组件。
+  const candidate = platform as BuiltinLoginPlatform | undefined
+  return candidate && BUILTIN_ADAPTER_LOGIN_PLATFORMS.includes(candidate) ? candidate : null
 })
 
 /**

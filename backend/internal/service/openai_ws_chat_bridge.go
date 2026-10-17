@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/gin-gonic/gin"
@@ -37,8 +38,10 @@ func (s *OpenAIGatewayService) proxyResponsesViaChatWebSocketTurn(
 	defer func() { c.Writer = originalWriter }()
 	c.Set("openai_ws_http_bridge", true)
 	observer := beginUpstreamResponseModelObservation(c)
+	// 半路转 Chat Completions 的耗时也要计入本轮的端到端时长。
+	turnStart := time.Now()
 
-	result, err := s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
+	result, err := s.forwardResponsesViaRawChatCompletions(ctx, c, account, body, turnStart)
 	if result != nil {
 		result.RequestID = writer.responseID
 		result.ResponseID = writer.responseID

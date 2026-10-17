@@ -234,11 +234,18 @@ func RegisterGatewayRoutes(
 	gateway.GET("/sub2api/billing", h.Gateway.KeyBillingInfo)
 	// v0 应用生成与客户端源码取回。
 	gateway.Any("/v0/*proxyPath", h.Gateway.V0Proxy)
-	// System One 决策协议（Laya / JEV 共用）：按 model 选平台后走账号池，
-	// 鉴权、调度、用量与其它平台一致。
-	jevGroup := gateway.Group("")
-	jevGroup.Use(groupModelAllowlist)
-	h.Gateway.RegisterSystemOneAccountRelay(jevGroup)
+	// System One 决策协议：两个实现共用 /v1/systemone，必须只注册一次，否则
+	// gin 会因重复路由 panic。按分组平台分派：
+	//   - TypeSafe 原生账号（上游实现，带 prompt 审计）走 h.Gateway.SystemOne；
+	//   - 本仓库的 System One / Laya / JEV 账号池中继走 h.Gateway.SystemOneRelay。
+	// 鉴权、调度、用量与其它平台一致；与 vision/mail 同位置，在模型相关中间件之前。
+	gateway.POST("/systemone", textBodyLimit, groupModelAllowlist, func(c *gin.Context) {
+		if getGroupPlatform(c) == service.PlatformTypeSafe {
+			h.Gateway.SystemOne(c)
+			return
+		}
+		h.Gateway.SystemOneRelay(c)
+	})
 	// 边缘计算视觉服务：鉴权+计费+反代 edge-vision。
 	visionGroup := gateway.Group("/vision")
 	{
@@ -270,8 +277,8 @@ func RegisterGatewayRoutes(
 			}
 			h.Gateway.Messages(c)
 		})
-		// System One carries only JSON text, so it uses the text body limit.
-		gateway.POST("/systemone", textBodyLimit, h.Gateway.SystemOne)
+		// System One 已在上方按分组平台分派注册（typeSafe 原生 / 账号池中继），
+		// 这里不再重复注册以免 gin 冲突。
 		// /v1/messages/count_tokens: OpenAI bridges upstream, Grok estimates
 		// locally, and Anthropic-compatible platforms retain their existing path.
 		gateway.POST("/messages/count_tokens", countTokensHandler)

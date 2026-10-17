@@ -44,10 +44,10 @@ const concretePlatforms = [
   'zcode',
   'qoder',
   'systemone',
-  'model3d',
-  'v0',
   'laya',
-  'jev'
+  'jev',
+  'model3d',
+  'v0'
 ]
 
 // 组合分组回退顺序：固定前缀 anthropic、gemini、openai，其余按展示顺序。
@@ -56,7 +56,7 @@ const compositePrecedencePlatforms = [
   'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'deepseek_web', 'madao', 'arena',
   'minimax', 'cursor', 'windsurf', 'teleagent', 'opencode_go', 'kilo', 'typesafe',
   'command_code', 'cline', 'doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'qoder',
-  'systemone', 'model3d', 'v0', 'laya', 'jev'
+  'systemone', 'laya', 'jev', 'model3d', 'v0'
 ]
 
 // 展示名同样来自清单（平台清单的 display_name 即后端 domain/platforms.go 的 DisplayName）。
@@ -66,7 +66,7 @@ const concretePlatformLabels = [
   'MiniMax', 'Cursor', 'Windsurf', 'TeleAgent', 'OpenCode', 'Kilo',
   'TypeSafe / Jev', 'Command Code', 'Cline',
   'Doubao', 'TRAE Work', 'WorkBuddy', 'VibeX', 'ZCode', 'Qoder',
-  'System One', '3D (Meshy / Tripo / Hi3D)', 'v0 (Vercel)', 'Laya', 'Jev'
+  'System One', 'Laya', 'Jev', '3D (Meshy / Tripo / Hi3D)', 'v0 (Vercel)'
 ]
 
 describe('platform option catalogs', () => {

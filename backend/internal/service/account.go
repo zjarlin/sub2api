@@ -1018,18 +1018,16 @@ func (a *Account) IsModelSupported(requestedModel string) bool {
 	return supportsOpenAIRequestModel(a, requestedModel, false)
 }
 
-// isModelMappingSupported 判定 model_mapping 白名单（含透传短路与空映射回落）。
+// isModelMappingSupported 判定 model_mapping 白名单（含空映射回落）。
+//
+// 与上游差异：上游把「透传」当作放行所有的短路（issue #4936），fork 保留
+// 管理员显式 model_mapping 对调度资格的约束——透传只改变转发语义（不改写模型名、
+// 仅替换认证），不扩大调度范围；目录同步只证明上游能力，同样不能扩大范围。
+// 未显式配置映射时依旧放行（见函数末尾的透传分支）。
 func (a *Account) isModelMappingSupported(requestedModel string) bool {
-	// 透传模式仅替换认证、模型语义完全交由上游决定，因此放行所有模型。
-	// 该短路必须在 model_mapping 判定之前：账号从"白名单模式"切换到透传后，
-	// credentials 里常残留旧的非空 model_mapping，若不在此放行，透传账号会被
-	// model_mapping 白名单错误排除出候选集，导致 no available accounts / 404（issue #4936）。
-	if a.IsOpenAIPassthroughEnabled() {
-		return true
-	}
 	mapping := a.GetModelMapping()
 	mappingSupported := mappingSupportsRequestedModel(mapping, requestedModel)
-	if !mappingSupported {
+	if !mappingSupported && !a.IsOpenAIPassthroughEnabled() {
 		normalized := normalizeRequestedModelForLookup(a.Platform, requestedModel)
 		mappingSupported = normalized != requestedModel && mappingSupportsRequestedModel(mapping, normalized)
 	}
@@ -1049,9 +1047,8 @@ func (a *Account) isModelMappingSupported(requestedModel string) bool {
 		return supported
 	}
 	// 透传仍按原始模型名转发，映射键只用于调度白名单，不改写请求模型。
-	if a.IsOpenAIPassthroughEnabled() {
-		return mappingSupported
-	}
+	// 透传账号「无显式映射」时不能跳过空映射回落：那会让透传反而比白名单模式
+	// 更窄（任何模型都无依据 ⇒ 全部不可调度）。显式映射的约束已在上面生效。
 	if len(mapping) == 0 {
 		if a.IsOpenAIOAuth() {
 			return isOpenAIOAuthServableModel(requestedModel)
@@ -1577,10 +1574,12 @@ func (a *Account) SupportsHTTPResponsesContinuation() bool {
 // 适用 openai、国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）与 OpenCode Go；
 // grok 走 GetGrokBaseURL，此处对 grok 返回 "" 以保持原有行为。
 func (a *Account) GetOpenAIBaseURL() string {
-	if !a.IsOpenAI() && !a.IsMultiProtocolAPIKey() && !a.IsLaya() && !a.IsJev() {
+	// 宽口径：经 OpenAI 网关转发的 API Key 账号（国产厂商 + 全部适配器平台），
+	// 它们的地址同样由 credentials/base_url 或内置适配器提供。
+	if !a.IsOpenAI() && !IsMultiProtocolAPIKeyProvider(a.Platform) && !a.IsLaya() && !a.IsJev() {
 		return ""
 	}
-	if a.IsMultiProtocolAPIKey() && a.IsAdaptiveAPIProtocol() {
+	if IsMultiProtocolAPIKeyProvider(a.Platform) && a.IsAdaptiveAPIProtocol() {
 		if baseURLs, ok := a.Credentials["api_base_urls"].(map[string]any); ok {
 			if baseURL, ok := baseURLs[APIProtocolChatCompletions].(string); ok && strings.TrimSpace(baseURL) != "" {
 				return strings.TrimSpace(baseURL)
@@ -1677,9 +1676,20 @@ func (a *Account) GetAPIProtocol() string {
 // /v1/responses（moonshot.cn / kimi.com/coding）；MiniMax 为 /v1/responses。
 // Doubao 的 /v1/responses 由桌面适配器实现，不代表豆包上游提供 OpenAI API。
 func (a *Account) SupportsNativeCNResponses() bool {
-	// 结构采纳上游：按 provider profile 的 responses 条目判定；fork 平台（豆包桌面
-	// 适配器）在 provider profile 中同样登记了 responses 端点。
-	return a.providerSupportsProtocol(APIProtocolResponses)
+	if a == nil {
+		return false
+	}
+	// 结构采纳上游：多数平台按 provider profile 的 responses 条目判定。
+	if a.providerSupportsProtocol(APIProtocolResponses) {
+		return true
+	}
+	// fork 侧例外：豆包桌面适配器自持 /v1/responses（未登记 provider profile），
+	// 与 DeepSeek / Kimi / MiniMax / OpenCode Go 一样具备原生 Responses 能力。
+	switch a.Platform {
+	case PlatformDeepseek, PlatformKimi, PlatformMiniMax, PlatformOpenCodeGo, PlatformDoubao:
+		return true
+	}
+	return false
 }
 
 // UsesNativeCNResponses 报告当前账号是否应按原生 Responses 协议转发
@@ -1949,7 +1959,10 @@ func (a *Account) GetOpenAIProtocolAPIKey() string {
 	if a == nil {
 		return ""
 	}
-	if a.IsMultiProtocolAPIKey() {
+	// 宽口径：`IsMultiProtocolAPIKey` 只表示「多上游协议」供应商（国产厂商 +
+	// OpenCode/Command Code/Cline），而本方法服务的是整个 OpenAI 协议族共用路径，
+	// 因此按 provider 判定，覆盖 Cursor/Windsurf/TeleAgent 等单一端点适配器。
+	if IsMultiProtocolAPIKeyProvider(a.Platform) {
 		if a.Type != AccountTypeAPIKey {
 			return ""
 		}

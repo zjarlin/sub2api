@@ -18,10 +18,17 @@ func TestGPT55RetirementModelSupport(t *testing.T) {
 		for _, passthrough := range []bool{false, true} {
 			t.Run(typ+"/passthrough="+map[bool]string{true: "true", false: "false"}[passthrough], func(t *testing.T) {
 				account := &Account{Platform: PlatformOpenAI, Type: typ, Extra: map[string]any{"openai_passthrough": passthrough}}
+				// 与上游差异：fork 要求 OpenAI API Key 必须有模型支持依据，空映射
+				// 一律不可调度（上游是「无映射 = 允许所有」）。因此这里两种账号都
+				// 返回 false，但原因不同：OAuth/SetupToken 被订阅退休守卫拦下，
+				// API Key 本来就无依据。见 TestIsModelSupported_OpenAIAPIKeyEmptyMappingRejectsUnknownModels。
 				for _, model := range []string{"gpt-5.5", "openai/gpt-5.5-high", "gpt-5.5-2026-04-23", "GPT_5.5", "gpt-5.5-openai-compact"} {
-					require.Equal(t, typ == AccountTypeAPIKey, account.IsModelSupported(model), model)
+					require.False(t, account.IsModelSupported(model), model)
 				}
-				require.True(t, account.IsModelSupported("gpt-6.1-sol"))
+				require.Equal(t, typ != AccountTypeAPIKey, account.IsModelSupported("gpt-6.1-sol"))
+				// 给出显式映射后退休守卫成为唯一拦截来源：API Key 上游不受订阅退休影响。
+				account.Credentials = map[string]any{"model_mapping": map[string]any{"gpt-5.5": "gpt-5.5"}}
+				require.Equal(t, typ == AccountTypeAPIKey, account.IsModelSupported("gpt-5.5"), "only subscription (OAuth/setup-token) is retired")
 			})
 		}
 	}
@@ -44,7 +51,10 @@ func TestGPT55RetirementModelSupport(t *testing.T) {
 
 func TestGPT55RetirementCatalogs(t *testing.T) {
 	oauth := Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
-	api := Account{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	// 与上游差异：API Key 账号必须显式声明 gpt-5.5 才有支持依据（上游空映射放行），
+	// 否则它无法在退休过滤里成为「仍有可用来源」的反证。
+	api := Account{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+		Credentials: map[string]any{"model_mapping": map[string]any{"gpt-5.5": "gpt-5.5"}}}
 	group := &Group{ID: 1, Platform: PlatformOpenAI}
 	for _, tc := range []struct {
 		name      string
@@ -131,7 +141,9 @@ func TestGPT55RetirementProjectionUsesPublicNames(t *testing.T) {
 			{"one-hop", map[string]any{"legacy": "gpt-5.5", "gpt-5.5": "gpt-6.1-sol"}, false, false, map[string]string{"gpt-5.5": "live"}},
 			{"crossed", map[string]any{"gpt-6.1-sol": "gpt-5.5", "gpt-5.5": "gpt-6.1-sol"}, false, false, map[string]string{"gpt-5.5": "live"}},
 			{"wildcard", map[string]any{"legacy*": "gpt-5.5", "gpt-5.5": "gpt-6.1-sol"}, false, false, map[string]string{"gpt-5.5": "live"}},
-			{"passthrough", map[string]any{"gpt-6.1-sol": "gpt-5.5", "gpt-5.5": "gpt-6.1-sol"}, true, false, map[string]string{"gpt-6.1-sol": "live"}},
+			// fork：透传账号的目录也按显式映射投影（上游会跳过 passthrough），
+			// 因此存活项与上游相反——gpt-5.5 映射到 live 目标，gpt-6.1-sol 指向退休目标被剔除。
+			{"passthrough", map[string]any{"gpt-6.1-sol": "gpt-5.5", "gpt-5.5": "gpt-6.1-sol"}, true, false, map[string]string{"gpt-5.5": "live"}},
 			{"api", map[string]any{"legacy": "gpt-5.5", "gpt-5.5": "gpt-6.1-sol"}, false, true, map[string]string{"legacy": "retired", "gpt-5.5": "live"}},
 		} {
 			t.Run(field+"/"+tc.name, func(t *testing.T) {
@@ -197,15 +209,24 @@ func TestGPT55RetirementSchedulerAndDiagnosis(t *testing.T) {
 	ctx := context.Background()
 	groupID := int64(1)
 	oauth := Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true}
-	api := Account{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true}
+	// 与上游差异：API Key 账号需显式声明 gpt-5.5 才有支持依据（上游空映射放行），
+	// 否则它在诊断里无法充当「仍有可用来源」的反证。
+	api := Account{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true,
+		Credentials: map[string]any{"model_mapping": map[string]any{"gpt-5.5": "gpt-5.5"}}}
 	for _, typ := range []string{AccountTypeOAuth, AccountTypeSetupToken, AccountTypeAPIKey} {
 		account := oauth
 		account.Type = typ
 		scheduler := &defaultOpenAIAccountScheduler{}
+		// 与上游差异：fork 要求 API Key 账号有模型支持依据，空映射不可调度，
+		// 因此三种类型在空映射下都不可用（上游的 API Key 会因「无映射 = 允许所有」通过）。
 		ok, _ := scheduler.isAccountRequestCompatibleReason(ctx, &account, OpenAIAccountScheduleRequest{RequestedModel: "gpt-5.5"})
-		require.Equal(t, typ == AccountTypeAPIKey, ok)
+		require.False(t, ok, typ)
 		reason := openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx, &account, PlatformOpenAI, "gpt-5.5", false, "")
-		require.Equal(t, typ == AccountTypeAPIKey, reason == "")
+		require.NotEqual(t, "", reason, typ)
+		// 显式声明后退休守卫成为唯一理由：API Key 上游不受订阅退休影响。
+		account.Credentials = map[string]any{"model_mapping": map[string]any{"gpt-5.5": "gpt-5.5"}}
+		ok, _ = scheduler.isAccountRequestCompatibleReason(ctx, &account, OpenAIAccountScheduleRequest{RequestedModel: "gpt-5.5"})
+		require.Equal(t, typ == AccountTypeAPIKey, ok, typ)
 	}
 	oauth.Credentials = map[string]any{"compact_model_mapping": map[string]any{"gpt-6.1-sol": "gpt-5.5"}}
 	scheduler := &defaultOpenAIAccountScheduler{}
@@ -222,7 +243,8 @@ func TestGPT55RetirementSchedulerAndDiagnosis(t *testing.T) {
 		diagnosis := svc.DiagnoseModelAvailabilityForPlatform(ctx, &groupID, "gpt-5.5", PlatformOpenAI)
 		require.True(t, diagnosis.HasAccountsInPool)
 		require.True(t, diagnosis.HasRetiredSubscriptionModel)
-		require.Equal(t, len(accounts) == 2, diagnosis.HasModelSupport)
+		// 仅 oauth（订阅已退休）时无可用来源；加上显式声明 gpt-5.5 的 API Key 账号后才有。
+		require.Equal(t, len(accounts) == 2, diagnosis.HasModelSupport, "only the evidence-backed API key account keeps GPT-5.5")
 	}
 }
 

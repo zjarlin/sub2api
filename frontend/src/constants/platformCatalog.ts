@@ -85,11 +85,39 @@ export function isKnownPlatform(platform: string | null | undefined): boolean {
   return !!getPlatformSpec(platform)
 }
 
+/**
+ * 本仓库（fork）的网页会话适配器平台：清单里没有 multi_protocol profile，
+ * 但后端 buildUpstreamModelsRequest 仍按 OpenAI /v1/models 探测
+ * （见 backend/internal/service/upstream_models.go 的 IsCursor / IsWindsurf /
+ * IsTeleagent / IsArena / IsKilo 等分支），因此同样提供「同步上游模型」入口。
+ * 决策/聚合平台（systemone / laya / jev）没有文本模型目录，专用媒体平台
+ * （model3d / v0）也不在此列，保持不提供同步。
+ */
+const ADAPTER_MODEL_SYNC_PLATFORMS = new Set([
+  'arena',
+  'kilo',
+  'cursor',
+  'windsurf',
+  'teleagent',
+  'qoder',
+  'doubao',
+  'traework',
+  'workbuddy',
+  'vibex',
+  'zcode',
+  'deepseek_web',
+  'madao'
+])
+
 /** 与后端 buildUpstreamModelsRequest 支持的平台保持一致。 */
 export function supportsUpstreamModelSync(platform: string | null | undefined): boolean {
   const spec = getPlatformSpec(platform?.trim().toLowerCase())
   if (!spec) return false
-  return !!spec.multi_protocol || ['anthropic', 'openai', 'gemini', 'antigravity', 'grok'].includes(spec.id)
+  return (
+    !!spec.multi_protocol ||
+    ADAPTER_MODEL_SYNC_PLATFORMS.has(spec.id) ||
+    ['anthropic', 'openai', 'gemini', 'antigravity', 'grok'].includes(spec.id)
+  )
 }
 
 /** 清单中声明了定价目录 provider 的平台才支持同步定价模型。 */

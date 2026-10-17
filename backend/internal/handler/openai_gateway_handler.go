@@ -3776,6 +3776,10 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 		h.handleFailoverExhaustedSimple(c, http.StatusBadGateway, streamStarted)
 		return
 	}
+	// 上游在入口处就回传 Retry-After；fork 原本只在末尾拷贝，像
+	// OpenAI 图片余额不足这类提前 return 的分支会丢掉该头。这里按上游位置前置，
+	// 让所有失败出口都保留机器可读的重试提示（下方保留原调用，重复设置是幂等的）。
+	copyFailoverRetryAfter(c, failoverErr.ResponseHeaders)
 	if failoverErr.IsAutoModelExcluded() {
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalPolicyDenied)
 		service.MarkOpsStreamErrorValue(c, service.OpsStreamError{

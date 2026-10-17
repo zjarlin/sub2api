@@ -261,7 +261,22 @@ func (a *Account) routesByModel() bool {
 // （单一厂商型，目前即国产厂商）。这类账号共享"显式协议优先、adaptive 选同协议
 // 原生端点"的转发、Responses 能力标记与本地 token 估算逻辑；按模型分流的聚合
 // 平台由 protocol_rules 决定协议，走 routesByModel 分支。
+//
+// 与上游差异：上游只查 provider profile 登记，fork 的网页会话适配器
+// （豆包 / TRAE / WorkBuddy / VibeX / ZCode / DeepseekWeb / Madao / Arena /
+// Qoder / Kilo / Laya / JEV）与国产厂商同属"入站协议决定上游形态"的一类，
+// 但固定 Chat Completions、没有多协议 profile。这里按平台清单的国产供应商标记
+// 与适配器集合一并判定，保持 fork 既有平台集合的等价行为。
 func (a *Account) RoutesProtocolByInbound() bool {
+	if a == nil {
+		return false
+	}
 	profile := a.providerProfile()
-	return profile != nil && profile.Routing != ProviderRoutingByModel
+	if profile != nil {
+		return profile.Routing != ProviderRoutingByModel
+	}
+	// System One（platform=systemone）走 /v1/systemone 决策端点，不是按入站协议
+	// 选择文本上游的供应商；它按国产供应商登记（额度 / 余额探测同源），但不参与
+	// 入站协议分流。
+	return (IsCNProvider(a.Platform) && a.Platform != PlatformSystemOne) || a.Platform == PlatformCline
 }

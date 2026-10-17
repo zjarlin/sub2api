@@ -51,6 +51,10 @@ func TestOpsOutputTPSOverviewFailurePolicy(t *testing.T) {
 				}
 				mock.ExpectQuery("SELECT|WITH").WillReturnRows(sqlmock.NewRows(columns).AddRow(values...))
 			}
+			// 概览在百分位查询之前会独立查一次「恢复成功数」（上游引入、fork 同样保留），
+			// 这里按真实顺序先放行该查询，再让 percentile_cont 命中注入的错误。
+			mock.ExpectQuery(`SELECT COUNT\(\*\) FROM ops_error_logs e`).
+				WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(int64(0)))
 			mock.ExpectQuery(`percentile_cont\(0.05\)`).WillReturnError(tc.err)
 			start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 			overview, err := repo.GetDashboardOverview(context.Background(), &service.OpsDashboardFilter{StartTime: start, EndTime: start.Add(time.Hour), QueryMode: service.OpsQueryModeRaw})

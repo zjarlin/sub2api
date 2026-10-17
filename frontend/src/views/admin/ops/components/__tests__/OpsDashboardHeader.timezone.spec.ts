@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { createPinia, setActivePinia } from 'pinia'
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import OpsDashboardHeader from '../OpsDashboardHeader.vue'
 
@@ -10,7 +11,11 @@ vi.mock('vue-i18n', async () => ({
   useI18n: () => ({ t: (key: string) => key })
 }))
 enableAutoUnmount(afterEach)
-beforeEach(() => vi.stubEnv('TZ', 'Asia/Shanghai'))
+beforeEach(() => {
+  // 组件 setup 里的 useClipboard 会取 app store（运行时由 app.use(pinia) 提供）。
+  setActivePinia(createPinia())
+  vi.stubEnv('TZ', 'Asia/Shanghai')
+})
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs() })
 
 async function openCustomRange(now: Date) {

@@ -405,10 +405,13 @@ func TestNewConfiguredCodexModelDescriptorUsesProviderMetadataAndSafeFallback(t 
 	require.Equal(t, "xhigh", *gpt6.MultiAgentReasoningEffort)
 	require.Equal(t, int64(1_050_000), gpt6.ContextWindow)
 
+	// 合并后 gpt-6.1-sol 采用上游内置的官方元数据快照（default=low，含 ultra 档），
+	// 该快照同时是 TestGPT61SolOfflineCodexCatalog 的依据；fork 早先手工推导的
+	// 「medium + 无 ultra」已由官方数据取代。
 	gpt61Sol := newConfiguredCodexModelDescriptor("gpt-6.1-sol")
 	require.NotNil(t, gpt61Sol.DefaultReasoningLevel)
-	require.Equal(t, "medium", *gpt61Sol.DefaultReasoningLevel)
-	require.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, effortsFromConfiguredCodexLevels(gpt61Sol.SupportedReasoningLevels))
+	require.Equal(t, "low", *gpt61Sol.DefaultReasoningLevel)
+	require.Equal(t, []string{"low", "medium", "high", "xhigh", "max", "ultra"}, effortsFromConfiguredCodexLevels(gpt61Sol.SupportedReasoningLevels))
 	require.NotContains(t, gpt61Sol.SupportedReasoningLevels, configuredCodexReasoningLevel{Effort: "none"})
 	require.True(t, isOpenAICodexReasoningGPTModel("openai/gpt-6.1-sol"))
 
@@ -4112,11 +4115,16 @@ func TestBuildCodexModelsManifestStripsGPTIdentityForNonGPTModels(t *testing.T) 
 	require.Len(t, manifest.Models, len(nonGPT))
 	for _, m := range manifest.Models {
 		tmpl := m.ModelMessages.InstructionsTemplate
+		// fork：非 GPT 模型不下发内置 Codex 提示词（空模板），gpt-oss 例外——
+		// 它属于 GPT 家族但由第三方托管，沿用上游的去身份处理，保留提示词其余部分。
 		require.NotContains(t, tmpl, "GPT-", m.Slug)
-		require.True(t, strings.HasPrefix(tmpl, "You are Codex"), "%s: %.60q", m.Slug, tmpl)
-		// Only the identity clause is removed; the rest of the bundled prompt is kept.
-		base := openai.CodexBaseInstructionsForModel(m.Slug)
-		require.Less(t, len(base)-len(tmpl), 32, m.Slug)
+		if canonicalizeOpenAIModelAliasSpelling(m.Slug) == "gpt-oss-120b-medium" {
+			require.True(t, strings.HasPrefix(tmpl, "You are Codex"), "%s: %.60q", m.Slug, tmpl)
+			base := openai.CodexBaseInstructionsForModel(m.Slug)
+			require.Less(t, len(base)-len(tmpl), 32, m.Slug)
+			continue
+		}
+		require.Equal(t, "", tmpl, m.Slug)
 	}
 }
 

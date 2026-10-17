@@ -54,6 +54,11 @@ func TestOpenAIResponsesWebSocket_CompositeAlias(t *testing.T) {
 						secondPayload: `{"type":"response.create","input":"again"}`,
 						group:         compositeWSGroup("public-alias"), accountPlatform: platform, ingressMode: mode,
 						compositeResolver: compositeWSResolver(platform, endpoint, upstream),
+						// 与上游差异：本分支要求 API Key 账号有模型支持依据（空映射不放行所有模型，
+						// 见 account.go isModelMappingSupported）。合成路由把选号模型从客户端可见
+						// 别名换成路由目标（gpt-5.4 / grok-4.3），因此账号必须显式声明该目标模型，
+						// 否则选号阶段直接 model_not_supported。上游测试靠「空映射 = 允许所有」隐式通过。
+						accountModelMapping: map[string]any{upstream: upstream},
 					})
 					require.Len(t, got.upstreamPayloads, 2)
 					for i, payload := range got.upstreamPayloads {
@@ -109,6 +114,9 @@ func TestOpenAIResponsesWebSocket_CompositeModelSwitchRequiresReconnect(t *testi
 					secondPayload: `{"type":"response.create","model":"` + model + `"}`, group: compositeWSGroup(), ingressMode: mode,
 					compositeResolver:       compositeWSResolver(service.PlatformOpenAI, "responses", "gpt-5.4"),
 					secondTurnCloseExpected: true, closeReason: "model switch requires reconnect",
+					// 与上游差异：选号用的是合成路由目标 gpt-5.4（不是客户端别名），
+					// 本分支要求账号显式声明该模型才有调度资格。
+					accountModelMapping: map[string]any{"gpt-5.4": "gpt-5.4"},
 				})
 			})
 		}
@@ -155,5 +163,7 @@ func TestOpenAIResponsesWebSocket_CompositeSessionModelSwitchRequiresReconnect(t
 		secondPayload: `{"type":"response.create"}`, group: compositeWSGroup(),
 		compositeResolver:       compositeWSResolver(service.PlatformOpenAI, "responses", "gpt-5.4"),
 		secondTurnCloseExpected: true, closeReason: "model switch requires reconnect",
+		// 与上游差异：选号模型是合成路由目标 gpt-5.4，需账号显式声明。
+		accountModelMapping: map[string]any{"gpt-5.4": "gpt-5.4"},
 	})
 }

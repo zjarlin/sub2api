@@ -263,6 +263,12 @@ func (c *visionUnavailableCapacityCache) AcquireAccountSlot(context.Context, int
 	return false, c.err
 }
 
+// 并发获取失败时服务会回收槽位（"Redis 可能已写入槽位但丢失响应"），
+// 因此替身必须实现 ReleaseAccountSlot，否则内嵌的 nil 接口会 panic。
+func (c *visionUnavailableCapacityCache) ReleaseAccountSlot(context.Context, int64, string) error {
+	return nil
+}
+
 func TestVisionFallbackUnavailableHelperAllowsOuterFailover(t *testing.T) {
 	for _, scenario := range []string{"no_native_helper", "repository_unavailable", "repository_not_configured", "capacity_exhausted", "capacity_error"} {
 		for _, chat := range []bool{false, true} {
@@ -433,10 +439,17 @@ func TestVisionFallbackReportsHelperHealthOnceWithoutBlamingPrimary(t *testing.T
 	rateLimits.SetOpenAIAPIKeyHealthCache(cache)
 	svc := &OpenAIGatewayService{cfg: cfg, rateLimitService: rateLimits}
 	helper := visionTestAccount(2, "vision-model", "text", "image")
-	failure := newVisionFallbackFailoverError(http.StatusBadGateway, "The vision helper could not describe the image; please retry later")
-	svc.observeVisionHelperFailure(&helper, helper.Name, failure)
+	// 记健康的是**上游原始错误**（vision_fallback.go 的 helperObservedErr 优先取 forwardErr）：
+	// 辅助账号真的 502 时仍要计入它的 API Key 健康熔断。
+	// newVisionFallbackFailoverError 是回给客户端的脱敏错误，带 SkipAccountScheduleFailure +
+	// Scope=Provider，本身就声明「不要归因到账号」，不能用来代表上游故障。
+	upstreamErr := &UpstreamFailoverError{StatusCode: http.StatusBadGateway, ResponseBody: []byte(`{"error":"upstream"}`)}
+	svc.observeVisionHelperFailure(&helper, helper.Name, upstreamErr)
 	require.Equal(t, 1, cache.recordCalls)
-	require.False(t, failure.ShouldReportAccountScheduleFailure())
+
+	// 同时确认：脱敏后的对客错误不会被当作账号故障上报。
+	clientErr := newVisionFallbackFailoverError(http.StatusBadGateway, "The vision helper could not describe the image; please retry later")
+	require.False(t, clientErr.ShouldReportAccountScheduleFailure())
 }
 
 // 通过真实辅助转发边界验证：本地超时/语义失败不能被脱敏状态伪装成账号故障。

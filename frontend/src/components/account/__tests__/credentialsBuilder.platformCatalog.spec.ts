@@ -48,17 +48,22 @@ const legacyGoRules = [
   { pattern: 'qwen*', protocol: 'anthropic' }
 ]
 
+// union-alpha 是本仓库（fork）在 Kilo / OpenCode free lane 提交中新增的 Zen 分流规则，
+// 后端 DefaultOpenCodeZenProtocolRules 与前端平台清单都保留它（上游没有）。
 const legacyZenRules = [
   { pattern: 'grok-*', protocol: 'responses' },
   { pattern: 'gpt-*', protocol: 'responses' },
   { pattern: 'muse-spark-*', protocol: 'responses' },
   { pattern: 'claude-*', protocol: 'anthropic' },
+  { pattern: 'union-alpha', protocol: 'anthropic' },
   { pattern: 'qwen3.8-max', protocol: 'chat_completions' },
   { pattern: 'qwen*', protocol: 'anthropic' }
 ]
 
+// kilo 是本仓库（fork）适配器平台：无 provider profile，但后端
+// IsMultiProtocolAPIKeyProvider 显式登记，前端 isMultiProtocolApiKeyPlatform 同样返回 true。
 function legacyIsMultiProtocol(platform: string): boolean {
-  return ['kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'command_code', 'cline'].includes(platform)
+  return ['kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'command_code', 'cline', 'kilo'].includes(platform)
 }
 
 function legacySupportsResponses(platform: string): boolean {
@@ -66,7 +71,7 @@ function legacySupportsResponses(platform: string): boolean {
 }
 
 function legacyHeaderOverride(platform: string, type: string): boolean {
-  if (['anthropic', 'openai', 'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'command_code', 'cline'].includes(platform)) {
+  if (['anthropic', 'openai', 'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'command_code', 'cline', 'kilo'].includes(platform)) {
     return type === 'apikey'
   }
   if (platform === 'grok') return type === 'apikey' || type === 'oauth'

@@ -84,6 +84,15 @@ func filterRetiredOpenAIPublicModelsBody(body []byte, accounts []Account, codex 
 // Compact-only administrator mappings are evaluated against their actual
 // target, without treating an old client-visible name as a retired target.
 func supportsOpenAIRequestModel(account *Account, requestedModel string, requireCompact bool) bool {
+	if account == nil {
+		return false
+	}
+	// fork：账号上已登记「不支持」的模型（per-account 负向能力，含透传按原始名记录）
+	// 必须在所有调度路径短路。上游只在 IsModelSupported 里做这段判定，而调度路径
+	// （scheduler / gateway / WS forwarder）直接调用本函数，会绕过它。
+	if account.IsModelKnownUnsupported(requestedModel) {
+		return false
+	}
 	if isRetiredOpenAISubscriptionModel(account, resolveOpenAIAccountUpstreamModelForRequest(account, requestedModel, requireCompact)) {
 		return false
 	}

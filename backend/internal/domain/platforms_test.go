@@ -9,29 +9,47 @@ import (
 // 重构前各处手写的平台列表，作为平台清单派生结果的等价基准；重构后新登记的平台
 // （Command Code、Cline）按同类平台（OpenCode）的位置补入。
 var (
+	// 本仓库（zjarlin fork）在上游清单基础上登记了自己的适配器平台，
+	// 顺序沿用 fork 历史顺序；这些列表必须与 platformList 保持等价。
 	legacyDisplayOrder = []string{
 		PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformGrok,
-		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformTypeSafe,
-		PlatformCommandCode,
-		PlatformCline,
+		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformMadao,
+		PlatformArena, PlatformMiniMax, PlatformCursor, PlatformWindsurf, PlatformTeleagent,
+		PlatformOpenCodeGo, PlatformKilo, PlatformTypeSafe, PlatformCommandCode, PlatformCline,
+		PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode,
+		PlatformQoder, PlatformSystemOne, PlatformLaya, PlatformJev, PlatformModel3D, PlatformV0,
 	}
 	legacyCompositePrecedence = []string{
 		PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok,
-		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformTypeSafe,
-		PlatformCommandCode,
-		PlatformCline,
+		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformMadao,
+		PlatformArena, PlatformMiniMax, PlatformCursor, PlatformWindsurf, PlatformTeleagent,
+		PlatformOpenCodeGo, PlatformKilo, PlatformTypeSafe, PlatformCommandCode, PlatformCline,
+		PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode,
+		PlatformQoder, PlatformSystemOne, PlatformLaya, PlatformJev, PlatformModel3D, PlatformV0,
 	}
 	legacyOpenAIGateway = []string{
-		PlatformOpenAI, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo,
-		PlatformCommandCode,
-		PlatformCline,
+		PlatformOpenAI, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek,
+		PlatformDeepseekWeb, PlatformMadao, PlatformArena, PlatformMiniMax, PlatformCursor,
+		PlatformWindsurf, PlatformTeleagent, PlatformOpenCodeGo, PlatformKilo, PlatformCommandCode,
+		PlatformCline, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex,
+		PlatformZcode, PlatformQoder, PlatformLaya, PlatformJev,
 	}
-	legacyCNProviders    = []string{PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax}
+	legacyCNProviders = []string{
+		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformMadao,
+		PlatformArena, PlatformMiniMax, PlatformKilo, PlatformDoubao, PlatformTraework,
+		PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformSystemOne,
+		PlatformLaya, PlatformJev,
+	}
 	legacyLiteLLMByPlatf = map[string]string{
 		PlatformAnthropic: "anthropic", PlatformOpenAI: "openai", PlatformGemini: "gemini",
 		PlatformAntigravity: "anthropic", PlatformGrok: "xai", PlatformKimi: "moonshot",
 		PlatformZhipu: "zhipu", PlatformDeepseek: "deepseek", PlatformMiniMax: "minimax",
-		PlatformOpenCodeGo: "opencode-go", PlatformTypeSafe: "typesafe", PlatformCommandCode: "", PlatformCline: "",
+		PlatformOpenCodeGo: "opencode-go", PlatformTypeSafe: "typesafe", PlatformCommandCode: "",
+		PlatformCline: "", PlatformDeepseekWeb: "", PlatformMadao: "", PlatformArena: "",
+		PlatformCursor: "", PlatformWindsurf: "", PlatformTeleagent: "", PlatformKilo: "",
+		PlatformDoubao: "", PlatformTraework: "", PlatformWorkbuddy: "", PlatformVibex: "",
+		PlatformZcode: "", PlatformQoder: "", PlatformLaya: "", PlatformJev: "",
+		PlatformSystemOne: "", PlatformModel3D: "", PlatformV0: "",
 	}
 )
 

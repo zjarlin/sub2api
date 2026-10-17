@@ -204,18 +204,19 @@ function loginAccountTitle(row: OpsRequestDetail): string {
   return parts.length > 0 ? parts.join(' / ') : displayLoginAccount(row)
 }
 
+// 明细行的调度账号：优先后端返回的账号名；只有 account_id 时返回空串，
+// 交给 accountLabel(row) 用 lite 账号映射解析（缺失再回退 #id）。
 function dispatchAccount(row: OpsRequestDetail): string {
   const name = String(row.account_name || '').trim()
   if (name && row.account_id != null) return `${name} #${row.account_id}`
   if (name) return name
-  if (row.account_id != null) return `#${row.account_id}`
-  return '-'
+  return ''
 }
 
 function dispatchAccountTitle(row: OpsRequestDetail): string {
   const name = String(row.account_name || '').trim()
   if (name && row.account_id != null) return `${name} / #${row.account_id}`
-  return dispatchAccount(row)
+  return dispatchAccount(row) || accountLabel(row)
 }
 
 function requestModel(row: OpsRequestDetail): string {
@@ -427,7 +428,7 @@ function accountLabel(row: OpsRequestDetail): string {
                     {{ displayLoginAccount(row) }}
                   </td>
                   <td class="max-w-[220px] truncate px-4 py-3 text-xs text-gray-600 dark:text-gray-300" :title="dispatchAccountTitle(row)">
-                    {{ dispatchAccount(row) }}
+                    {{ dispatchAccount(row) || accountLabel(row) }}
                   </td>
                   <td class="whitespace-nowrap px-4 py-3 text-xs text-gray-600 dark:text-gray-300">
                     {{ formatLatency(row) }}
