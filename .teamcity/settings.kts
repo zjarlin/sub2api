@@ -315,11 +315,14 @@ object DeployTianjinSub2API : BuildType({
     }
 
     params {
-        param("env.TIANJIN_SSH_HOST", "tianjin-media")
+        // 天津主机必须走 FRP 别名 `tianjin-frp`（252 frps 把天津 22 发布到本机
+        // 28083，实测 ~6MB/s）。`tianjin-media` 是 cloudflared 隧道别名，握手
+        // 经常超时且只有 ~20KB/s，传 50MB 镜像要十几分钟，不能用于本流水线。
+        param("env.TIANJIN_SSH_HOST", "tianjin-frp")
         param("env.TIANJIN_DEPLOY_DIR", "/opt/reeve/stacks/sub2api")
         param("env.TIANJIN_STACK_COMPOSE", "docker-compose.reeve.yml")
         param("env.IMAGE_REPOSITORY", "zjarlin/sub2api")
-        // 适配器镜像在天津本机构建（源码几百 KB，经隧道可行）。
+        // 适配器镜像在天津本机构建（源码几百 KB，走 SSH 即可）。
         param("env.SKIP_BUILD", "0")
         // 本流水线只开 WorkBuddy；其他平台保持目标机 .env 的设置。
         param("env.SUB2API_WORKBUDDY", "1")
@@ -357,6 +360,8 @@ object DeployTianjinSub2API : BuildType({
 
                 echo "##teamcity[progressStart '推送镜像到天津']"
                 # 天津与 252 私网不通、也没有共享 registry：经 SSH 直传镜像。
+                # 走 FRP 别名（见 TIANJIN_SSH_HOST 注释），50MB 镜像约 10 秒。
+                ssh -o BatchMode=yes "${'$'}REMOTE" "hostname" >/dev/null
                 docker save "${'$'}IMAGE" | gzip -1 | ssh -o BatchMode=yes "${'$'}REMOTE" "gunzip | docker load"
                 echo "##teamcity[progressFinish '推送镜像到天津']"
 

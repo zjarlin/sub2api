@@ -100,3 +100,13 @@ postgres/redis（不同机器的数据库容器名可能不同，按 compose 拉
 TeamCity 对应 `Deploy Tianjin Sub2API`：构建镜像 → 经 SSH 传到目标机 →
 同步 `deploy/` 与 `tools/` → 在目标机执行上述执行体 → 健康检查。当前该流水线
 只通过 `SUB2API_WORKBUDDY=1` 启用 WorkBuddy。
+
+**天津的 SSH 目标必须是 FRP 别名 `tianjin-frp`，不是 `tianjin-media`：**
+
+| 通道 | 别名 | 实测速率 | 用途 |
+|------|------|----------|------|
+| FRP（天津 22 → 252:28083） | `tianjin-frp` | ~6MB/s | 传镜像、跑部署（本流水线默认） |
+| cloudflared access ssh | `tianjin-media` | ~20KB/s，握手常超时 | 仅 `Deploy Media (GPU)` 的少量源码同步 |
+
+别名由 `deploy/tianjin/setup-tianjin-frp-ssh.sh` 在构建机上写入 `~/.ssh/config`。
+换机器时改流水线参数 `env.TIANJIN_SSH_HOST` 即可，脚本本身不用改。
