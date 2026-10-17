@@ -9,7 +9,10 @@ set -euo pipefail
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/sub2api}"
 PROJECT_NAME="${PROJECT_NAME:-sub2api}"
 EDGE_MEDIA_DIR="${EDGE_MEDIA_DIR:-$DEPLOY_DIR/edge-media}"
-IMAGE="${EDGE_MEDIA_IMAGE:?EDGE_MEDIA_IMAGE is required}"
+SCRIPT_DIR="$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)"
+source "$SCRIPT_DIR/edge-image.sh"
+IMAGE_REPOSITORY="${EDGE_MEDIA_IMAGE_REPOSITORY:-zjarlin/edge-media}"
+IMAGE="${EDGE_MEDIA_IMAGE:-$IMAGE_REPOSITORY:src-$(edge_image_fingerprint "$EDGE_MEDIA_DIR" '')}"
 NETWORK="${SUB2API_NETWORK:-${PROJECT_NAME}_sub2api-network}"
 
 test -f "$EDGE_MEDIA_DIR/docker/Dockerfile"
@@ -19,12 +22,7 @@ docker network inspect "$NETWORK" >/dev/null 2>&1 || {
   exit 1
 }
 
-echo "构建边缘媒体镜像 $IMAGE"
-docker build \
-  -t "$IMAGE" \
-  -t zjarlin/edge-media:latest \
-  -f "$EDGE_MEDIA_DIR/docker/Dockerfile" \
-  "$EDGE_MEDIA_DIR"
+edge_ensure_image "$IMAGE" "$EDGE_MEDIA_DIR" -t "$IMAGE_REPOSITORY:latest"
 
 echo "启动边缘媒体容器（接入 $NETWORK，无宿主端口）"
 # 252 只做编排与统一入口；TTS / 视频配音 / 视频生成的重模型在天津 GPU 机器上，
@@ -48,7 +46,7 @@ EDGE_MEDIA_IMAGE="$IMAGE" \
   MEDIA_VIDEO_GENERATION_COMMAND="${MEDIA_VIDEO_GENERATION_COMMAND:-}" \
   MEDIA_TRANSCODE_COMMAND="${MEDIA_TRANSCODE_COMMAND:-}" \
   SUB2API_NETWORK="$NETWORK" \
-  docker compose -f "$EDGE_MEDIA_DIR/compose/docker-compose.yml" up -d --force-recreate
+  docker compose -f "$EDGE_MEDIA_DIR/compose/docker-compose.yml" up -d --no-build
 
 echo "等待容器健康"
 for _ in $(seq 1 30); do
