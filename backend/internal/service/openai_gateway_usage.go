@@ -338,17 +338,11 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 			requestID = upstreamRequestID
 		}
 	}
-	// Async Grok video: always use the stable task id for dedup (status + content polls
-	// share one bill). Context-local client/local IDs would otherwise create a new row
-	// per poll if Redis claim is lost.
+	// Async video (Grok polls / OpenAI-compatible per-submission billing): always
+	// use the stable task id for dedup. Context-local client/local IDs would
+	// otherwise create a new row per poll if the Redis claim is lost.
 	if result.VideoCount > 0 {
-		if stable := StableGrokVideoBillingRequestID(firstNonEmpty(
-			strings.TrimPrefix(strings.TrimSpace(result.RequestID), "grok-video:"),
-			strings.TrimSpace(result.ResponseID),
-			strings.TrimPrefix(strings.TrimSpace(requestID), "grok-video:"),
-		)); stable != "" {
-			requestID = stable
-		}
+		requestID = stableAsyncVideoBillingRequestID(result, requestID)
 	}
 
 	// 确定 RequestedModel（渠道映射前的原始模型）
@@ -409,7 +403,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if isVideoUsage {
 		usageLog.VideoCount = result.VideoCount
 		usageLog.VideoResolution = optionalTrimmedStringPtr(NormalizeVideoBillingResolutionOrDefault(result.VideoResolution))
-		videoDurationSeconds := NormalizeVideoBillingDurationSecondsOrDefault(result.VideoDurationSeconds)
+		videoDurationSeconds := normalizeOpenAIVideoBillingDurationSeconds(firstUsageBillingModel(billingModels), result.VideoDurationSeconds)
 		usageLog.VideoDurationSeconds = &videoDurationSeconds
 	}
 	if cost != nil {
@@ -675,8 +669,72 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	return tokenCost, nil
 }
 
+// asyncVideoBillingRequestIDPrefixes are the durable money-event namespaces for
+// async video tasks. Each provider keeps its own prefix so usage logs stay
+// attributable while still being idempotent per task.
+var asyncVideoBillingRequestIDPrefixes = []string{"grok-video:", "openai-video:"}
+
+func hasAsyncVideoBillingRequestIDPrefix(raw string) bool {
+	trimmed := strings.TrimSpace(raw)
+	for _, prefix := range asyncVideoBillingRequestIDPrefixes {
+		if strings.HasPrefix(trimmed, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// stableAsyncVideoBillingRequestID picks the durable dedup id for one async
+// video task. An already-namespaced candidate always wins (the Grok completion
+// path stamps result.RequestID; the OpenAI video create path stamps
+// result.ResponseID), so an upstream x-request-id can never displace the task id
+// and split one job across multiple usage rows.
+func stableAsyncVideoBillingRequestID(result *OpenAIForwardResult, fallbackRequestID string) string {
+	if result == nil {
+		return ""
+	}
+	for _, candidate := range []string{strings.TrimSpace(result.RequestID), strings.TrimSpace(result.ResponseID), strings.TrimSpace(fallbackRequestID)} {
+		if candidate == "" {
+			continue
+		}
+		if hasAsyncVideoBillingRequestIDPrefix(candidate) {
+			return candidate
+		}
+	}
+	if stable := StableGrokVideoBillingRequestID(firstNonEmpty(
+		strings.TrimPrefix(strings.TrimSpace(result.RequestID), "grok-video:"),
+		strings.TrimSpace(result.ResponseID),
+		strings.TrimPrefix(strings.TrimSpace(fallbackRequestID), "grok-video:"),
+	)); stable != "" {
+		return stable
+	}
+	return strings.TrimSpace(fallbackRequestID)
+}
+
 func isGrokVideoBillingModel(model string) bool {
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "grok-imagine-video")
+}
+
+// isGrokVendorModel reports whether a billing model belongs to the xAI Grok
+// family, which keeps the historical 15-second video cap and per-second pricing.
+func isGrokVendorModel(model string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "grok-")
+}
+
+// normalizeOpenAIVideoBillingDurationSeconds keeps Grok's 1-15s cap but allows
+// OpenAI-compatible video relays (for example Minimax-H3) to report 20/30s jobs.
+// Request forwarding is not affected; only the billed/logged duration.
+func normalizeOpenAIVideoBillingDurationSeconds(model string, seconds int) int {
+	if isGrokVendorModel(model) {
+		return NormalizeVideoBillingDurationSecondsOrDefault(seconds)
+	}
+	if seconds <= 0 {
+		return VideoBillingDefaultDurationSeconds
+	}
+	if seconds > 30 {
+		return 30
+	}
+	return seconds
 }
 
 func isGrokVideoUsageResult(result *OpenAIForwardResult, billingModels []string) bool {
@@ -806,7 +864,7 @@ func (s *OpenAIGatewayService) calculateOpenAIVideoCost(
 		videoCount = 1
 	}
 	resolution := NormalizeVideoBillingResolutionOrDefault(result.VideoResolution)
-	durationSeconds := NormalizeVideoBillingDurationSecondsOrDefault(result.VideoDurationSeconds)
+	durationSeconds := normalizeOpenAIVideoBillingDurationSeconds(billingModel, result.VideoDurationSeconds)
 	resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey)
 	if resolved != nil && resolved.Source == PricingSourceGroup && resolved.Mode == BillingModeVideo {
 		gid := apiKey.Group.ID
@@ -816,6 +874,23 @@ func (s *OpenAIGatewayService) calculateOpenAIVideoCost(
 			RateMultiplier: multiplier, Resolver: s.resolver, Resolved: resolved,
 		})
 		if err == nil {
+			return cost
+		}
+	}
+	// OpenAI-compatible video relays (New API style) price one submission
+	// independently of the generated length, so a group per-request video price
+	// charges a flat fee per task. Grok keeps its per-second semantics: those
+	// models never take this branch.
+	if !isGrokVideoBillingModel(billingModel) && !isGrokVendorModel(billingModel) &&
+		resolved != nil && resolved.Source == PricingSourceGroup && resolved.Mode == BillingModePerRequest {
+		gid := apiKey.Group.ID
+		cost, err := s.billingService.CalculateCostUnified(CostInput{
+			Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
+			RequestCount: videoCount, UsageUnits: float64(videoCount), SizeTier: resolution,
+			RateMultiplier: multiplier, Resolver: s.resolver, Resolved: resolved,
+		})
+		if err == nil {
+			cost.BillingMode = string(BillingModeVideo)
 			return cost
 		}
 	}

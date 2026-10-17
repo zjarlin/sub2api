@@ -20,6 +20,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/testutil"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
 
@@ -419,4 +420,125 @@ func TestGrokMediaVideoCompletionStillClaimsBillingOnce(t *testing.T) {
 		}
 	}
 	require.Len(t, bindings.billed, 1)
+}
+
+// newOpenAIVideoSlotHandler mirrors newGrokMediaSlotHandler but targets OpenAI
+// API-key accounts that opted into the OpenAI-compatible /v1/videos surface.
+func newOpenAIVideoSlotHandler(t *testing.T) (*OpenAIGatewayHandler, *grokMediaSlotsCache, *grokMediaSlotBindings, *grokMediaSlotUpstream, *[]service.Account) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	accounts := make([]service.Account, 2)
+	for i := range accounts {
+		accounts[i] = service.Account{ID: int64(i + 1), Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+			Status: service.StatusActive, Schedulable: true, Concurrency: 50, Priority: i,
+			GroupIDs: []int64{24}, Credentials: map[string]any{
+				"api_key":             "wuye-secret",
+				"base_url":            "https://www.wuyeai.cn/v1",
+				"openai_capabilities": []string{"video_generation"},
+				"model_mapping":       map[string]any{"minimax-h3": "Minimax-H3-720p"},
+			}}
+	}
+	slots := &grokMediaSlotsCache{accounts: map[string]int64{}, users: map[string]int64{}}
+	concurrency := service.NewConcurrencyService(slots)
+	bindings := &grokMediaSlotBindings{owner: 1}
+	upstream := &grokMediaSlotUpstream{call: func(*http.Request, int64) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(`{"id":"task_h3","object":"video","model":"Minimax-H3-720p","status":"queued","progress":0}`))}, nil
+	}}
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	cfg.Gateway.Scheduling.StickySessionWaitTimeout = 20 * time.Millisecond
+	cfg.Gateway.Scheduling.StickySessionMaxWaiting = 3
+	repo := grokMediaSlotRepo{openAIImagesFailoverAccountRepo: openAIImagesFailoverAccountRepo{accounts: accounts}}
+	provider := service.NewGrokTokenProvider(repo, nil)
+	gateway := service.NewOpenAIGatewayService(repo, nil, nil, nil, nil, nil, bindings, cfg, nil, concurrency, nil, nil, nil, upstream, nil, nil, provider, nil, nil, nil, nil, nil)
+	billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
+	t.Cleanup(billing.Stop)
+	handler := NewOpenAIGatewayHandler(gateway, concurrency, billing, service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg)
+	return handler, slots, bindings, upstream, &accounts
+}
+
+func openAIVideoSlotContext(body string) (*gin.Context, *httptest.ResponseRecorder) {
+	groupID := int64(24)
+	method, path := http.MethodPost, "/v1/videos"
+	if body == "" {
+		method, path = http.MethodGet, "/v1/videos/task_h3"
+	}
+	req := httptest.NewRequest(method, path, strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = req
+	c.Params = gin.Params{{Key: "request_id", Value: "task_h3"}}
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{ID: 20, UserID: 10, GroupID: &groupID,
+		Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI, AllowImageGeneration: true}, User: &service.User{ID: 10}})
+	c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 10, Concurrency: 5})
+	return c, w
+}
+
+func TestOpenAIVideoHandlerChargesOncePerSubmissionAndKeepsOwnership(t *testing.T) {
+	h, slots, bindings, upstream, _ := newOpenAIVideoSlotHandler(t)
+	var lastURL, lastPath, lastBody string
+	original := upstream.call
+	upstream.call = func(req *http.Request, id int64) (*http.Response, error) {
+		lastURL, lastPath = req.URL.String(), req.URL.Path
+		if req.Body != nil {
+			body, _ := io.ReadAll(req.Body)
+			lastBody = string(body)
+		}
+		return original(req, id)
+	}
+
+	c, w := openAIVideoSlotContext(`{"model":"minimax-h3","prompt":"waves","duration":8,"resolution":"720p"}`)
+	h.OpenAIVideoGeneration(c)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.Equal(t, 1, upstream.calls)
+	require.Equal(t, "https://www.wuyeai.cn/v1/videos", lastURL)
+	require.Equal(t, "Minimax-H3-720p", gjson.GetBytes([]byte(lastBody), "model").String())
+	slots.assertReleased(t)
+	require.Len(t, bindings.pending, 0, "per-submission billing must not defer a pending snapshot")
+	require.Equal(t, 1, bindings.writes, "create must bind the task to the accepting account")
+	createdKey := bindings.key
+
+	// Status polling must reuse the bound account and never re-bind the ownership key.
+	c, w = openAIVideoSlotContext("")
+	h.OpenAIVideoStatus(c)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.Equal(t, 2, upstream.calls)
+	require.Equal(t, "/v1/videos/task_h3", lastPath)
+	require.Equal(t, createdKey, bindings.key)
+	require.Equal(t, 1, bindings.writes, "lookups must preserve owner binding")
+	slots.assertReleased(t)
+
+	// Content download follows the same binding and streams the upstream body.
+	c, w = openAIVideoSlotContext("")
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/videos/task_h3/content", nil)
+	h.OpenAIVideoContent(c)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.Equal(t, "/v1/videos/task_h3/content", lastPath)
+	require.Equal(t, 1, bindings.writes)
+	slots.assertReleased(t)
+
+	// A second submission is a second billable job: new task, new binding write,
+	// and a different task id from upstream.
+	upstream.call = func(*http.Request, int64) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}},
+			Body: io.NopCloser(strings.NewReader(`{"id":"task_h3_2","object":"video","status":"queued"}`))}, nil
+	}
+	c, w = openAIVideoSlotContext(`{"model":"minimax-h3","prompt":"waves again"}`)
+	h.OpenAIVideoGeneration(c)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.Equal(t, 2, bindings.writes, "every accepted submission re-binds its own task")
+	require.NotEqual(t, createdKey, bindings.key)
+	slots.assertReleased(t)
+}
+
+func TestOpenAIVideoStatusRejectsUnknownTaskOwnership(t *testing.T) {
+	h, slots, bindings, upstream, _ := newOpenAIVideoSlotHandler(t)
+	c, w := openAIVideoSlotContext("")
+	// No prior create bound this task to any account.
+	h.OpenAIVideoStatus(c)
+	require.Equal(t, 404, w.Code, w.Body.String())
+	require.Zero(t, upstream.calls)
+	require.Zero(t, bindings.writes)
+	slots.assertReleased(t)
 }

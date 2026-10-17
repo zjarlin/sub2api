@@ -99,13 +99,33 @@ func RegisterGatewayRoutes(
 			})
 		}
 	}
+	// xAI 的 generations/edits/extensions 子资源是 Grok 专有协议；OpenAI 兼容
+	// 中继（New API 系）只暴露任务制的 /videos + /videos/{id}[/content]。
+	grokOnlyVideosPath := func(c *gin.Context) bool {
+		if c == nil || c.Request == nil || c.Request.URL == nil {
+			return false
+		}
+		path := c.Request.URL.Path
+		for _, marker := range []string{"/videos/generations", "/videos/edits", "/videos/extensions"} {
+			if strings.Contains(path, marker) {
+				return true
+			}
+		}
+		return false
+	}
 	videoGenerationHandler := func(c *gin.Context) {
 		// Video status/content lookups below already allow Composite groups; keep
 		// task creation aligned so composite keys that route to Grok accounts can
 		// submit video generation jobs.
-		if platform := getGroupPlatform(c); platform == service.PlatformGrok || platform == service.PlatformComposite {
+		switch platform := getGroupPlatform(c); platform {
+		case service.PlatformGrok, service.PlatformComposite:
 			h.OpenAIGateway.GrokVideoGeneration(c)
 			return
+		case service.PlatformOpenAI:
+			if !grokOnlyVideosPath(c) {
+				h.OpenAIGateway.OpenAIVideoGeneration(c)
+				return
+			}
 		}
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 		c.JSON(http.StatusNotFound, gin.H{
@@ -119,9 +139,15 @@ func RegisterGatewayRoutes(
 		// Video status requests do not carry a model, so composite groups cannot
 		// be resolved by compositeTargetPlatformMiddleware. Route them through
 		// the Grok handler and let scheduler/account selection enforce capacity.
-		if getGroupPlatform(c) == service.PlatformGrok || getGroupPlatform(c) == service.PlatformComposite {
+		switch getGroupPlatform(c) {
+		case service.PlatformGrok, service.PlatformComposite:
 			h.OpenAIGateway.GrokVideoStatus(c)
 			return
+		case service.PlatformOpenAI:
+			if !grokOnlyVideosPath(c) {
+				h.OpenAIGateway.OpenAIVideoStatus(c)
+				return
+			}
 		}
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 		c.JSON(http.StatusNotFound, gin.H{
@@ -135,9 +161,15 @@ func RegisterGatewayRoutes(
 		// Video content requests do not carry a model, so composite groups cannot
 		// be resolved by compositeTargetPlatformMiddleware. Route them through
 		// the Grok handler just like video status lookups.
-		if getGroupPlatform(c) == service.PlatformGrok || getGroupPlatform(c) == service.PlatformComposite {
+		switch getGroupPlatform(c) {
+		case service.PlatformGrok, service.PlatformComposite:
 			h.OpenAIGateway.GrokVideoContent(c)
 			return
+		case service.PlatformOpenAI:
+			if !grokOnlyVideosPath(c) {
+				h.OpenAIGateway.OpenAIVideoContent(c)
+				return
+			}
 		}
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 		c.JSON(http.StatusNotFound, gin.H{

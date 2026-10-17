@@ -1980,6 +1980,12 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 		return configured["seedance"] && a.Platform == PlatformOpenAI && a.Type == AccountTypeAPIKey &&
 			strings.TrimSpace(a.GetCredential("base_url")) != ""
 	}
+	if capability == OpenAIEndpointCapabilityVideoGeneration {
+		configured, _ := a.openAIEndpointCapabilitySet()
+		return configured[string(OpenAIEndpointCapabilityVideoGeneration)] &&
+			a.Platform == PlatformOpenAI && a.Type == AccountTypeAPIKey &&
+			strings.TrimSpace(a.GetCredential("base_url")) != ""
+	}
 	if capability == "" {
 		return true
 	}

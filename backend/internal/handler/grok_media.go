@@ -51,12 +51,34 @@ func (h *OpenAIGatewayHandler) GrokVideoContent(c *gin.Context) {
 	h.handleGrokMedia(c, service.GrokMediaEndpointVideoContent, c.Param("request_id"))
 }
 
+// OpenAIVideoGeneration handles OpenAI-compatible POST /v1/videos through an
+// OpenAI API-key account that opted into the video_generation capability.
+func (h *OpenAIGatewayHandler) OpenAIVideoGeneration(c *gin.Context) {
+	setActualUpstreamEndpoint(c, EndpointVideos)
+	h.handleGrokMedia(c, service.OpenAIVideoEndpointCreate, "")
+}
+
+// OpenAIVideoStatus handles OpenAI-compatible GET /v1/videos/{task_id}.
+func (h *OpenAIGatewayHandler) OpenAIVideoStatus(c *gin.Context) {
+	setActualUpstreamEndpoint(c, EndpointVideos)
+	h.handleGrokMedia(c, service.OpenAIVideoEndpointStatus, service.OpenAIVideoTaskKey(c.Param("request_id")))
+}
+
+// OpenAIVideoContent proxies GET /v1/videos/{task_id}/content.
+func (h *OpenAIGatewayHandler) OpenAIVideoContent(c *gin.Context) {
+	setActualUpstreamEndpoint(c, EndpointVideos)
+	h.handleGrokMedia(c, service.OpenAIVideoEndpointContent, service.OpenAIVideoTaskKey(c.Param("request_id")))
+}
+
 func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.GrokMediaEndpoint, requestID string) {
 	platform := service.PlatformGrok
 	noAccountCode, noAccountMessage := "grok_media_no_eligible_account", "No eligible Grok media accounts"
 	if endpoint.IsSeedance() {
 		platform = service.PlatformOpenAI
 		noAccountCode, noAccountMessage = "seedance_no_eligible_account", "No eligible Seedance accounts"
+	} else if endpoint.IsOpenAIVideo() {
+		platform = service.PlatformOpenAI
+		noAccountCode, noAccountMessage = "openai_video_no_eligible_account", "No eligible OpenAI video accounts"
 	}
 	streamStarted := false
 	defer h.recoverResponsesPanic(c, &streamStarted)
@@ -112,8 +134,18 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 			return
 		}
 	}
+	if endpoint.IsOpenAIVideo() && endpoint.IsGenerationRequest() {
+		requestInfo, err = service.ParseOpenAIVideoRequest(body)
+		if err != nil {
+			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return
+		}
+	}
 	requestModel := requestInfo.Model
-	routingModel := service.NormalizeGrokMediaModelForEndpoint(endpoint, requestModel, requestInfo.HasInputImage())
+	routingModel := requestModel
+	if !endpoint.IsOpenAIVideo() {
+		routingModel = service.NormalizeGrokMediaModelForEndpoint(endpoint, requestModel, requestInfo.HasInputImage())
+	}
 	if endpoint.IsGenerationRequest() && strings.TrimSpace(requestModel) == "" {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 		return
@@ -322,7 +354,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		)
 
 		account := selection.Account
-		if endpoint.IsGenerationRequest() && !endpoint.IsSeedance() {
+		if endpoint.IsGenerationRequest() && !endpoint.IsSeedance() && !endpoint.IsOpenAIVideo() {
 			eligible, eligibilityReason, eligibilityErr := h.ensureGrokMediaAccountEligibility(requestCtx, account)
 			if !eligible {
 				releaseAccount()
@@ -375,6 +407,9 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 			defer releaseAccount()
 			if endpoint.IsSeedance() {
 				return h.gatewayService.ForwardSeedance(requestCtx, c, account, endpoint, requestID, body)
+			}
+			if endpoint.IsOpenAIVideo() {
+				return h.gatewayService.ForwardOpenAIVideo(requestCtx, c, account, endpoint, requestID, body, contentType)
 			}
 			return h.gatewayService.ForwardGrokMedia(requestCtx, c, account, endpoint, requestID, body, contentType)
 		}()
@@ -465,48 +500,60 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 
 		h.gatewayService.ReportOpenAIAccountScheduleResult(account, grokMediaScheduleModel(account, routingModel, result), true, nil)
 		if isGrokVideoCreateEndpoint(endpoint) && strings.TrimSpace(result.ResponseID) != "" {
+			bindingID := result.ResponseID
+			if endpoint.IsOpenAIVideo() {
+				bindingID = service.OpenAIVideoTaskKey(bindingID)
+			}
 			if err := h.gatewayService.BindGrokMediaVideoRequestAccount(
-				requestCtx, apiKey.GroupID, result.ResponseID, subject.UserID, apiKey.ID, account.ID,
+				requestCtx, apiKey.GroupID, bindingID, subject.UserID, apiKey.ID, account.ID,
 			); err != nil {
 				reqLog.Warn("grok_media.bind_video_request_account_failed",
 					zap.Int64("account_id", account.ID),
-					zap.String("request_id", result.ResponseID),
+					zap.String("request_id", bindingID),
 					zap.Error(err),
 				)
 			}
-			// Defer billing until status polling observes video.url. Persist create-time
-			// model/duration/resolution so status can still price if upstream omits them.
-			// Retry once: missing pending causes silent underpricing (status omits resolution).
-			pending := service.GrokVideoPendingBilling{
-				Model:                requestModel,
-				BillingModel:         firstNonEmptyString(result.BillingModel, requestModel),
-				UpstreamModel:        result.UpstreamModel,
-				VideoResolution:      result.VideoResolution,
-				VideoDurationSeconds: result.VideoDurationSeconds,
-				OriginalModel:        clientRequestedModel(c, requestModel),
-				// Wall-clock start for usage duration_ms: create accepted → first done discovery.
-				CreatedAt: videoCreateStartedAt,
-			}
-			if err := h.gatewayService.StoreGrokVideoPendingBilling(requestCtx, result.ResponseID, subject.UserID, apiKey.ID, pending); err != nil {
-				reqLog.Warn("grok_media.store_video_pending_billing_failed_retrying",
-					zap.Int64("account_id", account.ID),
-					zap.String("request_id", result.ResponseID),
-					zap.Error(err),
-				)
-				if err2 := h.gatewayService.StoreGrokVideoPendingBilling(requestCtx, result.ResponseID, subject.UserID, apiKey.ID, pending); err2 != nil {
-					// Response body may already be committed; completion path will fail-closed
-					// when pending is still missing and status cannot price duration.
-					reqLog.Error("grok_media.store_video_pending_billing_failed",
+			if !endpoint.IsOpenAIVideo() {
+				// Defer billing until status polling observes video.url. Persist create-time
+				// model/duration/resolution so status can still price if upstream omits them.
+				// Retry once: missing pending causes silent underpricing (status omits resolution).
+				pending := service.GrokVideoPendingBilling{
+					Model:                requestModel,
+					BillingModel:         firstNonEmptyString(result.BillingModel, requestModel),
+					UpstreamModel:        result.UpstreamModel,
+					VideoResolution:      result.VideoResolution,
+					VideoDurationSeconds: result.VideoDurationSeconds,
+					OriginalModel:        clientRequestedModel(c, requestModel),
+					// Wall-clock start for usage duration_ms: create accepted → first done discovery.
+					CreatedAt: videoCreateStartedAt,
+				}
+				if err := h.gatewayService.StoreGrokVideoPendingBilling(requestCtx, bindingID, subject.UserID, apiKey.ID, pending); err != nil {
+					reqLog.Warn("grok_media.store_video_pending_billing_failed_retrying",
 						zap.Int64("account_id", account.ID),
-						zap.String("request_id", result.ResponseID),
-						zap.Error(err2),
+						zap.String("request_id", bindingID),
+						zap.Error(err),
 					)
+					if err2 := h.gatewayService.StoreGrokVideoPendingBilling(requestCtx, bindingID, subject.UserID, apiKey.ID, pending); err2 != nil {
+						// Response body may already be committed; completion path will fail-closed
+						// when pending is still missing and status cannot price duration.
+						reqLog.Error("grok_media.store_video_pending_billing_failed",
+							zap.Int64("account_id", account.ID),
+							zap.String("request_id", bindingID),
+							zap.Error(err2),
+						)
+					}
 				}
 			}
 		}
 		// Status poll OR content download can observe official done+video.url.
 		// Both paths share the same claim key so the customer is charged once.
-		if endpoint == service.SeedanceEndpointStatus {
+		if endpoint == service.OpenAIVideoEndpointCreate {
+			// wuyeai/New API bill per submission, so charge once when the create
+			// response carries a task id instead of waiting for completion.
+			if result != nil && result.VideoCount > 0 {
+				recordGrokMediaUsage(c, h, reqLog, apiKey, subject, subscription, account, result, requestModel, body, requestID)
+			}
+		} else if endpoint == service.SeedanceEndpointStatus {
 			if billResult := prepareSeedanceCompletionBilling(requestCtx, h, apiKey, subject, requestID, result); billResult != nil {
 				recordGrokMediaUsage(c, h, reqLog, apiKey, subject, subscription, account, billResult, billResult.Model, body, requestID)
 			}
@@ -544,6 +591,12 @@ func grokMediaRequiredCapability(endpoint service.GrokMediaEndpoint) service.Ope
 	if endpoint.IsSeedance() {
 		return service.OpenAIEndpointCapabilitySeedance
 	}
+	if endpoint.IsOpenAIVideo() {
+		if endpoint.IsGenerationRequest() {
+			return service.OpenAIEndpointCapabilityVideoGeneration
+		}
+		return ""
+	}
 	if endpoint.IsGenerationRequest() {
 		return service.OpenAIEndpointCapabilityGrokMediaGeneration
 	}
@@ -562,7 +615,7 @@ func grokMediaScheduleModel(account *service.Account, routingModel string, resul
 
 func isGrokVideoCreateEndpoint(endpoint service.GrokMediaEndpoint) bool {
 	switch endpoint {
-	case service.SeedanceEndpointCreate, service.GrokMediaEndpointVideosGenerations,
+	case service.SeedanceEndpointCreate, service.OpenAIVideoEndpointCreate, service.GrokMediaEndpointVideosGenerations,
 		service.GrokMediaEndpointVideosEdits,
 		service.GrokMediaEndpointVideosExtensions:
 		return true

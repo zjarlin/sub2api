@@ -41,11 +41,12 @@ func (e GrokMediaEndpoint) RequiresRequestBody() bool {
 }
 
 func (e GrokMediaEndpoint) IsVideoLookupRequest() bool {
-	return e == GrokMediaEndpointVideoStatus || e == GrokMediaEndpointVideoContent || e == SeedanceEndpointStatus || e == SeedanceEndpointDelete
+	return e == GrokMediaEndpointVideoStatus || e == GrokMediaEndpointVideoContent ||
+		e == SeedanceEndpointStatus || e == SeedanceEndpointDelete || e.IsOpenAIVideoLookup()
 }
 
 func (e GrokMediaEndpoint) IsGenerationRequest() bool {
-	if e == SeedanceEndpointCreate {
+	if e == SeedanceEndpointCreate || e == OpenAIVideoEndpointCreate {
 		return true
 	}
 	switch e {
@@ -535,14 +536,18 @@ func (s *OpenAIGatewayService) ReleaseGrokVideoBilling(
 }
 
 // StableGrokVideoBillingRequestID is the durable usage_logs / dedup key for one
-// async video task (not the per-poll gateway request id).
+// async video task (not the per-poll gateway request id). OpenAI-compatible
+// video relays keep their own "openai-video:" namespace so both surfaces stay
+// identifiable in usage logs.
 func StableGrokVideoBillingRequestID(taskRequestID string) string {
 	taskRequestID = strings.TrimSpace(taskRequestID)
 	if taskRequestID == "" {
 		return ""
 	}
-	if strings.HasPrefix(taskRequestID, "grok-video:") {
-		return taskRequestID
+	for _, prefix := range []string{"grok-video:", "openai-video:"} {
+		if strings.HasPrefix(taskRequestID, prefix) {
+			return taskRequestID
+		}
 	}
 	return "grok-video:" + taskRequestID
 }
