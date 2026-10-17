@@ -5,6 +5,7 @@ services:
     build: .
     image: sub2api-chatgptweb:local
     restart: unless-stopped
+    init: true
     shm_size: 512m
     # Chromium 不允许把宿主 swap 吃满：内存与 swap 上限相同 = 禁用该容器的 swap。
     mem_limit: 1536m

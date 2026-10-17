@@ -17,6 +17,7 @@ services:
       dockerfile: madao2api/Dockerfile.sub2api
     image: ${MADAO_IMAGE:-sub2api-madao:local}
     restart: unless-stopped
+    init: true
     environment:
       TZ: ${TZ:-Asia/Shanghai}
       MADAO_LISTEN: 0.0.0.0:7870
