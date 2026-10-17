@@ -1,0 +1,17 @@
+[Unit]
+Description=Kill runaway Chromium before the host OOMs
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+Environment=OOM_GUARD_MIN_AVAIL_MB=6144
+Environment=OOM_GUARD_MAX_SWAP_PCT=85
+Environment=OOM_GUARD_INTERVAL=10
+Environment=OOM_GUARD_COOLDOWN=60
+ExecStart=/usr/local/bin/oom-guard.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
