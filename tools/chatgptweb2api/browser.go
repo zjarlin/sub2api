@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"strings"
@@ -91,6 +92,11 @@ type chatgptBrowser struct {
 	ctxCancel   context.CancelFunc
 	browserCtx  context.Context
 	started     bool
+	startedAt   time.Time
+	asks        int
+	maxAsks     int
+	maxAge      time.Duration
+	jsHeapMB    int
 }
 
 func (b *chatgptBrowser) logf(format string, args ...any) {
@@ -103,9 +109,22 @@ func newChatGPTBrowser(proxy, userAgent, execPath string, headless bool, answerW
 	if strings.TrimSpace(userAgent) == "" {
 		userAgent = chatgptUserAgent
 	}
+	maxAsks := intFromEnv(os.Getenv("CGW_BROWSER_MAX_ASKS"), 100)
+	if maxAsks < 1 {
+		maxAsks = 100
+	}
+	maxAge := time.Duration(intFromEnv(os.Getenv("CGW_BROWSER_MAX_AGE_MIN"), 120)) * time.Minute
+	if maxAge <= 0 {
+		maxAge = 120 * time.Minute
+	}
+	jsHeapMB := intFromEnv(os.Getenv("CGW_BROWSER_JS_HEAP_MB"), 384)
+	if jsHeapMB < 128 {
+		jsHeapMB = 384
+	}
 	return &chatgptBrowser{
 		proxy: proxy, headless: headless, userAgent: userAgent, execPath: execPath,
 		answerWait: answerWait, pollEvery: time.Second, navTimeout: 60 * time.Second,
+		maxAsks: maxAsks, maxAge: maxAge, jsHeapMB: jsHeapMB,
 		debug: os.Getenv("CGW_DEBUG") == "1",
 	}
 }
@@ -116,12 +135,20 @@ func (b *chatgptBrowser) start() error {
 	if b.started {
 		return nil
 	}
+	return b.startLocked()
+}
+
+// startLocked 启动浏览器并重置回收计数；调用方必须持有 b.mu。
+func (b *chatgptBrowser) startLocked() error {
 	options := append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.WindowSize(1440, 900),
 		chromedp.Flag("no-sandbox", true),
 		chromedp.Flag("disable-dev-shm-usage", true),
 		chromedp.Flag("disable-gpu", true),
 		chromedp.Flag("disable-software-rasterizer", true),
+		// 限制渲染进程的 JS 堆与进程数，避免长跑页把宿主 swap 吃满。
+		chromedp.Flag("js-flags", fmt.Sprintf("--max-old-space-size=%d", b.jsHeapMB)),
+		chromedp.Flag("renderer-process-limit", 2),
 		chromedp.Flag("hide-scrollbars", true),
 		chromedp.Flag("lang", "en-US"),
 		chromedp.UserAgent(b.userAgent),
@@ -155,6 +182,8 @@ func (b *chatgptBrowser) start() error {
 		return errors.New("ChatGPT web browser startup timed out")
 	}
 	b.started = true
+	b.startedAt = time.Now()
+	b.asks = 0
 	return nil
 }
 
@@ -255,6 +284,17 @@ func (b *chatgptBrowser) pressSend(runContext, requestContext context.Context) (
 	return "enter", nil
 }
 
+// recycleDueLocked 判断是否需要重启浏览器以释放长期累积的内存。
+func (b *chatgptBrowser) recycleDueLocked() bool {
+	if !b.started {
+		return false
+	}
+	if b.maxAsks > 0 && b.asks >= b.maxAsks {
+		return true
+	}
+	return b.maxAge > 0 && time.Since(b.startedAt) >= b.maxAge
+}
+
 // ask 打开首页并提交一条提示，返回助手文本。
 func (b *chatgptBrowser) ask(ctx context.Context, prompt string) (string, error) {
 	b.mu.Lock()
@@ -262,8 +302,19 @@ func (b *chatgptBrowser) ask(ctx context.Context, prompt string) (string, error)
 	if !b.started {
 		return "", errors.New("ChatGPT web browser is not running")
 	}
+	if b.recycleDueLocked() {
+		b.logf("recycling browser asks=%d age=%s", b.asks, time.Since(b.startedAt).Round(time.Minute))
+		b.release()
+		if err := b.startLocked(); err != nil {
+			return "", err
+		}
+	}
+	b.asks++
+	// 每条请求使用独立标签页，请求结束即关闭，释放该轮 DOM/JS 堆。
+	tabContext, closeTab := chromedp.NewContext(b.browserCtx)
+	defer closeTab()
 	// chromedp 要求上下文派生自浏览器上下文；请求取消时同步终止本轮。
-	runContext, cancel := context.WithTimeout(b.browserCtx, b.navTimeout+b.answerWait+45*time.Second)
+	runContext, cancel := context.WithTimeout(tabContext, b.navTimeout+b.answerWait+45*time.Second)
 	defer cancel()
 	stop := context.AfterFunc(ctx, cancel)
 	defer stop()
@@ -316,7 +367,7 @@ func (b *chatgptBrowser) waitAnswer(runContext, requestContext context.Context, 
 			return "", false, requestContext.Err()
 		case <-time.After(b.pollEvery):
 		}
-		readContext, readCancel := context.WithTimeout(b.browserCtx, 15*time.Second)
+		readContext, readCancel := context.WithTimeout(runContext, 15*time.Second)
 		var raw, streaming string
 		err := chromedp.Run(readContext,
 			chromedp.Evaluate(readAnswerJS, &raw),

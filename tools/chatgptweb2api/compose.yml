@@ -5,7 +5,14 @@ services:
     build: .
     image: sub2api-chatgptweb:local
     restart: unless-stopped
-    shm_size: 1gb
+    shm_size: 512m
+    # Chromium 不允许把宿主 swap 吃满：内存与 swap 上限相同 = 禁用该容器的 swap。
+    mem_limit: 1g
+    memswap_limit: 1g
+    mem_swappiness: 0
+    pids_limit: 256
+    # 宿主内存真的告急时优先杀浏览器适配器，保住 sshd / gateway / sub2api。
+    oom_score_adj: 500
     environment:
       CGW_API_KEY: ${CGW_API_KEY:?set adapter key}
       CGW_MODELS: ${CGW_MODELS:-gpt-web}

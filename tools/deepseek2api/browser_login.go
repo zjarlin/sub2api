@@ -79,6 +79,9 @@ func (b *chromiumLoginBrowser) Start(ctx context.Context, login browserLoginOpti
 		chromedp.Flag("disable-dev-shm-usage", true),
 		chromedp.Flag("disable-gpu", true),
 		chromedp.Flag("disable-software-rasterizer", true),
+		// 限制渲染进程的 JS 堆与进程数，避免登录页异常时无限占用内存。
+		chromedp.Flag("js-flags", "--max-old-space-size=384"),
+		chromedp.Flag("renderer-process-limit", 2),
 		chromedp.Flag("hide-scrollbars", true),
 		chromedp.Flag("lang", "en-US"),
 	)

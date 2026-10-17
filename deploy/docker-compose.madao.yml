@@ -32,6 +32,11 @@ services:
     cap_drop: [ALL]
     shm_size: 256m
     mem_limit: 768m
+    # 与 mem_limit 相同 = 禁用该容器 swap，内存压力时只在本 cgroup 内 OOM。
+    memswap_limit: 768m
+    mem_swappiness: 0
+    pids_limit: 256
+    oom_score_adj: 500
     healthcheck:
       test: [CMD, wget, -qO-, "http://127.0.0.1:7870/livez"]
       interval: 30s
