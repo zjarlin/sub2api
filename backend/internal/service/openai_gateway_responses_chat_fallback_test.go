@@ -91,6 +91,35 @@ func TestForwardResponses_ForceChatCompletionsOmitsNoneReasoningEffort(t *testin
 	require.Nil(t, result.ReasoningEffort)
 }
 
+func TestForwardResponses_ForceChatCompletionsRestoresUserInputFunctionCall(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"deepseek-v4.1-flash","input":"ask me before pushing","stream":false,"tools":[{"type":"function","name":"request_user_input","parameters":{"type":"object"}}]}`)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	c.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body: io.NopCloser(strings.NewReader(
+			`{"id":"chatcmpl_ask","object":"chat.completion","model":"deepseek-v4.1-flash","choices":[{"index":0,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_ask","type":"function","function":{"name":"request_user_input","arguments":"{\"questions\":[{\"header\":\"推送前确认\",\"id\":\"push_scope\",\"question\":\"还要检查其他流水线吗？\",\"options\":[{\"label\":\"只检查当前流水线\",\"description\":\"仅验证当前构建\"},{\"label\":\"检查全部流水线\",\"description\":\"扫描外层仓库相关构建\"}]}]}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":5,"completion_tokens":7,"total_tokens":12}}`,
+		)),
+	}}
+	svc := &OpenAIGatewayService{
+		cfg:          rawChatCompletionsTestConfig(),
+		httpUpstream: upstream,
+	}
+
+	result, err := svc.Forward(context.Background(), c, forceChatResponsesFallbackAccount(), body)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "request_user_input", gjson.Get(rec.Body.String(), "output.0.name").String())
+	require.Equal(t, "call_ask", gjson.Get(rec.Body.String(), "output.0.call_id").String())
+	require.JSONEq(t, `{"questions":[{"header":"推送前确认","id":"push_scope","question":"还要检查其他流水线吗？","options":[{"label":"只检查当前流水线","description":"仅验证当前构建"},{"label":"检查全部流水线","description":"扫描外层仓库相关构建"}]}]}`, gjson.Get(rec.Body.String(), "output.0.arguments").String())
+}
+
 func TestForwardResponses_PassthroughFlagWithUnsupportedResponsesUsesAccountMapping(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
