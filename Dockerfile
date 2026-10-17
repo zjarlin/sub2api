@@ -7,7 +7,11 @@
 # Stage 3: Final minimal image
 # =============================================================================
 
-ARG NODE_IMAGE=node:24-alpine
+# 构建机是 CentOS 7（kernel 3.10）：node:22/24 的镜像在该内核上跑 pnpm 全新安装
+# 会以 `EPERM: operation not permitted, write` 失败（pnpm 的链接/落盘阶段），
+# node:20 正常。上游 CI（backend-ci/release/security-scan）同样用 node 20，
+# 因此这里固定 20，不要跟随上游的 node:24。
+ARG NODE_IMAGE=node:20-alpine
 ARG GOLANG_IMAGE=golang:1.27.2-alpine
 ARG ALPINE_IMAGE=alpine:3.21
 ARG POSTGRES_IMAGE=postgres:18-alpine
