@@ -51,13 +51,16 @@ if [ -n "$CURRENT" ]; then
   printf '%s\n' "$CURRENT" > "$TARGET_DEPLOY_DIR/.previous-image"
   echo "    回滚镜像: $CURRENT"
 fi
-if grep -qE '^[[:space:]]*image:[[:space:]]*sub2api:' "$STACK_COMPOSE"; then
-  sed -i "s|^\([[:space:]]*image:[[:space:]]*\)sub2api:.*|\1$SUB2API_IMAGE|" "$STACK_COMPOSE"
+# 只替换「值里含 sub2api」的 image 行（postgres/redis 等其他镜像不受影响）。
+if grep -qE '^[[:space:]]*image:[[:space:]]*[^[:space:]]*sub2api' "$STACK_COMPOSE"; then
+  sed -i "s|^\([[:space:]]*image:[[:space:]]*\)[^[:space:]]*sub2api[^[:space:]]*$|\1$SUB2API_IMAGE|" "$STACK_COMPOSE"
 else
   echo "compose 缺少 sub2api 镜像行，无法切换镜像" >&2
   exit 1
 fi
-grep -nE '^[[:space:]]*image:[[:space:]]*sub2api:' "$STACK_COMPOSE"
+# 校验必须匹配「切换后」的镜像名：原来这里写死匹配 `image: sub2api:`，
+# 换成本次 tag 后必然不匹配，set -e 会把已经改好的部署误判成失败。
+grep -nF -- "image: $SUB2API_IMAGE" "$STACK_COMPOSE"
 
 # 组装 compose 调用：基础栈 + 适配器叠加层；profile 决定适配器开关。
 export COMPOSE_PROFILES="$PROFILES"
