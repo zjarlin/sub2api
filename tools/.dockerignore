@@ -7,6 +7,11 @@
 !deepseek2api/go.mod
 !deepseek2api/go.sum
 !deepseek2api/*.go
+!gemini2api/
+!gemini2api/*.py
+!gemini2api/Dockerfile*
+!gemini2api/sub2api-account.example.json
+!gemini2api/README.md
 !madao2api/
 !madao2api/go.mod
 !madao2api/go.sum
