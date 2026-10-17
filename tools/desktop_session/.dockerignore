@@ -20,6 +20,8 @@
 !smoke_conversations.py
 !smoke_responses.py
 !research_native.py
+!native_client.py
+!native_tools.py
 !requirements.txt
 !server.py
 !container_probe.py
