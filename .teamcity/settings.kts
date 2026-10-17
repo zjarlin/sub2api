@@ -193,8 +193,11 @@ object Deploy252Cluster : BuildType({
 // 镜像在天津本机构建：海光 DTK 基础镜像与曼波权重体积很大，跨公网搬运不现实，
 // 而源码只有几百 KB，所以这里把源码同步过去后在天津直接 docker build。
 //
-// 252 与天津私网互不可达，但 252 已配置 cloudflared ProxyCommand 的
-// `ssh tianjin-media` 别名。该 build type 复用 252 agent，通过 SSH 在天津执行部署。
+// 252 与天津私网互不可达。可用两条 SSH 通道（见 deploy/tianjin/setup-tianjin-frp-ssh.sh）：
+//   - `tianjin-frp`：天津 frpc 把 22 发布到 252 本机 28083，实测 ~6MB/s，稳定；
+//   - `tianjin-media`：cloudflared access ssh，约 20KB/s，握手经常超时
+//     （2026-10-17 连续两次构建因此失败）。
+// 两者都能跑，但默认用 FRP；换机器改 env.TIANJIN_SSH_HOST 即可。
 object DeployTianjinMedia : BuildType({
     name = "Deploy Media (GPU)"
     description = "构建并启动曼波 GPT-SoVITS、视频配音流水线与 edge-media 编排，发布内网端口供 252 的 /media/* 调用。"
@@ -210,7 +213,8 @@ object DeployTianjinMedia : BuildType({
     }
 
     params {
-        param("env.TIANJIN_SSH_HOST", "tianjin-media")
+        // cloudflared 别名握手常超时，改用 FRP 别名（同一台天津机器）。
+        param("env.TIANJIN_SSH_HOST", "tianjin-frp")
         param("env.TIANJIN_DEPLOY_DIR", "/opt/sub2api-tianjin-media")
         param("env.GPT_SOVITS_MODELS_DIR", "/opt/gptsovits-models")
         param("env.GPT_SOVITS_IMAGE", "gpt-sovits:manbo-v6")
