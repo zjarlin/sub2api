@@ -24,6 +24,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/typesafe"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -51,12 +52,14 @@ type GatewayHandler struct {
 	errorPassthroughService   *service.ErrorPassthroughService
 	contentModerationService  *service.ContentModerationService
 	securityAuditCoordinator  *securityaudit.Coordinator
-	concurrencyHelper         *ConcurrencyHelper
-	userMsgQueueHelper        *UserMsgQueueHelper
-	maxAccountSwitches        int
-	maxAccountSwitchesGemini  int
-	cfg                       *config.Config
-	settingService            *service.SettingService
+	// geminiCachedContentService 管理 Gemini 显式缓存；为 nil 时相关接口不可用。
+	geminiCachedContentService *service.GeminiCachedContentService
+	concurrencyHelper          *ConcurrencyHelper
+	userMsgQueueHelper         *UserMsgQueueHelper
+	maxAccountSwitches         int
+	maxAccountSwitchesGemini   int
+	cfg                        *config.Config
+	settingService             *service.SettingService
 }
 
 // NewGatewayHandler creates a new GatewayHandler
@@ -222,6 +225,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by composite groups")
 		return
 	}
+	if rejectSystemOneOnlyPlatform(c, apiKey, h.errorResponse) {
+		return
+	}
 
 	if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolAnthropicMessages, reqModel, body); decision != nil && !decision.AllowNextStage {
 		h.anthropicSecurityAuditError(c, decision)
@@ -262,6 +268,19 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		h.handleStreamingAwareError(c, status, code, message, streamStarted)
 		return
 	}
+
+	// 余额模式在途预留：防止并发请求在预检时看到同一份余额而集体透支。
+	inflightRelease, err := reserveInflightBalance(c, h.billingCacheService, h.gatewayService, apiKey, subscription, tokenInflightEstimate(reqModel, body))
+	if err != nil {
+		reqLog.Info("gateway.inflight_reservation_rejected", zap.Error(err))
+		status, code, message, retryAfter := billingErrorDetails(err)
+		if retryAfter > 0 {
+			c.Header("Retry-After", strconv.Itoa(retryAfter))
+		}
+		h.handleStreamingAwareError(c, status, code, message, streamStarted)
+		return
+	}
+	defer inflightRelease()
 
 	// 设置请求所属分组 ID（用于渠道级功能判断，如 WebSearch 模拟）
 	parsedReq.GroupID = apiKey.GroupID
@@ -330,6 +349,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		for {
 			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, "", int64(0)) // Gemini 不使用会话限制
 			if err != nil {
+				if failoverClientGone(c) {
+					reqLog.Info("gateway.account_select_aborted_client_disconnected", zap.Error(err))
+					return
+				}
 				if len(fs.FailedAccountIDs) == 0 {
 					cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, service.PlatformGemini)
 					if !cls.ModelNotFound {
@@ -660,6 +683,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			)
 			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), currentAPIKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, parsedReq.MetadataUserID, subject.UserID)
 			if err != nil {
+				if failoverClientGone(c) {
+					reqLog.Info("gateway.account_select_aborted_client_disconnected", zap.Error(err))
+					return
+				}
 				if len(fs.FailedAccountIDs) == 0 {
 					cls := classifyNoAccountErrorFromGin(c, h.gatewayService, currentAPIKey, reqModel, reqModel, platform)
 					if !cls.ModelNotFound {
@@ -1142,7 +1169,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	}
 
 	if platform == service.PlatformComposite {
-		availableModels := h.compositeAvailableModels(c.Request.Context(), groupID)
+		availableModels := h.compositeAvailableModels(c.Request.Context(), groupID, compositeModelListing{endpoint: "", includeSystemOne: true})
 		if apiKey != nil {
 			virtualModels := h.availableVirtualModelIDs(c.Request.Context(), apiKey.Group, availableModels)
 			if len(virtualModels) > 0 {
@@ -1156,6 +1183,8 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 			}
 		}
 		if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
+			// fork：nil 表示账号尚无目录（回落默认列表），空切片表示确定为空，
+			// 不得用默认列表复活空分组（见 TestGatewayModelsEmptyGroupDoesNotRestoreDefaults）。
 			source := availableModels
 			if source == nil {
 				source = defaultModelIDsForPlatform(service.PlatformComposite)
@@ -1163,7 +1192,12 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 			writeAllowlistedModelsList(c, service.PlatformComposite, apiKey.Group.ModelAllowlist.FilterForListing(source))
 			return
 		}
-		writeModelsList(c, service.PlatformComposite, availableModels)
+		// 结构采纳上游：无账号目录时回落到 composite 平台默认列表。
+		if len(availableModels) > 0 {
+			writeModelsList(c, service.PlatformComposite, availableModels)
+			return
+		}
+		writeModelsList(c, service.PlatformComposite, defaultModelIDsForPlatform(service.PlatformComposite))
 		return
 	}
 
@@ -1186,6 +1220,8 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		return
 	}
 
+	// fork：nil 才回落默认列表；空切片是权威的空目录（上游用 len() 判定会让空分组
+	// 复活平台默认列表，与 fork 的空分组语义冲突）。
 	if availableModels != nil {
 		writeModelsList(c, platform, availableModels)
 		return
@@ -1203,6 +1239,10 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	}
 	if platform == service.PlatformGrok {
 		writeGrokModelsList(c, xai.DefaultModelIDs())
+		return
+	}
+	if platform == service.PlatformTypeSafe {
+		writeModelsList(c, platform, []string{typesafe.JevLatestModel})
 		return
 	}
 
@@ -1261,20 +1301,28 @@ func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *servi
 		platform = group.Platform
 	}
 	if platform == service.PlatformComposite {
-		availableModels := h.compositeAvailableModels(ctx, groupID)
+		availableModels := h.compositeAvailableModels(ctx, groupID, compositeModelListing{
+			endpoint:         service.CompositeRouteEndpointResponses,
+			includeSystemOne: false,
+		})
+		// 虚拟模型（auto / ask / 翻译 / 档位）只对 LLM 客户端目录可见，随最终清单一起给出。
 		availableModels = h.prependAvailableVirtualModels(ctx, group, availableModels)
 		fallbackModels := defaultCodexModelIDsForPlatform(service.PlatformComposite)
+		// fork：启用白名单时空切片表示「确定为空」，不得复活默认列表
+		// （见 TestGatewayModelsEmptyGroupDoesNotRestoreDefaults）；未启用白名单时
+		// 结构采纳上游，空目录回落到 Codex 默认列表。
+		models := availableModels
+		if !group.ModelAllowlistEnabled() && len(models) == 0 {
+			models = fallbackModels
+		}
 		if group.ModelAllowlistEnabled() {
-			source := availableModels
-			if source == nil {
-				source = fallbackModels
-			}
-			return group.ModelAllowlist.FilterForListing(source)
+			models = group.ModelAllowlist.FilterForListing(models)
 		}
-		if availableModels != nil {
-			return availableModels
+		// 结构采纳上游：Codex 清单还要剔除仅 /v1/systemone 可用的 TypeSafe 路由模型。
+		if filtered, err := h.gatewayService.FilterCompositeCodexModels(ctx, group.ID, models); err == nil {
+			return filtered
 		}
-		return fallbackModels
+		return models
 	}
 
 	availableModels := h.gatewayService.GetAvailableModels(ctx, groupID, platform)
@@ -1288,18 +1336,40 @@ func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *servi
 	return fallbackModels
 }
 
-func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *int64) []string {
+// compositeModelListing 选择 composite 模型目录的协议端点，以及是否把 System One
+// （TypeSafe / jev-latest，仅 /v1/systemone 可用）算作可服务模型。缺省为全端点 + 含
+// System One，即分组面向模型选择器展示的完整目录。
+type compositeModelListing struct {
+	endpoint         string
+	includeSystemOne bool
+}
+
+// compositeAvailableModels lists the models the composite group can serve.
+// includeSystemOne adds TypeSafe models, which only work through /v1/systemone;
+// LLM client catalogs (Codex) must exclude them.
+func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *int64, listings ...compositeModelListing) []string {
+	listing := compositeModelListing{includeSystemOne: true}
+	if len(listings) > 0 {
+		listing = listings[0]
+	}
+	endpoint := listing.endpoint
+	includeSystemOne := listing.includeSystemOne
 	if h == nil || h.gatewayService == nil {
 		return nil
 	}
 	seen := make(map[string]struct{})
 	models := make([]string, 0)
-	for _, platform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformOpenAI, service.PlatformAntigravity, service.PlatformGrok, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformDeepseekWeb, service.PlatformMadao, service.PlatformMiniMax, service.PlatformCursor, service.PlatformWindsurf, service.PlatformTeleagent, service.PlatformOpenCodeGo, service.PlatformKilo, service.PlatformDoubao, service.PlatformTraework, service.PlatformWorkbuddy, service.PlatformVibex, service.PlatformZcode, service.PlatformLaya, service.PlatformJev} {
+	schedulablePlatforms := h.gatewayService.GetSchedulablePlatforms(ctx, groupID)
+	for _, platform := range domain.CompositePrecedencePlatformIDs() {
+		if platform == service.PlatformTypeSafe && !includeSystemOne {
+			continue
+		}
 		platformModels := h.gatewayService.GetAvailableModels(ctx, groupID, platform)
-		if platformModels == nil {
+		if len(platformModels) == 0 && (platform != service.PlatformOpenAI || platformModels == nil) {
 			// CN 供应商没有静态默认模型列表（defaultModelIDsForPlatform 的
 			// default 分支是 Claude 列表），composite 下只暴露账号映射键。
-			if !service.IsMultiProtocolAPIKeyProvider(platform) {
+			// 结构采纳上游：只有当前分组确有该平台的可调度账号时才补默认集。
+			if _, ok := schedulablePlatforms[platform]; ok && !service.IsMultiProtocolAPIKeyProvider(platform) {
 				platformModels = defaultModelIDsForPlatform(platform)
 			}
 		}
@@ -1313,6 +1383,16 @@ func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *
 			}
 			seen[model] = struct{}{}
 			models = append(models, model)
+		}
+	}
+	// A route can expose a public ID that no account model mapping contains.
+	// On lookup failure, retain the existing account-derived catalog only.
+	if routeModels, err := h.gatewayService.GetCompositeRouteModels(ctx, groupID, endpoint, includeSystemOne); err == nil {
+		for _, model := range routeModels {
+			if _, ok := seen[model]; !ok {
+				seen[model] = struct{}{}
+				models = append(models, model)
+			}
 		}
 	}
 	return models
@@ -1400,7 +1480,7 @@ func writeGrokModelsList(c *gin.Context, modelIDs []string) {
 
 func grokModelSupportsConfigurableReasoning(modelID string) bool {
 	switch strings.ToLower(strings.TrimSpace(modelID)) {
-	case "grok-4.6", "grok-4.6-latest", "grok-4.5", "grok-4.5-latest", "grok", "grok-latest", "grok-build", "grok-build-latest", "grok-build-0.1":
+	case "grok-4.7", "grok-4.7-latest", "grok-4.6", "grok-4.6-latest", "grok-4.5", "grok-4.5-latest", "grok", "grok-latest", "grok-build", "grok-build-latest", "grok-build-0.1":
 		return true
 	default:
 		return false
@@ -1435,6 +1515,10 @@ func writeOpenAIModelsList(c *gin.Context, modelIDs []string) {
 // 与平台默认列表（fallbackModels）。nil 表示账号尚无目录，空切片表示确定为空。
 // Anthropic 非空目录沿用默认模型补全，其余平台以配置目录为准。
 func modelListingSource(platform string, availableModels, fallbackModels []string) []string {
+	if platform == service.PlatformOpenAI && availableModels != nil {
+		return availableModels
+	}
+	// fork：只有 nil（账号尚无任何目录）才回落平台默认列表；空切片保持为空。
 	if availableModels == nil {
 		return fallbackModels
 	}
@@ -1507,10 +1591,18 @@ func defaultModelIDsForPlatform(platform string) []string {
 		return service.DefaultTeleagentModelIDs()
 	case service.PlatformCursor, service.PlatformWindsurf:
 		return nil
+	case service.PlatformTypeSafe:
+		return []string{"jev-latest"}
 	case service.PlatformComposite:
 		ids := make([]string, 0)
 		seen := make(map[string]struct{})
-		for _, concretePlatform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformOpenAI, service.PlatformAntigravity, service.PlatformGrok, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformDeepseekWeb, service.PlatformMadao, service.PlatformMiniMax, service.PlatformCursor, service.PlatformWindsurf, service.PlatformTeleagent, service.PlatformOpenCodeGo, service.PlatformKilo, service.PlatformDoubao, service.PlatformTraework, service.PlatformWorkbuddy, service.PlatformVibex, service.PlatformZcode, service.PlatformQoder, service.PlatformLaya, service.PlatformJev} {
+		for _, concretePlatform := range domain.CompositePrecedencePlatformIDs() {
+			// TypeSafe is deliberately skipped: jev-latest only works through
+			// /v1/systemone, so the static fallback never advertises it to LLM
+			// clients. compositeAvailableModels lists it when the group can serve it.
+			if concretePlatform == service.PlatformTypeSafe {
+				continue
+			}
 			for _, id := range defaultModelIDsForPlatform(concretePlatform) {
 				if _, ok := seen[id]; ok {
 					continue
@@ -2025,8 +2117,13 @@ func (h *GatewayHandler) handleStreamingAwareErrorWithCode(c *gin.Context, statu
 // Writer 已被写过时（ping 已 flush）走 streamStarted 分支，
 // 让 handleStreamingAwareError 通过 SSE 发协议合规的终止事件，
 // 否则下游收到的就是 silent EOF。
+// 客户端已断开时不补写，响应未提交则标记 499（见 failoverClientGone）。
 func (h *GatewayHandler) ensureForwardErrorResponse(c *gin.Context, streamStarted bool) bool {
 	if c == nil || c.Writer == nil {
+		return false
+	}
+	if c.Request != nil && errors.Is(c.Request.Context().Err(), context.Canceled) {
+		failoverClientGone(c)
 		return false
 	}
 	if service.IsResponseCommitted(c) {
@@ -2188,6 +2285,9 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	}
 	if !compositeTargetPlatformResolved(c, apiKey, parsedReq.Model) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by composite groups")
+		return
+	}
+	if rejectSystemOneOnlyPlatform(c, apiKey, h.errorResponse) {
 		return
 	}
 
@@ -2555,9 +2655,12 @@ func (h *GatewayHandler) submitUsageRecordTask(parent context.Context, task serv
 	if task == nil {
 		return
 	}
-	task = wrapUsageRecordTaskContext(parent, task)
+	task, abandon := wrapUsageRecordTaskContext(parent, task)
 	if h.usageRecordWorkerPool != nil {
 		if mode := h.usageRecordWorkerPool.Submit(task); mode != service.UsageRecordSubmitModeDroppedStopped {
+			if mode.Dropped() {
+				abandon()
+			}
 			return
 		}
 		// 池已停止（进程关停窗口）：计费任务不能静默丢失，降级为内联同步执行。
@@ -2585,7 +2688,7 @@ func (h *GatewayHandler) submitMandatoryUsageRecordTask(parent context.Context, 
 	if task == nil {
 		return
 	}
-	task = wrapUsageRecordTaskContext(parent, task)
+	task, _ = wrapUsageRecordTaskContext(parent, task)
 	if h.usageRecordWorkerPool != nil {
 		if mode := h.usageRecordWorkerPool.Submit(task); !mode.Dropped() {
 			return

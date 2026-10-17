@@ -27,7 +27,12 @@ func bindGroupPlatformJSON(t *testing.T, target any, body string) error {
 func TestGroupPlatformBinding_AllowedPlatforms(t *testing.T) {
 	allowed := []string{
 		"anthropic", "openai", "gemini", "antigravity", "grok",
-		"kimi", "zhipu", "deepseek", "madao", "arena", "minimax", "cursor", "opencode_go", "composite",
+		// 上游新增平台与 fork 适配器平台都须通过分组平台校验（由 domain 清单派生）。
+		"kimi", "zhipu", "deepseek", "minimax", "opencode_go", "composite",
+		"typesafe",
+		"command_code", "cline",
+		"deepseek_web", "madao", "arena", "cursor", "windsurf", "teleagent", "kilo",
+		"doubao", "traework", "workbuddy", "vibex", "zcode", "qoder", "laya", "jev",
 	}
 	for _, platform := range allowed {
 		t.Run("create_"+platform, func(t *testing.T) {
@@ -71,8 +76,8 @@ func TestGroupPlatformBinding_RejectsInvalidPlatforms(t *testing.T) {
 	}
 }
 
-func TestCompositeRouteTargetPlatform_AllowsCNProviders(t *testing.T) {
-	for _, platform := range []string{"kimi", "zhipu", "deepseek", "arena", "minimax", "cursor", "opencode_go"} {
+func TestCompositeRouteTargetPlatform_AllowsConcreteProviders(t *testing.T) {
+	for _, platform := range []string{"kimi", "zhipu", "deepseek", "arena", "minimax", "cursor", "kilo", "opencode_go", "typesafe", "command_code", "cline", "doubao", "traework", "workbuddy"} {
 		var req CompositeRouteRequest
 		body := fmt.Sprintf(`{"public_model":"m","target_platform":%q}`, platform)
 		require.NoError(t, bindGroupPlatformJSON(t, &req, body))

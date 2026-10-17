@@ -193,9 +193,22 @@
             <PlatformIcon platform="grok" size="sm" />
             Grok
           </button>
+          <button
+            type="button"
+            @click="selectTypeSafePlatform()"
+            :class="[
+              'flex flex-1 items-center justify-center gap-2 rounded-md px-4 py-2.5 text-sm font-medium transition-all',
+              form.platform === 'typesafe'
+                ? 'bg-white text-sky-700 shadow-sm dark:bg-dark-600 dark:text-sky-300'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <PlatformIcon platform="typesafe" size="sm" />
+            TypeSafe / Jev
+          </button>
         </div>
-        <!-- Multi-protocol API-key providers: Kimi / Zhipu GLM / DeepSeek / OpenCode -->
-        <div class="mt-2 flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700 [&>button]:min-w-[96px]">
+        <!-- 国产厂商：Kimi / Zhipu GLM / DeepSeek / MiniMax -->
+        <div class="mt-2 flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700" data-testid="platform-row-cn">
           <button
             type="button"
             data-testid="platform-kimi"
@@ -249,8 +262,13 @@
             <PlatformIcon platform="minimax" size="sm" />
             MiniMax
           </button>
+        </div>
+
+        <!-- 多模型聚合平台：OpenCode 与平台清单中登记的其他多协议供应商 -->
+        <div class="mt-2 flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700" data-testid="platform-row-aggregators">
           <button
             type="button"
+            data-testid="platform-button-opencode_go"
             @click="selectOpenCodeGoPlatform()"
             :class="[
               'flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all',
@@ -262,6 +280,28 @@
             <PlatformIcon platform="opencode_go" size="sm" />
             OpenCode
           </button>
+          <!-- 没有专属界面的多协议供应商：通用表单（模式 / 协议 / 端点来自 profile） -->
+          <button
+            v-for="spec in extraMultiProtocolPlatforms"
+            :key="spec.id"
+            type="button"
+            :data-testid="`platform-button-${spec.id}`"
+            @click="selectGenericMultiProtocolPlatform(spec.id)"
+            :class="[
+              'flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all',
+              form.platform === spec.id
+                ? 'bg-white text-primary-600 shadow-sm dark:bg-dark-600 dark:text-primary-400'
+                : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200'
+            ]"
+          >
+            <PlatformIcon :platform="spec.id" size="sm" />
+            {{ spec.display_name }}
+          </button>
+        </div>
+
+        <!-- 本仓库（fork）的平台：地址 / 密钥由部署安装的内置适配器注入或浏览器授权取得，
+             各自带登录按钮或平台专属字段，保留专属按钮与表单，不参与上面的清单派生行。 -->
+        <div class="mt-2 flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700 [&>button]:min-w-[96px]" data-testid="platform-row-adapters">
           <button
             type="button"
             data-testid="platform-kilo"
@@ -393,7 +433,7 @@
         </div>
         <p class="input-hint mt-2">{{ systemOneProvider === 'laya' ? t('admin.accounts.laya.baseUrlHint') : t('admin.accounts.jev.baseUrlHint') }}</p>
       </div>
-      <BuiltinAdapterLogin v-if="show && (form.platform === 'traework' || form.platform === 'workbuddy' || form.platform === 'vibex' || form.platform === 'zcode' || form.platform === 'deepseek_web' || form.platform === 'madao' || form.platform === 'arena' || form.platform === 'cursor' || form.platform === 'windsurf' || form.platform === 'teleagent')" @authorized="handleBuiltinAuthorized" @reset="resetBuiltinAuthorization" :key="form.platform" :platform="form.platform" :scope="adapterScope" />
+      <BuiltinAdapterLogin v-if="show && builtinLoginPlatform" @authorized="handleBuiltinAuthorized" @reset="resetBuiltinAuthorization" :key="builtinLoginPlatform" :platform="builtinLoginPlatform" :scope="adapterScope" />
 
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
@@ -510,8 +550,8 @@
               <Icon name="cloud" size="sm" />
             </div>
             <div>
-              <span class="block text-sm font-medium text-gray-900 dark:text-white">Vertex</span>
-              <span class="text-xs text-gray-500 dark:text-gray-400">Service Account</span>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.vertexLabel') }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.vertexDesc') }}</span>
             </div>
           </button>
 
@@ -779,6 +819,35 @@
         </div>
       </div>
 
+      <!-- Account Mode Selection (providers using the generic form) -->
+      <div v-if="isGenericMultiProtocolPlatform && genericAccountModes.length > 1" data-testid="generic-account-mode">
+        <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <button
+            v-for="mode in genericAccountModes"
+            :key="mode"
+            type="button"
+            @click="accountMode = mode"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountMode === mode
+                ? cnAccentActiveClass
+                : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
+            ]"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountMode === mode ? cnAccentIconClass : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="creditCard" size="sm" />
+            </div>
+            <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ providerModeLabel(mode, t) }}</span>
+          </button>
+        </div>
+      </div>
+
       <!-- Account Mode Selection (Kimi / Zhipu / DeepSeek) -->
       <div v-if="isCNPlatform && !isOpenCodeGoPlatform">
         <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
@@ -839,7 +908,7 @@
         </div>
       </div>
 
-      <!-- API Protocol Selection (Kimi / Zhipu / DeepSeek / OpenCode) -->
+      <!-- API Protocol Selection (Kimi / Zhipu / DeepSeek / OpenCode 与清单登记的多协议供应商) -->
       <div v-if="isMultiProtocolPlatform" class="mt-4">
         <label class="input-label">{{ t('admin.accounts.cnProviders.apiProtocol.title') }}</label>
         <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -1013,17 +1082,18 @@
             </div>
             <div>
               <span class="block text-sm font-medium text-gray-900 dark:text-white">
-                Vertex
+                {{ t('admin.accounts.vertexLabel') }}
               </span>
               <span class="text-xs text-gray-500 dark:text-gray-400">
-                Service Account
+                {{ t('admin.accounts.vertexGeminiDesc') }}
               </span>
             </div>
           </button>
         </div>
 
         <div
-          v-if="accountCategory === 'apikey'"
+          v-if="accountCategory === 'apikey' && isOfficialGeminiBaseUrl(apiKeyBaseUrl)"
+          data-testid="gemini-apikey-note"
           class="mt-3 rounded-lg border border-purple-200 bg-purple-50 px-3 py-2 text-xs text-purple-800 dark:border-purple-800/40 dark:bg-purple-900/20 dark:text-purple-200"
         >
           <p>{{ t('admin.accounts.gemini.accountType.apiKeyNote') }}</p>
@@ -1251,7 +1321,7 @@
         </div>
 
         <!-- Tier selection (used as fallback when auto-detection is unavailable/fails) -->
-        <div v-if="accountCategory !== 'service_account'" class="mt-4">
+        <div v-if="accountCategory === 'oauth-based'" class="mt-4" data-testid="gemini-oauth-tier">
           <label class="input-label">{{ t('admin.accounts.gemini.tier.label') }}</label>
           <div class="mt-2">
             <select
@@ -1398,92 +1468,169 @@
 
       <!-- Vertex Service Account -->
       <div v-if="(form.platform === 'gemini' || form.platform === 'anthropic') && accountCategory === 'service_account'" class="space-y-4">
-        <div>
-          <label class="input-label">Service Account JSON</label>
-          <input
-            ref="vertexServiceAccountFileInput"
-            type="file"
-            accept="application/json,.json"
-            class="hidden"
-            @change="handleVertexServiceAccountFile"
-          />
-          <div
-            :class="[
-              'rounded-lg border-2 border-dashed px-4 py-5 transition-colors',
-              vertexServiceAccountDragActive
-                ? 'border-sky-500 bg-sky-50 dark:border-sky-500 dark:bg-sky-900/20'
-                : 'border-gray-300 bg-gray-50 hover:border-sky-400 hover:bg-sky-50/60 dark:border-dark-500 dark:bg-dark-700/40 dark:hover:border-sky-600 dark:hover:bg-sky-900/10'
-            ]"
-            @dragenter.prevent="vertexServiceAccountDragActive = true"
-            @dragover.prevent="vertexServiceAccountDragActive = true"
-            @dragleave.prevent="vertexServiceAccountDragActive = false"
-            @drop.prevent="handleVertexServiceAccountDrop"
-          >
-            <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div class="min-w-0">
-                <div class="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-white">
-                  <Icon name="upload" size="sm" />
-                  <span>{{ vertexClientEmail ? t('admin.accounts.vertexSaJsonLoaded') : t('admin.accounts.vertexSaJsonDrop') }}</span>
-                </div>
-                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                  {{ vertexClientEmail ? t('admin.accounts.vertexSaJsonKeyHidden') : t('admin.accounts.vertexSaJsonDropHint') }}
-                </p>
-              </div>
-              <button
-                type="button"
-                class="btn btn-secondary shrink-0"
-                @click="vertexServiceAccountFileInput?.click()"
-              >
-                <Icon name="upload" size="sm" />
-                {{ t('admin.accounts.vertexSaJsonSelectBtn') }}
-              </button>
-            </div>
-            <div
-              v-if="vertexClientEmail"
-              class="mt-3 rounded-md border border-sky-200 bg-white px-3 py-2 text-xs text-sky-900 dark:border-sky-800/50 dark:bg-dark-800 dark:text-sky-200"
-            >
-              <div class="truncate">Project ID: <span class="font-mono">{{ vertexProjectId }}</span></div>
-              <div class="truncate">Client Email: <span class="font-mono">{{ vertexClientEmail }}</span></div>
-            </div>
+        <div v-if="form.platform === 'gemini'">
+          <label class="input-label">{{ t('admin.accounts.vertexAuthMode') }}</label>
+          <div class="mt-2 flex gap-4">
+            <label class="flex cursor-pointer items-center">
+              <input
+                v-model="vertexAuthMode"
+                type="radio"
+                value="service_account"
+                class="mr-2 text-primary-600 focus:ring-primary-500"
+              />
+              <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.accounts.vertexAuthModeServiceAccount') }}</span>
+            </label>
+            <label class="flex cursor-pointer items-center">
+              <input
+                v-model="vertexAuthMode"
+                type="radio"
+                value="apikey"
+                data-testid="vertex-auth-mode-apikey"
+                class="mr-2 text-primary-600 focus:ring-primary-500"
+              />
+              <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.accounts.vertexAuthModeApiKey') }}</span>
+            </label>
           </div>
-          <p class="input-hint">{{ t('admin.accounts.vertexSaJsonUploadHint') }}</p>
         </div>
 
-        <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <template v-if="vertexUsesApiKey">
           <div>
-            <label class="input-label">Project ID</label>
+            <label class="input-label">API Key</label>
             <input
-              v-model="vertexProjectId"
-              type="text"
-              class="input font-mono"
-              readonly
-              :placeholder="t('admin.accounts.vertexProjectIdPlaceholder')"
-            />
-          </div>
-          <div>
-            <label class="input-label">Location</label>
-            <select
-              v-model="vertexLocation"
+              v-model="vertexApiKey"
+              type="password"
               required
               class="input font-mono"
-            >
-              <optgroup
-                v-for="group in VERTEX_LOCATION_OPTIONS"
-                :key="group.label"
-                :label="group.label"
-              >
-                <option
-                  v-for="option in group.options"
-                  :key="option.value"
-                  :value="option.value"
-                >
-                  {{ option.label }}
-                </option>
-              </optgroup>
-            </select>
-            <p class="input-hint">{{ t('admin.accounts.vertexLocationHint') }}</p>
+              data-testid="vertex-api-key-input"
+            />
+            <p class="input-hint">{{ t('admin.accounts.vertexApiKeyHint') }}</p>
           </div>
-        </div>
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label class="input-label">Project ID</label>
+              <input
+                v-model="vertexProjectId"
+                type="text"
+                class="input font-mono"
+                data-testid="vertex-api-key-project-id-input"
+                :placeholder="t('admin.accounts.vertexApiKeyProjectIdPlaceholder')"
+              />
+              <p class="input-hint">{{ t('admin.accounts.vertexApiKeyProjectIdHint') }}</p>
+            </div>
+            <div v-if="vertexProjectId.trim()">
+              <label class="input-label">Location</label>
+              <select
+                v-model="vertexLocation"
+                required
+                class="input font-mono"
+              >
+                <optgroup
+                  v-for="group in VERTEX_LOCATION_OPTIONS"
+                  :key="group.label"
+                  :label="group.label"
+                >
+                  <option
+                    v-for="option in group.options"
+                    :key="option.value"
+                    :value="option.value"
+                  >
+                    {{ option.label }}
+                  </option>
+                </optgroup>
+              </select>
+              <p class="input-hint">{{ t('admin.accounts.vertexLocationHint') }}</p>
+            </div>
+          </div>
+        </template>
+
+        <template v-else>
+          <div>
+            <label class="input-label">Service Account JSON</label>
+            <input
+              ref="vertexServiceAccountFileInput"
+              type="file"
+              accept="application/json,.json"
+              class="hidden"
+              @change="handleVertexServiceAccountFile"
+            />
+            <div
+              :class="[
+                'rounded-lg border-2 border-dashed px-4 py-5 transition-colors',
+                vertexServiceAccountDragActive
+                  ? 'border-sky-500 bg-sky-50 dark:border-sky-500 dark:bg-sky-900/20'
+                  : 'border-gray-300 bg-gray-50 hover:border-sky-400 hover:bg-sky-50/60 dark:border-dark-500 dark:bg-dark-700/40 dark:hover:border-sky-600 dark:hover:bg-sky-900/10'
+              ]"
+              @dragenter.prevent="vertexServiceAccountDragActive = true"
+              @dragover.prevent="vertexServiceAccountDragActive = true"
+              @dragleave.prevent="vertexServiceAccountDragActive = false"
+              @drop.prevent="handleVertexServiceAccountDrop"
+            >
+              <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div class="min-w-0">
+                  <div class="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-white">
+                    <Icon name="upload" size="sm" />
+                    <span>{{ vertexClientEmail ? t('admin.accounts.vertexSaJsonLoaded') : t('admin.accounts.vertexSaJsonDrop') }}</span>
+                  </div>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                    {{ vertexClientEmail ? t('admin.accounts.vertexSaJsonKeyHidden') : t('admin.accounts.vertexSaJsonDropHint') }}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  class="btn btn-secondary shrink-0"
+                  @click="vertexServiceAccountFileInput?.click()"
+                >
+                  <Icon name="upload" size="sm" />
+                  {{ t('admin.accounts.vertexSaJsonSelectBtn') }}
+                </button>
+              </div>
+              <div
+                v-if="vertexClientEmail"
+                class="mt-3 rounded-md border border-sky-200 bg-white px-3 py-2 text-xs text-sky-900 dark:border-sky-800/50 dark:bg-dark-800 dark:text-sky-200"
+              >
+                <div class="truncate">Project ID: <span class="font-mono">{{ vertexProjectId }}</span></div>
+                <div class="truncate">Client Email: <span class="font-mono">{{ vertexClientEmail }}</span></div>
+              </div>
+            </div>
+            <p class="input-hint">{{ t('admin.accounts.vertexSaJsonUploadHint') }}</p>
+          </div>
+
+          <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <label class="input-label">Project ID</label>
+              <input
+                v-model="vertexProjectId"
+                type="text"
+                class="input font-mono"
+                readonly
+                :placeholder="t('admin.accounts.vertexProjectIdPlaceholder')"
+              />
+            </div>
+            <div>
+              <label class="input-label">Location</label>
+              <select
+                v-model="vertexLocation"
+                required
+                class="input font-mono"
+              >
+                <optgroup
+                  v-for="group in VERTEX_LOCATION_OPTIONS"
+                  :key="group.label"
+                  :label="group.label"
+                >
+                  <option
+                    v-for="option in group.options"
+                    :key="option.value"
+                    :value="option.value"
+                  >
+                    {{ option.label }}
+                  </option>
+                </optgroup>
+              </select>
+              <p class="input-hint">{{ t('admin.accounts.vertexLocationHint') }}</p>
+            </div>
+          </div>
+        </template>
       </div>
 
       <!-- Antigravity model restriction (applies to OAuth + Upstream) -->
@@ -1625,7 +1772,7 @@
             v-if="isCNPlatform && !isOpenCodeGoPlatform"
             class="mt-2"
             :platform="cnPresetPlatform"
-            :mode="accountMode"
+            :mode="cnPresetMode"
             :protocol="apiProtocol"
             :current-url="apiKeyBaseUrl"
             @select="onCnPresetSelect"
@@ -1646,15 +1793,16 @@
               />
             </div>
           </div>
-          <p v-if="!cnSupportsNativeResponses(form.platform)" class="input-hint">
+          <p v-if="!cnSupportsNativeResponses(form.platform, currentOpenCodeOrCNMode())" class="input-hint">
             {{ t('admin.accounts.cnProviders.apiProtocol.responsesFallbackDesc') }}
           </p>
         </div>
         <Model3DAccountFields v-if="form.platform === 'model3d'" v-model:provider="model3dProvider" v-model:client-id="model3dClientId" v-model:secret="apiKeyValue" v-model:model="model3dDefaultModel" />
         <OpenCodeGoProtocolRulesEditor
-          v-if="isOpenCodeGoPlatform && apiProtocol === 'adaptive'"
+          v-if="routesByModel && apiProtocol === 'adaptive'"
           v-model:rows="openCodeGoProtocolRules"
-          :plan="openCodeAccountMode"
+          :platform="form.platform"
+          :plan="currentOpenCodeOrCNMode()"
         />
         <div v-if="!isBuiltinAdapterPlatform && form.platform !== 'model3d'">
           <label class="input-label">{{ t('admin.accounts.apiKeyRequired') }}</label>
@@ -1687,9 +1835,9 @@
         </div>
 
         <!-- Gemini API Key tier selection -->
-        <div v-if="form.platform === 'gemini'">
+        <div v-if="form.platform === 'gemini' && isOfficialGeminiBaseUrl(apiKeyBaseUrl)">
           <label class="input-label">{{ t('admin.accounts.gemini.tier.label') }}</label>
-          <select v-model="geminiTierAIStudio" class="input">
+          <select v-model="geminiTierAIStudio" class="input" data-testid="gemini-apikey-tier">
             <option value="aistudio_free">{{ t('admin.accounts.gemini.tier.aiStudio.free') }}</option>
             <option value="aistudio_paid">{{ t('admin.accounts.gemini.tier.aiStudio.paid') }}</option>
           </select>
@@ -1769,6 +1917,7 @@
               <ModelWhitelistSelector
                 :account-api="accountAPI"
                 v-model="allowedModels"
+                :model-mappings="modelMappings"
                 :platform="form.platform"
                 :sync-credentials="syncPreviewCredentials"
                 @upstream-synced="upstreamModelsPreviewed = true"
@@ -1950,6 +2099,48 @@
             />
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.poolModeRetryStatusCodesHint', { default: DEFAULT_POOL_MODE_RETRY_STATUS_CODES.join(', ') }) }}
+            </p>
+          </div>
+        </div>
+
+        <!-- Gemini 显式缓存上游开关：仅自定义地址的 Gemini API Key 账号 -->
+        <div
+          v-if="form.platform === 'gemini' && !isOfficialGeminiBaseUrl(apiKeyBaseUrl)"
+          class="border-t border-gray-200 pt-4 dark:border-dark-600"
+          data-testid="explicit-cache-upstream-section"
+        >
+          <div class="flex items-center justify-between gap-4">
+            <div>
+              <label class="input-label mb-0">{{ t('admin.accounts.explicitCacheUpstream') }}</label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.explicitCacheUpstreamHint') }}
+              </p>
+            </div>
+            <Toggle
+              v-model="explicitCacheUpstreamEnabled"
+              data-testid="explicit-cache-upstream-toggle"
+              :aria-label="t('admin.accounts.explicitCacheUpstream')"
+            />
+          </div>
+          <div v-if="explicitCacheUpstreamEnabled" class="mt-3 rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
+            <p class="text-xs text-blue-700 dark:text-blue-400">
+              <Icon name="exclamationCircle" size="sm" class="mr-1 inline" :stroke-width="2" />
+              {{ t('admin.accounts.explicitCacheUpstreamInfo') }}
+            </p>
+          </div>
+          <div v-if="explicitCacheUpstreamEnabled" class="mt-3">
+            <label class="input-label">{{ t('admin.accounts.explicitCacheUpstreamMaxTTL') }}</label>
+            <input
+              v-model="explicitCacheUpstreamMaxTTL"
+              data-testid="explicit-cache-upstream-max-ttl"
+              type="number"
+              min="1"
+              step="1"
+              class="input"
+              placeholder="86400"
+            />
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.explicitCacheUpstreamMaxTTLHint') }}
             </p>
           </div>
         </div>
@@ -2259,6 +2450,7 @@
             <ModelWhitelistSelector
               :account-api="accountAPI"
               v-model="allowedModels"
+              :model-mappings="modelMappings"
               platform="anthropic"
               :sync-credentials="syncPreviewCredentials"
               @upstream-synced="upstreamModelsPreviewed = true"
@@ -2603,6 +2795,7 @@
             <ModelWhitelistSelector
               :account-api="accountAPI"
               v-model="allowedModels"
+              :model-mappings="modelMappings"
               :platform="form.platform"
               :sync-credentials="syncPreviewCredentials"
               @upstream-synced="upstreamModelsPreviewed = true"
@@ -2803,6 +2996,44 @@
                     class="input"
                     :placeholder="t('admin.accounts.tempUnschedulable.durationPlaceholder')"
                   />
+                </div>
+                <div class="sm:col-span-2">
+                  <label class="input-label">{{ t('admin.accounts.tempUnschedulable.scope') }}</label>
+                  <div
+                    class="grid grid-cols-1 gap-2 sm:grid-cols-2"
+                    role="radiogroup"
+                    :aria-label="t('admin.accounts.tempUnschedulable.scope')"
+                  >
+                    <button
+                      v-for="option in tempUnschedScopeOptions"
+                      :key="option.value"
+                      type="button"
+                      role="radio"
+                      :aria-checked="rule.scope === option.value"
+                      :data-testid="`temp-unsched-scope-${option.value}`"
+                      @click="rule.scope = option.value"
+                      :class="[
+                        'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+                        rule.scope === option.value
+                          ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                          : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
+                      ]"
+                    >
+                      <span
+                        :class="[
+                          'flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2',
+                          rule.scope === option.value ? 'border-primary-500' : 'border-gray-300 dark:border-dark-500'
+                        ]"
+                      >
+                        <span v-if="rule.scope === option.value" class="h-1.5 w-1.5 rounded-full bg-primary-500" />
+                      </span>
+                      <span>
+                        <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ option.label }}</span>
+                        <span class="text-xs text-gray-500 dark:text-gray-400">{{ option.description }}</span>
+                      </span>
+                    </button>
+                  </div>
+                  <p class="input-hint">{{ t('admin.accounts.tempUnschedulable.scopeHint') }}</p>
                 </div>
                 <div class="sm:col-span-2">
                   <label class="input-label">{{ t('admin.accounts.tempUnschedulable.keywords') }}</label>
@@ -4183,7 +4414,7 @@
 import BuiltinAdapterLogin from './BuiltinAdapterLogin.vue'
 import Model3DAccountFields from './Model3DAccountFields.vue'
 import DoubaoSessionProfiles from './DoubaoSessionProfiles.vue'
-import type { BuiltinAdapterScope, BuiltinLoginSession } from '@/api/admin/builtinAdapters'
+import type { BuiltinAdapterScope, BuiltinLoginPlatform, BuiltinLoginSession } from '@/api/admin/builtinAdapters'
 import type { AccountModalApi } from './accountApi'
 import { ref, reactive, computed, watch, onBeforeUnmount } from 'vue'
 import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
@@ -4220,7 +4451,8 @@ import type {
   CodexSessionImportMessage,
   OpenAICompactMode,
   OpenAIResponsesMode,
-  OpenAIEndpointCapability
+  OpenAIEndpointCapability,
+  TempUnschedulableScope
 } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -4237,6 +4469,7 @@ import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
+import { applyExplicitCacheUpstreamCredentials, isOfficialGeminiBaseUrl } from '@/utils/geminiExplicitCache'
 import OpenCodeGoProtocolRulesEditor from '@/components/account/OpenCodeGoProtocolRulesEditor.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import { allSelectedGroupsEnableLongContextPricing } from '@/components/account/longContextBilling'
@@ -4251,9 +4484,16 @@ import {
   KILO_BASE_URL,
   defaultCNBaseUrl,
   defaultOpenCodeProtocolRules,
+  defaultProviderProtocolRules,
   isCNProviderPlatform,
   isHeaderOverrideCapable,
   parseQuickOpenAIInput,
+  isMultiProtocolApiKeyPlatform,
+  providerAccountModes,
+  providerModeLabel,
+  providerNativeProtocols,
+  providerRoutesByModel,
+  resolveProviderAccountMode,
   validateHeaderOverrideRows,
   type CnAccountMode,
   type CnApiProtocol,
@@ -4263,6 +4503,7 @@ import {
   type OpenCodeAccountMode,
   type OpenCodeGoProtocolRule
 } from '@/components/account/credentialsBuilder'
+import { listPlatforms } from '@/constants/platformCatalog'
 import {
   formatDateTimeLocalInput,
   getBrowserTimeZone,
@@ -4359,7 +4600,8 @@ const apiKeyHint = computed(() => {
   if (form.platform === 'v0') return t('admin.accounts.v0.apiKeyHint')
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
-  if (form.platform === 'grok') return ''
+  // Grok 与多协议供应商没有对应的说明文案；通用文案指 Claude Console Key。
+  if (form.platform === 'grok' || isMultiProtocolPlatform.value) return ''
   return t('admin.accounts.apiKeyHint')
 })
 
@@ -4381,6 +4623,8 @@ const apiKeyBaseUrlPlaceholder = computed(() => {
       return 'https://generativelanguage.googleapis.com'
     case 'grok':
       return 'https://api.x.ai/v1'
+    case 'typesafe':
+      return 'https://api.typesafe.ai'
     default:
       return 'https://api.anthropic.com'
   }
@@ -4395,7 +4639,7 @@ const apiKeyValuePlaceholder = computed(() => {
     case 'openai':
       return 'sk-proj-...'
     case 'gemini':
-      return 'AIza...'
+      return 'AQ.Ab...'
     case 'grok':
       return 'xai-...'
     case 'kimi':
@@ -4412,8 +4656,10 @@ const apiKeyValuePlaceholder = computed(() => {
       return 'sk-...'
     case 'kilo':
       return 'public'
+    case 'typesafe':
+      return 'ts-...'
     default:
-      return 'sk-ant-...'
+      return isMultiProtocolPlatform.value ? 'sk-...' : 'sk-ant-...'
   }
 })
 
@@ -4510,6 +4756,8 @@ interface TempUnschedRuleForm {
   keywords: string
   duration_minutes: number | null
   description: string
+  // 作用范围：account 暂停整个账号，model 只冷却本次请求的模型。
+  scope: TempUnschedulableScope
 }
 
 // State
@@ -4530,7 +4778,8 @@ const quickOpenAIDefaultGroupId = ref<number | null>(null)
 const upstreamBillingAutoProbeEnabled = ref(true)
 
 // ── 国产供应商（Kimi / Zhipu / DeepSeek）账号类型、API 协议与端点 ──
-const accountMode = ref<CnAccountMode>('payg')
+// 多协议供应商（国产厂商与走通用表单的供应商）的接入模式；OpenCode 用 openCodeAccountMode。
+const accountMode = ref<string>('payg')
 const openCodeAccountMode = ref<OpenCodeAccountMode>('zen')
 // API 协议决定转发端点与格式：cc=现有转换链，anthropic=原生直通（Claude Code），
 // responses=deepseek / kimi 原生 Responses 端点（Codex）。与账号类型正交。
@@ -4548,8 +4797,27 @@ const adaptiveBaseUrls = ref<Record<CnNativeApiProtocol, string>>({
 })
 const isCNPlatform = computed(() => isCNProviderPlatform(form.platform))
 const isOpenCodeGoPlatform = computed(() => form.platform === 'opencode_go')
-const isMultiProtocolPlatform = computed(() => isCNPlatform.value || isOpenCodeGoPlatform.value)
-function currentOpenCodeOrCNMode(): CnAccountMode | OpenCodeAccountMode {
+// 本仓库（fork）的 Kilo 免密钥公共网关只支持 Chat Completions：凭据层面的
+// 「多协议供应商」判定（isMultiProtocolApiKeyPlatform，与后端
+// IsMultiProtocolAPIKeyProvider 一致）包含它，但表单层面它有专属分支
+// （selectKiloPlatform / buildCredentials 的 kilo 块），不参与清单派生的
+// 通用多协议表单（协议选择 / adaptive 端点 / 通用账号类型）。
+const isKiloPlatform = computed(() => form.platform === 'kilo')
+const isMultiProtocolPlatform = computed(
+  () => isMultiProtocolApiKeyPlatform(form.platform) && !isKiloPlatform.value
+)
+// 前端没有专属界面、走通用表单的多协议供应商：模式、协议、默认端点
+// 与分流规则全部来自平台清单中的 profile。
+const isGenericMultiProtocolPlatform = computed(
+  () => isMultiProtocolPlatform.value && !isCNPlatform.value && !isOpenCodeGoPlatform.value
+)
+const extraMultiProtocolPlatforms = computed(() =>
+  listPlatforms().filter(spec => !!spec.multi_protocol && !isCNProviderPlatform(spec.id) && spec.id !== 'opencode_go')
+)
+const genericAccountModes = computed(() => providerAccountModes(form.platform))
+// 按模型分流的供应商（OpenCode 等）：adaptive 账号携带 protocol_rules。
+const routesByModel = computed(() => providerRoutesByModel(form.platform))
+function currentOpenCodeOrCNMode(): string {
   return isOpenCodeGoPlatform.value ? openCodeAccountMode.value : accountMode.value
 }
 // CnBaseUrlPresets 的 platform prop 是平台字面量联合类型，模板里不能写
@@ -4560,35 +4828,31 @@ const cnPresetPlatform = computed<CnProviderPlatform>(() => {
   }
   return 'kimi'
 })
-const adaptivePresetPlatform = computed<CnProviderPlatform | 'opencode_go'>(() => {
-  if (form.platform === 'opencode_go') return 'opencode_go'
+// 国产厂商的接入模式只有 payg / coding（selectCNPlatform 已按 profile 规范化）。
+const cnPresetMode = computed<CnAccountMode>(() => (accountMode.value === 'coding' ? 'coding' : 'payg'))
+const adaptivePresetPlatform = computed<string>(() => {
+  if (isMultiProtocolPlatform.value) return form.platform
   return cnPresetPlatform.value
 })
-// 当前平台可选的协议档（responses 仅 deepseek / kimi）。
-const cnProtocolOptions = computed<Array<{ value: CnApiProtocol; labelKey: string }>>(() => {
-  const opts: Array<{ value: CnApiProtocol; labelKey: string }> = [
-    { value: 'adaptive', labelKey: 'adaptive' },
-    { value: 'chat_completions', labelKey: 'chatCompletions' },
-    { value: 'anthropic', labelKey: 'anthropic' }
-  ]
-  if (cnSupportsNativeResponses(form.platform)) {
-    opts.push({ value: 'responses', labelKey: 'responses' })
-  }
-  return opts
-})
-const cnAdaptiveProtocolOptions = computed<Array<{ value: CnNativeApiProtocol; labelKey: string }>>(() => {
-  const opts: Array<{ value: CnNativeApiProtocol; labelKey: string }> = [
-    { value: 'chat_completions', labelKey: 'chatCompletions' },
-    { value: 'anthropic', labelKey: 'anthropic' }
-  ]
-  if (cnSupportsNativeResponses(form.platform)) opts.push({ value: 'responses', labelKey: 'responses' })
-  return opts
-})
+const NATIVE_PROTOCOL_LABEL_KEYS: Record<CnNativeApiProtocol, string> = {
+  chat_completions: 'chatCompletions',
+  anthropic: 'anthropic',
+  responses: 'responses'
+}
+// 当前平台与接入模式提供原生端点的协议（profile 中有默认基址的协议）。
+const cnAdaptiveProtocolOptions = computed<Array<{ value: CnNativeApiProtocol; labelKey: string }>>(() =>
+  providerNativeProtocols(form.platform, currentOpenCodeOrCNMode()).map(value => ({
+    value,
+    labelKey: NATIVE_PROTOCOL_LABEL_KEYS[value]
+  }))
+)
+// 可选的协议档：adaptive 加上各原生协议（responses 仅 deepseek / kimi 等提供原生端点的供应商）。
+const cnProtocolOptions = computed<Array<{ value: CnApiProtocol; labelKey: string }>>(() => [
+  { value: 'adaptive', labelKey: 'adaptive' },
+  ...cnAdaptiveProtocolOptions.value
+])
 
-function resetAdaptiveBaseUrls(
-  platform: CnProviderPlatform | 'opencode_go',
-  mode: CnAccountMode | OpenCodeAccountMode
-) {
+function resetAdaptiveBaseUrls(platform: string, mode: string) {
   adaptiveBaseUrls.value = defaultCNAdaptiveBaseUrls(platform, mode)
 }
 // 当前选中平台的品牌色（选中卡片描边 / 图标底色），与 platformColors 取色一致。
@@ -4631,9 +4895,8 @@ function selectCNPlatform(platform: CnProviderPlatform) {
   form.type = 'apikey'
   accountCategory.value = 'apikey'
   apiProtocol.value = 'adaptive'
-  if (platform === 'deepseek') {
-    accountMode.value = 'payg'
-  }
+  // deepseek 无 coding 套餐（profile 仅 payg）；从其他供应商切换来的未知模式回落默认模式。
+  accountMode.value = resolveProviderAccountMode(platform, accountMode.value)
   apiKeyBaseUrl.value = defaultCNBaseUrl(platform, accountMode.value, apiProtocol.value)
   resetAdaptiveBaseUrls(platform, accountMode.value)
 }
@@ -4812,9 +5075,37 @@ function selectSystemOnePlatform() {
 // 内置适配器平台列表；地址由后端注入，浏览器授权平台使用返回的独立凭据。
 // 新增此类平台时只改这里，避免平台按钮 / base_url 复位 / 密钥必填等分支各漏一处。
 const BUILTIN_ADAPTER_PLATFORMS = ['doubao', 'traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'madao', 'qoder', 'systemone', 'arena', 'cursor', 'windsurf', 'teleagent'] as const
+
+// 需要浏览器登录授权的内置适配器平台。AccountPlatform 在合并后是宽类型
+// （清单可按后端新增平台扩展），模板里直接传 form.platform 无法收窄到
+// BuiltinAdapterLogin 的字面量联合，故经此 computed 提供非空判定 + 收窄。
+const BUILTIN_LOGIN_PLATFORMS = ['traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'madao', 'arena', 'cursor', 'windsurf', 'teleagent'] as const
+const builtinLoginPlatform = computed<BuiltinLoginPlatform | null>(() =>
+  (BUILTIN_LOGIN_PLATFORMS as readonly string[]).includes(form.platform)
+    ? (form.platform as BuiltinLoginPlatform)
+    : null
+)
 const isBuiltinAdapterPlatform = computed(() =>
   (BUILTIN_ADAPTER_PLATFORMS as readonly string[]).includes(form.platform)
 )
+
+function selectTypeSafePlatform() {
+  form.platform = 'typesafe'
+  form.type = 'apikey'
+  accountCategory.value = 'apikey'
+  apiKeyBaseUrl.value = 'https://api.typesafe.ai'
+  allowedModels.value = ['jev-latest']
+}
+function selectGenericMultiProtocolPlatform(platform: string) {
+  form.platform = platform
+  form.type = 'apikey'
+  accountCategory.value = 'apikey'
+  apiProtocol.value = 'adaptive'
+  accountMode.value = resolveProviderAccountMode(platform, undefined)
+  apiKeyBaseUrl.value = defaultCNBaseUrl(platform, accountMode.value, apiProtocol.value)
+  resetAdaptiveBaseUrls(platform, accountMode.value)
+  openCodeGoProtocolRules.value = cloneOpenCodeGoProtocolRules(defaultProviderProtocolRules(platform, accountMode.value))
+}
 // 账号类型 / 协议变更时同步默认 base url。
 watch(openCodeAccountMode, (mode, previousMode) => {
   if (!isOpenCodeGoPlatform.value) return
@@ -4837,6 +5128,12 @@ watch(openCodeAccountMode, (mode, previousMode) => {
 })
 watch(accountMode, (mode, previousMode) => {
   if (!isMultiProtocolPlatform.value || isOpenCodeGoPlatform.value) return
+  if (routesByModel.value) {
+    const previousRules = JSON.stringify(defaultProviderProtocolRules(form.platform, previousMode))
+    if (JSON.stringify(openCodeGoProtocolRules.value) === previousRules) {
+      openCodeGoProtocolRules.value = cloneOpenCodeGoProtocolRules(defaultProviderProtocolRules(form.platform, mode))
+    }
+  }
   if (apiProtocol.value === 'adaptive') {
     const previousDefaults = defaultCNAdaptiveBaseUrls(adaptivePresetPlatform.value, previousMode)
     const nextDefaults = defaultCNAdaptiveBaseUrls(adaptivePresetPlatform.value, mode)
@@ -4938,6 +5235,8 @@ const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const DEFAULT_POOL_MODE_RETRY_STATUS_CODES = [401, 403, 429]
 const poolModeEnabled = ref(false)
+const explicitCacheUpstreamEnabled = ref(false)
+const explicitCacheUpstreamMaxTTL = ref<string | number>('')
 const poolModeRetryCount = ref(DEFAULT_POOL_MODE_RETRY_COUNT)
 const poolModeRetryStatusCodesInput = ref('')
 
@@ -5076,6 +5375,17 @@ const vertexProjectId = ref('')
 const vertexClientEmail = ref('')
 const vertexLocation = ref('global')
 const vertexServiceAccountDragActive = ref(false)
+const vertexAuthMode = ref<'service_account' | 'apikey'>('service_account')
+const vertexApiKey = ref('')
+// API Key 认证只对 Gemini 平台开放，Anthropic 平台的 Vertex 账号始终使用 Service Account JSON。
+const vertexUsesApiKey = computed(() => form.platform === 'gemini' && vertexAuthMode.value === 'apikey')
+// 两种认证方式的 Project ID 来源不同（JSON 读取 / 手填），切换时清空凭证字段避免串用。
+watch(vertexAuthMode, () => {
+  vertexServiceAccountJson.value = ''
+  vertexProjectId.value = ''
+  vertexClientEmail.value = ''
+  vertexApiKey.value = ''
+})
 const tempUnschedEnabled = ref(false)
 const tempUnschedRules = ref<TempUnschedRuleForm[]>([])
 const getModelMappingKey = createStableObjectKeyResolver<ModelMapping>('create-model-mapping')
@@ -5331,6 +5641,19 @@ const geminiHelpLinks = {
 
 // Computed: current preset mappings based on platform
 const presetMappings = computed(() => getPresetMappingsByPlatform(form.platform))
+const tempUnschedScopeOptions = computed<Array<{ value: TempUnschedulableScope; label: string; description: string }>>(() => [
+  {
+    value: 'model',
+    label: t('admin.accounts.tempUnschedulable.scopeModel'),
+    description: t('admin.accounts.tempUnschedulable.scopeModelDesc')
+  },
+  {
+    value: 'account',
+    label: t('admin.accounts.tempUnschedulable.scopeAccount'),
+    description: t('admin.accounts.tempUnschedulable.scopeAccountDesc')
+  }
+])
+
 const tempUnschedPresets = computed(() => [
   {
     label: t('admin.accounts.tempUnschedulable.presets.overloadLabel'),
@@ -5338,7 +5661,8 @@ const tempUnschedPresets = computed(() => [
       error_code: 529,
       keywords: 'overloaded, too many',
       duration_minutes: 60,
-      description: t('admin.accounts.tempUnschedulable.presets.overloadDesc')
+      description: t('admin.accounts.tempUnschedulable.presets.overloadDesc'),
+      scope: 'model' as const
     }
   },
   {
@@ -5347,7 +5671,8 @@ const tempUnschedPresets = computed(() => [
       error_code: 429,
       keywords: 'rate limit, too many requests',
       duration_minutes: 10,
-      description: t('admin.accounts.tempUnschedulable.presets.rateLimitDesc')
+      description: t('admin.accounts.tempUnschedulable.presets.rateLimitDesc'),
+      scope: 'model' as const
     }
   },
   {
@@ -5356,7 +5681,8 @@ const tempUnschedPresets = computed(() => [
       error_code: 503,
       keywords: 'unavailable, maintenance',
       duration_minutes: 30,
-      description: t('admin.accounts.tempUnschedulable.presets.unavailableDesc')
+      description: t('admin.accounts.tempUnschedulable.presets.unavailableDesc'),
+      scope: 'model' as const
     }
   }
 ])
@@ -5516,8 +5842,7 @@ watch(
       apiKeyBaseUrl.value = ''
       accountCategory.value = newPlatform === 'qoder' ? 'oauth-based' : 'apikey'
       form.concurrency = 1
-
-    } else if (isCNProviderPlatform(newPlatform) || newPlatform === 'opencode_go') {
+    } else if (isMultiProtocolApiKeyPlatform(newPlatform)) {
       const mode = newPlatform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
       apiKeyBaseUrl.value = defaultCNBaseUrl(newPlatform, mode, apiProtocol.value)
     } else {
@@ -5528,6 +5853,8 @@ watch(
             ? 'https://generativelanguage.googleapis.com'
             : newPlatform === 'grok'
               ? 'https://api.x.ai/v1'
+              : newPlatform === 'typesafe'
+                ? 'https://api.typesafe.ai'
               : 'https://api.anthropic.com'
     }
     // Clear model-related settings
@@ -5535,6 +5862,12 @@ watch(
     upstreamModelsPreviewed.value = false
     modelMappings.value = []
     preserveModelWhitelist.value = false
+    if (newPlatform === 'typesafe') {
+      accountCategory.value = 'apikey'
+      // Grok 等平台会把模式切到映射；TypeSafe 只用白名单写入 jev-latest。
+      modelRestrictionMode.value = 'whitelist'
+      allowedModels.value = ['jev-latest']
+    }
     // Antigravity: 默认使用映射模式并填充默认映射
     if (newPlatform === 'antigravity') {
       antigravityModelRestrictionMode.value = 'mapping'
@@ -5576,6 +5909,8 @@ watch(
     vertexProjectId.value = ''
     vertexClientEmail.value = ''
     vertexLocation.value = 'global'
+    vertexAuthMode.value = 'service_account'
+    vertexApiKey.value = ''
     // Reset Anthropic/Antigravity-specific settings when switching to other platforms
     if (newPlatform !== 'anthropic' && newPlatform !== 'antigravity') {
       interceptWarmupRequests.value = false
@@ -5799,7 +6134,8 @@ const addTempUnschedRule = (preset?: TempUnschedRuleForm) => {
     error_code: null,
     keywords: '',
     duration_minutes: 30,
-    description: ''
+    description: '',
+    scope: 'model'
   })
 }
 
@@ -5822,6 +6158,7 @@ const buildTempUnschedRules = (rules: TempUnschedRuleForm[]) => {
     keywords: string[]
     duration_minutes: number
     description: string
+    scope: TempUnschedulableScope
   }> = []
 
   for (const rule of rules) {
@@ -5841,7 +6178,8 @@ const buildTempUnschedRules = (rules: TempUnschedRuleForm[]) => {
       error_code: Math.trunc(errorCode),
       keywords,
       duration_minutes: Math.trunc(duration),
-      description: rule.description.trim()
+      description: rule.description.trim(),
+      scope: rule.scope
     })
   }
 
@@ -6110,6 +6448,8 @@ const resetForm = () => {
   poolModeEnabled.value = false
   poolModeRetryCount.value = DEFAULT_POOL_MODE_RETRY_COUNT
   poolModeRetryStatusCodesInput.value = ''
+  explicitCacheUpstreamEnabled.value = false
+  explicitCacheUpstreamMaxTTL.value = ''
   customErrorCodesEnabled.value = false
   selectedErrorCodes.value = []
   customErrorCodeInput.value = null
@@ -6163,6 +6503,8 @@ const resetForm = () => {
   vertexProjectId.value = ''
   vertexClientEmail.value = ''
   vertexLocation.value = 'global'
+  vertexAuthMode.value = 'service_account'
+  vertexApiKey.value = ''
   tempUnschedEnabled.value = false
   tempUnschedRules.value = []
   geminiOAuthType.value = 'code_assist'
@@ -6531,6 +6873,28 @@ const handleSubmit = async () => {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
       return
     }
+    if (vertexUsesApiKey.value) {
+      if (!vertexApiKey.value.trim()) {
+        appStore.showError(t('admin.accounts.vertexApiKeyRequired'))
+        return
+      }
+      const projectId = vertexProjectId.value.trim()
+      if (projectId && !vertexLocation.value.trim()) {
+        appStore.showError(t('admin.accounts.vertexLocationRequired'))
+        return
+      }
+      const credentials: Record<string, unknown> = {
+        auth_mode: 'apikey',
+        api_key: vertexApiKey.value.trim(),
+        location: vertexLocation.value.trim() || 'global',
+        tier_id: 'vertex'
+      }
+      if (projectId) {
+        credentials.project_id = projectId
+      }
+      await createAccountAndFinish(form.platform, 'service_account' as AccountType, credentials)
+      return
+    }
     if (!parseVertexServiceAccountJson()) {
       return
     }
@@ -6567,6 +6931,8 @@ const handleSubmit = async () => {
         ? 'https://generativelanguage.googleapis.com'
         : form.platform === 'grok'
           ? 'https://api.x.ai/v1'
+          : form.platform === 'typesafe'
+            ? 'https://api.typesafe.ai'
           : 'https://api.anthropic.com'
 
   // Build credentials with optional model mapping
@@ -6588,7 +6954,7 @@ const handleSubmit = async () => {
     // 记录授权的 Cursor 账号，便于管理员区分同名账号与排查套餐问题。
     if (browserAuthorizedAccount.value) credentials.cursor_email = browserAuthorizedAccount.value
   }
-  if (form.platform === 'gemini') {
+  if (form.platform === 'gemini' && isOfficialGeminiBaseUrl(apiKeyBaseUrl.value)) {
     credentials.tier_id = geminiTierAIStudio.value
   }
   if (form.platform === 'windsurf' || form.platform === 'teleagent') {
@@ -6632,7 +6998,7 @@ const handleSubmit = async () => {
     credentials.api_protocol = 'chat_completions'
     credentials.base_url = KILO_BASE_URL
     credentials.api_key = 'public'
-  } else if (isCNProviderPlatform(form.platform) || form.platform === 'opencode_go') {
+  } else if (isMultiProtocolApiKeyPlatform(form.platform)) {
     credentials.account_mode = form.platform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
     credentials.api_protocol = apiProtocol.value
     if (apiProtocol.value === 'adaptive') {
@@ -6658,7 +7024,7 @@ const handleSubmit = async () => {
       if (zhipuOrganization.value.trim()) credentials.zhipu_organization = zhipuOrganization.value.trim()
       if (zhipuProject.value.trim()) credentials.zhipu_project = zhipuProject.value.trim()
     }
-    if (form.platform === 'opencode_go') {
+    if (providerRoutesByModel(form.platform)) {
       applyOpenCodeGoProtocolRules(credentials, openCodeGoProtocolRules.value, 'create')
     }
   }
@@ -6685,6 +7051,12 @@ const handleSubmit = async () => {
       credentials.pool_mode_retry_status_codes = parsedRetryStatusCodes
     }
   }
+
+  applyExplicitCacheUpstreamCredentials(
+    credentials,
+    form.platform === 'gemini' && !isOfficialGeminiBaseUrl(apiKeyBaseUrl.value) && explicitCacheUpstreamEnabled.value,
+    explicitCacheUpstreamMaxTTL.value
+  )
 
   // Add custom error codes if enabled
   if (customErrorCodesEnabled.value) {

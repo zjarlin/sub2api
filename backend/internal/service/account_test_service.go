@@ -208,14 +208,17 @@ func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, accou
 			return nil, fmt.Errorf("decode OpenAI account models: %w", err)
 		}
 	}
-	body, err := projectAccountModelsBody(body, account, nil, false)
+	// The shared discovery response is the raw upstream catalog. Project it
+	// through the account mapping before exposing it in the admin picker so
+	// configured aliases remain public names and unconfigured models stay out.
+	projectedBody, err := projectAccountModelsBody(body, account, nil, false)
 	if err != nil {
 		return nil, fmt.Errorf("project OpenAI account models: %w", err)
 	}
 	var payload struct {
 		Data []openai.Model `json:"data"`
 	}
-	if err := json.Unmarshal(body, &payload); err != nil {
+	if err := json.Unmarshal(projectedBody, &payload); err != nil {
 		return nil, fmt.Errorf("decode OpenAI account models: %w", err)
 	}
 	// Every entry in the picker is labelled by the same rule: the upstream display
@@ -271,16 +274,40 @@ func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, accou
 	// Add locally supported image choices only to the OAuth test picker; keep the
 	// shared upstream catalog and API-key discovery authoritative.
 	if account != nil && account.IsOpenAIOAuthLike() {
+		passthrough := account.IsOpenAIPassthroughEnabled()
+		seen := make(map[string]bool, len(payload.Data))
+		for _, model := range payload.Data {
+			seen[model.ID] = true
+		}
 		for _, model := range openai.DefaultModels {
 			if IsGPTImageGenerationModel(model.ID) && account.IsModelSupported(model.ID) && !seen[model.ID] {
+				if !passthrough && !IsGPTImageGenerationModel(account.GetMappedModel(model.ID)) {
+					continue
+				}
 				payload.Data = append(payload.Data, model)
 				seen[model.ID] = true
 			}
 		}
-		for model := range account.GetModelMapping() {
-			if IsGPTImageGenerationModel(model) && !strings.Contains(model, "*") && !seen[model] {
-				payload.Data = append(payload.Data, openai.Model{ID: model, Object: "model", Type: "model", OwnedBy: "openai", DisplayName: openaiCodexDisplayName(model)})
+		// Image models that a configured alias points at are absent from the Codex
+		// manifest, so the projection alone cannot surface them. Resolve each public
+		// name to its target and keep the entry when that target is an image model.
+		// Judging by the target rather than the public name keeps a lookalike name
+		// (for example an alias spelled "gpt-image-*" that maps to a text model)
+		// from being synthesized into the picker.
+		// Passthrough keeps native image names without applying mapping targets.
+		for publicID := range account.GetModelMapping() {
+			if strings.Contains(publicID, "*") || seen[publicID] {
+				continue
 			}
+			target := publicID
+			if !passthrough {
+				target = account.GetMappedModel(publicID)
+			}
+			if !IsGPTImageGenerationModel(target) {
+				continue
+			}
+			payload.Data = append(payload.Data, openai.Model{ID: publicID, Object: "model", Type: "model", OwnedBy: "openai", DisplayName: openaiCodexDisplayName(publicID)})
+			seen[publicID] = true
 		}
 	}
 	// 「上游能获取到什么模型，测试里就能测什么」：在返回候选前做一次带缓存的
@@ -334,7 +361,7 @@ func (s *AccountTestService) validateUpstreamBaseURL(raw string) (string, error)
 }
 
 // generateSessionString generates a Claude Code style session string.
-// The output format is determined by the UA version in claude.DefaultHeaders,
+// The output format is determined by the UA version in claude.DefaultHeaders(),
 // ensuring consistency between the user_id format and the UA sent to upstream.
 func generateSessionString() (string, error) {
 	b := make([]byte, 32)
@@ -343,7 +370,7 @@ func generateSessionString() (string, error) {
 	}
 	hex64 := hex.EncodeToString(b)
 	sessionUUID := uuid.New().String()
-	uaVersion := ExtractCLIVersion(claude.DefaultHeaders["User-Agent"])
+	uaVersion := ExtractCLIVersion(claude.DefaultHeaders()["User-Agent"])
 	return FormatMetadataUserID(hex64, "", sessionUUID, uaVersion), nil
 }
 
@@ -432,6 +459,7 @@ func (s *AccountTestService) testV0Account(ctx context.Context, c *gin.Context, 
 // mode is optional - "compact" routes OpenAI accounts to the /responses/compact probe path
 // opts is optional media (image/audio data URLs for real generation / STT).
 func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int64, modelID string, prompt string, mode string, opts ...AccountTestOptions) (testErr error) {
+	initAccountTestLogger(c, accountID, modelID, mode)
 	ctx := c.Request.Context()
 	testOpts := firstAccountTestOptions(opts)
 	if testOpts.HealthProbe {
@@ -443,6 +471,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Account not found")
 	}
+	bindAccountTestPlatform(c, account)
 
 	// 用户显式测试会让「可测模型」结论过期，下一次列表请求重新探测凭证。
 	invalidateAccountTestableAuthCache(accountID)
@@ -539,10 +568,15 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	// Route to platform-specific test method
+	// fork：豆包桌面适配器自持双协议状态，连接测试固定走 Chat Completions 探针。
 	if account.IsDoubao() {
 		return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt)
 	}
-	if account.IsCNProvider() || account.IsCursor() || account.IsWindsurf() || account.IsTeleagent() {
+	// 按入站协议分流的多协议供应商（国产厂商等）：按账号协议选测试路径。
+	// fork：本仓库的网页会话适配器不在 provider profile 内，另行显式列出，
+	// 否则会落到通用 Claude 测试路径（base_url + /v1/messages?beta=true）而 404。
+	if account.RoutesProtocolByInbound() || IsCNProvider(account.Platform) ||
+		account.IsCursor() || account.IsWindsurf() || account.IsTeleagent() {
 		switch account.GetAPIProtocol() {
 		case APIProtocolAdaptive:
 			return s.testCNProviderAdaptiveConnection(c, account, modelID, prompt)
@@ -571,43 +605,54 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.routeAntigravityTest(c, account, modelID, prompt)
 	}
 
-	if account.IsOpenCodeGo() {
-		return s.testOpenCodeGoAccountConnection(c, account, modelID, prompt)
+	// 按模型分流的多模型聚合平台（OpenCode、Command Code 等）。
+	if account.routesByModel() {
+		return s.testModelRoutedAccountConnection(c, account, modelID, prompt)
+	}
+
+	if account.IsTypeSafe() {
+		return s.testTypeSafeAccountConnection(c, account, prompt)
 	}
 
 	return s.testClaudeAccountConnection(c, account, modelID)
 }
 
-// testOpenCodeGoAccountConnection probes the native endpoint for the selected
-// model. Adaptive accounts (the default) follow OpenCodeGoModelProtocol:
+// testModelRoutedAccountConnection probes the native endpoint for the selected
+// model on providers that route by model (see ProviderRoutingByModel). Adaptive
+// accounts (the default) follow the provider's protocol rules, e.g. OpenCode Go:
 // grok/gpt/muse-spark → Responses, minimax/qwen → Anthropic, everything else
 // (including deepseek-v4-flash) → Chat Completions. A pinned api_protocol
 // overrides that catalog. Falling through to the generic Claude tester used
 // credentials.base_url + /v1/messages?beta=true, which 404s as HTML on
 // https://opencode.ai/zen/go/v1/v1/messages.
-func (s *AccountTestService) testOpenCodeGoAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
+func (s *AccountTestService) testModelRoutedAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
-		testModelID = DefaultOpenCodeGoTestModel
+		testModelID = account.providerDefaultTestModel()
+	}
+	if testModelID == "" {
+		testModelID = openai.DefaultTestModel
 	}
 	testModelID = account.GetMappedModel(testModelID)
-	proto := account.GetAPIProtocol()
-	switch proto {
-	case APIProtocolChatCompletions, APIProtocolAnthropic, APIProtocolResponses:
-	default:
-		proto = openCodeGoNativeProtocol(account, testModelID)
+	if account.IsOpenCodeGo() && IsOpenCodeUnsupportedModel(testModelID) {
+		return fmt.Errorf("model %q is not supported on OpenCode standard gateway (gemini models require Google SDK endpoint, jev models require System One endpoint)", testModelID)
 	}
-	switch proto {
+	// 与网关同一判定（含上游模型目录）；测试没有入站协议，取模型的首选协议。
+	protocol := account.resolveModelRoutedProtocol(testModelID)
+	if s.openaiGatewayService != nil {
+		protocol = s.openaiGatewayService.resolveUpstreamProtocolFor(c.Request.Context(), account, "", testModelID)
+	}
+	switch protocol {
 	case APIProtocolAnthropic:
 		return s.testCNProviderAnthropicConnection(c, account, testModelID)
 	case APIProtocolResponses:
-		return s.testOpenCodeGoResponsesConnection(c, account, testModelID)
+		return s.testModelRoutedResponsesConnection(c, account, testModelID)
 	default:
 		return s.testCNProviderChatCompletionsConnection(c, account, testModelID, prompt)
 	}
 }
 
-func (s *AccountTestService) testOpenCodeGoResponsesConnection(c *gin.Context, account *Account, testModelID string) error {
+func (s *AccountTestService) testModelRoutedResponsesConnection(c *gin.Context, account *Account, testModelID string) error {
 	authToken := strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
 	if authToken == "" {
 		return s.sendErrorAndEnd(c, "No API key available")
@@ -641,9 +686,13 @@ func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Cont
 		testModelID = models[0]
 	}
 	if testModelID == "" {
-		if account.IsVibex() {
+		testModelID = account.providerDefaultTestModel()
+		// fork：VibeX 无可用默认模型，必须由管理员选一个已同步的模型。
+		if testModelID == "" && account.IsVibex() {
 			return s.sendErrorAndEnd(c, "Select a model synchronized from the VibeX account")
 		}
+	}
+	if testModelID == "" {
 		testModelID = openai.DefaultTestModel
 		if account.IsTeleagent() {
 			testModelID = DefaultTeleagentModel
@@ -763,7 +812,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	req.Header.Set("anthropic-version", "2023-06-01")
 
 	// Apply Claude Code client headers
-	for key, value := range claude.DefaultHeaders {
+	for key, value := range claude.DefaultHeaders() {
 		req.Header.Set(key, value)
 	}
 
@@ -2497,6 +2546,9 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 		req.Header.Set("User-Agent", customUA)
 	}
 
+	// 官方 OpenCode / Command Code 上游收敛为规范客户端 UA，与真实转发路径一致。
+	applyOpenCodeUpstreamUserAgent(account, apiURL, req.Header)
+
 	// 账号级请求头覆写：测试请求与真实转发保持一致的最终头
 	account.ApplyHeaderOverrides(req.Header)
 	applyOpenCodeSessionHeader(c, account, apiURL, req.Header, payloadBytes)
@@ -2815,12 +2867,12 @@ func (s *AccountTestService) routeAntigravityTest(c *gin.Context, account *Accou
 		}
 		return s.testClaudeAccountConnection(c, account, modelID)
 	}
-	return s.testAntigravityAccountConnection(c, account, modelID)
+	return s.testAntigravityAccountConnection(c, account, modelID, prompt)
 }
 
 // testAntigravityAccountConnection tests an Antigravity account's connection
 // 支持 Claude 和 Gemini 两种协议，使用非流式请求
-func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, account *Account, modelID string) error {
+func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
 	ctx := c.Request.Context()
 
 	testModelID := antigravityConnectionTestModel(modelID)
@@ -2839,8 +2891,15 @@ func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, ac
 	// Send test_start event
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
 
-	// 调用 AntigravityGatewayService.TestConnection（复用协议转换逻辑）
-	result, err := s.antigravityGatewayService.TestConnection(ctx, account, testModelID, c.GetBool(accountTestHealthProbeContextKey))
+	// 复用协议转换逻辑。周期健康探测走只请求一次的 healthProbe 重载；
+	// 管理员显式测试走支持图片生成提示词的 TestConnectionWithPrompt。
+	var result *TestConnectionResult
+	var err error
+	if c.GetBool(accountTestHealthProbeContextKey) {
+		result, err = s.antigravityGatewayService.TestConnection(ctx, account, testModelID, true)
+	} else {
+		result, err = s.antigravityGatewayService.TestConnectionWithPrompt(ctx, account, testModelID, prompt)
+	}
 	if err != nil {
 		return s.sendErrorAndEnd(c, err.Error())
 	}
@@ -2848,6 +2907,13 @@ func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, ac
 	// 发送响应内容
 	if result.Text != "" {
 		s.sendEvent(c, TestEvent{Type: "content", Text: result.Text})
+	}
+	for _, img := range result.Images {
+		s.sendEvent(c, TestEvent{
+			Type:     "image",
+			ImageURL: img.ImageURL,
+			MimeType: img.MimeType,
+		})
 	}
 
 	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
@@ -2936,14 +3002,7 @@ func (s *AccountTestService) buildGeminiOAuthRequest(ctx context.Context, accoun
 }
 
 func (s *AccountTestService) buildGeminiServiceAccountRequest(ctx context.Context, account *Account, modelID string, payload []byte) (*http.Request, error) {
-	if s.geminiTokenProvider == nil {
-		return nil, fmt.Errorf("gemini token provider not configured")
-	}
-	accessToken, err := s.geminiTokenProvider.GetAccessToken(ctx, account)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get service account access token: %w", err)
-	}
-	fullURL, err := buildVertexGeminiURL(account.VertexProjectID(), account.VertexLocation(modelID), modelID, "streamGenerateContent", true)
+	fullURL, err := buildVertexGeminiAccountURL(account, modelID, "streamGenerateContent", true)
 	if err != nil {
 		return nil, err
 	}
@@ -2952,7 +3011,9 @@ func (s *AccountTestService) buildGeminiServiceAccountRequest(ctx context.Contex
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+accessToken)
+	if err := setVertexGeminiAuth(ctx, req, account, s.geminiTokenProvider); err != nil {
+		return nil, fmt.Errorf("failed to authenticate vertex request: %w", err)
+	}
 	return req, nil
 }
 
@@ -3716,7 +3777,7 @@ func (s *AccountTestService) sendEvent(c *gin.Context, event TestEvent) {
 
 // sendErrorAndEnd sends an error event and ends the stream
 func (s *AccountTestService) sendErrorAndEnd(c *gin.Context, errorMsg string) error {
-	log.Printf("Account test error: %s", errorMsg)
+	logAccountTestError(c, errorMsg)
 	s.sendEvent(c, TestEvent{Type: "error", Error: errorMsg})
 	return fmt.Errorf("%s", errorMsg)
 }
@@ -3728,6 +3789,7 @@ func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID in
 	w := httptest.NewRecorder()
 	ginCtx, _ := gin.CreateTestContext(w)
 	ginCtx.Request = (&http.Request{}).WithContext(ctx)
+	ginCtx.Set(accountTestBackgroundKey, true)
 
 	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, "", AccountTestModeDefault, opts...)
 

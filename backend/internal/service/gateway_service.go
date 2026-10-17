@@ -21,6 +21,7 @@ import (
 	"unsafe"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
@@ -581,6 +582,8 @@ type AccountSelectionResult struct {
 	Acquired    bool
 	ReleaseFunc func()
 	WaitPlan    *AccountWaitPlan // nil means no wait allowed
+	// stickySessionHit 标记账号来自会话粘性绑定命中，供非高级调度路径回填决策标签。
+	stickySessionHit bool
 	// profitGate 携带本次选号真实生效的利润门（无门为 nil）。门安装在调度栈的
 	// 局部 ctx 上，handler 必须经 ContextWithSelectionProfitGate 重放后才能在
 	// 调度栈之外做抢槽后终检与准入后粘性绑定。
@@ -649,6 +652,9 @@ type ForwardResult struct {
 	SearchCount        int
 	VisionCount        int
 	AudioUsage         *AudioUsage
+	// CacheStorageTokenHours 显式上下文缓存的存储量（缓存 token 数 × 存储小时数），按计费模型的
+	// 存储单价折算为费用后叠加在 token 费用之上。
+	CacheStorageTokenHours float64
 }
 
 // GatewayFailureStage identifies which request stage failed. The zero value is
@@ -687,23 +693,26 @@ type GatewayFailureReason string
 // trigger account failover. Additive metadata keeps existing composite literals
 // source-compatible and preserves their legacy retry-next-account behavior.
 type UpstreamFailoverError struct {
-	StatusCode                 int
-	ResponseBody               []byte        // 上游响应体，用于错误透传规则匹配
-	ResponseHeaders            http.Header   // 上游响应头，用于透传 cf-ray/cf-mitigated/content-type 等诊断信息
-	ForceCacheBilling          bool          // Antigravity 粘性会话切换时设为 true
-	RetryableOnSameAccount     bool          // 临时性错误（如 Google 间歇性 400、空响应），应在同一账号上重试 N 次再切换
-	SameAccountRetryDelay      time.Duration // 同账号重试的最小间隔；零值使用 handler 默认值
-	SameAccountRetryDeadline   time.Time     // 同账号重试截止时间；零值表示仅受 retryLimit 限制
-	SameAccountRetryMax        int           // 可选的错误级同账号重试上限，低于 handler 默认预算时优先采用
-	RequestScopedTransient     bool          // 故障因素与账号无关（如上游按客户端身份/模型容量降载）：可同账号重试，但不得据此对账号做临时封禁
-	SafeToFailoverAfterWrite   bool          // 仅写出 SSE 注释等非语义字节时，仍可在同一客户端流中切换账号
-	SkipAccountScheduleFailure bool          // 预检/辅助链路失败时仍要触发外层换号或换模型，但不得把故障归因到当前主账号
-	Stage                      GatewayFailureStage
-	Scope                      GatewayFailureScope
-	Reason                     GatewayFailureReason
-	NextAccountAction          NextAccountAction
-	ClientStatusCode           int
-	ClientMessage              string
+	StatusCode               int
+	ResponseBody             []byte        // 上游响应体，用于错误透传规则匹配
+	ResponseHeaders          http.Header   // 上游响应头，用于透传 cf-ray/cf-mitigated/content-type 等诊断信息
+	ForceCacheBilling        bool          // Antigravity 粘性会话切换时设为 true
+	RetryableOnSameAccount   bool          // 临时性错误（如 Google 间歇性 400、空响应），应在同一账号上重试 N 次再切换
+	SameAccountRetryDelay    time.Duration // 同账号重试的最小间隔；零值使用 handler 默认值
+	SameAccountRetryDeadline time.Time     // 同账号重试截止时间；零值表示仅受 retryLimit 限制
+	SameAccountRetryMax      int           // 可选的错误级同账号重试上限，低于 handler 默认预算时优先采用
+	RequestScopedTransient   bool          // 故障因素与账号无关（如上游按客户端身份/模型容量降载）：可同账号重试，但不得据此对账号做临时封禁
+	SafeToFailoverAfterWrite bool          // 仅写出 SSE 注释等非语义字节时，仍可在同一客户端流中切换账号
+	// 本仓库（fork）：预检/辅助链路失败时仍要触发外层换号或换模型，但不把故障归因到当前主账号。
+	SkipAccountScheduleFailure bool
+	// 上游：绑定显式缓存的请求在上游网关账号上收到的 429 / 5xx，反映持有缓存的上游账号状态，原样回写不走错误映射。
+	BoundUpstreamPassthrough bool
+	Stage                    GatewayFailureStage
+	Scope                    GatewayFailureScope
+	Reason                   GatewayFailureReason
+	NextAccountAction        NextAccountAction
+	ClientStatusCode         int
+	ClientMessage            string
 }
 
 func (e *UpstreamFailoverError) Error() string {
@@ -1380,6 +1389,20 @@ func (s *GatewayService) DoGrokNativeResponsesJSON(ctx context.Context, account 
 }
 
 // 目录只依赖账号配置；nil 表示账号尚无目录，可使用平台默认值，空切片表示确定为空。
+//
+// mixedListingAccountAllowed mirrors the mixed-scheduling rule in
+// GeminiMessagesCompatService.listSchedulableAccountsOnce: a gemini group may be
+// served by antigravity accounts, so model listing must consider them too.
+func mixedListingAccountAllowed(groupPlatform string, account *Account) bool {
+	return groupPlatform == PlatformGemini && account.IsMixedSchedulingEnabled()
+}
+
+// mixedListingModelAllowed limits what a mixed-scheduling account may advertise
+// on the group's platform: only gemini-* wire IDs are meaningful on a gemini group.
+func mixedListingModelAllowed(groupPlatform, model string) bool {
+	return groupPlatform == PlatformGemini && isAntigravityGeminiModel(model)
+}
+
 func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string {
 	// Auto 请求已读取完整分组快照，复用它避免每个平台再次查询或混入旧缓存。
 	if snapshot, ok := ctx.Value(autoModelAccountsKey{}).(*autoModelInventory); ok && groupID != nil && snapshot.groupID == *groupID {
@@ -1430,18 +1453,27 @@ func (s *GatewayService) resolveCompositeModelOwnership(ctx context.Context, gro
 		}
 	}
 
-	accounts, err := s.accountRepo.ListSchedulableByGroupID(ctx, groupID)
+	// 归属取决于配置而非运行时健康：限流/临时不可调度不应让同一模型在
+	// 「唯一归属」与「歧义」之间来回翻转，否则配置错误只会间歇暴露。
+	accounts, err := s.accountRepo.ListModelAvailabilityCandidates(ctx, &groupID, domain.ConcretePlatformIDs(), false)
 	if err != nil {
 		return CompositeModelOwnership{}, err
 	}
 
 	platforms := make(map[string]struct{})
+	ownership := CompositeModelOwnership{}
 	for _, account := range accounts {
 		platform := strings.TrimSpace(account.Platform)
-		if isConcreteRequestPlatform(platform) && explicitModelMappingClaims(account, aliasIDs[0]) {
+		if !isConcreteRequestPlatform(platform) {
+			continue
+		}
+		if explicitModelMappingClaims(account, aliasIDs[0]) {
 			platforms[platform] = struct{}{}
+			ownership.OpenAIGatewayOAuthClaimed = ownership.OpenAIGatewayOAuthClaimed ||
+				(account.IsOAuth() && domain.UsesOpenAIGateway(platform))
 		}
 	}
+	// 别名首项未命中时回退到其余别名，避免同一模型因别名写法不同而漏判归属。
 	if len(platforms) == 0 {
 		for _, account := range accounts {
 			platform := strings.TrimSpace(account.Platform)
@@ -1451,13 +1483,14 @@ func (s *GatewayService) resolveCompositeModelOwnership(ctx context.Context, gro
 			for _, aliasID := range aliasIDs[1:] {
 				if explicitModelMappingClaims(account, aliasID) {
 					platforms[platform] = struct{}{}
+					ownership.OpenAIGatewayOAuthClaimed = ownership.OpenAIGatewayOAuthClaimed ||
+						(account.IsOAuth() && domain.UsesOpenAIGateway(platform))
 					break
 				}
 			}
 		}
 	}
 
-	ownership := CompositeModelOwnership{}
 	if len(platforms) == 1 {
 		for platform := range platforms {
 			ownership.TargetPlatform = platform
@@ -1479,6 +1512,21 @@ func explicitModelMappingClaims(account Account, model string) bool {
 	}
 	mapped, ok := stringMappingFromRaw(account.Credentials["model_mapping"])[model]
 	return ok && strings.TrimSpace(mapped) != ""
+}
+
+// GetCompositeRouteModels returns public IDs from enabled exact composite routes.
+func (s *GatewayService) GetCompositeRouteModels(ctx context.Context, groupID *int64, endpoint string, includeSystemOne bool) ([]string, error) {
+	if s == nil || s.compositeResolver == nil || groupID == nil {
+		return nil, nil
+	}
+	return s.compositeResolver.ListExactPublicModels(ctx, *groupID, endpoint, includeSystemOne)
+}
+
+func (s *GatewayService) FilterCompositeCodexModels(ctx context.Context, groupID int64, models []string) ([]string, error) {
+	if s == nil || s.compositeResolver == nil {
+		return models, nil
+	}
+	return s.compositeResolver.FilterCodexModels(ctx, groupID, models)
 }
 
 // GetSchedulablePlatforms returns the concrete platforms that currently have

@@ -343,6 +343,7 @@
 
               <ModelWhitelistSelector
                 v-model="allowedModels"
+                :model-mappings="modelMappings"
                 :platforms="targetSelectedPlatforms"
                 enable-alias-mapping
                 @global-aliases-mapped="addGlobalModelMappings"

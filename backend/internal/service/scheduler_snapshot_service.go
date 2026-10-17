@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
 
@@ -608,15 +609,18 @@ func (s *SchedulerSnapshotService) handleBulkAccountEvent(ctx context.Context, p
 			continue
 		}
 		accountGroupIDs := s.normalizeGroupIDs(account.GroupIDs)
-		switch account.Platform {
-		case PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok,
-			PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformMadao, PlatformArena, PlatformMiniMax, PlatformCursor, PlatformWindsurf, PlatformTeleagent, PlatformOpenCodeGo, PlatformKilo,
-			PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformSystemOne, PlatformLaya, PlatformJev:
+		switch {
+		case account.Platform != PlatformAntigravity && isConcreteRequestPlatform(account.Platform):
 			// 按兼容关系刷新目标分组；即使刚关闭可选混合调度，也要清理旧快照。
 			addPlatformGroups(account.Platform, accountGroupIDs)
 			for _, target := range MixedSchedulingTargetPlatforms(account.Platform) {
 				addPlatformGroups(target, accountGroupIDs)
 			}
+		case account.Platform == PlatformAntigravity:
+			// 批量更新可能刚关闭 mixed_scheduling，仍需清理两个兼容平台的旧快照。
+			addPlatformGroups(PlatformAntigravity, accountGroupIDs)
+			addPlatformGroups(PlatformAnthropic, accountGroupIDs)
+			addPlatformGroups(PlatformGemini, accountGroupIDs)
 		default:
 			return s.rebuildByGroupIDs(ctx, rebuildGroupIDs, "account_bulk_change", seen)
 		}
@@ -828,8 +832,10 @@ func (s *SchedulerSnapshotService) rebuildByAccount(ctx context.Context, account
 	return s.rebuildBuckets(ctx, buckets, reason)
 }
 
-func schedulerSnapshotPlatforms() [28]string {
-	return [28]string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformMadao, PlatformArena, PlatformMiniMax, PlatformCursor, PlatformWindsurf, PlatformTeleagent, PlatformOpenCodeGo, PlatformKilo, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformSystemOne, PlatformLaya, PlatformJev, PlatformModel3D, PlatformV0}
+// schedulerSnapshotPlatforms 返回需要维护调度快照的全部具体平台（平台清单）。
+// 平台清单（domain/platforms.go，含本仓库适配器）是唯一权威来源。
+func schedulerSnapshotPlatforms() []string {
+	return domain.CompositePrecedencePlatformIDs()
 }
 
 // 生命周期辅助函数有意排除 group0；full rebuild 构造 group0 canonical 集时必须显式调用 canonical helper。

@@ -179,12 +179,15 @@ import { useClipboard } from '@/composables/useClipboard'
 import ModelIcon from '@/components/common/ModelIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { allModels, getModelsByPlatform } from '@/composables/useModelWhitelist'
+import { supportsUpstreamModelSync } from '@/constants/platformCatalog'
+import { extractApiErrorMessage } from '@/utils/apiError'
 
 const { t } = useI18n()
 
 const props = defineProps<{
   modelValue: string[]
   enableAliasMapping?: boolean
+  modelMappings?: { from: string; to: string }[]
   platform?: string
   platforms?: string[]
   accountId?: number
@@ -242,25 +245,21 @@ watch(() => [props.accountId, props.platform, props.platforms, props.syncCredent
   syncedModels.value = []
 }, { deep: true, flush: 'sync' })
 
-// 除了没有文本模型目录的决策/聚合平台，其余平台都支持同步上游模型。
-// 默认放行（而非维护一份白名单），避免每新增一个平台都要回来补这里，
-// 否则 cursor / windsurf / qoder / deepseek_web 这类新平台会静默地没有同步入口。
-const upstreamSyncUnsupportedPlatforms = new Set(['systemone', 'laya', 'jev'])
-const platformSupportsUpstreamSync = (platform: string) => !upstreamSyncUnsupportedPlatforms.has(platform.toLowerCase())
 // 作用域 API：父级传入的账号 API（用户侧 userAccountsAPI）优先；未传入时才
 // 惰性回退到管理员 API，保持管理端既有行为。回退必须惰性求值——否则只用到
 // 平台白名单、并不需要同步能力的消费方（如批量编辑）也会在渲染期就去碰
 // 管理员 API 模块。
 const resolveSyncUpstreamApi = (): UpstreamModelSyncApi => props.accountApi ?? accountsAPI
+
 const canSyncUpstream = computed(() => {
   if (props.accountId) {
     if (props.accountApi && typeof props.accountApi.syncUpstreamModels !== 'function') return false
     if (normalizedPlatforms.value.length === 0) return true
-    return normalizedPlatforms.value.some(platformSupportsUpstreamSync)
+    return normalizedPlatforms.value.some(supportsUpstreamModelSync)
   }
   if (props.syncCredentials) {
     if (props.accountApi && typeof props.accountApi.syncUpstreamModelsPreview !== 'function') return false
-    return platformSupportsUpstreamSync(props.syncCredentials.platform)
+    return supportsUpstreamModelSync(props.syncCredentials.platform)
   }
   return false
 })
@@ -365,6 +364,11 @@ const addCustom = () => {
     appStore.showInfo(t('admin.accounts.modelExists'))
     return
   }
+  const conflict = props.modelMappings?.find(mapping => mapping.from.trim() === model && mapping.to.trim() && mapping.to.trim() !== model)
+  if (conflict) {
+    appStore.showInfo(t('admin.accounts.modelMappingConflict', { from: model, to: conflict.to.trim() }))
+    return
+  }
   emit('update:modelValue', [...props.modelValue, model])
   customModel.value = ''
 }
@@ -386,8 +390,7 @@ const fillRelated = () => {
 }
 
 const syncUpstreamModels = async () => {
-  if (isSyncingUpstream.value) return
-  if (!props.accountId && !props.syncCredentials) return
+  if (isSyncingUpstream.value || !canSyncUpstream.value) return
 
   isSyncingUpstream.value = true
   const requestVersion = catalogVersion
@@ -452,7 +455,7 @@ const syncUpstreamModels = async () => {
       appStore.showWarning(t('admin.accounts.syncUpstreamModelsMetadataPartial'))
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : t('admin.accounts.syncUpstreamModelsFailed')
+    const message = extractApiErrorMessage(error, t('admin.accounts.syncUpstreamModelsFailed'))
     appStore.showError(t('admin.accounts.syncUpstreamModelsError', { message }))
   } finally {
     isSyncingUpstream.value = false

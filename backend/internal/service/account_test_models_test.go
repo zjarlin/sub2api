@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"sync/atomic"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/stretchr/testify/require"
 )
 
@@ -73,6 +75,38 @@ func TestFetchOpenAIAccountModelsAPIKeyPopulatesPickerFields(t *testing.T) {
 	require.Equal(t, "named-model", models[2].ID)
 }
 
+func TestFetchOpenAIAccountModelsAPIKeyAppliesAccountModelMapping(t *testing.T) {
+	gateway := newCodexModelsAPIKeyTestService(&codexModelsHTTPUpstreamStub{do: func(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+		return ordinaryModelsUpstreamResponse(`{"data":[
+			{"id":"upstream-target","owned_by":"provider","created":123},
+			{"id":"direct-model","owned_by":"provider"},
+			{"id":"unconfigured-model","owned_by":"provider"}
+		]}`), nil
+	}})
+	svc := &AccountTestService{openaiGatewayService: gateway}
+	account := newCodexModelsAPIKeyTestAccount("https://models.example/v1")
+	account.Credentials["model_mapping"] = map[string]any{
+		"configured-alias": "upstream-target",
+		"direct-model":     "direct-model",
+	}
+
+	models, err := svc.FetchOpenAIAccountModels(context.Background(), account)
+	require.NoError(t, err)
+	require.Len(t, models, 2)
+	ids := []string{models[0].ID, models[1].ID}
+	require.ElementsMatch(t, []string{"configured-alias", "direct-model"}, ids)
+	require.NotContains(t, ids, "unconfigured-model")
+	alias := models[0]
+	if alias.ID != "configured-alias" {
+		alias = models[1]
+	}
+	require.Equal(t, "configured-alias", alias.ID)
+	require.Equal(t, "configured-alias", alias.DisplayName)
+	require.Equal(t, "provider", alias.OwnedBy)
+	require.EqualValues(t, 123, alias.Created)
+}
+
+// fork：上游 /models 目录过期或省略时，手填的自映射仍是权威的测试候选。
 func TestFetchOpenAIAccountModelsAddsManualSelfMappingsMissingFromUpstream(t *testing.T) {
 	gateway := newCodexModelsAPIKeyTestService(&codexModelsHTTPUpstreamStub{do: func(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
 		return ordinaryModelsUpstreamResponse(`{"data":[{"id":"gpt-6-astra","display_name":"GPT-6 Astra"}]}`), nil
@@ -93,9 +127,11 @@ func TestFetchOpenAIAccountModelsAddsManualSelfMappingsMissingFromUpstream(t *te
 	require.Contains(t, ids, "gpt-6-sol")
 	require.Contains(t, ids, "gpt-6-astra")
 	require.Equal(t, "gpt-6-sol", models[len(models)-1].ID)
-	require.Equal(t, "gpt-6-sol", models[len(models)-1].DisplayName)
+	// 手填条目沿用目录命名规则；合并后 gpt-6-sol 已在本地目录中，故展示名为其目录名。
+	require.Equal(t, "GPT-6 Sol", models[len(models)-1].DisplayName)
 }
 
+// fork：已有失败证据的自映射不再进入测试候选。
 func TestFetchOpenAIAccountModelsSkipsManualSelfMappingKnownUnsupported(t *testing.T) {
 	gateway := newCodexModelsAPIKeyTestService(&codexModelsHTTPUpstreamStub{do: func(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
 		return ordinaryModelsUpstreamResponse(`{"data":[]}`), nil
@@ -128,9 +164,12 @@ func TestFetchOpenAIAccountModelsOAuthLabelsLocalImageModelsLikeUpstream(t *test
 	newCodexModelsOAuthCacheServer(t, `{"models":[{"slug":"gpt-5.6-sol"}]}`)
 	svc := &AccountTestService{openaiGatewayService: &OpenAIGatewayService{}}
 	account := newCodexModelsTestAccount()
+	// This case is about label sources, so it must configure the upstream slug it
+	// asserts on: the picker is scoped to the account mapping, and an unconfigured
+	// slug is intentionally absent (see the exclusion test below).
 	account.Credentials["model_mapping"] = map[string]any{
-		"gpt-image-2.5-flare": "gpt-image-2.5-flare",
 		"gpt-5.6-sol":         "gpt-5.6-sol",
+		"gpt-image-2.5-flare": "gpt-image-2.5-flare",
 	}
 	models, err := svc.FetchOpenAIAccountModels(context.Background(), account)
 	require.NoError(t, err)
@@ -184,6 +223,8 @@ func TestFetchOpenAIAccountModelsProjectsAliasesAfterSharedCache(t *testing.T) {
 	require.Len(t, models, 1)
 	require.Equal(t, "renamed", models[0].ID)
 
+	// fork：透传账号同样走投影（目录与转发使用同一公开名称与白名单），
+	// 上游在此跳过 passthrough 账号，本分支保留 fork 语义。
 	account.Extra = map[string]any{"openai_passthrough": true}
 	models, err = svc.FetchOpenAIAccountModels(ctx, account)
 	require.NoError(t, err)
@@ -205,4 +246,158 @@ func TestFetchOpenAIAccountModelsDoesNotBypassFailedSharedDiscovery(t *testing.T
 	_, err := svc.FetchOpenAIAccountModels(context.Background(), newCodexModelsAPIKeyTestAccount("https://models.example/v1"))
 	require.Error(t, err)
 	require.Empty(t, native.requests)
+}
+
+func pickerModelIDs(models []openai.Model) []string {
+	ids := make([]string, 0, len(models))
+	for _, model := range models {
+		ids = append(ids, model.ID)
+	}
+	return ids
+}
+
+// The picker is scoped to the account mapping: an upstream slug the account does
+// not configure must not become a testable choice.
+func TestFetchOpenAIAccountModelsOAuthExcludesUnconfiguredTextModels(t *testing.T) {
+	newCodexModelsOAuthCacheServer(t, `{"models":[{"slug":"gpt-5.6-sol"},{"slug":"gpt-6-astra"}]}`)
+	svc := &AccountTestService{openaiGatewayService: &OpenAIGatewayService{}}
+	account := newCodexModelsTestAccount()
+	account.Credentials["model_mapping"] = map[string]any{"gpt-5.6-sol": "gpt-5.6-sol"}
+
+	models, err := svc.FetchOpenAIAccountModels(context.Background(), account)
+	require.NoError(t, err)
+	require.Equal(t, []string{"gpt-5.6-sol"}, pickerModelIDs(models))
+}
+
+// An alias may point at a local image model that Codex discovery never lists, so
+// the picker has to resolve the target before deciding to offer the public name.
+func TestFetchOpenAIAccountModelsOAuthLocalImageAlias(t *testing.T) {
+	newCodexModelsOAuthCacheServer(t, `{"models":[{"slug":"gpt-6-astra"}]}`)
+	svc := &AccountTestService{openaiGatewayService: &OpenAIGatewayService{}}
+	account := newCodexModelsTestAccount()
+	account.Credentials["model_mapping"] = map[string]any{"paint": "gpt-image-2.5-flare"}
+
+	models, err := svc.FetchOpenAIAccountModels(context.Background(), account)
+	require.NoError(t, err)
+	require.Equal(t, []string{"paint"}, pickerModelIDs(models))
+	require.Equal(t, "paint", models[0].DisplayName)
+}
+
+// Image-shaped public names must come from projection when their target is text,
+// whether or not the public name also appears in the local image catalog.
+func TestFetchOpenAIAccountModelsOAuthImageNamesMappedToText(t *testing.T) {
+	for _, publicID := range []string{"gpt-image-2.5-lookalike", "gpt-image-2.5-flare"} {
+		for _, target := range []string{"text-target-missing", "gpt-6-astra"} {
+			t.Run(publicID+"/"+target, func(t *testing.T) {
+				newCodexModelsOAuthCacheServer(t, `{"models":[{"slug":"gpt-6-astra","display_name":"Upstream Text Model"}]}`)
+				svc := &AccountTestService{openaiGatewayService: &OpenAIGatewayService{}}
+				account := newCodexModelsTestAccount()
+				account.Credentials["model_mapping"] = map[string]any{publicID: target}
+
+				models, err := svc.FetchOpenAIAccountModels(context.Background(), account)
+				require.NoError(t, err)
+				if target == "text-target-missing" {
+					require.Empty(t, models, "a missing text target must not be synthesized as an image choice")
+					return
+				}
+				require.Equal(t, []string{publicID}, pickerModelIDs(models))
+				require.Equal(t, publicID, models[0].DisplayName, "a real text target uses the projected alias label")
+			})
+		}
+	}
+}
+
+// 透传账号的投影：本仓库（fork）让目录与转发共用同一套公开名称，因此这里断言的是
+// 「映射生效、别名不复活」而不是上游的「透传跳过映射」。上游同名的
+// TestFetchOpenAIAccountModelsOAuthPassthroughIgnoresMappingTargets 与该 fork 语义
+// 直接冲突（见 openai_models_list.go 的 projectAccountModelAliases 注释），
+// 合并时保留 fork 行为，故本用例按 fork 口径断言。
+func TestFetchOpenAIAccountModelsOAuthPassthroughIgnoresMappingTargets(t *testing.T) {
+	for _, flag := range []string{"openai_passthrough", "openai_oauth_passthrough"} {
+		t.Run(flag, func(t *testing.T) {
+			newCodexModelsOAuthCacheServer(t, `{"models":[{"slug":"gpt-6-astra"}]}`)
+			svc := &AccountTestService{openaiGatewayService: &OpenAIGatewayService{}}
+			account := newCodexModelsTestAccount()
+			account.Extra = map[string]any{flag: true}
+			account.Credentials["model_mapping"] = map[string]any{
+				"gpt-image-custom":    "text-target-missing",
+				"gpt-image-2.5-flare": "text-target-missing",
+				"paint":               "gpt-image-2.5-flare",
+			}
+
+			models, err := svc.FetchOpenAIAccountModels(context.Background(), account)
+			require.NoError(t, err)
+			ids := pickerModelIDs(models)
+			// fork：透传账号的目录也走映射投影，因此未被账号配置的上游文本条目
+			// （gpt-6-astra）不会出现。
+			require.NotContains(t, ids, "gpt-6-astra")
+			// 映射里声明的图片名（含指向缺失目标的 gpt-image-custom）作为本地图片
+			// 候选保留；未声明的图片模型不补充。
+			require.Contains(t, ids, "gpt-image-2.5-flare")
+			require.Contains(t, ids, "gpt-image-custom")
+			require.NotContains(t, ids, "gpt-image-2.5-sunburst")
+			// 指向图片的陈旧别名（paint）不复活：别名本身不是图片模型名。
+			require.NotContains(t, ids, "paint")
+		})
+	}
+}
+
+// 透传账号（API Key）：同上，按 fork 的「透传同样投影」语义断言。
+func TestFetchOpenAIAccountModelsAPIKeyPassthroughIgnoresMapping(t *testing.T) {
+	gateway := newCodexModelsAPIKeyTestService(&codexModelsHTTPUpstreamStub{do: func(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+		return ordinaryModelsUpstreamResponse(`{"data":[{"id":"target"},{"id":"other"}]}`), nil
+	}})
+	svc := &AccountTestService{openaiGatewayService: gateway}
+	account := newCodexModelsAPIKeyTestAccount("https://models.example/v1")
+	account.Extra = map[string]any{"openai_passthrough": true}
+	account.Credentials["model_mapping"] = map[string]any{"paint": "gpt-image-2.5-flare"}
+
+	models, err := svc.FetchOpenAIAccountModels(context.Background(), account)
+	require.NoError(t, err)
+	// fork：API Key 账号目录按映射投影——未配置的上游条目（target/other）隐藏，
+	// paint 的图片目标不在上游目录中，因此不合成。
+	require.Empty(t, pickerModelIDs(models))
+}
+
+func TestFetchOpenAIAccountModelsMappingChangesReuseRawCache(t *testing.T) {
+	var calls atomic.Int32
+	gateway := newCodexModelsAPIKeyTestService(&codexModelsHTTPUpstreamStub{do: func(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+		calls.Add(1)
+		return ordinaryModelsUpstreamResponse(`{"data":[
+			{"id":"target","owned_by":"provider","created":123},
+			{"id":"gpt-a"},
+			{"id":"gpt-special"},
+			{"id":"other","owned_by":"other-provider","created":456}
+		]}`), nil
+	}})
+	svc := &AccountTestService{openaiGatewayService: gateway}
+	account := newCodexModelsAPIKeyTestAccount("https://models.example/v1")
+	account.Credentials["model_mapping"] = map[string]any{"gpt-*": "target", "gpt-special": "other"}
+	ctx := context.Background()
+
+	before, err := gateway.FetchOpenAIModelsList(ctx, account)
+	require.NoError(t, err)
+	original := append([]byte(nil), before.Body...)
+	models, err := svc.FetchOpenAIAccountModels(ctx, account)
+	require.NoError(t, err)
+	require.ElementsMatch(t, []string{"gpt-a", "gpt-special"}, pickerModelIDs(models))
+	for _, model := range models {
+		switch model.ID {
+		case "gpt-a":
+			require.EqualValues(t, 123, model.Created)
+			require.Equal(t, "provider", model.OwnedBy)
+		case "gpt-special":
+			require.EqualValues(t, 456, model.Created, "exact mapping takes priority over the wildcard")
+			require.Equal(t, "other-provider", model.OwnedBy)
+		}
+	}
+
+	account.Credentials["model_mapping"] = map[string]any{"second": "other"}
+	models, err = svc.FetchOpenAIAccountModels(ctx, account)
+	require.NoError(t, err)
+	require.Equal(t, []string{"second"}, pickerModelIDs(models), "mapping changes apply without refreshing discovery")
+	after, err := gateway.FetchOpenAIModelsList(ctx, account)
+	require.NoError(t, err)
+	require.Equal(t, original, after.Body, "projection must not mutate the shared catalog")
+	require.EqualValues(t, 1, calls.Load(), "both mappings must reuse the same discovery cache")
 }

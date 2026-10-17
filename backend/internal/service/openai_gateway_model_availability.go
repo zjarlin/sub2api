@@ -69,6 +69,9 @@ func (s *OpenAIGatewayService) DiagnoseModelAvailabilityForPlatform(
 			continue
 		}
 		diag.HasAccountsInPool = true
+		if isRetiredOpenAISubscriptionModel(&accounts[i], resolveOpenAIAccountUpstreamModelForRequest(&accounts[i], requestedModel, false)) {
+			diag.HasRetiredSubscriptionModel = true
+		}
 		// 与调度使用同一模型资格判断，缺失目录和配置不能被诊断为支持全部模型。
 		if accounts[i].IsModelSupported(requestedModel) {
 			diag.HasModelSupport = true

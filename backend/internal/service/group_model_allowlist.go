@@ -28,16 +28,23 @@ func GroupModelAllowlistFromDomain(cfg domain.GroupModelAllowlist) GroupModelAll
 	return GroupModelAllowlist{Enabled: cfg.Enabled, Models: cfg.Models}
 }
 
-// supplementUnmappedOpenAIModels ensures a partial mapping catalog does not
-// hide models from unmapped OpenAI accounts. An empty catalog is left unchanged
-// so callers retain their existing discovery fallback.
+// supplementUnmappedOpenAIModels 确保部分账号的映射目录不会把「既无映射也无已同步
+// 目录」的 OpenAI 账号的默认模型集从公开目录里挤掉。空目录保持原样，由调用方沿用
+// 既有的默认模型回落。
+//
+// 判定口径与目录构造（model_catalog.availableModelsFromAccounts）保持一致：目录 =
+// 显式映射 ∪ 已同步目录，默认集只补给两者皆无的账号。透传账号同样按此口径——透传
+// 只在转发时使用原始模型名，其显式映射仍进入公开目录（本分支行为，见
+// TestGetAvailableModels_OpenAIPassthroughPreservesConfiguredCatalog），因此不能因为
+// 开了透传就再叠加默认集，否则「配置了映射的透传账号」会连带发布整套默认模型。
 func supplementUnmappedOpenAIModels(accounts []Account, models []string) []string {
 	if len(models) == 0 {
 		return models
 	}
 	for i := range accounts {
 		account := &accounts[i]
-		if account.Platform == PlatformOpenAI && len(account.GetModelMapping()) == 0 && account.GetUpstreamSupportedModelsSnapshot() == nil {
+		if account.Platform == PlatformOpenAI &&
+			len(account.GetModelMapping()) == 0 && account.GetUpstreamSupportedModelsSnapshot() == nil {
 			return dedupeAndSortModelIDs(slices.Concat(models, openai.DefaultModelIDs()))
 		}
 	}
@@ -45,7 +52,7 @@ func supplementUnmappedOpenAIModels(accounts []Account, models []string) []strin
 }
 
 // normalizeGroupModelAllowlist 归一化管理端提交的分组模型白名单：
-// 条目 TrimSpace、按小写去重保序；`*` 只允许出现在条目末尾；
+// 条目 TrimSpace、按小写去重保序；`*` 可出现在任意位置；
 // enabled=true 且列表为空视为配置错误，返回 400 而不是运行时静默放行/拒绝。
 func normalizeGroupModelAllowlist(cfg GroupModelAllowlist) (GroupModelAllowlist, error) {
 	out := GroupModelAllowlist{Enabled: cfg.Enabled}
@@ -62,9 +69,6 @@ func normalizeGroupModelAllowlist(cfg GroupModelAllowlist) (GroupModelAllowlist,
 		model = strings.TrimSpace(model)
 		if model == "" {
 			continue
-		}
-		if strings.Contains(strings.TrimSuffix(model, "*"), "*") {
-			return out, infraerrors.New(http.StatusBadRequest, "INVALID_MODEL_ALLOWLIST", `wildcard "*" is only allowed at the end of an allowlist entry`)
 		}
 		key := strings.ToLower(model)
 		if _, ok := seen[key]; ok {
@@ -106,23 +110,36 @@ func (a GroupModelAllowlist) Allows(model string) bool {
 		if entry == "" {
 			continue
 		}
-		entry = strings.ToLower(entry)
-		if strings.HasSuffix(entry, "*") {
-			prefix := strings.TrimSuffix(entry, "*")
-			for _, candidate := range candidates {
-				if strings.HasPrefix(candidate, prefix) {
-					return true
-				}
-			}
-			continue
-		}
 		for _, candidate := range candidates {
-			if candidate == entry {
+			if groupAllowlistPatternMatches(entry, candidate) {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// groupAllowlistPatternMatches treats only * as a wildcard, including in the middle
+// or at either end. Matching is anchored and case-insensitive.
+func groupAllowlistPatternMatches(pattern, model string) bool {
+	pattern = strings.ToLower(pattern)
+	model = strings.ToLower(model)
+	parts := strings.Split(pattern, "*")
+	if len(parts) == 1 {
+		return pattern == model
+	}
+	if !strings.HasPrefix(model, parts[0]) {
+		return false
+	}
+	model = model[len(parts[0]):]
+	for _, part := range parts[1 : len(parts)-1] {
+		index := strings.Index(model, part)
+		if index < 0 {
+			return false
+		}
+		model = model[index+len(part):]
+	}
+	return strings.HasSuffix(model, parts[len(parts)-1])
 }
 
 // groupModelAllowlistCandidates 返回客户端模型名在白名单匹配中的候选形式（均已小写）。
@@ -151,6 +168,9 @@ func groupModelAllowlistCandidates(model string) []string {
 // FilterForListing 按白名单条目顺序生成模型列表输出。
 // 精确条目沿用既有规则：只有出现在 source（账号映射键 ∪ 平台默认列表）的模式
 // 集合中才输出；通配条目展开为 source 中所有匹配项并保持 source 顺序；全局去重。
+// 当 source 是前缀通配模式且白名单模式的固定前缀位于该前缀之内时，
+// 可直接输出白名单模式：它的所有实例都属于 source。其他未处理的无限
+// 交集不会被枚举为模型 ID，列表可能省略仍可请求的模型。
 func (a GroupModelAllowlist) FilterForListing(source []string) []string {
 	if !a.Enabled {
 		return source
@@ -188,12 +208,14 @@ func (a GroupModelAllowlist) FilterForListing(source []string) []string {
 		if entry == "" {
 			continue
 		}
-		if strings.HasSuffix(entry, "*") {
-			// 空 前缀（裸 `*` 条目）匹配全部来源，与 Allows 的全放行语义一致。
-			prefix := strings.ToLower(strings.TrimSuffix(entry, "*"))
+		if strings.Contains(entry, "*") {
 			for _, pattern := range patterns {
-				if strings.HasPrefix(strings.ToLower(pattern), prefix) {
+				if groupAllowlistPatternMatches(entry, pattern) {
 					add(pattern)
+				} else if strings.HasSuffix(pattern, "*") &&
+					!strings.Contains(strings.TrimSuffix(pattern, "*"), "*") &&
+					strings.HasPrefix(strings.ToLower(entry), strings.ToLower(strings.TrimSuffix(pattern, "*"))) {
+					add(entry)
 				}
 			}
 			continue

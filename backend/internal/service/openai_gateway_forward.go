@@ -100,7 +100,7 @@ func (s *OpenAIGatewayService) forwardAttempt(ctx context.Context, c *gin.Contex
 	if normalized {
 		body = normalizedBody
 	}
-	legacyIngressBody, legacyIngressChanged, legacyIngressErr := normalizeOpenAIResponsesLegacyIngress(body)
+	legacyIngressBody, legacyIngressChanged, legacyIngressErr := normalizeOpenAIResponsesLegacyIngressWithConfig(s.cfg, body)
 	if legacyIngressErr != nil {
 		return nil, legacyIngressErr
 	}
@@ -121,7 +121,7 @@ func (s *OpenAIGatewayService) forwardAttempt(ctx context.Context, c *gin.Contex
 		body = sanitizedToolBody
 	}
 	if account.IsOpenAIOAuthLike() {
-		reasoningBody, reasoningChanged, reasoningErr := normalizeOpenAIResponsesReasoningMode(body)
+		reasoningBody, reasoningChanged, reasoningErr := normalizeOpenAIResponsesReasoningMode(body, account.GetMappedModel(gjson.GetBytes(body, "model").String()))
 		if reasoningErr != nil {
 			return nil, fmt.Errorf("normalize OpenAI Responses reasoning.mode: %w", reasoningErr)
 		}
@@ -234,24 +234,6 @@ func (s *OpenAIGatewayService) forwardAttempt(ctx context.Context, c *gin.Contex
 		return s.forwardGrokResponses(ctx, c, account, body, originalModel, reqStream, startTime)
 	}
 
-	if account.IsOpenCodeGo() {
-		mapped := resolveOpenCodeGoMappedModel(account, body, "")
-		switch openCodeGoNativeProtocol(account, mapped) {
-		case APIProtocolAnthropic:
-			return s.forwardResponsesViaNativeAnthropic(ctx, c, account, body, "")
-		case APIProtocolResponses:
-			break
-		default:
-			return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
-		}
-	}
-
-	// CN 供应商 anthropic 协议账号：/v1/responses 入站是交叉协议组合
-	// （Responses 客户端 × Anthropic 上游），转成 Anthropic 请求走原生端点。
-	// 不能落到下面的 raw-CC 分支——其 URL 构造会把 anthropic base 当 CC base 用。
-	if account.IsAnthropicProtocol() {
-		return s.forwardResponsesViaNativeAnthropic(ctx, c, account, body, reqModel)
-	}
 	if account.IsOpenAIApiKey() {
 		if normalized, changed, normalizeErr := normalizeOpenAIParallelToolCallsWithoutTools(body, responsesLite); normalizeErr != nil {
 			return nil, normalizeErr
@@ -270,8 +252,20 @@ func (s *OpenAIGatewayService) forwardAttempt(ctx context.Context, c *gin.Contex
 		originalModel = reqModel
 	}
 
-	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
-		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
+	// 上游协议统一由 resolveUpstreamProtocol 判定（按模型分流时带上游模型目录）。OpenAI API Key 账号只会落到
+	// Responses / Chat Completions，上面的归一化对两条路径都生效。
+	routingModel := upstreamRoutingModel(account, body, "")
+	if account.IsOpenCodeGo() && IsOpenCodeUnsupportedModel(routingModel) {
+		return nil, writeOpenCodeUnsupportedModelError(c, false, routingModel)
+	}
+	switch s.resolveUpstreamProtocolFor(ctx, account, APIProtocolResponses, routingModel) {
+	case APIProtocolAnthropic:
+		// Responses 客户端 × Anthropic 上游：转成 Anthropic 请求走原生端点。不能落到
+		// raw-CC 分支——其 URL 构造会把 anthropic base 当 CC base 用。
+		// 账号映射未命中时以去除首尾空白的请求模型兜底，计费名与上游模型名一致。
+		return s.forwardResponsesViaNativeAnthropic(ctx, c, account, body, reqModel)
+	case APIProtocolChatCompletions:
+		return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body, startTime)
 	}
 	SetActualOpenAIUpstreamEndpoint(c, openAIResponsesUpstreamEndpoint)
 	if account.IsOpenAI() && (account.IsOpenAIApiKey() || account.IsOpenAIOAuthLike()) {
@@ -607,6 +601,7 @@ func (s *OpenAIGatewayService) forwardAttempt(ctx context.Context, c *gin.Contex
 				SkipDefaultInstructions:             true,
 				PreserveToolCallIDs:                 true,
 				OmitPromotedSystemMessagesFromInput: omitPromotedSystemMessages,
+				ResponsesLite:                       responsesLite,
 			})
 			ensureCodexOAuthInstructionsField(decoded)
 			markDecodedModified()
@@ -615,6 +610,7 @@ func (s *OpenAIGatewayService) forwardAttempt(ctx context.Context, c *gin.Contex
 				IsCodexCLI:                          isCodexCLI,
 				IsCompact:                           isCompactRequest,
 				OmitPromotedSystemMessagesFromInput: omitPromotedSystemMessages,
+				ResponsesLite:                       responsesLite,
 			})
 		}
 		if codexResult.Error != nil {
@@ -1130,6 +1126,7 @@ func (s *OpenAIGatewayService) forwardAttempt(ctx context.Context, c *gin.Contex
 		firstOutputTimeout = s.openAIFirstOutputTimeout(reasoningEffortValue)
 	}
 
+	httpInvalidEncryptedContentRetryTried := false
 	compactModelFallbackRetried := false
 	responsesToChatFallbackRetried := false
 	agentTaskRecoveryTried := false
@@ -1210,10 +1207,45 @@ func (s *OpenAIGatewayService) forwardAttempt(ctx context.Context, c *gin.Contex
 			}
 			respBody = s.redactAgentIdentitySensitiveBody(ctx, account, respBody)
 			resp.Body = io.NopCloser(bytes.NewReader(respBody))
+			// fork：invalid_encrypted_content 走会话级恢复（forwardOnce 负责用
+			// 原始报文重放，并把失效密文摘要写进 lineage）。
 			if resp.StatusCode == http.StatusBadRequest {
 				if retryErr := newOpenAIStaleReasoningRetrySignal(c, respBody); retryErr != nil {
 					return nil, retryErr
 				}
+			}
+			// upstream：上游也会用 thinking_signature_invalid + 固定文案表达同一失效
+			// 原因（#7700）。此时问题出在密文签名而非整段历史，按上游的窄修剪就地
+			// 重试一次即可，保留可读 summary 继续推理。
+			invalidEncryptedContentError := upstreamCode == "thinking_signature_invalid" &&
+				strings.Contains(upstreamMsg, "The encrypted content") &&
+				strings.Contains(upstreamMsg, "could not be verified") &&
+				strings.Contains(upstreamMsg, "could not be decrypted or parsed")
+			if !httpInvalidEncryptedContentRetryTried && resp.StatusCode == http.StatusBadRequest && invalidEncryptedContentError {
+				decoded, decodeErr := ensureReqBody()
+				if decodeErr != nil {
+					return nil, decodeErr
+				}
+				invalidDigests := collectOpenAIEncryptedContentDigestsRaw(lineageEntryBody)
+				if trimOpenAIEncryptedReasoningItems(decoded) {
+					body, err = marshalOpenAIUpstreamJSON(decoded)
+					if err != nil {
+						return nil, fmt.Errorf("serialize invalid_encrypted_content retry body: %w", err)
+					}
+					if len(invalidDigests) > 0 {
+						if lineageSessionHash == "" {
+							lineageSessionHash = s.GenerateSessionHash(c, lineageEntryBody)
+						}
+						s.markOpenAIWSInvalidEncryptedContentLineage(lineageGroupID, lineageSessionHash, invalidDigests)
+					}
+					httpInvalidEncryptedContentRetryTried = true
+					rejectedFieldRetryState.remember(body)
+					requestView = newOpenAIRequestView(body)
+					reqBody = nil
+					logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Retrying non-WSv2 request once after thinking_signature_invalid encrypted content (account: %s)", account.Name)
+					continue
+				}
+				logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Skip non-WSv2 thinking_signature_invalid retry because encrypted reasoning items are missing (account: %s)", account.Name)
 			}
 			if retryBody, retry := deepSeekReasoningReplayRetry(c, account, resp.StatusCode, body, respBody); retry {
 				body = retryBody
@@ -1258,7 +1290,9 @@ func (s *OpenAIGatewayService) forwardAttempt(ctx context.Context, c *gin.Contex
 					"[OpenAI] Retrying Responses request via Chat Completions after generic upstream 400 (account: %s, code: %s)",
 					account.Name, upstreamCode,
 				)
-				return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body)
+				// 与 Responses 入口的回退一致：沿用本次转发的起始时间，使
+				// 半路转 CC 的耗时计入总时长（upstream 的 startTime 参数语义）。
+				return s.forwardResponsesViaRawChatCompletions(ctx, c, account, body, startTime)
 			}
 			autoCapabilityErr := s.newAutoModelCapabilityMismatchFailoverError(ctx, account, upstreamModel, resp.StatusCode, resp.Header, respBody, upstreamMsg)
 			if autoCapabilityErr != nil || s.shouldFailoverOpenAIUpstreamResponse(account, resp.StatusCode, upstreamMsg, respBody) {
@@ -1448,17 +1482,19 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 	if account == nil || account.Type != AccountTypeAPIKey {
 		return false
 	}
+	// fork：Cursor / Windsurf / TeleAgent 文本适配器只提供 Chat Completions。
 	if account.IsCursor() || account.IsWindsurf() || account.IsTeleagent() {
 		return true
 	}
-	if account.IsOpenCodeGo() {
+	if account.routesByModel() {
 		// Model protocol_rules are the authority. Probe Extra must not collapse
 		// Grok/GPT/Muse into Chat Completions.
 		return false
 	}
-	if account.IsCNProvider() {
-		// CN 的显式协议配置优先于异步探针 Extra；adaptive 仅 DeepSeek / Kimi
-		// 有原生 Responses，GLM 回退 Chat Completions。
+	if account.RoutesProtocolByInbound() {
+		// 按入站协议分流的供应商（国产厂商等）：显式协议配置优先于异步探针
+		// Extra；adaptive 仅在供应商有原生 Responses 端点时直转，否则回退
+		// Chat Completions（如 GLM）。
 		switch account.GetAPIProtocol() {
 		case APIProtocolChatCompletions:
 			return true
@@ -1618,6 +1654,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 			req.Header.Del("OpenAI-Beta")
 			req.Header.Del("originator")
 		} else {
+			stripOpenAILegacyResponsesBeta(req.Header)
 			req.Header.Set("originator", resolveOpenAIUpstreamOriginator(c, isCodexCLI))
 		}
 		apiKeyID := getAPIKeyIDFromContext(c)
@@ -1674,6 +1711,10 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 		req.Header.Set("content-type", "application/json")
 	}
 
+	// 官方 OpenCode / Command Code 上游收敛为规范客户端 UA：客户端透传的编程库
+	// UA 会命中其前置 Cloudflare bot 拦截（CF 1010/403），并被计入账号 403 strike。
+	applyOpenCodeUpstreamUserAgent(account, targetURL, req.Header)
+
 	// 账号级请求头覆写（仅 openai api_key 账号启用时生效；OAuth 路径 no-op）
 	account.ApplyHeaderOverrides(req.Header)
 	applyOpenCodeSessionHeader(c, account, targetURL, req.Header, body, openCodeSessionHintBody(promptCacheKey))
@@ -1685,6 +1726,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	setOpenAICodexRoutingHintFromBody(req.Header, account, body)
 	logOpenAIRoutingDiagnosticsFromBody(ctx, account, "http", req.Header, body, "not_applicable")
 
+	if err := applyMappedGPT55LiteCompatibility(req, account, body); err != nil {
+		return nil, err
+	}
 	return req, nil
 }
 

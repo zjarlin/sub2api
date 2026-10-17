@@ -173,12 +173,19 @@ docs/verification/*
  !docs/screenshots/mobile-account-actions-menu.png
  !docs/incidents/
  !docs/incidents/*.md
+!docs/codex-credits.md
+!docs/screenshots/
+docs/screenshots/*
+!docs/screenshots/mobile-account-actions-menu.png
+!docs/screenshots/codex-referral-dialog.png
+!docs/screenshots/codex-referral-success.png
 .serena/
 .codex/
 frontend/coverage/
 aicodex
 output/
 .codegraph/
+issues/
 
 # Vitest / Vite cache at repo root
 .vite/

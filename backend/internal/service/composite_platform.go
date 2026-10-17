@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 )
 
@@ -142,14 +143,16 @@ func DetectModelPlatform(model string) (string, bool) {
 			return PlatformVibex, true
 		case "zcode":
 			return PlatformZcode, true
-		case "laya":
-			return PlatformSystemOne, true
-		case "jev":
+		case "laya", "jev":
+			// fork：laya / jev 命名空间指向 System One 统一平台。
 			return PlatformSystemOne, true
 		case "traework":
 			return PlatformTraework, true
 		case "minimax":
 			return PlatformMiniMax, true
+		case "typesafe":
+			// 上游新增：TypeSafe 命名空间。
+			return PlatformTypeSafe, true
 		}
 		if rest != "" {
 			normalized = strings.TrimPrefix(rest, "models/")
@@ -204,8 +207,6 @@ func DetectModelPlatform(model string) (string, bool) {
 		return PlatformSystemOne, true
 	case strings.HasPrefix(normalized, "laya-"):
 		return PlatformSystemOne, true
-	case strings.HasPrefix(normalized, "jev-"):
-		return PlatformSystemOne, true
 	case strings.HasPrefix(normalized, "traework-"):
 		return PlatformTraework, true
 	case strings.HasPrefix(normalized, "minimax-"),
@@ -213,6 +214,12 @@ func DetectModelPlatform(model string) (string, bool) {
 		strings.HasPrefix(normalized, "abab6"),
 		strings.HasPrefix(normalized, "abab7"):
 		return PlatformMiniMax, true
+	// TypeSafe / Jev 命名空间（上游）：jev-latest 及 typesafe/jev-* 走 TypeSafe 平台。
+	case normalized == "jev-latest" || strings.HasPrefix(normalized, "typesafe/jev"):
+		return PlatformTypeSafe, true
+	// fork：其余 jev-* 仍按 System One 统一平台识别（历史值）。
+	case strings.HasPrefix(normalized, "jev-"):
+		return PlatformSystemOne, true
 	default:
 		return "", false
 	}
@@ -258,11 +265,5 @@ func (s *GatewayService) resolveCompositeRouteDecision(ctx context.Context, grou
 }
 
 func isConcreteRequestPlatform(platform string) bool {
-	switch platform {
-	case PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformGrok,
-		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformMadao, PlatformArena, PlatformMiniMax, PlatformCursor, PlatformWindsurf, PlatformTeleagent, PlatformOpenCodeGo, PlatformKilo, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformSystemOne, PlatformModel3D, PlatformV0, PlatformLaya, PlatformJev:
-		return true
-	default:
-		return false
-	}
+	return domain.IsConcretePlatform(platform)
 }

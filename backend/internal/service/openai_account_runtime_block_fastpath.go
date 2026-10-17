@@ -99,6 +99,7 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	// Any non-2xx upstream HTTP response means the model request was actually sent.
 	if s != nil {
 		scheduleOllamaCloudUsageActivity(s.deferredService, account)
+		scheduleOpenCodeGoUsageActivity(s.deferredService, account)
 	}
 	if s != nil && account.IsOpenAICompatible() && isUpstreamConcurrencyLimit(statusCode, responseBody) {
 		// 兼容适配器沿用请求内的短等待，不把并发繁忙写成持久化额度封禁。
@@ -164,7 +165,8 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	// Isolate a custom temporary-unschedulable match to the known upstream
 	// model before entering the generic account error path. This keeps the
 	// account available to other models and avoids the account runtime blocker.
-	if s.rateLimitService != nil && statusCode != http.StatusUnauthorized && len(canonicalModel) > 0 && strings.TrimSpace(canonicalModel[0]) != "" &&
+	if s.rateLimitService != nil && len(canonicalModel) > 0 && strings.TrimSpace(canonicalModel[0]) != "" &&
+		tempUnschedRulesApply(account, statusCode, responseBody, canonicalModel[0]) &&
 		s.rateLimitService.HandleTempUnschedulable(stateCtx, account, statusCode, responseBody, canonicalModel[0]) {
 		return true
 	}
@@ -186,7 +188,12 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 		return false
 	}
 	shouldDisable := s.rateLimitService.HandleUpstreamError(stateCtx, account, statusCode, headers, responseBody)
-	modelTempMatched := statusCode != http.StatusUnauthorized && tempUnschedulableModel(stateCtx, nil) != "" &&
+	tempModel := tempUnschedulableModel(stateCtx, nil)
+	// fork：供应商把钱包耗尽伪装成 400 invalid_request_error 自由文本时，内置的
+	// 「额度/余额耗尽」规则（见 upstream_credits_exhausted.go）同样按模型级临时
+	// 不可调度处理，与手工规则一起参与命中判定；该内置规则只在 400 生效，
+	// 401 的凭据级命中仍由 tempUnschedRulesApply 排除在模型级冷却之外。
+	modelTempMatched := tempModel != "" && tempUnschedRulesApply(account, statusCode, responseBody, tempModel) &&
 		(len(matchTempUnschedulableRules(account, statusCode, responseBody)) > 0 || isUpstreamCreditsExhaustedError(statusCode, responseBody))
 	if shouldDisable && !modelTempMatched {
 		s.BlockAccountScheduling(account, time.Time{}, "upstream_disable")

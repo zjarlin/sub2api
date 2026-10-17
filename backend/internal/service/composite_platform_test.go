@@ -13,7 +13,7 @@ type compositeOwnershipAccountRepo struct {
 	accounts []Account
 }
 
-func (r *compositeOwnershipAccountRepo) ListSchedulableByGroupID(context.Context, int64) ([]Account, error) {
+func (r *compositeOwnershipAccountRepo) ListModelAvailabilityCandidates(context.Context, *int64, []string, bool) ([]Account, error) {
 	return r.accounts, nil
 }
 
@@ -135,6 +135,35 @@ func TestResolveCompositeModelOwnershipUsesConfiguredAliases(t *testing.T) {
 	require.Equal(t, CompositeModelOwnership{TargetPlatform: PlatformOpenAI, Matched: true}, preferred)
 }
 
+// Scenario: 只有 OpenAI 网关族的 OAuth 声明方会被标记（API Key 上游可能兼容多协议，
+// Anthropic / Antigravity 的 OAuth 在默认 Anthropic handler 中可正常转发）
+func TestResolveCompositeModelOwnershipFlagsOpenAIGatewayOAuthClaimants(t *testing.T) {
+	groupID := int64(7)
+	repo := &compositeOwnershipAccountRepo{
+		accounts: []Account{
+			{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Credentials: map[string]any{"model_mapping": map[string]any{"gpt-6-astra": "gpt-6-astra"}}},
+			{ID: 2, Platform: PlatformDeepseek, Type: AccountTypeAPIKey, Credentials: map[string]any{"model_mapping": map[string]any{"gpt-6-astra": "deepseek-v4-pro", "apikey-only": "deepseek-v4-pro"}}},
+			{ID: 3, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"model_mapping": map[string]any{"apikey-only": "gpt-5"}}},
+			// Antigravity 账号创建时会把默认映射（含 claude-*）写入 model_mapping。
+			{ID: 4, Platform: PlatformAntigravity, Type: AccountTypeOAuth, Credentials: map[string]any{"model_mapping": map[string]any{"claude-opus-4-8": "claude-opus-4-8"}}},
+			{ID: 5, Platform: PlatformAnthropic, Type: AccountTypeSetupToken, Credentials: map[string]any{"model_mapping": map[string]any{"claude-opus-4-8": "claude-opus-4-8"}}},
+		},
+	}
+	svc := &GatewayService{accountRepo: repo}
+
+	withOAuth, err := svc.resolveCompositeModelOwnership(context.Background(), groupID, "gpt-6-astra")
+	require.NoError(t, err)
+	require.Equal(t, CompositeModelOwnership{Ambiguous: true, OpenAIGatewayOAuthClaimed: true}, withOAuth)
+
+	apiKeyOnly, err := svc.resolveCompositeModelOwnership(context.Background(), groupID, "apikey-only")
+	require.NoError(t, err)
+	require.Equal(t, CompositeModelOwnership{Ambiguous: true}, apiKeyOnly)
+
+	anthropicFamily, err := svc.resolveCompositeModelOwnership(context.Background(), groupID, "claude-opus-4-8")
+	require.NoError(t, err)
+	require.Equal(t, CompositeModelOwnership{Ambiguous: true}, anthropicFamily)
+}
+
 func TestNewGatewayServiceWiresCompositeModelOwnershipResolver(t *testing.T) {
 	groupID := int64(7)
 	repo := &compositeOwnershipAccountRepo{
@@ -212,6 +241,8 @@ func TestDetectModelPlatform(t *testing.T) {
 		{name: "minimax prefix", model: "minimax/MiniMax-M2.5", platform: PlatformMiniMax, ok: true},
 		{name: "abab legacy", model: "abab6.5-chat", platform: PlatformMiniMax, ok: true},
 		{name: "abab7 legacy", model: "abab7-chat-preview", platform: PlatformMiniMax, ok: true},
+		{name: "jev", model: "jev-latest", platform: PlatformTypeSafe, ok: true},
+		{name: "typesafe prefix", model: "typesafe/jev-latest", platform: PlatformTypeSafe, ok: true},
 		{name: "abab unrelated namespace", model: "abab-other", ok: false},
 		// System One 决策模型：laya* 走本地 Laya，typesafe/jev 走 JEV。
 		// typesafe/jev 自带斜杠，必须按完整名字识别，不能被 provider 前缀切分吃掉。
@@ -255,13 +286,13 @@ func TestCompositeGroupSchedulerHasAllCanonicalPlatformBuckets(t *testing.T) {
 		platforms = append(platforms, platform)
 	}
 	require.ElementsMatch(t,
-		[]string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformMadao, PlatformArena, PlatformMiniMax, PlatformCursor, PlatformWindsurf, PlatformTeleagent, PlatformOpenCodeGo, PlatformKilo, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformSystemOne, PlatformLaya, PlatformJev, PlatformModel3D, PlatformV0},
+		[]string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformDeepseekWeb, PlatformMadao, PlatformArena, PlatformMiniMax, PlatformCursor, PlatformWindsurf, PlatformTeleagent, PlatformOpenCodeGo, PlatformKilo, PlatformTypeSafe, PlatformCommandCode, PlatformCline, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformVibex, PlatformZcode, PlatformQoder, PlatformSystemOne, PlatformLaya, PlatformJev, PlatformModel3D, PlatformV0},
 		platforms,
 	)
 }
 
 func TestCompositeConcretePlatformsIncludeCNProviders(t *testing.T) {
-	for _, platform := range []string{PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformCursor, PlatformOpenCodeGo, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformZcode, PlatformLaya, PlatformJev} {
+	for _, platform := range []string{PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformCursor, PlatformOpenCodeGo, PlatformKilo, PlatformTypeSafe, PlatformCommandCode, PlatformCline, PlatformDoubao, PlatformTraework, PlatformWorkbuddy, PlatformZcode, PlatformLaya, PlatformJev} {
 		require.True(t, isConcreteRequestPlatform(platform))
 		require.True(t, canCopyAccountsFromGroupPlatform(PlatformComposite, platform))
 	}

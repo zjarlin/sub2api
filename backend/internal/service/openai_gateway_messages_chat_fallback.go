@@ -11,9 +11,9 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
-	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
 
@@ -53,7 +53,10 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	clientStream := anthropicReq.Stream
 
 	// 2. Anthropic → Chat Completions (direct, no Responses intermediary)
-	chatReq, err := apicompat.AnthropicToChatCompletionsRequest(&anthropicReq)
+	chatReq, err := apicompat.AnthropicToChatCompletionsRequestWithMinOutputTokens(
+		&anthropicReq,
+		configuredMinOutputTokens(s.cfg),
+	)
 	if err != nil {
 		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, fmt.Errorf("convert anthropic to chat completions: %w", err)
@@ -61,6 +64,15 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 
 	billingModel := resolveOpenAIForwardModel(account, anthropicReq.Model, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	if err := validateGPT61SolCompatRequest(body, upstreamModel); err != nil {
+		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, err
+	}
+	if openai.IsGPT61SolModelSpelling(upstreamModel) && len(anthropicReq.Tools) > 0 {
+		err := fmt.Errorf("gpt-6.1-sol requires Responses for tool calls; this account only supports Chat Completions")
+		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, err
+	}
 	chatReq.Model = upstreamModel
 	chatReq.ReasoningEffort = openAICompatAnthropicReasoningEffort(&anthropicReq, upstreamModel, chatReq.ReasoningEffort)
 	chatReq.Stream = clientStream
@@ -68,12 +80,10 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		chatReq.StreamOptions = &apicompat.ChatStreamOptions{IncludeUsage: true}
 	}
 
+	// fork：Anthropic 入站的 thinking 信号在转成 CC 报文后不再保留，先按原始
+	// 报文推导一份 effort，作为下方最终值缺失时的回退。
 	convertedEffort := chatReq.ReasoningEffort
-	reasoningEffort := &convertedEffort
-	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, billingModel)
-	if account.Platform == PlatformVibex {
-		reasoningEffort = nil
-	}
+	anthropicThinkingEffort := ApplyThinkingEnabledFallback(&convertedEffort, body, billingModel)
 	serviceTier := extractOpenAIServiceTierFromBody(body)
 
 	chatBody, err := json.Marshal(chatReq)
@@ -94,11 +104,9 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		}
 		if changed {
 			chatBody = policyBody
-			if effectiveEffort := strings.TrimSpace(gjson.GetBytes(chatBody, "reasoning_effort").String()); effectiveEffort != "" {
-				reasoningEffort = &effectiveEffort
-			}
 		}
 	}
+	// fork: NVIDIA Kimi K3 的 effort 改写与上限判定（upstream 无此供应商路径）。
 	chatBody, kimiEffort, err := normalizeNVIDIAKimiK3ReasoningEffort(ctx, c, account, upstreamModel, chatBody)
 	if err != nil {
 		if IsReasoningEffortPolicyDenied(err) {
@@ -107,8 +115,20 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		}
 		return nil, err
 	}
+	// Provider normalization and policy caps can both change the converted effort.
+	// Use the final outbound value for usage logs and billing.
+	reasoningEffort := extractOpenAIReasoningEffortFromBody(chatBody, upstreamModel, billingModel, originalModel)
+	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, chatBody, upstreamModel)
+	if reasoningEffort == nil {
+		// fork：CC 报文里没有 thinking 字段时回退到 Anthropic 原始报文推导值。
+		reasoningEffort = anthropicThinkingEffort
+	}
 	if kimiEffort != nil {
 		reasoningEffort = kimiEffort
+	}
+	// fork：VibeX 适配器不接受 reasoning_effort，计量口径保持为空。
+	if account.Platform == PlatformVibex {
+		reasoningEffort = nil
 	}
 	// Unlike forwardResponsesViaRawChatCompletions, applyOpenAIFastPolicyToBody
 	// is intentionally skipped: Anthropic Messages bodies carry no service_tier,

@@ -677,6 +677,8 @@ func TestGetAvailableModels_OpenAIPassthroughPreservesConfiguredCatalog(t *testi
 			want: []string{"stale-model"},
 		},
 		{
+			// fork：透传转发同样应用显式映射，因此透传账号的映射也进入公开目录，
+			// 不会被其他普通账号的映射掩盖（上游在此改为让透传账号只贡献默认集合）。
 			name: "passthrough does not hide ordinary account mapping",
 			accounts: []Account{
 				{
