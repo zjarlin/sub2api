@@ -51,6 +51,10 @@ func prependVirtualModels(models []string, virtualModels ...string) []string {
 
 func (h *GatewayHandler) availableVirtualModelIDs(ctx context.Context, group *service.Group, models []string) []string {
 	virtualModels := make([]string, 0, 6)
+	if h.translationModelAvailable(ctx, group) {
+		virtualModels = append(virtualModels, "translate")
+	}
+
 	if h.autoModelAvailable(ctx, group, models) {
 		virtualModels = append(virtualModels, autoModelID)
 	}

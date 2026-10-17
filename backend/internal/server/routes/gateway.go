@@ -46,6 +46,7 @@ func RegisterGatewayRoutes(
 	groupModelAllowlist := middleware.GroupModelAllowlist()
 	modelAliases := middleware.GlobalModelAliases(settingService)
 	autoModel := h.Gateway.AutoModelMiddleware(compositeResolver)
+	translateModel := h.Translate.TranslateModelMiddleware()
 
 	isOpenAIResponsesCompatibleGatewayPlatform := func(c *gin.Context) bool {
 		switch getGroupPlatform(c) {
@@ -257,6 +258,8 @@ func RegisterGatewayRoutes(
 	}
 	gateway.Use(modelAliases)
 	gateway.Use(groupModelAllowlist)
+	gateway.Use(requireGroupAnthropic)
+	gateway.Use(translateModel)
 	gateway.Use(verticalIntent)
 	gateway.Use(autoModel)
 	gateway.Use(compositeTarget)
@@ -440,7 +443,7 @@ func RegisterGatewayRoutes(
 	// 根路径别名共用中间件链：白名单准入在 apiKeyAuth 之后、compositeTarget
 	// 之前，避免逐条路由手工维护链导致漏挂。
 	rootRoute := func(method, path string, limit gin.HandlerFunc, handler gin.HandlerFunc) {
-		r.Handle(method, path, limit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), modelAliases, groupModelAllowlist, verticalIntent, autoModel, compositeTarget, requireGroupAnthropic, handler)
+		r.Handle(method, path, limit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), modelAliases, groupModelAllowlist, requireGroupAnthropic, translateModel, verticalIntent, autoModel, compositeTarget, requireGroupAnthropic, handler)
 	}
 	for _, prefix := range []string{"/api/v3", "/v3", "/v1", ""} {
 		rootRoute(http.MethodPost, prefix+"/contents/generations/tasks", bodyLimit, h.OpenAIGateway.SeedanceTasks)
@@ -457,7 +460,7 @@ func RegisterGatewayRoutes(
 	rootRoute(http.MethodGet, "/models/:model", bodyLimit, h.Gateway.Models)
 	rootRoute(http.MethodPost, "/messages/count_tokens", bodyLimit, countTokensHandler)
 	codexDirect := r.Group("/backend-api/codex")
-	codexDirect.Use(bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), modelAliases, groupModelAllowlist, verticalIntent, autoModel, compositeTarget, requireGroupAnthropic)
+	codexDirect.Use(bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), modelAliases, groupModelAllowlist, requireGroupAnthropic, translateModel, verticalIntent, autoModel, compositeTarget, requireGroupAnthropic)
 	{
 		codexDirect.POST("/realtime/calls", h.OpenAIGateway.Live)
 		codexDirect.GET("/:call_id", h.OpenAIGateway.LiveSideband)
