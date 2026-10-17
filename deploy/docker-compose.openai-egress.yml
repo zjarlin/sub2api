@@ -8,9 +8,10 @@
 # 使用容器名而非网桥网关 IP，避免 Docker 网段变化导致地址失效。
 services:
   sub2api-openai-egress:
-    image: ${OPENAI_EGRESS_IMAGE:-sub2api-arena:local}
-    entrypoint: [/usr/bin/tini, --]
-    command: [/usr/local/bin/mihomo, -d, /app/proxy, -f, /app/proxy/config.json]
+    image: ${OPENAI_EGRESS_IMAGE:-sub2api-openai-egress:local}
+    # 独立镜像，仅复用 nginx:alpine 的 wget/CA；不再借用 arena 镜像。
+    entrypoint: ["/usr/local/bin/mihomo"]
+    command: ["-d", "/app/proxy", "-f", "/app/proxy/config.json"]
     restart: unless-stopped
     user: "1000:1000"
     read_only: true
@@ -33,7 +34,7 @@ services:
     cap_drop: [ALL]
     mem_limit: 512m
     healthcheck:
-      test: [CMD, node, -e, "fetch('http://127.0.0.1:9090/version',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      test: [CMD, wget, -qO-, "http://127.0.0.1:9090/version"]
       interval: 30s
       timeout: 5s
       retries: 3
