@@ -21,6 +21,7 @@ class ResponsesRequest:
     previous_response_id: object
     store: bool
     metadata: dict
+    provided: frozenset = frozenset()
 
 
 def parse_items(value):
@@ -158,7 +159,7 @@ def parse_request(body):
         policy['tools'] = list(declared.values())
     return ResponsesRequest(body['model'], items, instructions, body.get('stream', False),
                             policy, copy.deepcopy(body.get('tools') or []),
-                            output_format, previous, body.get('store', True), metadata)
+                            output_format, previous, body.get('store', True), metadata, frozenset(body))
 
 
 def input_prompt(request, items, continued=False, include_tools=True):
@@ -180,6 +181,11 @@ def input_prompt(request, items, continued=False, include_tools=True):
 
 def completion(request, model, reply):
     output = decode(reply.text, request.tools, request.output_format)
+    return result(request, model, output)
+
+
+def result(request, model, output):
+    # 文本桥与原生桥共用外层响应；原生桥直接传入设备事件，不能调用文本解码器。
     return {'id': 'resp_' + uuid.uuid4().hex, 'object': 'response', 'created_at': int(time.time()),
             'status': 'completed', 'error': None, 'incomplete_details': None, 'model': model,
             'output': output, 'parallel_tool_calls': request.tools['parallel_tool_calls'],

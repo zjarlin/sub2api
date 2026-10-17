@@ -11,6 +11,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from api import completion, encode_stream, parse_request
 from client import DesktopClient, validate_context
+from native_client import NativeClient, validate_native_context
 from conversations import ConversationStore
 from reply import UpstreamError
 from structured_output import OutputValidationError
@@ -24,6 +25,11 @@ UPSTREAM_MESSAGES = {
     'upstream_capacity': 'Doubao desktop capacity is temporarily unavailable; retry after 30 seconds',
     'upstream_timeout': 'Doubao desktop generation timed out before a complete reply',
     'upstream_connection_failed': 'Connection to Doubao desktop upstream failed',
+    'native_device_not_ready': 'Native device stream did not become ready; no generation was started',
+    'native_device_busy': 'This native device already has a pending generation',
+    'native_run_expired': 'Native tool continuation expired; the upstream request was not replayed',
+    'native_lifecycle_unavailable': 'The prepared native runtime must handle sandbox lifecycle before tools can run',
+    'native_upstream_timeout': 'Native upstream request timed out; it was not retried',
 }
 
 
@@ -38,6 +44,7 @@ class Adapter:
         self.default_state_file = Path(state_file) if state_file else None
         self.profile_state_dir = Path(profile_state_dir) if profile_state_dir else (Path(state_file).parent / 'profile-state' if state_file else self.session_file.parent / 'profile-state')
         self.profile_states = {}
+        self.retired_native_clients = []
         self.profile_versions = {}
         self.loaded_profile = None
         self.key = Path(key_file).read_text().strip()
@@ -59,11 +66,15 @@ class Adapter:
         version = session_file.stat().st_mtime_ns
         cached = self.profile_states.get(profile)
         if cached is None or self.profile_versions.get(profile) != version:
+            # 即使新快照无效，旧登录态的设备连接也不能继续存活。
+            self.close_profile(profile)
+            self.profile_versions.pop(profile, None)
             raw = session_file.read_bytes()
             if len(raw) > 65536:
                 raise ValueError('Session snapshot exceeded limit')
             context = json.loads(raw)
-            client = DesktopClient(context)
+            native = isinstance(context, dict) and 'native_tools' in context
+            client = NativeClient(context) if native else DesktopClient(context)
             state_file = (self.default_state_file if profile == 'default' else
                           self.profile_state_dir / (profile + '.json'))
             conversations = ConversationStore(state_file)
@@ -77,6 +88,8 @@ class Adapter:
         self.loaded_profile = profile
 
     def complete(self, request, scope=''):
+        if self.is_native():
+            raise ValueError('Native connector mode supports /v1/responses only')
         model = self.client.resolve_model(request.model)['id']
         if time.monotonic() < self.capacity_until.get(model, 0):
             raise UpstreamError('upstream_capacity', 503)
@@ -97,6 +110,9 @@ class Adapter:
         return result
 
     def complete_response(self, request, scope='', plan=None):
+        if self.is_native():
+            self.validate_native_request(request, scope)
+            return self.client.complete_response(request, scope)
         model = self.client.resolve_model(request.model)['id']
         if time.monotonic() < self.capacity_until.get(model, 0):
             raise UpstreamError('upstream_capacity', 503)
@@ -114,6 +130,34 @@ class Adapter:
         self.responses.commit(request, model, scope, reply, result, plan)
         return result
 
+    def is_native(self):
+        return getattr(self.client, 'native_tools', False) is True
+
+    def validate_native_request(self, request, scope):
+        self.client.validate_request(request, scope)
+        self.retired_native_clients = [client for client in self.retired_native_clients if client.busy()]
+        clients = [state[0] for state in self.profile_states.values()] + self.retired_native_clients
+        for client in clients:
+            if client is self.client or getattr(client, 'native_tools', False) is not True:
+                continue
+            if client.device_id == self.client.device_id and client.busy():
+                raise UpstreamError('native_device_busy', 409)
+
+    def close_profile(self, profile):
+        cached = self.profile_states.pop(profile, None)
+        if cached and getattr(cached[0], 'native_tools', False) is True:
+            cached[0].close()
+            # urllib 在收到响应头前无法取得 socket；退出前仍占有设备连接名额。
+            self.retired_native_clients = [client for client in self.retired_native_clients if client.busy()]
+            if cached[0].busy():
+                self.retired_native_clients.append(cached[0])
+
+    def close(self):
+        for profile in list(self.profile_states):
+            self.close_profile(profile)
+        for client in self.retired_native_clients:
+            client.close()
+
     def list_profiles(self):
         names = ['default']
         if self.profile_dir.is_dir():
@@ -128,7 +172,10 @@ class Adapter:
         if len(raw) > 65536:
             raise ValueError('Session snapshot must not exceed 64 KiB')
         context = json.loads(raw)
-        validate_context(context)
+        if isinstance(context, dict) and 'native_tools' in context:
+            validate_native_context(context)
+        else:
+            validate_context(context)
         self.profile_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
         os.chmod(self.profile_dir, 0o700)
         self.profile_state_dir.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -145,7 +192,7 @@ class Adapter:
         finally:
             if temporary.exists():
                 temporary.unlink()
-        self.profile_states.pop(profile, None)
+        self.close_profile(profile)
         self.profile_versions.pop(profile, None)
         self.clear_profile_state(profile)
         return profile
@@ -164,7 +211,7 @@ class Adapter:
         if not target.is_file():
             raise ValueError('Unknown desktop session profile')
         target.unlink()
-        self.profile_states.pop(profile, None)
+        self.close_profile(profile)
         self.profile_versions.pop(profile, None)
         self.clear_profile_state(profile)
 
@@ -326,13 +373,18 @@ def handler_for(adapter):
                     phase = 'request'
                     raise ValueError('Session identifier must contain at most 256 characters')
                 if is_responses:
-                    # History validation and previous-response lookup fail as
-                    # client errors before any generation is started.
+                    # 先校验历史与续接 ID，使客户端错误发生在上游生成之前。
                     phase = 'request'
-                    plan = adapter.responses.plan(request, model, scope)
+                    plan = None
+                    if adapter.is_native():
+                        adapter.validate_native_request(request, scope)
+                    else:
+                        plan = adapter.responses.plan(request, model, scope)
                     phase = 'generation'
                     result = adapter.complete_response(request, scope, plan=plan)
                 else:
+                    if adapter.is_native():
+                        raise ValueError('Native connector mode supports /v1/responses only')
                     phase = 'generation'
                     result = adapter.complete(request, scope)
                 phase = 'response'
@@ -413,4 +465,8 @@ if __name__ == '__main__':
     server = ThreadingHTTPServer(('0.0.0.0', 8080), handler_for(adapter))
     server.daemon_threads = True
     print('Desktop subscription adapter listening on :8080', flush=True)
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        adapter.close()
+        server.server_close()

@@ -31,6 +31,23 @@ def validate_context(context):
     return context
 
 
+def model_catalog(models, defaults):
+    # 两种工具传输共用同一目录解析，避免模型名称与模式分别漂移。
+    catalog = {(item['model_item_key'], str(item['default_mode'])): item for item in models}
+    exposed = {name: {**catalog[profile], 'id': name}
+               for name, profile in MODEL_PROFILES.items() if profile in catalog}
+    selections = {}
+    for name, item in exposed.items():
+        scene = 'chat' if str(item['default_mode']) == '1' else 'office'
+        selected = defaults[scene]
+        reasoning = (item.get('reasoning_effort_config') or {}).get('default_level',
+                                                                  selected['reasoning_effort'])
+        selections[name] = {**selected, 'mode_id': str(item['default_mode']),
+                            'model': {'model_item_key': item['model_item_key']},
+                            'reasoning_effort': reasoning}
+    return exposed, selections
+
+
 class DesktopClient:
     def __init__(self, context):
         self.read_timeout = timeout_setting('DESKTOP_UPSTREAM_TIMEOUT_SECONDS', 120)
@@ -39,18 +56,7 @@ class DesktopClient:
         self.cookies, self.params = context['cookies'], context['params']
         models, defaults = read_catalog(self.cookies, params=self.params)
         self.selection = defaults['office']
-        catalog = {(item['model_item_key'], str(item['default_mode'])): item for item in models}
-        self.models = {name: {**catalog[profile], 'id': name}
-                       for name, profile in MODEL_PROFILES.items() if profile in catalog}
-        self.selections = {}
-        for name, item in self.models.items():
-            scene = 'chat' if str(item['default_mode']) == '1' else 'office'
-            selected = defaults[scene]
-            reasoning = (item.get('reasoning_effort_config') or {}).get('default_level',
-                                                                      selected['reasoning_effort'])
-            self.selections[name] = {**selected, 'mode_id': str(item['default_mode']),
-                                     'model': {'model_item_key': item['model_item_key']},
-                                     'reasoning_effort': reasoning}
+        self.models, self.selections = model_catalog(models, defaults)
 
     def resolve_model(self, model):
         item = self.models.get(model) or next(
