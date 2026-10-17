@@ -44,6 +44,7 @@ func run() error {
 	server := &http.Server{Addr: addr, Handler: adapter.handler(), ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	go browser.reapIdle(ctx)
 	go func() {
 		<-ctx.Done()
 		shutdownContext, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)

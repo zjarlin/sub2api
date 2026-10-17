@@ -97,6 +97,10 @@ type chatgptBrowser struct {
 	maxAsks     int
 	maxAge      time.Duration
 	jsHeapMB    int
+	idleTimeout time.Duration
+	lastUsed    time.Time
+	startErr    error
+	startFailed time.Time
 }
 
 func (b *chatgptBrowser) logf(format string, args ...any) {
@@ -121,11 +125,16 @@ func newChatGPTBrowser(proxy, userAgent, execPath string, headless bool, answerW
 	if jsHeapMB < 128 {
 		jsHeapMB = 384
 	}
+	idleMin := intFromEnv(os.Getenv("CGW_BROWSER_IDLE_MIN"), 10)
+	if idleMin < 0 {
+		idleMin = 10
+	}
 	return &chatgptBrowser{
 		proxy: proxy, headless: headless, userAgent: userAgent, execPath: execPath,
 		answerWait: answerWait, pollEvery: time.Second, navTimeout: 60 * time.Second,
 		maxAsks: maxAsks, maxAge: maxAge, jsHeapMB: jsHeapMB,
-		debug: os.Getenv("CGW_DEBUG") == "1",
+		idleTimeout: time.Duration(idleMin) * time.Minute,
+		debug:       os.Getenv("CGW_DEBUG") == "1",
 	}
 }
 
@@ -183,6 +192,7 @@ func (b *chatgptBrowser) startLocked() error {
 	}
 	b.started = true
 	b.startedAt = time.Now()
+	b.lastUsed = time.Now()
 	b.asks = 0
 	return nil
 }
@@ -284,6 +294,40 @@ func (b *chatgptBrowser) pressSend(runContext, requestContext context.Context) (
 	return "enter", nil
 }
 
+// ensureStartedLocked 按需启动浏览器；启动失败后在冷却期内不再重试，
+// 避免每个请求都去拉起一个注定失败的 chromium。
+func (b *chatgptBrowser) ensureStartedLocked() error {
+	if b.startErr != nil && time.Since(b.startFailed) < 30*time.Second {
+		return b.startErr
+	}
+	if err := b.startLocked(); err != nil {
+		b.startErr = err
+		b.startFailed = time.Now()
+		return err
+	}
+	b.startErr = nil
+	return nil
+}
+
+// reapIdle 在空闲超时后关闭浏览器；下一次请求会按需重新拉起。
+func (b *chatgptBrowser) reapIdle(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		b.mu.Lock()
+		if b.started && b.idleTimeout > 0 && time.Since(b.lastUsed) >= b.idleTimeout {
+			b.logf("closing idle browser idle=%s", time.Since(b.lastUsed).Round(time.Minute))
+			b.release()
+		}
+		b.mu.Unlock()
+	}
+}
+
 // recycleDueLocked 判断是否需要重启浏览器以释放长期累积的内存。
 func (b *chatgptBrowser) recycleDueLocked() bool {
 	if !b.started {
@@ -299,13 +343,16 @@ func (b *chatgptBrowser) recycleDueLocked() bool {
 func (b *chatgptBrowser) ask(ctx context.Context, prompt string) (string, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	defer func() { b.lastUsed = time.Now() }()
 	if !b.started {
-		return "", errors.New("ChatGPT web browser is not running")
+		if err := b.ensureStartedLocked(); err != nil {
+			return "", err
+		}
 	}
 	if b.recycleDueLocked() {
 		b.logf("recycling browser asks=%d age=%s", b.asks, time.Since(b.startedAt).Round(time.Minute))
 		b.release()
-		if err := b.startLocked(); err != nil {
+		if err := b.ensureStartedLocked(); err != nil {
 			return "", err
 		}
 	}
