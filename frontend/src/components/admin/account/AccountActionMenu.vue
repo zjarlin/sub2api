@@ -136,7 +136,7 @@ const isOpenAIOAuth = computed(() => props.account?.platform === 'openai' && pro
 // 影子账号(链接型,持 parent_account_id)不持凭据、type 不可变,凭据/隐私类操作对其无效。
 const isShadow = computed(() => props.account?.parent_account_id != null)
 const isCheckinPlatform = computed(() => ['workbuddy', 'traework'].includes(props.account?.platform ?? ''))
-const isBuiltinAdapterAccount = computed(() => ['traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web'].includes(props.account?.platform ?? ''))
+const isBuiltinAdapterAccount = computed(() => ['traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'madao', 'arena', 'cursor', 'windsurf', 'teleagent'].includes(props.account?.platform ?? ''))
 const canReauthorize = computed(() => !isShadow.value && (
   props.account?.type === 'oauth' ||
   props.account?.type === 'setup-token' ||

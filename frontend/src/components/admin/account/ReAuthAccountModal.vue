@@ -266,8 +266,8 @@ const isGemini = computed(() => props.account?.platform === 'gemini')
 const isAnthropic = computed(() => props.account?.platform === 'anthropic')
 const isAntigravity = computed(() => props.account?.platform === 'antigravity')
 const isGrok = computed(() => props.account?.platform === 'grok')
-const isBuiltinAdapterAccount = computed(() => ['traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web'].includes(props.account?.platform ?? ''))
-const BUILTIN_ADAPTER_LOGIN_PLATFORMS: readonly BuiltinLoginPlatform[] = ['traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web']
+const isBuiltinAdapterAccount = computed(() => ['traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'madao', 'arena', 'cursor', 'windsurf', 'teleagent'].includes(props.account?.platform ?? ''))
+const BUILTIN_ADAPTER_LOGIN_PLATFORMS: readonly BuiltinLoginPlatform[] = ['traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'madao', 'arena', 'cursor', 'windsurf', 'teleagent']
 const builtinAdapterPlatform = computed<BuiltinLoginPlatform | null>(() => {
   const platform = props.account?.platform
   // AccountPlatform 现在是 KnownAccountPlatform | (string & {})（平台清单可动态扩展），

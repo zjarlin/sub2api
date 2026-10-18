@@ -43,7 +43,7 @@ describe('ReAuthAccountModal built-in adapter reauthorization', () => {
     showError.mockReset()
   })
 
-  it.each(['workbuddy', 'traework', 'zcode'])('uses the built-in login flow for %s', async (platform) => {
+  it.each(['workbuddy', 'traework', 'zcode', 'teleagent', 'madao', 'arena', 'cursor', 'windsurf', 'vibex', 'deepseek_web'])('uses the built-in login flow for %s', async (platform) => {
     clearError.mockResolvedValue({ ...account(platform), status: 'active' })
     const wrapper = mount(ReAuthAccountModal, {
       props: { show: true, account: account(platform) },

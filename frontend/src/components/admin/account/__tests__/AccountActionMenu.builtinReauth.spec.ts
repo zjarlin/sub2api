@@ -21,7 +21,7 @@ function mountMenu(account: Partial<Account>) {
 }
 
 describe('AccountActionMenu built-in adapter reauthorization', () => {
-  it.each(['workbuddy', 'traework', 'zcode'])('shows reauthorize but not refresh-token for %s API key accounts', (platform) => {
+  it.each(['workbuddy', 'traework', 'zcode', 'teleagent', 'madao', 'arena', 'cursor', 'windsurf', 'vibex', 'deepseek_web'])('shows reauthorize but not refresh-token for %s API key accounts', (platform) => {
     const wrapper = mountMenu({ id: 1, platform, type: 'apikey', status: 'active' })
     const text = document.body.textContent || ''
     expect(text).toContain('admin.accounts.reAuthorize')
