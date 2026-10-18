@@ -218,6 +218,9 @@ func main() {
 		GlobalEnabled: cfg.Global.Enabled,
 		// 运维管理端点开关（config admin.enabled，默认 false）。
 		AdminEnabled: cfg.Admin.Enabled,
+		// 手动签到入口（面板「积分与签到」）复用同一个 scheduler 实例，
+		// 与定时排程共享 checkinMu，避免同一时刻重复打上游。
+		Scheduler: sch,
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

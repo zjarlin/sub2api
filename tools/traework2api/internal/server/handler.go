@@ -16,6 +16,7 @@ import (
 	"sub2api/builtinlogin"
 
 	"traework2api/internal/pool"
+	"traework2api/internal/scheduler"
 	"traework2api/internal/upstream"
 )
 
@@ -32,6 +33,8 @@ type Config struct {
 	ErrCooldown  time.Duration // 错误冷却，默认 10m
 	RefreshSkew  time.Duration // token 预刷新窗口，默认 24h
 	DefaultModel string        // 默认 glm-5.2
+	// Scheduler 手动签到入口依赖（nil = 手动签到不可用，定时排程不受影响）。
+	Scheduler *scheduler.Scheduler
 }
 
 // maxBodyBytes 请求体大小上限（8MB），超过返回 413。
@@ -72,6 +75,9 @@ func NewHandler(cfg Config) *Handler {
 	h.mux.HandleFunc("GET /status", h.withAuth(h.status))
 	// 签到历史：单账号维度（面板展示「领了多少 / 还剩多少」）。
 	h.mux.HandleFunc("GET /checkins", h.withAuth(h.checkins))
+	// 手动签到：面板「积分与签到」按 uid 触发一次与定时排程相同的签到流程。
+	// 与定时签到互斥（撞车 409），不修改重试计划。
+	h.mux.HandleFunc("POST /checkin", h.withAuth(h.checkin))
 	h.mux.HandleFunc("GET /healthz", h.healthz)
 	if cfg.APIKey != "" && cfg.AuthDir != "" {
 		builtinlogin.New(h.beginLogin).Register(h.mux, h.withAuth)
@@ -158,6 +164,45 @@ func (h *Handler) checkins(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"checkins": all})
+}
+
+// checkinRequest 手动签到入参：uids 为空时退化为全池签到（运维排障用）。
+type checkinRequest struct {
+	UIDs []string `json:"uids"`
+}
+
+// checkin 立即签到指定上游账号（或全池），返回逐账号结果。
+// 成功/已签/失败都回 200 + results（失败细节在 detail 里）；正在跑另一次签到回 409。
+func (h *Handler) checkin(w http.ResponseWriter, r *http.Request) {
+	if h.cfg.Scheduler == nil {
+		writeOpenAIError(w, http.StatusServiceUnavailable, "checkin_unavailable", "check-in scheduler is not available")
+		return
+	}
+	var req checkinRequest
+	if r.Body != nil {
+		dec := json.NewDecoder(io.LimitReader(r.Body, 64<<10))
+		if err := dec.Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", "invalid check-in request body")
+			return
+		}
+	}
+	if uid := strings.TrimSpace(r.URL.Query().Get("uid")); uid != "" {
+		req.UIDs = append(req.UIDs, uid)
+	}
+	out, err := h.cfg.Scheduler.CheckinUIDs(req.UIDs)
+	if errors.Is(err, scheduler.ErrBusy) {
+		writeOpenAIError(w, http.StatusConflict, "checkin_busy", "a check-in is already running")
+		return
+	}
+	if err != nil {
+		writeOpenAIError(w, http.StatusBadGateway, "checkin_failed", err.Error())
+		return
+	}
+	if len(out) == 0 && len(req.UIDs) > 0 {
+		writeOpenAIError(w, http.StatusNotFound, "account_not_found", "no matching account in the pool")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"results": out})
 }
 
 // ---------------------------------------------------------------------------

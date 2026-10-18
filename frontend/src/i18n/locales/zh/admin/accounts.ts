@@ -608,6 +608,11 @@ export default {
         empty: '暂无签到记录',
         emptyAccounts: '该适配器暂无账号',
         notCheckedIn: '尚未签到',
+        checkinNow: '签到',
+        checkinRunning: '签到中...',
+        checkinSuccess: '签到完成',
+        checkinAlready: '今日已签到',
+        checkinFailed: '签到失败：{detail}',
         col: {
           uid: '账号',
           credits: '剩余积分',

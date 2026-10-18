@@ -42,6 +42,8 @@ func RegisterUserRoutes(
 				accounts.POST("/models/sync-upstream-preview", panelRateLimiter.Heavy(), h.UserAccount.SyncUpstreamModelsPreview)
 				accounts.POST("/:id/models/sync-upstream", h.UserAccount.SyncUpstreamModels)
 				accounts.GET("/:id/sidecar/checkins", h.UserAccount.GetBuiltinAdapterCheckins)
+				// 手动签到会打上游（token 刷新 + 签到 + 余额查询），按重查询档限流。
+				accounts.POST("/:id/sidecar/checkin", panelRateLimiter.Heavy(), h.UserAccount.RunBuiltinAdapterCheckin)
 				accounts.GET("/:id/vibex-usage", h.UserAccount.GetVibexUsage)
 			}
 			// 用户侧内置适配器：与管理员接口共用部署级适配器与共享登录账号池，

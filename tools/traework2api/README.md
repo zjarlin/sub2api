@@ -10,7 +10,7 @@ TRAE Work (SOLO CN) 的 OpenAI 兼容反向代理。把 TRAE SOLO 免费对话�
 
 - **OpenAI 兼容 API**：`POST /v1/chat/completions`（流式/非流式）、`GET /v1/models`
 - **多账号池**：积分降序挑选，1005/429/401/5xx 自动冷却、禁用、轮转
-- **自动签到**：每日定时签到 + 手动批量签到（`signin.sh`）
+- **自动签到**：每日定时签到 + 手动批量签到（`signin.sh`）；HTTP 单账号入口 `POST /checkin`（body `{"uids":["<uid>"]}`，省略 `uids` 为全池），与定时签到互斥、撞车返回 409
 - **积分查询**：全账号/指定账号日报（`credit.sh`）
 - **Token 自动刷新**：过期前 24h 预刷新，refreshToken 轮换落盘
 - **登录闭环**：`login.sh` 自生成登录链接 → 浏览器登录 → 粘贴回调链接 → 换 token 落盘

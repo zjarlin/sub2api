@@ -1155,6 +1155,20 @@ export async function getBuiltinAdapterCheckins(id: number, scope: BuiltinAdapte
   return data
 }
 
+/**
+ * 立即为账号绑定的 WorkBuddy / TRAE Work 上游账号签到，并返回签到后的
+ * 最新积分与签到历史。签到包含 token 刷新与上游往返，超时放宽到 90s。
+ */
+export async function runBuiltinAdapterCheckin(id: number, scope: BuiltinAdapterScope = 'admin'): Promise<BuiltinAdapterCheckinOverview> {
+  const prefix = scope === 'user' ? '/user' : '/admin'
+  const { data } = await apiClient.post<BuiltinAdapterCheckinOverview>(
+    `${prefix}/accounts/${id}/sidecar/checkin`,
+    undefined,
+    { timeout: 90000 }
+  )
+  return data
+}
+
 export async function getOpenCodeGoUsageSettings(): Promise<OpenCodeGoUsageSettings> {
   const { data } = await apiClient.get<OpenCodeGoUsageSettings>('/admin/accounts/opencode-go-usage/settings')
   return data
@@ -1248,6 +1262,7 @@ export const accountsAPI = {
   updateOllamaCloudUsageSettings,
   getOllamaCloudUsage,
   getBuiltinAdapterCheckins,
+  runBuiltinAdapterCheckin,
   bindBuiltinAdapterAccount,
   saveOllamaCloudUsageSession,
   deleteOllamaCloudUsageSession,

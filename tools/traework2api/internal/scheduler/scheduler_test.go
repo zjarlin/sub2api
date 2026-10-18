@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -119,6 +120,69 @@ func TestRunCheckinReenablesCoolingAccount(t *testing.T) {
 	}
 	if st.Credits != 500 {
 		t.Errorf("credits=%d want 500", st.Credits)
+	}
+}
+
+// TestCheckinUIDsOnlyChecksRequestedAccount 手动签到只打指定账号，不触碰池内其他账号。
+func TestCheckinUIDsOnlyChecksRequestedAccount(t *testing.T) {
+	f := &fakeUpstream{resourceRemain: 500}
+	srv := f.server()
+	defer srv.Close()
+
+	p := pool.New("")
+	p.Add(&auth.Auth{UID: "u1", AccessToken: "at", RefreshToken: "rt", ExpiresAt: 9999999999})
+	p.Add(&auth.Auth{UID: "u2", AccessToken: "at", RefreshToken: "rt", ExpiresAt: 9999999999})
+
+	s := newTestScheduler(f, p, srv)
+	out, err := s.CheckinUIDs([]string{"u2"})
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if len(out) != 1 || out[0].UID != "u2" || out[0].Status != CheckinOK {
+		t.Fatalf("out=%+v want only u2 ok", out)
+	}
+	if out[0].Credits == nil || *out[0].Credits != 500 {
+		t.Errorf("credits=%v want 500", out[0].Credits)
+	}
+	if f.checkinCalls.Load() != 1 || f.claimCalls.Load() != 1 {
+		t.Errorf("status=%d claim=%d want 1/1", f.checkinCalls.Load(), f.claimCalls.Load())
+	}
+	if st, _ := p.Status("u1"); st.Credits != 0 {
+		t.Errorf("u1 must stay untouched, credits=%d", st.Credits)
+	}
+}
+
+// TestCheckinUIDsUnknownAccountReturnsEmpty 未知 uid 不报错、不凭空创建账号记录。
+func TestCheckinUIDsUnknownAccountReturnsEmpty(t *testing.T) {
+	f := &fakeUpstream{resourceRemain: 500}
+	srv := f.server()
+	defer srv.Close()
+
+	p := pool.New("")
+	p.Add(&auth.Auth{UID: "u1", AccessToken: "at", RefreshToken: "rt", ExpiresAt: 9999999999})
+
+	s := newTestScheduler(f, p, srv)
+	out, err := s.CheckinUIDs([]string{"missing"})
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if len(out) != 0 {
+		t.Fatalf("out=%+v want empty", out)
+	}
+	if _, ok := p.Status("missing"); ok {
+		t.Error("unknown uid must not be created")
+	}
+}
+
+// TestCheckinUIDsBusy 手动签到与正在执行的签到撞车 → ErrBusy（不并发打上游）。
+func TestCheckinUIDsBusy(t *testing.T) {
+	p := pool.New("")
+	p.Add(&auth.Auth{UID: "u1", AccessToken: "at", RefreshToken: "rt", ExpiresAt: 9999999999})
+	s := New(Config{Pool: p})
+	s.checkinMu.Lock()
+	defer s.checkinMu.Unlock()
+	if _, err := s.CheckinUIDs([]string{"u1"}); !errors.Is(err, ErrBusy) {
+		t.Fatalf("err=%v want ErrBusy", err)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -498,12 +499,40 @@ func (s *Scheduler) recordCheckin(uid string, creditsBefore int64, oc CheckinOut
 }
 
 func (s *Scheduler) CheckinAll() ([]CheckinOutcome, error) {
+	return s.checkinLocked(nil)
+}
+
+// CheckinUIDs 手动签到指定上游账号（uids 为空等价于全量 CheckinAll）。
+// 与定时签到共用 checkinMu：撞车返回 ErrBusy，避免同一时刻重复打上游。
+// 未知 uid 直接忽略（由调用方根据结果是否为空决定 404），不凭空创建账号记录。
+func (s *Scheduler) CheckinUIDs(uids []string) ([]CheckinOutcome, error) {
+	return s.checkinLocked(uids)
+}
+
+// checkinLocked 是签到批次的唯一实现：过滤目标账号后逐个执行
+// 「按需刷新 token → daily-checkin → 查余额 → 解冻」。
+func (s *Scheduler) checkinLocked(uids []string) ([]CheckinOutcome, error) {
 	if !s.checkinMu.TryLock() {
 		return nil, ErrBusy
 	}
 	defer s.checkinMu.Unlock()
 
 	statuses := s.cfg.Pool.List()
+	if len(uids) > 0 {
+		want := make(map[string]struct{}, len(uids))
+		for _, uid := range uids {
+			if uid = strings.TrimSpace(uid); uid != "" {
+				want[uid] = struct{}{}
+			}
+		}
+		filtered := make([]pool.Status, 0, len(want))
+		for _, st := range statuses {
+			if _, ok := want[st.UID]; ok {
+				filtered = append(filtered, st)
+			}
+		}
+		statuses = filtered
+	}
 	out := make([]CheckinOutcome, 0, len(statuses))
 	var okN, alreadyN, failN, skipN int
 	for _, st := range statuses {

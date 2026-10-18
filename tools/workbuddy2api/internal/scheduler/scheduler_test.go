@@ -392,6 +392,7 @@ type checkinStub struct {
 	checkinStatus  int    // /daily-checkin HTTP 状态码（0=200）
 	refreshFail    bool   // /token/refresh 是否失败（返回 12153 session dead）
 	refreshCalls   atomic.Int32
+	checkinCalls   atomic.Int32
 	resourceRemain int64
 }
 
@@ -399,6 +400,7 @@ func (s *checkinStub) server() *httptest.Server {
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/daily-checkin"):
+			s.checkinCalls.Add(1)
 			if s.checkinStatus != 0 {
 				w.WriteHeader(s.checkinStatus)
 			}
@@ -450,6 +452,57 @@ func TestCheckinAllOK(t *testing.T) {
 	}
 	if st, _ := p.Status("u1"); st.Credits != 500 {
 		t.Errorf("pool credits=%d want 500", st.Credits)
+	}
+}
+
+// TestCheckinUIDsOnlyChecksRequestedAccount 手动签到只打指定账号，不触碰池内其他账号。
+func TestCheckinUIDsOnlyChecksRequestedAccount(t *testing.T) {
+	stub := &checkinStub{checkinBody: `{"code":0,"msg":"ok","data":{}}`, resourceRemain: 100}
+	srv := stub.server()
+	defer srv.Close()
+	p := pool.New("")
+	p.Add(&auth.Auth{UID: "u1", AccessToken: "at", RefreshToken: "rt", ExpiresAt: 9999999999})
+	p.Add(&auth.Auth{UID: "u2", AccessToken: "at", RefreshToken: "rt", ExpiresAt: 9999999999})
+	up := &upstream.Client{HTTP: srv.Client(), ChatBaseCN: srv.URL, BillingBaseCN: srv.URL}
+	s := New(Config{Pool: p, Upstream: up})
+
+	out, err := s.CheckinUIDs([]string{"u2"})
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if len(out) != 1 || out[0].UID != "u2" || out[0].Status != CheckinOK {
+		t.Fatalf("out=%+v want only u2 ok", out)
+	}
+	if got := stub.checkinCalls.Load(); got != 1 {
+		t.Errorf("daily-checkin calls=%d want 1", got)
+	}
+	if st, _ := p.Status("u1"); st.Credits != 0 {
+		t.Errorf("u1 must stay untouched, credits=%d", st.Credits)
+	}
+}
+
+// TestCheckinUIDsUnknownAccountReturnsEmpty 未知 uid 不报错、不凭空创建账号记录。
+func TestCheckinUIDsUnknownAccountReturnsEmpty(t *testing.T) {
+	s, p := newCheckinS(t, &checkinStub{checkinBody: `{"code":0,"msg":"ok","data":{}}`, resourceRemain: 100})
+	out, err := s.CheckinUIDs([]string{"missing"})
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if len(out) != 0 {
+		t.Fatalf("out=%+v want empty", out)
+	}
+	if _, ok := p.Status("missing"); ok {
+		t.Error("unknown uid must not be created")
+	}
+}
+
+// TestCheckinUIDsBusy 手动签到与正在执行的签到撞车 → ErrBusy（不并发打上游）。
+func TestCheckinUIDsBusy(t *testing.T) {
+	s, _ := newCheckinS(t, &checkinStub{})
+	s.checkinMu.Lock()
+	defer s.checkinMu.Unlock()
+	if _, err := s.CheckinUIDs([]string{"u1"}); !errors.Is(err, ErrBusy) {
+		t.Fatalf("err=%v want ErrBusy", err)
 	}
 }
 

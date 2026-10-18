@@ -61,6 +61,8 @@ func main() {
 		ErrThreshold: cfg.Cooldown.ErrThresh,
 		ErrCooldown:  cfg.ErrCooldownDur,
 		DefaultModel: cfg.DefaultModel,
+		// 手动签到入口复用同一个 scheduler 实例，与定时排程共享 checkinMu。
+		Scheduler: sch,
 	})
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

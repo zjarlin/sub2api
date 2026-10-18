@@ -29,6 +29,16 @@
         </button>
       </div>
 
+      <div
+        v-if="actionMessage"
+        class="rounded-lg border px-3 py-2 text-sm"
+        :class="actionMessage.type === 'ok'
+          ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800/40 dark:bg-emerald-900/20 dark:text-emerald-300'
+          : 'border-red-200 bg-red-50 text-red-700 dark:border-red-800/40 dark:bg-red-900/20 dark:text-red-300'"
+      >
+        {{ actionMessage.text }}
+      </div>
+
       <div v-if="loading" class="py-8 text-center text-sm text-gray-500 dark:text-gray-400">
         {{ t('admin.accounts.builtinCheckin.loading') }}
       </div>
@@ -84,14 +94,25 @@
                 </td>
                 <td class="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">{{ acc.checkin ? formatTime(acc.checkin.at) : '-' }}</td>
                 <td class="px-3 py-2 text-right">
-                  <button
-                    type="button"
-                    class="rounded px-2 py-0.5 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
-                    :disabled="binding"
-                    @click.stop="overview.binding_required && canBind ? bindAccount(acc.uid) : selectAccount(acc.uid)"
-                  >
-                    {{ t(overview.binding_required && canBind ? 'admin.accounts.builtinCheckin.bindAccount' : 'admin.accounts.builtinCheckin.title') }}
-                  </button>
+                  <div class="inline-flex items-center gap-1">
+                    <button
+                      v-if="!overview.binding_required"
+                      type="button"
+                      class="rounded px-2 py-0.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-emerald-400 dark:hover:bg-emerald-900/30"
+                      :disabled="!!checkingUid || binding"
+                      @click.stop="runCheckin(acc.uid)"
+                    >
+                      {{ checkingUid === acc.uid ? t('admin.accounts.builtinCheckin.checkinRunning') : t('admin.accounts.builtinCheckin.checkinNow') }}
+                    </button>
+                    <button
+                      type="button"
+                      class="rounded px-2 py-0.5 text-xs font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-900/30"
+                      :disabled="binding"
+                      @click.stop="overview.binding_required && canBind ? bindAccount(acc.uid) : selectAccount(acc.uid)"
+                    >
+                      {{ t(overview.binding_required && canBind ? 'admin.accounts.builtinCheckin.bindAccount' : 'admin.accounts.builtinCheckin.title') }}
+                    </button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -169,6 +190,9 @@ const error = ref<string | null>(null)
 const overview = ref<BuiltinAdapterCheckinOverview | null>(null)
 const selectedUid = ref('')
 const binding = ref(false)
+// 手动签到：同一时间只允许一个账号在跑（后端也会串行化，这里先禁掉按钮避免连点）。
+const checkingUid = ref('')
+const actionMessage = ref<{ type: 'ok' | 'error'; text: string } | null>(null)
 
 // 只有管理端可以把账号关联到账号池中的已有登录；用户侧只读当前绑定账号。
 const canBind = computed(() => props.scope === 'admin')
@@ -244,6 +268,36 @@ const load = async () => {
   }
 }
 
+// 手动签到指定上游账号：后端完成「签到 + 余额刷新」，直接返回最新概览，
+// 不再额外发一次查询请求（也避免刷新时看到旧状态）。
+const runCheckin = async (uid: string) => {
+  if (!props.account || checkingUid.value || binding.value) return
+  checkingUid.value = uid
+  actionMessage.value = null
+  try {
+    const updated = await adminAPI.accounts.runBuiltinAdapterCheckin(props.account.id, props.scope)
+    overview.value = updated
+    const rec = updated.accounts.find((a) => a.uid === uid)?.checkin
+    if (rec?.status === 'ok') {
+      const delta = rec.delta > 0 ? ` +${rec.delta}` : ''
+      actionMessage.value = { type: 'ok', text: `${t('admin.accounts.builtinCheckin.checkinSuccess')}${delta}` }
+    } else if (rec?.status === 'already') {
+      actionMessage.value = { type: 'ok', text: t('admin.accounts.builtinCheckin.checkinAlready') }
+    } else if (rec?.status === 'fail') {
+      actionMessage.value = {
+        type: 'error',
+        text: t('admin.accounts.builtinCheckin.checkinFailed', { detail: rec.detail || '' })
+      }
+    } else {
+      actionMessage.value = { type: 'ok', text: t('admin.accounts.builtinCheckin.checkinSuccess') }
+    }
+  } catch (e) {
+    actionMessage.value = { type: 'error', text: extractErrorMessage(e) }
+  } finally {
+    checkingUid.value = ''
+  }
+}
+
 const bindAccount = async (uid: string) => {
   if (!props.account || binding.value) return
   binding.value = true
@@ -266,6 +320,7 @@ watch(
     if (show) {
       selectedUid.value = ''
       overview.value = null
+      actionMessage.value = null
       void load()
     }
   },

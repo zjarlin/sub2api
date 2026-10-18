@@ -1763,6 +1763,29 @@ func (h *AccountHandler) GetBuiltinAdapterCheckins(c *gin.Context) {
 	response.Success(c, overview)
 }
 
+// RunBuiltinAdapterCheckin 立即为账号绑定的内置适配器（WorkBuddy / TRAE Work）上游账号
+// 执行一次签到，并返回签到后的积分与历史。未绑定时拒绝，不签整个共享池。
+// POST /api/v1/admin/accounts/:id/sidecar/checkin
+func (h *AccountHandler) RunBuiltinAdapterCheckin(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	account, err := h.adminService.GetAccount(c.Request.Context(), accountID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	overview, err := service.BuiltinAdapterManualCheckinForAdminAccount(c.Request.Context(), account)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	response.Success(c, overview)
+}
+
 // GET /api/v1/admin/accounts/:id/stats
 func (h *AccountHandler) GetStats(c *gin.Context) {
 	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)

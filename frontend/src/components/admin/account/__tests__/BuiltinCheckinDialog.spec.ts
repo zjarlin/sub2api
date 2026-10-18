@@ -3,10 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import BuiltinCheckinDialog from '../BuiltinCheckinDialog.vue'
 import type { Account } from '@/types'
 
-const { getBuiltinAdapterCheckins, bindBuiltinAdapterAccount } = vi.hoisted(() => ({
-  getBuiltinAdapterCheckins: vi.fn(), bindBuiltinAdapterAccount: vi.fn()
+const { getBuiltinAdapterCheckins, bindBuiltinAdapterAccount, runBuiltinAdapterCheckin } = vi.hoisted(() => ({
+  getBuiltinAdapterCheckins: vi.fn(), bindBuiltinAdapterAccount: vi.fn(), runBuiltinAdapterCheckin: vi.fn()
 }))
-vi.mock('@/api/admin', () => ({ adminAPI: { accounts: { getBuiltinAdapterCheckins, bindBuiltinAdapterAccount } } }))
+vi.mock('@/api/admin', () => ({
+  adminAPI: { accounts: { getBuiltinAdapterCheckins, bindBuiltinAdapterAccount, runBuiltinAdapterCheckin } }
+}))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 
 const account = { id: 893, platform: 'workbuddy', type: 'apikey' } as Account
@@ -74,6 +76,46 @@ describe('BuiltinCheckinDialog user scope', () => {
     await flushPromises()
     expect(getBuiltinAdapterCheckins).toHaveBeenCalledWith(893, 'user')
     expect(wrapper.text()).toContain('1,450')
+    wrapper.unmount()
+  })
+
+  it('triggers a manual check-in and renders the refreshed balance', async () => {
+    getBuiltinAdapterCheckins.mockResolvedValue({
+      ...unbound, binding_required: false, total_credits: 1450, accounts: [accounts[0]]
+    })
+    runBuiltinAdapterCheckin.mockResolvedValue({
+      ...unbound,
+      binding_required: false,
+      total_credits: 1550,
+      accounts: [{
+        ...accounts[0],
+        credits: 1550,
+        checkin: { at: '2026-10-18T09:00:00Z', status: 'ok', credits: 1550, delta: 100 },
+        checkins: [{ at: '2026-10-18T09:00:00Z', status: 'ok', credits: 1550, delta: 100 }]
+      }]
+    })
+    const wrapper = mount(BuiltinCheckinDialog, {
+      props: { show: true, account, scope: 'user' },
+      global: { stubs: { BaseDialog: { template: '<div><slot /></div>' } } }
+    })
+    await flushPromises()
+    const button = wrapper.findAll('button').find(b => b.text() === 'admin.accounts.builtinCheckin.checkinNow')!
+    await button.trigger('click')
+    await flushPromises()
+    expect(runBuiltinAdapterCheckin).toHaveBeenCalledWith(893, 'user')
+    expect(wrapper.text()).toContain('admin.accounts.builtinCheckin.checkinSuccess')
+    expect(wrapper.text()).toContain('1,550')
+    wrapper.unmount()
+  })
+
+  it('does not offer check-in for accounts that still need linking', async () => {
+    getBuiltinAdapterCheckins.mockResolvedValue(unbound)
+    const wrapper = mount(BuiltinCheckinDialog, {
+      props: { show: true, account, scope: 'user' },
+      global: { stubs: { BaseDialog: { template: '<div><slot /></div>' } } }
+    })
+    await flushPromises()
+    expect(wrapper.findAll('button').some(b => b.text() === 'admin.accounts.builtinCheckin.checkinNow')).toBe(false)
     wrapper.unmount()
   })
 

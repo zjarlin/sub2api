@@ -205,6 +205,33 @@ func (h *UserAccountHandler) GetBuiltinAdapterCheckins(c *gin.Context) {
 	response.Success(c, overview)
 }
 
+// UserRunBuiltinAdapterCheckin 立即为当前用户自有账号绑定的上游账号签到，
+// 返回签到后的最新积分与签到历史（一次请求完成「签到 + 刷新」）。
+// POST /api/v1/user/accounts/:id/sidecar/checkin
+func (h *UserAccountHandler) RunBuiltinAdapterCheckin(c *gin.Context) {
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok || subject.UserID <= 0 {
+		response.Unauthorized(c, "Unauthorized")
+		return
+	}
+	accountID, ok := parseUserAccountID(c)
+	if !ok {
+		return
+	}
+	account, err := h.accountRepo.GetByIDAndOwner(c.Request.Context(), accountID, subject.UserID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	overview, err := service.BuiltinAdapterManualCheckinForAccount(c.Request.Context(), account)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	c.Header("Cache-Control", "no-store")
+	response.Success(c, overview)
+}
+
 // UserGetVibexUsage 返回当前用户自有 VibeX 账号的余额与额度。
 // GET /api/v1/user/accounts/:id/vibex-usage
 func (h *UserAccountHandler) GetVibexUsage(c *gin.Context) {

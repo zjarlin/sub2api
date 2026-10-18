@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -65,6 +66,23 @@ func BuiltinAdapterCheckinOverviewForAccount(ctx context.Context, account *Accou
 	return builtinAdapterCheckinOverview(ctx, account.Platform, uid)
 }
 
+// BuiltinAdapterManualCheckinForAccount 立即为当前路由账号绑定的上游账号签到，
+// 并回读最新积分与签到历史（面板一次请求即可刷新）。
+// 未绑定时不猜选账号，也不允许把整个共享池一起签到。
+func BuiltinAdapterManualCheckinForAccount(ctx context.Context, account *Account) (*BuiltinAdapterCheckinOverview, error) {
+	uid := strings.TrimSpace(account.GetExtraString("builtin_adapter_uid"))
+	if uid == "" {
+		return nil, infraerrors.BadRequest("BUILTIN_ACCOUNT_UNBOUND", "未绑定上游账号，请先关联已有登录账号或重新授权")
+	}
+	return builtinAdapterManualCheckin(ctx, account.Platform, uid)
+}
+
+// BuiltinAdapterManualCheckinForAdminAccount 是管理端入口：未绑定时同样拒绝
+// （与管理端只读概览不同——签到是写操作，不能落到共享池里的任意账号）。
+func BuiltinAdapterManualCheckinForAdminAccount(ctx context.Context, account *Account) (*BuiltinAdapterCheckinOverview, error) {
+	return BuiltinAdapterManualCheckinForAccount(ctx, account)
+}
+
 // 管理员可从已有登录账号中恢复旧记录的关联，不把账号池合计当成当前账号余额。
 // 普通用户继续使用严格的单账号查询，不能借旧记录枚举其他人的账号。
 func BuiltinAdapterCheckinOverviewForAdminAccount(ctx context.Context, account *Account) (*BuiltinAdapterCheckinOverview, error) {
@@ -100,6 +118,14 @@ func builtinAdapterCheckinOverview(ctx context.Context, platform, uid string) (*
 	if platform == PlatformWorkbuddy {
 		statusURL += "?refresh_credits=true"
 	}
+	if uid != "" {
+		// 只查绑定的那个上游账号：避免签到后刷新时把所有账号的余额都重查一遍。
+		sep := "?"
+		if strings.Contains(statusURL, "?") {
+			sep = "&"
+		}
+		statusURL += sep + "uid=" + url.QueryEscape(uid)
+	}
 	var status builtinAdapterStatusResponse
 	if err := fetchBuiltinAdapterJSON(ctx, statusURL, key, &status); err != nil {
 		return nil, err
@@ -134,18 +160,65 @@ func builtinAdapterCheckinOverview(ctx context.Context, platform, uid string) (*
 	return out, nil
 }
 
+// builtinAdapterCheckinRequest 是 sidecar POST /checkin 的入参。
+type builtinAdapterCheckinRequest struct {
+	UIDs []string `json:"uids"`
+}
+
+// builtinAdapterManualCheckin 触发 sidecar 对指定上游账号立即签到，
+// 然后回读最新积分与签到历史。签到本身可能包含 token 刷新与上游往返，
+// 所以写操作使用更长的超时；读操作仍保持 15s。
+func builtinAdapterManualCheckin(ctx context.Context, platform, uid string) (*BuiltinAdapterCheckinOverview, error) {
+	if platform != PlatformWorkbuddy && platform != PlatformTraework {
+		return nil, infraerrors.BadRequest("BUILTIN_CHECKIN_UNSUPPORTED", "account platform does not support check-in")
+	}
+	base, key := builtinAdapterBaseURL(platform), builtinAdapterAPIKey(platform)
+	if base == "" || key == "" {
+		return nil, infraerrors.BadRequest("BUILTIN_ADAPTER_DISABLED", "built-in adapter is not enabled or configured")
+	}
+	base = strings.TrimSuffix(strings.TrimRight(base, "/"), "/v1")
+
+	var result struct {
+		Results []struct {
+			UID    string `json:"uid"`
+			Status string `json:"status"`
+			Detail string `json:"detail"`
+		} `json:"results"`
+	}
+	payload := builtinAdapterCheckinRequest{UIDs: []string{uid}}
+	if err := doBuiltinAdapterJSON(ctx, http.MethodPost, base+"/checkin", key, payload, &result, 90*time.Second); err != nil {
+		return nil, err
+	}
+	return builtinAdapterCheckinOverview(ctx, platform, uid)
+}
+
 func fetchBuiltinAdapterJSON(ctx context.Context, rawURL, key string, dst any) error {
+	return doBuiltinAdapterJSON(ctx, http.MethodGet, rawURL, key, nil, dst, 15*time.Second)
+}
+
+func doBuiltinAdapterJSON(ctx context.Context, method, rawURL, key string, body any, dst any, timeout time.Duration) error {
 	parsed, err := url.Parse(rawURL)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return infraerrors.BadRequest("INVALID_ADAPTER_URL", "invalid built-in adapter URL")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, parsed.String(), nil)
+	var reader io.Reader
+	if body != nil {
+		raw, err := json.Marshal(body)
+		if err != nil {
+			return infraerrors.BadRequest("INVALID_ADAPTER_REQUEST", "unable to encode built-in adapter request")
+		}
+		reader = bytes.NewReader(raw)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, parsed.String(), reader)
 	if err != nil {
 		return infraerrors.BadRequest("INVALID_ADAPTER_URL", "invalid built-in adapter URL")
 	}
 	req.Header.Set("Authorization", "Bearer "+key)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
 	client := &http.Client{
-		Timeout:       15 * time.Second,
+		Timeout:       timeout,
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 	}
 	res, err := client.Do(req)
@@ -153,6 +226,9 @@ func fetchBuiltinAdapterJSON(ctx context.Context, rawURL, key string, dst any) e
 		return infraerrors.New(http.StatusBadGateway, "ADAPTER_UNREACHABLE", "unable to reach the built-in adapter")
 	}
 	defer res.Body.Close()
+	if res.StatusCode == http.StatusConflict {
+		return infraerrors.New(http.StatusConflict, "BUILTIN_CHECKIN_BUSY", "上游签到正在进行中，请稍后刷新")
+	}
 	if res.StatusCode < 200 || res.StatusCode >= 300 {
 		return infraerrors.New(http.StatusBadGateway, "ADAPTER_CHECKIN_FAILED", fmt.Sprintf("built-in adapter returned HTTP %d", res.StatusCode))
 	}

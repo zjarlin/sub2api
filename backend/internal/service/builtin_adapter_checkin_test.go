@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/stretchr/testify/require"
 )
 
@@ -66,6 +67,67 @@ func TestBuiltinAdapterCheckinOverviewMergesStatusAndHistory(t *testing.T) {
 	// 无历史账号返回空切片而非 nil（前端免判空）。
 	require.Empty(t, overview.Accounts[1].Checkins)
 	require.NotNil(t, overview.Accounts[1].Checkins)
+}
+
+// 手动签到必须把绑定的 uid 传给 sidecar，并回读该账号的最新积分与历史；
+// 刷新 /status 时带 uid，避免把所有账号的余额都重查一遍。
+func TestBuiltinAdapterManualCheckinTriggersSidecarAndReturnsFreshOverview(t *testing.T) {
+	var gotBody builtinAdapterCheckinRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "Bearer builtin-workbuddy-key", r.Header.Get("Authorization"))
+		switch r.URL.Path {
+		case "/checkin":
+			require.Equal(t, http.MethodPost, r.Method)
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&gotBody))
+			_ = json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{{"uid": "mine", "status": "ok"}}})
+		case "/status":
+			require.Equal(t, "true", r.URL.Query().Get("refresh_credits"))
+			require.Equal(t, "mine", r.URL.Query().Get("uid"))
+			_ = json.NewEncoder(w).Encode(map[string]any{"accounts": []map[string]any{
+				{"uid": "mine", "nickname": "n1", "credits": 99.5, "checkin": map[string]any{"at": "2026-10-18T09:00:00Z", "status": "ok", "credits": 99, "delta": 9}},
+			}})
+		case "/checkins":
+			_ = json.NewEncoder(w).Encode(map[string]any{"checkins": map[string]any{
+				"mine": []map[string]any{{"at": "2026-10-18T09:00:00Z", "status": "ok", "credits": 99, "delta": 9}},
+			}})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	SetBuiltinAdapterConfig(&config.BuiltinAdapterConfig{Enabled: true, WorkbuddyURL: server.URL + "/v1", WorkbuddyKey: "builtin-workbuddy-key"})
+	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
+
+	account := &Account{Platform: PlatformWorkbuddy, Extra: map[string]any{"builtin_adapter_uid": "mine"}}
+	overview, err := BuiltinAdapterManualCheckinForAccount(context.Background(), account)
+	require.NoError(t, err)
+	require.Equal(t, []string{"mine"}, gotBody.UIDs)
+	require.Equal(t, 99.5, overview.TotalCredits)
+	require.Len(t, overview.Accounts, 1)
+	require.NotNil(t, overview.Accounts[0].Checkin)
+	require.Equal(t, int64(9), overview.Accounts[0].Checkin.Delta)
+}
+
+// 上游已有签到在跑时返回 409，前端应提示稍后刷新而不是当成签到失败。
+func TestBuiltinAdapterManualCheckinMapsBusyToConflict(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"error":{"code":"checkin_busy"}}`))
+	}))
+	defer server.Close()
+	SetBuiltinAdapterConfig(&config.BuiltinAdapterConfig{Enabled: true, WorkbuddyURL: server.URL, WorkbuddyKey: "key"})
+	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
+
+	account := &Account{Platform: PlatformWorkbuddy, Extra: map[string]any{"builtin_adapter_uid": "mine"}}
+	_, err := BuiltinAdapterManualCheckinForAccount(context.Background(), account)
+	require.Equal(t, http.StatusConflict, infraerrors.Code(err))
+	require.Equal(t, "BUILTIN_CHECKIN_BUSY", infraerrors.Reason(err))
+}
+
+// 签到是写操作：未绑定 uid 时不能退化成签整个共享池。
+func TestBuiltinAdapterManualCheckinRequiresBoundUID(t *testing.T) {
+	_, err := BuiltinAdapterManualCheckinForAdminAccount(context.Background(), &Account{Platform: PlatformWorkbuddy})
+	require.ErrorContains(t, err, "未绑定上游账号")
 }
 
 func TestBuiltinAdapterCheckinOverviewRejectsUnsupportedPlatformAndDisabledAdapter(t *testing.T) {

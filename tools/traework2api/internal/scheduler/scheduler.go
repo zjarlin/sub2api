@@ -6,6 +6,8 @@ import (
 	"context"
 	"errors"
 	"log"
+	"strings"
+	"sync"
 	"time"
 
 	"traework2api/internal/pool"
@@ -24,6 +26,9 @@ type Config struct {
 // Scheduler 调度器。
 type Scheduler struct {
 	cfg Config
+
+	// checkinMu 串行化签到：定时入口与手动触发互斥，避免同一时刻重复打上游签到接口。
+	checkinMu sync.Mutex
 }
 
 // New 构建。
@@ -86,62 +91,135 @@ func contains(hours []int, h int) bool {
 	return false
 }
 
+// CheckinStatus 单账号签到结果状态（与 pool.CheckinRecord.Status 对齐）。
+type CheckinStatus string
+
+const (
+	CheckinOK      CheckinStatus = "ok"      // 签到成功
+	CheckinAlready CheckinStatus = "already" // 上游判定今天已签到（幂等重复，视为正常）
+	CheckinFail    CheckinStatus = "fail"    // 签到 / 余额查询失败
+	CheckinSkipped CheckinStatus = "skipped" // 禁用账号或无有效凭证，未参与
+)
+
+// CheckinOutcome 单账号签到结果（供手动签到回执与日志汇总）。
+type CheckinOutcome struct {
+	UID      string        `json:"uid"`
+	Nickname string        `json:"nickname,omitempty"`
+	Status   CheckinStatus `json:"status"`
+	Credits  *int64        `json:"credits,omitempty"` // 签到后余额（余额查询成功才有值）
+	Detail   string        `json:"detail,omitempty"`  // 失败/跳过原因（"已签到"不填）
+}
+
+// ErrBusy 已有一次签到正在执行（手动入口与定时撞车）。
+var ErrBusy = errors.New("checkin already running")
+
 // RunCheckinNow 立即对所有账号执行签到 + 积分刷新 + 解冻。
 // 冷却中的账号也参与（签到就是为了解冻它们）；禁用的跳过。
 func (s *Scheduler) RunCheckinNow() {
-	for _, st := range s.cfg.Pool.List() {
+	if _, err := s.CheckinAll(); err != nil {
+		log.Printf("scheduled checkin skipped: %v", err)
+	}
+}
+
+// CheckinAll 全量签到：逐账号刷新 token（按需）→ status/claim → 查余额 → 解冻。
+// 同一时刻只允许一次签到在跑，重复调用返回 ErrBusy。
+func (s *Scheduler) CheckinAll() ([]CheckinOutcome, error) {
+	return s.checkinLocked(nil)
+}
+
+// CheckinUIDs 手动签到指定上游账号（uids 为空等价于全量 CheckinAll）。
+// 与定时签到共用 checkinMu：撞车返回 ErrBusy，避免同一时刻重复打上游。
+// 未知 uid 直接忽略（由调用方根据结果是否为空决定 404），不凭空创建账号记录。
+func (s *Scheduler) CheckinUIDs(uids []string) ([]CheckinOutcome, error) {
+	return s.checkinLocked(uids)
+}
+
+// checkinLocked 是签到批次的唯一实现：过滤目标账号后逐个执行签到与余额回查。
+func (s *Scheduler) checkinLocked(uids []string) ([]CheckinOutcome, error) {
+	if !s.checkinMu.TryLock() {
+		return nil, ErrBusy
+	}
+	defer s.checkinMu.Unlock()
+
+	statuses := s.cfg.Pool.List()
+	if len(uids) > 0 {
+		want := make(map[string]struct{}, len(uids))
+		for _, uid := range uids {
+			if uid = strings.TrimSpace(uid); uid != "" {
+				want[uid] = struct{}{}
+			}
+		}
+		filtered := make([]pool.Status, 0, len(want))
+		for _, st := range statuses {
+			if _, ok := want[st.UID]; ok {
+				filtered = append(filtered, st)
+			}
+		}
+		statuses = filtered
+	}
+
+	out := make([]CheckinOutcome, 0, len(statuses))
+	for _, st := range statuses {
+		oc := CheckinOutcome{UID: st.UID, Nickname: st.Nickname}
 		if st.Disabled {
-			s.cfg.Pool.RecordCheckin(st.UID, pool.CheckinRecord{At: time.Now(), Status: "skipped", Credits: st.Credits, Detail: "disabled"})
+			oc.Status, oc.Detail = CheckinSkipped, "disabled"
+			s.cfg.Pool.RecordCheckin(st.UID, pool.CheckinRecord{At: time.Now(), Status: string(oc.Status), Credits: st.Credits, Detail: oc.Detail})
+			out = append(out, oc)
 			continue
 		}
 		a := s.cfg.Pool.AuthByUID(st.UID)
 		if a == nil || a.RefreshTokenValue() == "" {
-			s.cfg.Pool.RecordCheckin(st.UID, pool.CheckinRecord{At: time.Now(), Status: "skipped", Credits: st.Credits, Detail: "no credentials"})
+			oc.Status, oc.Detail = CheckinSkipped, "no credentials"
+			s.cfg.Pool.RecordCheckin(st.UID, pool.CheckinRecord{At: time.Now(), Status: string(oc.Status), Credits: st.Credits, Detail: oc.Detail})
+			out = append(out, oc)
 			continue
 		}
 
-		status := "already"
-		detail := ""
+		oc.Status = CheckinAlready
 		// 签到（status → 未签到则 claim）
 		checkedIn, _, enable, err := s.cfg.Upstream.CheckinStatus(a)
 		if err != nil {
-			status, detail = "fail", "status: "+err.Error()
+			oc.Status, oc.Detail = CheckinFail, "status: "+err.Error()
 			log.Printf("checkin status %s: %v", st.UID, err)
 		} else if !checkedIn && enable {
 			if err := s.cfg.Upstream.CheckinClaim(a); err != nil {
-				status, detail = "fail", "claim: "+err.Error()
+				oc.Status, oc.Detail = CheckinFail, "claim: "+err.Error()
 				log.Printf("checkin claim %s: %v", st.UID, err)
 			} else {
-				status = "ok"
+				oc.Status = CheckinOK
 				log.Printf("checkin %s: ok", st.UID)
 			}
 		} else if checkedIn {
 			log.Printf("checkin %s: already checked in", st.UID)
 		} else {
-			status, detail = "skipped", "checkin disabled upstream"
+			oc.Status, oc.Detail = CheckinSkipped, "checkin disabled upstream"
 		}
 
 		// 查积分 + 解冻；即使签到失败也回查余额，让面板获得尽可能新的剩余积分。
 		remain, err := s.cfg.Upstream.UserEntUsage(a)
 		if err != nil {
 			log.Printf("ent-usage %s: %v", st.UID, err)
-			if detail != "" {
-				detail += "; "
+			if oc.Detail != "" {
+				oc.Detail += "; "
 			}
-			detail += "credit: " + err.Error()
-			status = "fail"
-			s.cfg.Pool.RecordCheckin(st.UID, pool.CheckinRecord{At: time.Now(), Status: status, Credits: st.Credits, Detail: detail})
+			oc.Detail += "credit: " + err.Error()
+			oc.Status = CheckinFail
+			s.cfg.Pool.RecordCheckin(st.UID, pool.CheckinRecord{At: time.Now(), Status: string(oc.Status), Credits: st.Credits, Detail: oc.Detail})
+			out = append(out, oc)
 			continue
 		}
 		s.cfg.Pool.ReenableIfCredits(st.UID, remain)
 		delta := int64(0)
-		if status == "ok" {
+		if oc.Status == CheckinOK {
 			delta = remain - st.Credits
 		}
+		oc.Credits = &remain
 		s.cfg.Pool.RecordCheckin(st.UID, pool.CheckinRecord{
-			At: time.Now(), Status: status, Credits: remain, Delta: delta, Detail: detail,
+			At: time.Now(), Status: string(oc.Status), Credits: remain, Delta: delta, Detail: oc.Detail,
 		})
+		out = append(out, oc)
 	}
+	return out, nil
 }
 
 // RunCreditsRefreshNow 只刷新剩余积分并按需解冻，不执行签到。

@@ -405,6 +405,11 @@ export default {
         empty: 'No check-in records',
         emptyAccounts: 'No accounts on this adapter',
         notCheckedIn: 'Not checked in yet',
+        checkinNow: 'Check in',
+        checkinRunning: 'Checking in...',
+        checkinSuccess: 'Checked in',
+        checkinAlready: 'Already checked in today',
+        checkinFailed: 'Check-in failed: {detail}',
         col: {
           uid: 'Account',
           credits: 'Remaining',

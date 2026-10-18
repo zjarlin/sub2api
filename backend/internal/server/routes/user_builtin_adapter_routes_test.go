@@ -38,6 +38,7 @@ func TestUserBuiltinAdapterRoutesMountedUnderUserWithoutAdminRole(t *testing.T) 
 		{http.MethodPost, "/api/v1/user/builtin-adapters/workbuddy/login-sessions"},
 		{http.MethodGet, "/api/v1/user/builtin-adapters/doubao/profiles"},
 		{http.MethodGet, "/api/v1/user/accounts/1/sidecar/checkins"},
+		{http.MethodPost, "/api/v1/user/accounts/1/sidecar/checkin"},
 		{http.MethodGet, "/api/v1/user/accounts/1/vibex-usage"},
 		// 创建流程的模型预览与按 id 同步：都只要求登录用户，不能要求管理员角色。
 		{http.MethodPost, "/api/v1/user/accounts/models/sync-upstream-preview"},

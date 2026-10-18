@@ -19,6 +19,7 @@ import (
 	"workbuddy2api/internal/logfmt"
 	"workbuddy2api/internal/pool"
 	"workbuddy2api/internal/prompt"
+	"workbuddy2api/internal/scheduler"
 	"workbuddy2api/internal/session"
 	"workbuddy2api/internal/upstream"
 )
@@ -53,6 +54,10 @@ type Config struct {
 	// AdminEnabled 运维管理端点开关（config admin.enabled，默认 false）。
 	// 关闭时 /admin/* 一律 404（而非 403——不向外暴露"这里存在管理面"）。
 	AdminEnabled bool
+
+	// Scheduler 手动签到入口依赖（nil = 手动签到不可用，定时排程不受影响）。
+	// 只暴露「立即签到指定 uid」这一个动作；调度时点、重试预算仍由 scheduler 自己管。
+	Scheduler *scheduler.Scheduler
 }
 
 // notFoundCooldown 上游 404 的固定短冷却时长。
@@ -110,6 +115,9 @@ func NewHandler(cfg Config) *Handler {
 	// 签到历史：单账号维度（面板展示「领了多少 / 还剩多少」）。与 /status 分开，
 	// 避免把逐账号历史塞进高频 /status 响应。uid 走查询参数（历史是附加数据，非账号身份路由）。
 	h.mux.HandleFunc("GET /checkins", h.withAuth(h.checkins))
+	// 手动签到：面板「积分与签到」按 uid 触发一次与定时排程相同的签到流程。
+	// 与定时签到互斥（撞车 409），不修改重试计划。
+	h.mux.HandleFunc("POST /checkin", h.withAuth(h.checkin))
 	h.mux.HandleFunc("GET /v1/stats", h.withAuth(h.stats))
 	h.mux.HandleFunc("POST /v1/stats/reset", h.withAuth(h.statsReset))
 	// 运维管理端点（默认关闭，config admin.enabled 开启后生效）。
@@ -272,6 +280,45 @@ func (h *Handler) checkins(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"checkins": all})
+}
+
+// checkinRequest 手动签到入参：uids 为空时退化为全池签到（运维排障用）。
+type checkinRequest struct {
+	UIDs []string `json:"uids"`
+}
+
+// checkin 立即签到指定上游账号（或全池），返回逐账号结果。
+// 成功/已签/失败都回 200 + results（失败细节在 detail 里）；正在跑另一次签到回 409。
+func (h *Handler) checkin(w http.ResponseWriter, r *http.Request) {
+	if h.cfg.Scheduler == nil {
+		writeOpenAIError(w, http.StatusServiceUnavailable, "checkin_unavailable", "check-in scheduler is not available")
+		return
+	}
+	var req checkinRequest
+	if r.Body != nil {
+		dec := json.NewDecoder(io.LimitReader(r.Body, 64<<10))
+		if err := dec.Decode(&req); err != nil && !errors.Is(err, io.EOF) {
+			writeOpenAIError(w, http.StatusBadRequest, "invalid_request_error", "invalid check-in request body")
+			return
+		}
+	}
+	if uid := strings.TrimSpace(r.URL.Query().Get("uid")); uid != "" {
+		req.UIDs = append(req.UIDs, uid)
+	}
+	out, err := h.cfg.Scheduler.CheckinUIDs(req.UIDs)
+	if errors.Is(err, scheduler.ErrBusy) {
+		writeOpenAIError(w, http.StatusConflict, "checkin_busy", "a check-in is already running")
+		return
+	}
+	if err != nil {
+		writeOpenAIError(w, http.StatusBadGateway, "checkin_failed", err.Error())
+		return
+	}
+	if len(out) == 0 && len(req.UIDs) > 0 {
+		writeOpenAIError(w, http.StatusNotFound, "account_not_found", "no matching account in the pool")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"results": out})
 }
 
 // countsMapFrom 把 CountsDetailed 五元组编码为 /status realm_totals 的字段对象。
