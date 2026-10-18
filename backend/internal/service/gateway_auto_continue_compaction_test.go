@@ -115,6 +115,87 @@ func TestAutoContinueCompactionRecoversOverflowAndKeepsAuthorization(t *testing.
 	}
 }
 
+// autoCompactLargeTestInput 把历史工具输出撑到指定字节数，用于验证分块预算边界。
+func autoCompactLargeTestInput(t *testing.T, outputBytes int) []byte {
+	t.Helper()
+	body := autoCompactTestInput(t)
+	var payload map[string]any
+	require.NoError(t, json.Unmarshal(body, &payload))
+	input, _ := payload["input"].([]any)
+	for i, raw := range input {
+		item, _ := raw.(map[string]any)
+		if item["type"] == "function_call_output" {
+			item["output"] = strings.Repeat("历史诊断输出。", outputBytes/21)
+			input[i] = item
+		}
+	}
+	payload["input"] = input
+	encoded, err := json.Marshal(payload)
+	require.NoError(t, err)
+	return encoded
+}
+
+func autoCompactTestIncompleteReply(text string) *http.Response {
+	body, _ := json.Marshal(map[string]any{"id": "resp_compact_cut", "object": "response", "model": "text-model", "status": "incomplete",
+		"incomplete_details": map[string]any{"reason": "max_output_tokens"},
+		"output": []any{map[string]any{"type": "message", "role": "assistant", "status": "incomplete",
+			"content": []any{map[string]any{"type": "output_text", "text": text, "annotations": []any{}}}}},
+		"usage": map[string]any{"input_tokens": 11, "output_tokens": 4096, "total_tokens": 4107}})
+	return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(bytes.NewReader(body))}
+}
+
+// 摘要写到输出上限会被上游标成 incomplete，但正文仍然可用，不能因此判定压缩失败。
+func TestAutoContinueCompactionAcceptsSummaryTruncatedAtOutputLimit(t *testing.T) {
+	svc, account, _, _ := autoContinueTestService(t, "repair", func(_ []byte, _ int) (*http.Response, error) {
+		return autoCompactTestIncompleteReply(autoCompactTestSummary), nil
+	})
+	account.Extra[openai_compat.ExtraKeyResponsesMode] = string(openai_compat.ResponsesSupportModeForceResponses)
+	c, _ := autoContinueTestContext(nil, 9, 7)
+	summary, _, err := svc.callAutoContinueSummary(context.Background(), c, account, "text-model", "", "history")
+	require.NoError(t, err)
+	require.Equal(t, autoCompactTestSummary, summary)
+}
+
+// 历史超过「分块 × 块数」预算时先放大分块，而不是整段放弃压缩。
+func TestAutoContinueCompactionGrowsChunksBeforeGivingUp(t *testing.T) {
+	largest := 0
+	svc, account, _, _ := autoContinueTestService(t, "repair", func(request []byte, _ int) (*http.Response, error) {
+		chunk := gjson.GetBytes(request, "input.1.content").String()
+		if size := len(gjson.Get(chunk, "history_chunk").String()); size > largest {
+			largest = size
+		}
+		return autoCompactTestReply(true, autoCompactTestSummary), nil
+	})
+	account.Extra[openai_compat.ExtraKeyResponsesMode] = string(openai_compat.ResponsesSupportModeForceResponses)
+	c, _ := autoContinueTestContext(nil, 9, 7)
+	history := strings.Repeat("历史诊断输出。", 20000) // ≈420KB，16KB×4 放不下
+	summary, _, count, err := svc.summarizeHistory(context.Background(), c, account, "text-model", history, 16<<10, 4, 0)
+	require.NoError(t, err)
+	require.Equal(t, autoCompactTestSummary, summary)
+	require.Equal(t, 4, count)
+	require.Greater(t, largest, 16<<10)
+}
+
+// 单块放大到硬上限仍超预算时，按组做分层摘要，且每次摘要输入都不超过上限。
+func TestAutoContinueCompactionSummarizesOversizedHistoryInLayers(t *testing.T) {
+	largest := 0
+	svc, account, _, _ := autoContinueTestService(t, "repair", func(request []byte, _ int) (*http.Response, error) {
+		chunk := gjson.GetBytes(request, "input.1.content").String()
+		if size := len(gjson.Get(chunk, "history_chunk").String()); size > largest {
+			largest = size
+		}
+		return autoCompactTestReply(true, autoCompactTestSummary), nil
+	})
+	account.Extra[openai_compat.ExtraKeyResponsesMode] = string(openai_compat.ResponsesSupportModeForceResponses)
+	c, _ := autoContinueTestContext(nil, 9, 7)
+	history := strings.Repeat("历史诊断输出。", 150000) // ≈3.15MB
+	summary, _, count, err := svc.summarizeHistory(context.Background(), c, account, "text-model", history, 16<<10, 4, 0)
+	require.NoError(t, err)
+	require.Equal(t, autoCompactTestSummary, summary)
+	require.Equal(t, 4, count)
+	require.LessOrEqual(t, largest, autoCompactionMaxChunkBytes)
+}
+
 func TestAutoContinueCompactionHandlesAssistantPause(t *testing.T) {
 	body := autoCompactTestInput(t)
 	calls, summaries := 0, 0
@@ -168,6 +249,10 @@ func TestAutoContinueCompactionFailurePreservesOriginalErrorAndBoundsRetry(t *te
 	for _, failure := range []string{"summary", "persistence", "retry", "budget"} {
 		t.Run(failure, func(t *testing.T) {
 			body := autoCompactTestInput(t)
+			if failure == "budget" {
+				// 单块超过摘要硬上限且预算只允许一块：无法继续拆分时必须保留原始错误。
+				body = autoCompactLargeTestInput(t, 700<<10)
+			}
 			calls, retries := 0, 0
 			svc, account, store, _ := autoContinueTestService(t, "repair", func(request []byte, _ int) (*http.Response, error) {
 				calls++

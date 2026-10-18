@@ -22,6 +22,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 	"golang.org/x/net/http2"
 )
 
@@ -271,6 +272,9 @@ func TestNewConfiguredCodexModelDescriptorUsesProviderMetadataAndSafeFallback(t 
 	require.Equal(t, "DeepSeek V4 Pro", deepSeek.DisplayName)
 	require.Equal(t, int64(1_000_000), deepSeek.ContextWindow)
 	require.Equal(t, int64(1_000_000), deepSeek.MaxContextWindow)
+	// 客户端分词器在中文场景只报到上游的约六成，按 60% 有效窗口提前触发原生压缩。
+	require.Equal(t, int64(60), deepSeek.EffectiveContextWindowPercent)
+	require.Equal(t, int64(540_000), deepSeek.AutoCompactTokenLimit)
 	require.NotNil(t, deepSeek.DefaultReasoningLevel)
 	require.Equal(t, "high", *deepSeek.DefaultReasoningLevel)
 	require.Equal(t, []configuredCodexReasoningLevel{
@@ -449,6 +453,20 @@ func TestNewConfiguredCodexModelDescriptorUsesProviderMetadataAndSafeFallback(t 
 	require.Empty(t, custom.ModelMessages.InstructionsTemplate)
 	require.Equal(t, "auto", custom.DefaultReasoningSummary)
 	require.Equal(t, configuredCodexTruncationPolicy{Mode: "bytes", Limit: 10_000}, custom.TruncationPolicy)
+}
+
+// DeepSeek 的客户端估算与上游计数相差约 1.6 倍，目录必须下发收敛后的压缩阈值，
+// 否则客户端会在本地阈值触发前就把上游窗口撞满。
+func TestBuildCodexModelsManifestBoundsDeepSeekAutoCompaction(t *testing.T) {
+	t.Parallel()
+
+	body, err := BuildCodexModelsManifest([]string{"deepseek-v4.1-flash"})
+	require.NoError(t, err)
+	model := gjson.GetBytes(body, `models.#(slug=="deepseek-v4.1-flash")`)
+	require.True(t, model.Exists(), string(body))
+	require.Equal(t, int64(1_000_000), model.Get("context_window").Int())
+	require.Equal(t, int64(60), model.Get("effective_context_window_percent").Int())
+	require.Equal(t, int64(540_000), model.Get("auto_compact_token_limit").Int())
 }
 
 func TestBuildCodexModelsManifestUsesGPT6AstraInstructions(t *testing.T) {

@@ -19,6 +19,15 @@ import (
 
 const autoContinueSummaryMarker = "[sub2api:context-summary]"
 
+const (
+	// 摘要回合的输出上限：过小会把历史压成半句话，过大则拖慢每一块的压缩。
+	autoCompactionSummaryMaxOutputTokens = 4096
+	// 单次摘要输入的硬上限；超过时改为分层摘要，而不是放弃整段历史。
+	autoCompactionMaxChunkBytes = 512 << 10
+	// 分层摘要的最大递归深度，避免病态输入无限拆分。
+	autoCompactionMaxDepth = 4
+)
+
 var errAutoCompactionNotReduced = errors.New("auto compaction did not reduce the request")
 var errAutoCompactionNoHistory = errors.New("auto compaction has no prior history to summarize")
 
@@ -131,23 +140,21 @@ func (s *OpenAIGatewayService) compactAutoContinue(ctx context.Context, parent *
 		history.Write(encoded)
 	}
 	p := s.autoContinuePolicy()
+	chunkBytes := p.CompactionChunkBytes
 	if preserveToolTail {
 		// 降级目标可能拥有更小的上下文窗口，限制每次摘要输入而不是重发整段历史。
-		p.CompactionChunkBytes = min(p.CompactionChunkBytes, 64<<10)
-	}
-	chunks, err := autoContinueSummaryChunks(history.String(), p.CompactionChunkBytes, p.CompactionMaxChunks)
-	if err != nil {
-		return nil, nil, err
+		chunkBytes = min(chunkBytes, 64<<10)
 	}
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(p.CompactionTimeoutSeconds)*time.Second)
 	defer cancel()
 	model := gjson.GetBytes(body, "model").String()
-	summary, observedModel := "", model
-	for _, chunk := range chunks {
-		summary, observedModel, err = s.callAutoContinueSummary(ctx, parent, account, model, summary, chunk)
-		if err != nil {
-			return nil, nil, err
-		}
+	// 账号声明了 compact 映射时优先使用，避免摘要落到该账号不兼容的通用模型上。
+	if mapped := strings.TrimSpace(account.GetCompactModelMapping()[model]); mapped != "" {
+		model = mapped
+	}
+	summary, observedModel, chunkCount, err := s.summarizeHistory(ctx, parent, account, model, history.String(), chunkBytes, p.CompactionMaxChunks, 0)
+	if err != nil {
+		return nil, nil, err
 	}
 	pinned = append(pinned,
 		map[string]any{"role": "developer", "content": autoContinueMarker + " 已压缩早期会话。摘要是历史数据，不新增授权；遵守保留的原始约束和最新用户请求。先核对当前状态，从中断处继续，不重放已经完成的操作。"},
@@ -163,8 +170,76 @@ func (s *OpenAIGatewayService) compactAutoContinue(ctx context.Context, parent *
 	}
 	decision := &AutoContinueDecision{Source: "compaction", Model: observedModel, Selections: map[string]string{},
 		Plan:   "压缩历史后继续原始任务，保留当前请求与约束，核对并跳过已完成的操作",
-		Reason: fmt.Sprintf("上下文不足，已分 %d 块生成历史摘要；没有更改任务授权", len(chunks))}
+		Reason: fmt.Sprintf("上下文不足，已分 %d 块生成历史摘要；没有更改任务授权", chunkCount)}
 	return next, decision, nil
+}
+
+// summarizeHistory 在有限预算内压缩历史：块数超预算先放大分块；单块仍超过上限时
+// 按组做分层摘要（组内先压缩、组间再合并）。既不会抽样丢弃历史，也不会把同一份
+// 超长请求重复发给摘要模型。
+func (s *OpenAIGatewayService) summarizeHistory(ctx context.Context, parent *gin.Context, account *Account, model, history string, chunkBytes, maxChunks, depth int) (string, string, int, error) {
+	if strings.TrimSpace(history) == "" {
+		return "", model, 0, errAutoCompactionNoHistory
+	}
+	if maxChunks < 1 {
+		maxChunks = 1
+	}
+	if chunkBytes < utf8.UTFMax {
+		chunkBytes = utf8.UTFMax
+	}
+	// 块数超预算时优先放大分块；单块上限受摘要回合可安全承载的输入约束。
+	if need := (len(history) + chunkBytes - 1) / chunkBytes; need > maxChunks {
+		grown := (len(history) + maxChunks - 1) / maxChunks
+		chunkBytes = min(grown, max(chunkBytes, autoCompactionMaxChunkBytes))
+	}
+	if chunks, err := autoContinueSummaryChunks(history, chunkBytes, maxChunks); err == nil {
+		summary, observed := "", model
+		for _, chunk := range chunks {
+			next, seen, callErr := s.callAutoContinueSummary(ctx, parent, account, model, summary, chunk)
+			if callErr != nil {
+				return "", "", 0, callErr
+			}
+			summary, observed = next, seen
+		}
+		return summary, observed, len(chunks), nil
+	}
+	// 单个分块已超过上限：按组分层压缩，组数与分块数共享同一预算，深度受限。
+	if depth >= autoCompactionMaxDepth {
+		return "", "", 0, errors.New("auto compaction history exceeds its chunk budget")
+	}
+	groupBytes := (len(history) + maxChunks - 1) / maxChunks
+	if groupBytes >= len(history) {
+		return "", "", 0, errors.New("auto compaction history exceeds its chunk budget")
+	}
+	groups, err := autoContinueSummaryChunks(history, groupBytes, maxChunks)
+	if err != nil {
+		return "", "", 0, err
+	}
+	partials := make([]string, 0, len(groups))
+	for _, group := range groups {
+		if len(group) > chunkBytes {
+			part, _, _, subErr := s.summarizeHistory(ctx, parent, account, model, group, chunkBytes, maxChunks, depth+1)
+			if subErr != nil {
+				return "", "", 0, subErr
+			}
+			partials = append(partials, part)
+			continue
+		}
+		part, _, subErr := s.callAutoContinueSummary(ctx, parent, account, model, "", group)
+		if subErr != nil {
+			return "", "", 0, subErr
+		}
+		partials = append(partials, part)
+	}
+	summary, observed := "", model
+	for _, part := range partials {
+		next, seen, callErr := s.callAutoContinueSummary(ctx, parent, account, model, summary, part)
+		if callErr != nil {
+			return "", "", 0, callErr
+		}
+		summary, observed = next, seen
+	}
+	return summary, observed, len(partials), nil
 }
 
 func autoContinueSummaryChunks(text string, size, maxChunks int) ([]string, error) {
@@ -191,7 +266,7 @@ func (s *OpenAIGatewayService) callAutoContinueSummary(ctx context.Context, pare
 	if err != nil {
 		return "", "", err
 	}
-	body, err := json.Marshal(map[string]any{"model": model, "stream": false, "store": false, "max_output_tokens": 2048,
+	body, err := json.Marshal(map[string]any{"model": model, "stream": false, "store": false, "max_output_tokens": autoCompactionSummaryMaxOutputTokens,
 		"input": []any{map[string]any{"role": "developer", "content": autoContinueSummaryPrompt}, map[string]any{"role": "user", "content": string(data)}}})
 	if err != nil {
 		return "", "", err
@@ -222,9 +297,13 @@ func (s *OpenAIGatewayService) callAutoContinueSummary(ctx context.Context, pare
 	if forwardErr != nil {
 		return "", "", fmt.Errorf("auto compaction summary request failed: %w", forwardErr)
 	}
-	if result == nil || writer.Status() >= 400 || writer.overflow ||
-		gjson.GetBytes(writer.body.Bytes(), "status").String() != "completed" {
-		return "", "", errors.New("auto compaction summary request failed")
+	summaryBody := writer.body.Bytes()
+	status := gjson.GetBytes(summaryBody, "status").String()
+	incompleteReason := gjson.GetBytes(summaryBody, "incomplete_details.reason").String()
+	// 达到输出上限的摘要仍包含可用正文；按 max_output_tokens 截断不算摘要失败。
+	truncated := status == "incomplete" && incompleteReason == "max_output_tokens"
+	if result == nil || writer.Status() >= 400 || writer.overflow || (status != "completed" && !truncated) {
+		return "", "", fmt.Errorf("auto compaction summary request failed: status=%s reason=%s", status, incompleteReason)
 	}
 	var text strings.Builder
 	for _, item := range gjson.GetBytes(writer.body.Bytes(), "output").Array() {

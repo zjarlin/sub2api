@@ -373,15 +373,20 @@ func openAIConfiguredCodexModelIDsForGroup(accounts []Account, group *Group) []s
 }
 
 const (
-	configuredCodexModelPriority       = 50
-	configuredCodexCustomDescription   = "Custom model routed through Sub2API."
-	configuredCodexFallbackContext     = 272_000
-	configuredCodexDeepSeekV4Context   = 1_000_000
-	configuredCodexGrokContext         = 500_000
-	configuredCodexGrokBuildContext    = 256_000
-	configuredCodexGPT56MaxContext     = 872_000
-	configuredCodexGPT6AstraContext    = 1_050_000
-	configuredCodexToolOutputMaxTokens = 10_000
+	configuredCodexModelPriority     = 50
+	configuredCodexCustomDescription = "Custom model routed through Sub2API."
+	configuredCodexFallbackContext   = 272_000
+	configuredCodexDeepSeekV4Context = 1_000_000
+	// DeepSeek 模型由客户端按自己的分词器估算上下文，中文与长日志场景实测仅为上游
+	// 计数的约 63%（115 万估算 → 上游 122 万 tokens）。若按满窗口下发，客户端在
+	// 本地阈值触发前上游就已经超限，请求只能整体失败。这里把有效窗口收到 60%，
+	// 让原生压缩在约 54 万本地 tokens（≈85 万上游 tokens）时触发。
+	configuredCodexDeepSeekV4EffectivePercent = 60
+	configuredCodexGrokContext                = 500_000
+	configuredCodexGrokBuildContext           = 256_000
+	configuredCodexGPT56MaxContext            = 872_000
+	configuredCodexGPT6AstraContext           = 1_050_000
+	configuredCodexToolOutputMaxTokens        = 10_000
 )
 
 type configuredCodexReasoningLevel struct {
@@ -522,6 +527,8 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 		descriptor.SupportsParallelToolCalls = true
 		descriptor.ContextWindow = configuredCodexDeepSeekV4Context
 		descriptor.MaxContextWindow = configuredCodexDeepSeekV4Context
+		descriptor.EffectiveContextWindowPercent = configuredCodexDeepSeekV4EffectivePercent
+		descriptor.AutoCompactTokenLimit = int64(configuredCodexDeepSeekV4Context * configuredCodexDeepSeekV4EffectivePercent / 100 * 9 / 10)
 	}
 
 	if isGrokCodexModel(modelID) {
