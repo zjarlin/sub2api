@@ -62,6 +62,10 @@ function createStreamResponse(lines: string[]) {
   } as Response
 }
 
+function modelsControllerReload(wrapper: ReturnType<typeof mountModal>) {
+  return (wrapper.vm as any).loadAvailableModels()
+}
+
 function mountModal(account: Record<string, unknown> = {
   id: 42,
   name: 'Gemini Image Test',
@@ -261,6 +265,41 @@ describe('AccountTestModal', () => {
     finish([{ id: 'stale-model', display_name: 'Old model' }])
     await flushPromises()
     expect((wrapper.vm as any).selectedModelId).toBe('gemini-3.1-flash-image')
+    wrapper.unmount()
+  })
+
+  it('允许手动输入模型 ID 并用手填值发起测试', async () => {
+    const wrapper = mountModal()
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    // 模拟用户在可输入模型中手填一个上游未同步的模型 ID。
+    ;(wrapper.vm as any).selectedModelId = 'claude-sonnet-5.5-manual'
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+    const [, request] = (global.fetch as any).mock.calls[0]
+    expect(JSON.parse(request.body).model_id).toBe('claude-sonnet-5.5-manual')
+    wrapper.unmount()
+  })
+
+  it('模型列表为空时保留手填的模型 ID 且允许测试', async () => {
+    getAvailableModels.mockResolvedValue([])
+    const wrapper = mountModal()
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+
+    expect((wrapper.vm as any).selectedModelId).toBe('')
+    ;(wrapper.vm as any).selectedModelId = 'gpt-5.5-custom'
+    modelsControllerReload(wrapper)
+    await flushPromises()
+    expect((wrapper.vm as any).selectedModelId).toBe('gpt-5.5-custom')
+
+    await (wrapper.vm as any).startTest()
+    await flushPromises()
+    const [, request] = (global.fetch as any).mock.calls[0]
+    expect(JSON.parse(request.body).model_id).toBe('gpt-5.5-custom')
     wrapper.unmount()
   })
 

@@ -63,11 +63,19 @@
         <Select
           v-model="selectedModelId"
           :options="modelOptionsForMode"
-          :disabled="loadingModels || status === 'connecting' || batchTesting"
+          :disabled="status === 'connecting' || batchTesting"
           value-key="id"
           label-key="display_name"
+          searchable
+          creatable
+          :loading="loadingModels"
           :placeholder="loadingModels ? t('common.loading') + '...' : t('admin.accounts.selectTestModel')"
+          :search-placeholder="t('admin.accounts.manualModelPlaceholder')"
+          :empty-text="t('admin.accounts.manualModelPlaceholder')"
         />
+        <p v-if="!isGrokAccount || modelOptionsForMode.length > 0" class="text-xs text-gray-500 dark:text-gray-400">
+          {{ t('admin.accounts.manualModelHint') }}
+        </p>
       </div>
 
       <div v-if="isOpenAIAccount" class="space-y-1.5">
@@ -783,7 +791,7 @@ const applyDefaultPromptForMode = () => {
 const pickDefaultModelForMode = () => {
   const opts = modelOptionsForMode.value
   if (!opts.length) {
-    selectedModelId.value = ''
+    // Keep any manual model id; upstream may not list a callable model.
     return
   }
   if (opts.some((m) => m.id === selectedModelId.value)) return
@@ -808,6 +816,8 @@ watch(
       testMode.value = 'default'
       qoderTestMode.value = 'commit-message'
       grokTestMode.value = 'text'
+      // 切换账号/重新打开时清空上一次的模型选择，避免沿用到另一个账号。
+      selectedModelId.value = ''
       resetState()
       await loadAvailableModels()
       if (isGrokAccount.value) {
@@ -831,10 +841,11 @@ watch(grokTestMode, () => {
 const loadAvailableModels = async () => {
   if (!props.account) return
 
+  // 保留用户手动输入/已选的模型：上游 /v1/models 可能没返回它，但模型仍可调用。
+  const previousSelection = selectedModelId.value
   loadingModels.value = true
   modelsLoadFailed.value = false
   availableModels.value = []
-  selectedModelId.value = ''
   modelsController?.abort()
   const request = new AbortController()
   modelsController = request
@@ -845,8 +856,11 @@ const loadAvailableModels = async () => {
     availableModels.value = props.account.platform === 'gemini' || props.account.platform === 'antigravity'
       ? sortTestModels(models)
       : models
-    // Default selection by platform
-    if (availableModels.value.length > 0) {
+    // Default selection by platform. Manual/previous selection wins so an
+    // operator-typed model id is not overwritten by the upstream list.
+    if (previousSelection) {
+      selectedModelId.value = previousSelection
+    } else if (availableModels.value.length > 0) {
       if (props.account.platform === 'gemini') {
         selectedModelId.value = availableModels.value[0].id
       } else {
@@ -859,9 +873,9 @@ const loadAvailableModels = async () => {
     if (request.signal.aborted) return
     modelsLoadFailed.value = true
     console.error('Failed to load available models:', error)
-    // Fallback to empty list
+    // Fallback to empty list,但保留用户手填的模型 ID。
     availableModels.value = []
-    selectedModelId.value = ''
+    selectedModelId.value = previousSelection
   } finally {
     if (modelsController === request) {
       loadingModels.value = false

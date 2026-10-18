@@ -1933,6 +1933,8 @@ export default {
       startingTestForAccount: 'Starting test for account: {name}',
       testAccountTypeLabel: 'Account type: {type}',
       selectTestModel: 'Select Test Model',
+      manualModelPlaceholder: 'Type a model ID to test manually',
+      manualModelHint: 'Pick from the list or type an upstream model ID to test manually.',
       testModel: 'Test model',
       testPrompt: 'Prompt: "hi"',
       imagePromptLabel: 'Image prompt',
