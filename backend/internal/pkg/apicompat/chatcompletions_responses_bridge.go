@@ -952,9 +952,21 @@ func normalizeChatMessagesWithToolOutputMedia(messages []ChatMessage, mediaByCal
 			replies[m.ToolCallID] = m
 		}
 	}
+	// Codex can replay one function_call item with the same call_id (a retried
+	// turn or a copied history). DeepSeek and other strict Chat Completions
+	// upstreams reject the whole request with `Duplicate 'call_id': ...`, so keep
+	// only the last announcement of every id (last wins, like the replies above).
+	lastCallPos := make(map[string][2]int, len(replies))
+	for mi, m := range messages {
+		for ti, tc := range m.ToolCalls {
+			if tc.ID != "" {
+				lastCallPos[tc.ID] = [2]int{mi, ti}
+			}
+		}
+	}
 
 	out := make([]ChatMessage, 0, len(messages))
-	for _, m := range messages {
+	for mi, m := range messages {
 		switch {
 		case m.Role == "tool":
 			// A bare tool message with no tool_call_id is a direct Chat
@@ -968,8 +980,12 @@ func normalizeChatMessagesWithToolOutputMedia(messages []ChatMessage, mediaByCal
 			continue
 		case len(m.ToolCalls) > 0:
 			kept := make([]ChatToolCall, 0, len(m.ToolCalls))
-			for _, tc := range m.ToolCalls {
+			for ti, tc := range m.ToolCalls {
 				if tc.ID == "" {
+					continue
+				}
+				if pos := lastCallPos[tc.ID]; pos[0] != mi || pos[1] != ti {
+					// A later item replays this call_id; only that one is announced.
 					continue
 				}
 				if _, ok := replies[tc.ID]; ok {

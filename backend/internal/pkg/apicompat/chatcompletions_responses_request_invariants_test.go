@@ -185,3 +185,53 @@ func TestNormalize_DropsOrphanToolReply(t *testing.T) {
 		require.NotEqualf(t, "tool", m.Role, "orphan tool reply should have been dropped")
 	}
 }
+
+// A replayed function_call item keeps the same call_id. Strict upstreams
+// (DeepSeek) reject the whole request with `Duplicate 'call_id'`, so only the
+// last announcement may reach Chat Completions.
+func TestGolden_RepeatedCallIDFromReplayedTurn(t *testing.T) {
+	msgs := convertGolden(t, `[
+		{"type":"message","role":"user","content":[{"type":"input_text","text":"q"}]},
+		{"type":"function_call","call_id":"c0","name":"exec","arguments":"{\"cmd\":\"first\"}"},
+		{"type":"function_call_output","call_id":"c0","output":"first"},
+		{"type":"function_call","call_id":"c0","name":"exec","arguments":"{\"cmd\":\"second\"}"},
+		{"type":"function_call_output","call_id":"c0","output":"second"}
+	]`)
+	assertChatInvariants(t, msgs)
+
+	var ids []string
+	var tools []ChatMessage
+	for _, m := range msgs {
+		for _, tc := range m.ToolCalls {
+			ids = append(ids, tc.ID)
+			require.Contains(t, tc.Function.Arguments, "second", "last replay should win")
+		}
+		if m.Role == "tool" {
+			tools = append(tools, m)
+		}
+	}
+	require.Equal(t, []string{"c0"}, ids)
+	require.Len(t, tools, 1)
+	require.JSONEq(t, `"second"`, string(tools[0].Content))
+}
+
+// Duplicate call ids merged into one assistant message (consecutive replayed
+// function_call items) collapse to a single tool_calls entry.
+func TestGolden_RepeatedCallIDInOneAssistantMessage(t *testing.T) {
+	msgs := convertGolden(t, `[
+		{"type":"message","role":"user","content":[{"type":"input_text","text":"q"}]},
+		{"type":"function_call","call_id":"c0","name":"exec","arguments":"{\"cmd\":\"first\"}"},
+		{"type":"function_call","call_id":"c0","name":"exec","arguments":"{\"cmd\":\"second\"}"},
+		{"type":"function_call_output","call_id":"c0","output":"ok"}
+	]`)
+	assertChatInvariants(t, msgs)
+
+	var ids []string
+	for _, m := range msgs {
+		for _, tc := range m.ToolCalls {
+			ids = append(ids, tc.ID)
+			require.Contains(t, tc.Function.Arguments, "second")
+		}
+	}
+	require.Equal(t, []string{"c0"}, ids)
+}
