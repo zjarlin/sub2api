@@ -170,6 +170,37 @@ func TestParseOpenAIRateLimitResetTime_DoesNotParseUnknownErrorMessage(t *testin
 	require.Nil(t, parseOpenAIRateLimitResetTime(body))
 }
 
+// TestParseOpenAIRateLimitResetTime_BuiltinAdapterPoolReset 内置适配器（traework）
+// 整池冷却时返回 {"error":{"type":"rate_limit_error","code":4008,"resets_at":<unix>}}；
+// 通用规则不读 rate_limit_error 的 resets_at，必须单独识别，否则账号被秒级兜底反复重试。
+func TestParseOpenAIRateLimitResetTime_BuiltinAdapterPoolReset(t *testing.T) {
+	resetAt := time.Now().Add(6 * time.Hour).Truncate(time.Second)
+	body := []byte(fmt.Sprintf(`{"error":{"message":"all traework accounts exhausted (cooling); retry after pool reset","type":"rate_limit_error","code":4008,"resets_at":%d}}`, resetAt.Unix()))
+	parsed := parseOpenAIRateLimitResetTime(body)
+	require.NotNil(t, parsed)
+	require.Equal(t, resetAt.Unix(), *parsed)
+
+	// 字符串形式同样接受。
+	bodyString := []byte(fmt.Sprintf(`{"error":{"type":"rate_limit_error","code":4008,"resets_at":"%d"}}`, resetAt.Unix()))
+	parsed = parseOpenAIRateLimitResetTime(bodyString)
+	require.NotNil(t, parsed)
+	require.Equal(t, resetAt.Unix(), *parsed)
+}
+
+// 其它平台/业务码的 rate_limit_error 不应被这条规则误吞。
+func TestParseOpenAIRateLimitResetTime_BuiltinAdapterScopeLimited(t *testing.T) {
+	for _, body := range []string{
+		`{"error":{"type":"rate_limit_error","code":4009,"resets_at":4102444800}}`,
+		`{"error":{"type":"rate_limit_error","resets_at":4102444800}}`,
+		`{"error":{"type":"rate_limit_error","code":4008}}`,
+		`{"error":{"type":"rate_limit_error","code":4008,"resets_at":0}}`,
+		`{"error":{"type":"rate_limit_error","code":4008,"resets_at":"soon"}}`,
+		`{"error":{"type":"upstream_error","code":4008,"resets_at":4102444800}}`,
+	} {
+		require.Nil(t, parseOpenAIRateLimitResetTime([]byte(body)), body)
+	}
+}
+
 func TestParseOpenAIRateLimitResetTime_CommandCodeWeeklyLimit(t *testing.T) {
 	reset := time.Now().Add(5 * 24 * time.Hour).Truncate(time.Millisecond)
 	body := []byte(fmt.Sprintf(`{"error":{"code":"RATE_LIMITED","type":"rate_limit_error","message":"You've reached your weekly usage limit for your plan. Your limit resets at %s. Please wait for the window to reset or upgrade your plan to continue."}}`, reset.UTC().Format(time.RFC3339Nano)))

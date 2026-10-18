@@ -1937,7 +1937,57 @@ func parseUTCDateWithoutYear(value string, now time.Time) *time.Time {
 //	    "resets_in_seconds": 133107
 //	  }
 //	}
+//
+// parseBuiltinPoolResetTime 解析内置适配器（traework 等）在整池冷却时返回的
+// {"error":{"type":"rate_limit_error","code":4008,"resets_at":<unix>}}。
+//
+// 通用 parseOpenAIRateLimitResetTime 只在 type 属于 usage_limit_reached /
+// rate_limit_exceeded / GoUsageLimitError 时才读 resets_at，而适配器沿用
+// SOLOStreamError 的 rate_limit_error 形状，因此需要单独识别，否则整池冷却的
+// 截止时间会被丢掉，账号只能按秒级兜底反复重试。
+func parseBuiltinPoolResetTime(body []byte) *int64 {
+	var parsed struct {
+		Error struct {
+			Type     string          `json:"type"`
+			Code     json.RawMessage `json:"code"`
+			ResetsAt json.RawMessage `json:"resets_at"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return nil
+	}
+	if parsed.Error.Type != "rate_limit_error" {
+		return nil
+	}
+	// 只认内置适配器的 4008（配额耗尽），避免误吞其它平台的 rate_limit_error。
+	if code := gjson.GetBytes(parsed.Error.Code, "@this").Int(); code != 4008 {
+		return nil
+	}
+	raw := gjson.GetBytes(parsed.Error.ResetsAt, "@this")
+	var ts int64
+	switch raw.Type {
+	case gjson.Number:
+		ts = raw.Int()
+	case gjson.String:
+		parsedTs, err := strconv.ParseInt(raw.String(), 10, 64)
+		if err != nil {
+			return nil
+		}
+		ts = parsedTs
+	default:
+		return nil
+	}
+	if ts <= 0 {
+		return nil
+	}
+	return &ts
+}
+
 func parseOpenAIRateLimitResetTime(body []byte) *int64 {
+	// 内置适配器整池冷却（traework 等）先于通用规则解析。
+	if ts := parseBuiltinPoolResetTime(body); ts != nil {
+		return ts
+	}
 	// Aliyun token-plan 月配额耗尽：精确 UTC 重置点写在 message 里，且原始
 	// /responses 结构（Throttling.AllocationQuota）没有 error 包装，必须先于
 	// 下方的 error 结构门槛解析，避免只依赖 Retry-After。
