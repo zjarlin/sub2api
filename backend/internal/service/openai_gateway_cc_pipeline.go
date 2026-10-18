@@ -222,6 +222,13 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 			body = sanitizedBody
 		}
 	}
+	// 豆包桌面适配器的 Chat 入口只接受白名单字段；store 等 OpenAI 服务端
+	// 状态参数会被整单 400。在共用出站点剥离，覆盖直转与各回退路径。
+	doubaoSanitizedBody, err := sanitizeDoubaoChatCompletionsBody(account, body)
+	if err != nil {
+		return nil, err
+	}
+	body = doubaoSanitizedBody
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
 	upstreamReq, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, targetURL, bytes.NewReader(body))
 	releaseUpstreamCtx()

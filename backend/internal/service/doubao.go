@@ -1,11 +1,14 @@
 package service
 
 import (
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 // 豆包平台连接桌面会话适配器，不把凭据发送到火山方舟或其他默认地址。
@@ -46,6 +49,33 @@ func validateDoubaoCredentials(platform, accountType string, credentials map[str
 		return infraerrors.BadRequest("INVALID_DOUBAO_CREDENTIALS", "doubao supports responses and chat_completions through the desktop adapter")
 	}
 	return nil
+}
+
+// doubaoChatUnsupportedFields 是桌面适配器 Chat Completions 入口明确拒绝、
+// 但 OpenAI 兼容客户端可能自动携带的字段。store 只是服务端持久化开关：
+// 适配器不提供 Chat 存储，会话续接由 X-Desktop-Session 与适配器自身状态维护，
+// 忽略该字段不改变生成语义；原样透传会让整条请求以 400 失败。
+var doubaoChatUnsupportedFields = []string{"store"}
+
+// sanitizeDoubaoChatCompletionsBody 在共用 Chat 出站点移除适配器不接受的字段。
+// 原生 Chat 直转、Responses 回退与 Anthropic 回退都经过 sendCCUpstreamRequest，
+// 因此在这里统一处理，避免只为某一条路径打补丁。
+func sanitizeDoubaoChatCompletionsBody(account *Account, body []byte) ([]byte, error) {
+	if account == nil || !account.IsDoubao() || len(body) == 0 {
+		return body, nil
+	}
+	out := body
+	for _, field := range doubaoChatUnsupportedFields {
+		if !gjson.GetBytes(out, field).Exists() {
+			continue
+		}
+		next, err := sjson.DeleteBytes(out, field)
+		if err != nil {
+			return body, fmt.Errorf("remove unsupported doubao chat field %s: %w", field, err)
+		}
+		out = next
+	}
+	return out, nil
 }
 
 // 会话选择只来自账号凭据，不能由调用方请求头覆盖。
