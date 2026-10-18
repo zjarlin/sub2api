@@ -27,6 +27,20 @@
           </svg>
           {{ t('admin.accounts.builtinCheckin.refresh') }}
         </button>
+        <!-- 平台级手动签到：管理端签完账号池里的全部账号，不要求 sub2api 账号已绑定。 -->
+        <button
+          v-if="canBind"
+          type="button"
+          class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-emerald-400 dark:hover:bg-emerald-900/30"
+          :disabled="loading || platformChecking"
+          :title="t('admin.accounts.builtinCheckin.checkinAllHint')"
+          @click="runPlatformCheckin"
+        >
+          <svg v-if="platformChecking" class="h-3.5 w-3.5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+          </svg>
+          {{ platformChecking ? t('admin.accounts.builtinCheckin.checkinAllRunning') : t('admin.accounts.builtinCheckin.checkinAll') }}
+        </button>
       </div>
 
       <div
@@ -193,6 +207,8 @@ const binding = ref(false)
 // 手动签到：同一时间只允许一个账号在跑（后端也会串行化，这里先禁掉按钮避免连点）。
 const checkingUid = ref('')
 const actionMessage = ref<{ type: 'ok' | 'error'; text: string } | null>(null)
+// 平台级「全部签到」：整池串行签到，耗时随账号数增长，单独一个在途标记。
+const platformChecking = ref(false)
 
 // 只有管理端可以把账号关联到账号池中的已有登录；用户侧只读当前绑定账号。
 const canBind = computed(() => props.scope === 'admin')
@@ -298,6 +314,45 @@ const runCheckin = async (uid: string) => {
   }
 }
 
+// 平台级签到：一次请求签完账号池里的全部登录账号，再回读概览。
+// 只统计本次结果，不改动逐账号的选中状态（避免把用户当前查看的账号切走）。
+const runPlatformCheckin = async () => {
+  if (!props.account || platformChecking.value || loading.value) return
+  platformChecking.value = true
+  actionMessage.value = null
+  try {
+    overview.value = await adminAPI.accounts.runBuiltinAdapterPlatformCheckin(overview.value?.platform || props.account.platform)
+    if (selectedUid.value && !overview.value.accounts.some((a) => a.uid === selectedUid.value)) {
+      selectedUid.value = ''
+    }
+    const accounts = overview.value.accounts
+    const okCount = accounts.filter((a) => a.checkin?.status === 'ok').length
+    const alreadyCount = accounts.filter((a) => a.checkin?.status === 'already').length
+    const failed = accounts.filter((a) => a.checkin?.status === 'fail')
+    if (failed.length > 0) {
+      actionMessage.value = {
+        type: 'error',
+        text: t('admin.accounts.builtinCheckin.checkinAllFailed', {
+          n: accounts.length,
+          ok: okCount,
+          already: alreadyCount,
+          fail: failed.length,
+          detail: failed[0]?.checkin?.detail || ''
+        })
+      }
+    } else {
+      actionMessage.value = {
+        type: 'ok',
+        text: t('admin.accounts.builtinCheckin.checkinAllDone', { n: accounts.length, ok: okCount, already: alreadyCount })
+      }
+    }
+  } catch (e) {
+    actionMessage.value = { type: 'error', text: extractErrorMessage(e) }
+  } finally {
+    platformChecking.value = false
+  }
+}
+
 const bindAccount = async (uid: string) => {
   if (!props.account || binding.value) return
   binding.value = true
@@ -321,6 +376,7 @@ watch(
       selectedUid.value = ''
       overview.value = null
       actionMessage.value = null
+      platformChecking.value = false
       void load()
     }
   },

@@ -1169,6 +1169,19 @@ export async function runBuiltinAdapterCheckin(id: number, scope: BuiltinAdapter
   return data
 }
 
+/**
+ * 立即为某个内置适配器（WorkBuddy / TRAE Work）账号池里的**全部**登录账号签到，
+ * 返回签到后的概览。全池串行签到耗时随账号数增长，超时放宽到 10 分钟。
+ */
+export async function runBuiltinAdapterPlatformCheckin(platform: string): Promise<BuiltinAdapterCheckinOverview> {
+  const { data } = await apiClient.post<BuiltinAdapterCheckinOverview>(
+    `/admin/builtin-adapters/${platform}/checkin`,
+    undefined,
+    { timeout: 600000 }
+  )
+  return data
+}
+
 export async function getOpenCodeGoUsageSettings(): Promise<OpenCodeGoUsageSettings> {
   const { data } = await apiClient.get<OpenCodeGoUsageSettings>('/admin/accounts/opencode-go-usage/settings')
   return data
@@ -1263,6 +1276,7 @@ export const accountsAPI = {
   getOllamaCloudUsage,
   getBuiltinAdapterCheckins,
   runBuiltinAdapterCheckin,
+  runBuiltinAdapterPlatformCheckin,
   bindBuiltinAdapterAccount,
   saveOllamaCloudUsageSession,
   deleteOllamaCloudUsageSession,

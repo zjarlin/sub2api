@@ -366,6 +366,8 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 	login.POST("/:session/:action", h.Admin.Account.BuiltinAdapterLogin)
 	login.GET("/:session/view", h.Admin.Account.BuiltinAdapterLogin)
 	login.DELETE("/:session", h.Admin.Account.BuiltinAdapterLogin)
+	// 平台级手动签到：按适配器维度签完账号池里的全部登录账号（不要求已绑定）。
+	admin.POST("/builtin-adapters/:platform/checkin", h.Admin.Account.RunBuiltinAdapterPlatformCheckin)
 	doubaoProfiles := admin.Group("/builtin-adapters/doubao/profiles")
 	doubaoProfiles.GET("", h.Admin.Account.ListDoubaoSessionProfiles)
 	doubaoProfiles.POST("", gin.HandlerFunc(stepUpAuth), h.Admin.Account.UploadDoubaoSessionProfile)

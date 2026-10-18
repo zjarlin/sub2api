@@ -613,6 +613,11 @@ export default {
         checkinSuccess: '签到完成',
         checkinAlready: '今日已签到',
         checkinFailed: '签到失败：{detail}',
+        checkinAll: '全部签到',
+        checkinAllRunning: '全部签到中...',
+        checkinAllHint: '对账号池中的全部登录账号执行一次签到（不要求已关联 sub2api 账号）',
+        checkinAllDone: '全部签到完成：共 {n} 个账号，本次领取 {ok} 个，今日已签 {already} 个',
+        checkinAllFailed: '全部签到完成：共 {n} 个账号，领取 {ok} 个，已签 {already} 个，失败 {fail} 个（{detail}）',
         col: {
           uid: '账号',
           credits: '剩余积分',

@@ -410,6 +410,11 @@ export default {
         checkinSuccess: 'Checked in',
         checkinAlready: 'Already checked in today',
         checkinFailed: 'Check-in failed: {detail}',
+        checkinAll: 'Check in all',
+        checkinAllRunning: 'Checking in all...',
+        checkinAllHint: 'Check in every signed-in account in the pool (no sub2api account link required)',
+        checkinAllDone: 'All done: {n} accounts, {ok} claimed, {already} already checked in',
+        checkinAllFailed: 'All done: {n} accounts, {ok} claimed, {already} already, {fail} failed ({detail})',
         col: {
           uid: 'Account',
           credits: 'Remaining',

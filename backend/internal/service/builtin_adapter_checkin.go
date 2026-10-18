@@ -83,6 +83,36 @@ func BuiltinAdapterManualCheckinForAdminAccount(ctx context.Context, account *Ac
 	return BuiltinAdapterManualCheckinForAccount(ctx, account)
 }
 
+// BuiltinAdapterPlatformCheckin 对某个内置适配器平台的全部登录账号执行一次签到，
+// 并回读最新积分与签到历史。仅管理端编排（普通用户只能签自己绑定的那一个账号）。
+//
+// 走 sidecar 的 POST /checkin（不带 uids = 全池），与定时签到共用同一把互斥锁。
+func BuiltinAdapterPlatformCheckin(ctx context.Context, platform string) (*BuiltinAdapterCheckinOverview, error) {
+	if platform != PlatformWorkbuddy && platform != PlatformTraework {
+		return nil, infraerrors.BadRequest("BUILTIN_CHECKIN_UNSUPPORTED", "account platform does not support check-in")
+	}
+	base, key := builtinAdapterBaseURL(platform), builtinAdapterAPIKey(platform)
+	if base == "" || key == "" {
+		return nil, infraerrors.BadRequest("BUILTIN_ADAPTER_DISABLED", "built-in adapter is not enabled or configured")
+	}
+	base = strings.TrimSuffix(strings.TrimRight(base, "/"), "/v1")
+
+	// 空 uids：签该 sidecar 账号池里的全部账号。串行 + 每号 token/余额往返，
+	// 超时给足；真实耗时由 sidecar 内部按账号数决定。
+	var result struct {
+		Results []struct {
+			UID    string `json:"uid"`
+			Status string `json:"status"`
+			Detail string `json:"detail"`
+		} `json:"results"`
+	}
+	if err := doBuiltinAdapterJSON(ctx, http.MethodPost, base+"/checkin", key,
+		builtinAdapterCheckinRequest{}, &result, 10*time.Minute); err != nil {
+		return nil, err
+	}
+	return BuiltinAdapterCheckinOverviewForPlatform(ctx, platform)
+}
+
 // 管理员可从已有登录账号中恢复旧记录的关联，不把账号池合计当成当前账号余额。
 // 普通用户继续使用严格的单账号查询，不能借旧记录枚举其他人的账号。
 func BuiltinAdapterCheckinOverviewForAdminAccount(ctx context.Context, account *Account) (*BuiltinAdapterCheckinOverview, error) {

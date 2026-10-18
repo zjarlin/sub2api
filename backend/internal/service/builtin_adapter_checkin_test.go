@@ -108,6 +108,52 @@ func TestBuiltinAdapterManualCheckinTriggersSidecarAndReturnsFreshOverview(t *te
 	require.Equal(t, int64(9), overview.Accounts[0].Checkin.Delta)
 }
 
+// 平台级签到：不带 uids 触发 sidecar 全池签到，并回读该平台的最新概览。
+func TestBuiltinAdapterPlatformCheckinTriggersPoolAndReturnsOverview(t *testing.T) {
+	var gotBody builtinAdapterCheckinRequest
+	var checkinCalls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/checkin":
+			require.Equal(t, http.MethodPost, r.Method)
+			checkinCalls++
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&gotBody))
+			_ = json.NewEncoder(w).Encode(map[string]any{"results": []map[string]any{
+				{"uid": "u1", "status": "ok"}, {"uid": "u2", "status": "already"},
+			}})
+		case "/status":
+			_ = json.NewEncoder(w).Encode(map[string]any{"accounts": []map[string]any{
+				{"uid": "u1", "credits": 10},
+				{"uid": "u2", "credits": 20},
+			}})
+		case "/checkins":
+			_ = json.NewEncoder(w).Encode(map[string]any{"checkins": map[string]any{}})
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+	SetBuiltinAdapterConfig(&config.BuiltinAdapterConfig{Enabled: true, WorkbuddyURL: server.URL, WorkbuddyKey: "key"})
+	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
+
+	overview, err := BuiltinAdapterPlatformCheckin(context.Background(), PlatformWorkbuddy)
+	require.NoError(t, err)
+	require.Equal(t, 1, checkinCalls)
+	// 平台级签到必须保持「全池」语义：uids 为空，不能顺手退化成单账号。
+	require.Empty(t, gotBody.UIDs)
+	require.Equal(t, 30.0, overview.TotalCredits)
+	require.Len(t, overview.Accounts, 2)
+}
+
+// 不支持签到的平台直接拒绝，不去打上游。
+func TestBuiltinAdapterPlatformCheckinRejectsUnsupportedPlatform(t *testing.T) {
+	SetBuiltinAdapterConfig(&config.BuiltinAdapterConfig{Enabled: true, WorkbuddyURL: "http://127.0.0.1:1", WorkbuddyKey: "k"})
+	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
+	_, err := BuiltinAdapterPlatformCheckin(context.Background(), PlatformOpenAI)
+	require.Equal(t, http.StatusBadRequest, infraerrors.Code(err))
+	require.Equal(t, "BUILTIN_CHECKIN_UNSUPPORTED", infraerrors.Reason(err))
+}
+
 // 上游已有签到在跑时返回 409，前端应提示稍后刷新而不是当成签到失败。
 func TestBuiltinAdapterManualCheckinMapsBusyToConflict(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

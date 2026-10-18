@@ -3,11 +3,21 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import BuiltinCheckinDialog from '../BuiltinCheckinDialog.vue'
 import type { Account } from '@/types'
 
-const { getBuiltinAdapterCheckins, bindBuiltinAdapterAccount, runBuiltinAdapterCheckin } = vi.hoisted(() => ({
-  getBuiltinAdapterCheckins: vi.fn(), bindBuiltinAdapterAccount: vi.fn(), runBuiltinAdapterCheckin: vi.fn()
+const { getBuiltinAdapterCheckins, bindBuiltinAdapterAccount, runBuiltinAdapterCheckin, runBuiltinAdapterPlatformCheckin } = vi.hoisted(() => ({
+  getBuiltinAdapterCheckins: vi.fn(),
+  bindBuiltinAdapterAccount: vi.fn(),
+  runBuiltinAdapterCheckin: vi.fn(),
+  runBuiltinAdapterPlatformCheckin: vi.fn()
 }))
 vi.mock('@/api/admin', () => ({
-  adminAPI: { accounts: { getBuiltinAdapterCheckins, bindBuiltinAdapterAccount, runBuiltinAdapterCheckin } }
+  adminAPI: {
+    accounts: {
+      getBuiltinAdapterCheckins,
+      bindBuiltinAdapterAccount,
+      runBuiltinAdapterCheckin,
+      runBuiltinAdapterPlatformCheckin
+    }
+  }
 }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 
@@ -117,6 +127,37 @@ describe('BuiltinCheckinDialog user scope', () => {
     await flushPromises()
     expect(wrapper.findAll('button').some(b => b.text() === 'admin.accounts.builtinCheckin.checkinNow')).toBe(false)
     wrapper.unmount()
+  })
+
+  it('offers pool-wide check-in to admins only and reports the batch result', async () => {
+    const pool = [
+      { ...accounts[0], checkin: { at: '2026-10-18T09:00:00Z', status: 'ok', credits: 1550, delta: 100 }, checkins: [] },
+      { ...accounts[1], checkin: { at: '2026-10-18T09:00:00Z', status: 'already', credits: 23050, delta: 0 }, checkins: [] }
+    ]
+    getBuiltinAdapterCheckins.mockResolvedValue({ ...unbound, binding_required: false, total_credits: 24600, accounts: pool })
+    runBuiltinAdapterPlatformCheckin.mockResolvedValue({ ...unbound, binding_required: false, total_credits: 24600, accounts: pool })
+
+    const admin = mount(BuiltinCheckinDialog, {
+      props: { show: true, account },
+      global: { stubs: { BaseDialog: { template: '<div><slot /></div>' } } }
+    })
+    await flushPromises()
+    const all = admin.findAll('button').find(b => b.text() === 'admin.accounts.builtinCheckin.checkinAll')!
+    expect(all).toBeTruthy()
+    await all.trigger('click')
+    await flushPromises()
+    expect(runBuiltinAdapterPlatformCheckin).toHaveBeenCalledWith('workbuddy')
+    expect(admin.text()).toContain('admin.accounts.builtinCheckin.checkinAllDone')
+    admin.unmount()
+
+    // 用户侧不能整池签到：否则任何登录用户都能打光共享账号池的上游配额。
+    const user = mount(BuiltinCheckinDialog, {
+      props: { show: true, account, scope: 'user' },
+      global: { stubs: { BaseDialog: { template: '<div><slot /></div>' } } }
+    })
+    await flushPromises()
+    expect(user.findAll('button').some(b => b.text() === 'admin.accounts.builtinCheckin.checkinAll')).toBe(false)
+    user.unmount()
   })
 
   it('keeps binding admin-only even if the payload asks for it', async () => {
