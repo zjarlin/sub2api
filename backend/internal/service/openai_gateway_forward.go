@@ -112,6 +112,15 @@ func (s *OpenAIGatewayService) forwardAttempt(ctx context.Context, c *gin.Contex
 	if err != nil {
 		return nil, fmt.Errorf("normalize Responses tool call names: %w", err)
 	}
+	// A replayed turn can announce the same tool call_id twice. DeepSeek's
+	// native /v1/responses rejects the whole history for it, so collapse the
+	// duplicate pair before any protocol split (native Responses, Chat
+	// Completions, compact fallback).
+	if dedupedBody, deduped, dedupeErr := dedupeOpenAIResponsesCallIDs(body); dedupeErr != nil {
+		return nil, fmt.Errorf("dedupe Responses call ids: %w", dedupeErr)
+	} else if deduped {
+		body = dedupedBody
+	}
 	// 在分流到 passthrough / Codex transform / 原生 ChatCompletions 之前统一修正
 	// 显式为 null 的工具 Schema type，否则 upstream 的 400 会被归一成可重试的 502，
 	// 同一份坏定义在账号池里反复重放。
