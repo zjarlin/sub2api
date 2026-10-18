@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"traework2api/internal/auth"
 )
@@ -340,12 +341,110 @@ func TestCheckinClaimSurfacesBusinessError(t *testing.T) {
 	c := testClient(func(r *http.Request) (*http.Response, error) {
 		return jsonResp(200, `{"code":9074,"message":"当前参与用户太多，请稍后再试"}`), nil
 	})
-	err := c.CheckinClaim(&auth.Auth{AccessToken: "at"})
+	// 9074 属可重试码：这里用 1 次尝试的紧凑策略，只验证错误透传（重试行为另测）。
+	err := c.CheckinClaimWithPolicy(&auth.Auth{AccessToken: "at"}, CheckinClaimRetryPolicy{MaxAttempts: 1})
 	if err == nil {
 		t.Fatal("HTTP 200 + code 9074 must not be treated as success")
 	}
 	if !strings.Contains(err.Error(), "9074") {
 		t.Errorf("error should carry upstream code: %v", err)
+	}
+}
+
+// TestCheckinClaimRetriesOn9074 9074 是「名额已满」类闸门，重试到底后应返回最后一次错误，
+// 并且真正重试了 MaxAttempts 次（不能一次失败就放弃当天奖励）。
+func TestCheckinClaimRetriesOn9074(t *testing.T) {
+	var calls int
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		calls++
+		return jsonResp(200, `{"code":9074,"message":"当前参与用户太多，请稍后再试"}`), nil
+	})
+	err := c.CheckinClaimWithPolicy(&auth.Auth{AccessToken: "at"}, CheckinClaimRetryPolicy{
+		MaxAttempts: 4, BaseBackoff: time.Millisecond, MaxBackoff: 2 * time.Millisecond, Jitter: 0,
+	})
+	if err == nil || !strings.Contains(err.Error(), "9074") {
+		t.Fatalf("want 9074 after retries, got %v", err)
+	}
+	if calls != 4 {
+		t.Errorf("claim calls=%d want 4", calls)
+	}
+}
+
+// TestCheckinClaimStopsRetryingAfterSuccess 中途抢到名额就立即停止重试。
+func TestCheckinClaimStopsRetryingAfterSuccess(t *testing.T) {
+	var calls int
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if calls < 3 {
+			return jsonResp(200, `{"code":9074,"message":"too many"}`), nil
+		}
+		return jsonResp(200, `{"code":0,"message":"success"}`), nil
+	})
+	if err := c.CheckinClaimWithPolicy(&auth.Auth{AccessToken: "at"}, CheckinClaimRetryPolicy{
+		MaxAttempts: 8, BaseBackoff: time.Millisecond, MaxBackoff: 2 * time.Millisecond, Jitter: 0,
+	}); err != nil {
+		t.Fatalf("third attempt should win: %v", err)
+	}
+	if calls != 3 {
+		t.Errorf("claim calls=%d want 3", calls)
+	}
+}
+
+// TestCheckinClaimDoesNotRetryDeterministicRejection 确定性拒绝（非 9074 业务码）立即失败。
+func TestCheckinClaimDoesNotRetryDeterministicRejection(t *testing.T) {
+	var calls int
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		calls++
+		return jsonResp(200, `{"code":40301,"message":"account banned"}`), nil
+	})
+	err := c.CheckinClaimWithPolicy(&auth.Auth{AccessToken: "at"}, CheckinClaimRetryPolicy{
+		MaxAttempts: 5, BaseBackoff: time.Millisecond, MaxBackoff: 2 * time.Millisecond,
+	})
+	if err == nil || !strings.Contains(err.Error(), "40301") {
+		t.Fatalf("want 40301, got %v", err)
+	}
+	if calls != 1 {
+		t.Errorf("claim calls=%d want 1 (no retry on deterministic rejection)", calls)
+	}
+}
+
+// TestCheckinClaimRetriesOn429 429 属上游抖动，应重试；会话类 401 不重试。
+func TestCheckinClaimRetriesOn429(t *testing.T) {
+	var calls int
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		calls++
+		return jsonResp(429, `{"code":3004,"message":"Too Many Requests"}`), nil
+	})
+	_ = c.CheckinClaimWithPolicy(&auth.Auth{AccessToken: "at"}, CheckinClaimRetryPolicy{
+		MaxAttempts: 3, BaseBackoff: time.Millisecond, MaxBackoff: 2 * time.Millisecond,
+	})
+	if calls != 3 {
+		t.Errorf("429 should be retried: calls=%d want 3", calls)
+	}
+}
+
+func TestCheckinClaimNoRetryOn401(t *testing.T) {
+	var calls int
+	c := testClient(func(r *http.Request) (*http.Response, error) {
+		calls++
+		return jsonResp(401, `{"code":1001,"msg":"login required"}`), nil
+	})
+	_ = c.CheckinClaimWithPolicy(&auth.Auth{AccessToken: "at"}, CheckinClaimRetryPolicy{
+		MaxAttempts: 3, BaseBackoff: time.Millisecond, MaxBackoff: 2 * time.Millisecond,
+	})
+	if calls != 1 {
+		t.Errorf("session dead must not be retried: calls=%d want 1", calls)
+	}
+}
+
+// TestCheckinClaimDefaultAttemptsIsBounded 默认策略必须有限次，避免把签到入口挂死。
+func TestCheckinClaimDefaultAttemptsIsBounded(t *testing.T) {
+	policy := DefaultCheckinClaimRetryPolicy()
+	if policy.MaxAttempts <= 1 || policy.MaxAttempts > 20 {
+		t.Fatalf("default MaxAttempts=%d not within a sane bound", policy.MaxAttempts)
+	}
+	if policy.MaxBackoff <= 0 || policy.Jitter < 0 {
+		t.Fatalf("default backoff/jitter invalid: %+v", policy)
 	}
 }
 

@@ -295,7 +295,9 @@ func TestChatStreamErrorsAccumulateUntilCooldown(t *testing.T) {
 	}
 }
 
-func TestChatAllUnavailableReturns503(t *testing.T) {
+// 上游 429 会把唯一账号软冷却，随后整池已冷却 → 直接回 429 + resets_at（含 error 信封）。
+// 不再降级成 502，以免主服务按「上游故障」秒级兜底反复重试。
+func TestChatAllUnavailableReturnsPoolReset(t *testing.T) {
 	up := newFakeUpstream(t, func(authz string) (int, string, bool) {
 		return 429, `rate limited`, false
 	})
@@ -306,13 +308,80 @@ func TestChatAllUnavailableReturns503(t *testing.T) {
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{"model":"glm-5.2","messages":[]}`))
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, req)
-	if rec.Code != 503 {
+	if rec.Code != http.StatusTooManyRequests {
 		t.Errorf("code=%d body=%s", rec.Code, rec.Body)
 	}
 	var e map[string]any
 	json.Unmarshal(rec.Body.Bytes(), &e)
 	if e["error"] == nil {
 		t.Errorf("want error envelope: %s", rec.Body)
+	}
+}
+
+// TestPoolExhaustedBeforeSelectionCarriesReset 整池在进入挑选循环前就全冷却时，
+// 必须直接回 429 + resets_at，否则主服务只能秒级兜底反复重试（ops 里表现为 502 长串）。
+func TestPoolExhaustedBeforeSelectionCarriesReset(t *testing.T) {
+	p := testPoolWith(&auth.Auth{UID: "u1", AccessToken: "at1", ExpiresAt: 9999999999})
+	h := NewHandler(Config{Pool: p, Upstream: newFakeUpstream(t, func(string) (int, string, bool) {
+		t.Fatal("upstream must not be called when the pool is already exhausted")
+		return 0, "", false
+	})})
+	p.Cooldown("u1", pool.CoolPlan, time.Hour, "quota")
+	until, _ := p.Status("u1")
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"glm-5.2","messages":[]}`)))
+	if rec.Code != http.StatusTooManyRequests {
+		t.Fatalf("code=%d body=%s", rec.Code, rec.Body)
+	}
+	var env struct {
+		Error struct {
+			Type     string `json:"type"`
+			Code     int    `json:"code"`
+			ResetsAt int64  `json:"resets_at"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &env); err != nil {
+		t.Fatalf("decode: %v body=%s", err, rec.Body)
+	}
+	if env.Error.Type != "rate_limit_error" || env.Error.Code != 4008 {
+		t.Fatalf("want rate_limit_error/4008, got %+v", env.Error)
+	}
+	if env.Error.ResetsAt != until.Until.Unix() {
+		t.Fatalf("resets_at=%d want %d", env.Error.ResetsAt, until.Until.Unix())
+	}
+}
+
+// TestPoolResetUnixOnlyWhenAllCooling 只要还有一个健康账号，就不该把通道标成整池冷却。
+func TestPoolResetUnixOnlyWhenAllCooling(t *testing.T) {
+	p := testPoolWith(
+		&auth.Auth{UID: "cool", AccessToken: "at1", ExpiresAt: 9999999999},
+		&auth.Auth{UID: "healthy", AccessToken: "at2", ExpiresAt: 9999999999},
+	)
+	h := NewHandler(Config{Pool: p})
+	p.Cooldown("cool", pool.CoolPlan, time.Hour, "quota")
+	if _, ok := h.poolResetUnix(); ok {
+		t.Fatal("healthy account present: pool must not report exhausted")
+	}
+	p.Cooldown("healthy", pool.CoolPlan, 30*time.Minute, "quota")
+	got, ok := h.poolResetUnix()
+	if !ok {
+		t.Fatal("all cooling: want exhausted")
+	}
+	cool, _ := p.Status("cool")
+	healthy, _ := p.Status("healthy")
+	if got != healthy.Until.Unix() || got > cool.Until.Unix() {
+		t.Fatalf("resets_at=%d want earliest %d", got, healthy.Until.Unix())
+	}
+}
+
+// TestPoolResetUnixIgnoresDisabled 禁用（session 失效）账号不该拖住整池解冻时间。
+func TestPoolResetUnixIgnoresDisabled(t *testing.T) {
+	p := testPoolWith(&auth.Auth{UID: "u1", AccessToken: "at1", ExpiresAt: 9999999999})
+	h := NewHandler(Config{Pool: p})
+	p.Disable("u1", "session dead")
+	if _, ok := h.poolResetUnix(); ok {
+		t.Fatal("disabled-only pool must not claim a cooling reset time")
 	}
 }
 

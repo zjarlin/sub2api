@@ -503,11 +503,54 @@ func (h *Handler) chatCompletions(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusTooManyRequests, quotaErr.OpenAIError())
 		return
 	}
+	// 进循环前池子就已经全部处于冷却（PickExcluding 直接返回 nil）时，
+	// 主服务拿不到任何 resets_at，只能按秒级兜底反复重试同一条死通道，
+	// ops 里就表现为一连串 502。这里在退出前统一补一次整池最早解冻时间。
+	if resetsAt, ok := h.poolResetUnix(); ok {
+		writeJSON(w, http.StatusTooManyRequests, poolExhaustedError(resetsAt))
+		return
+	}
 	msg := "all accounts unavailable (cooling/disabled)"
 	if lastErr != nil {
 		msg += ": " + lastErr.Error()
 	}
 	writeOpenAIError(w, http.StatusServiceUnavailable, "no_healthy_account", msg)
+}
+
+// poolResetUnix 返回整池最早解冻时间（Unix 秒）。仅当池里存在账号、
+// 且没有任何「未禁用且未冷却」的健康账号时返回 ok=true——
+// 这就是主服务需要写进 rate_limit_reset_at 的场景。
+func (h *Handler) poolResetUnix() (int64, bool) {
+	var earliest time.Time
+	total := 0
+	for _, status := range h.cfg.Pool.List() {
+		if status.Disabled {
+			continue
+		}
+		total++
+		if !status.Cooling {
+			return 0, false // 仍有健康账号，不该把通道标成整池冷却
+		}
+		if earliest.IsZero() || status.Until.Before(earliest) {
+			earliest = status.Until
+		}
+	}
+	if total == 0 || earliest.IsZero() {
+		return 0, false
+	}
+	return earliest.Unix(), true
+}
+
+// poolExhaustedError 与 SOLOStreamError.OpenAIError 保持同一形状
+// （rate_limit_error + resets_at），让 ratelimit_service 的 traework 分支能解析。
+func poolExhaustedError(resetsAt int64) map[string]any {
+	errBody := map[string]any{
+		"message":   "all traework accounts exhausted (cooling); retry after pool reset",
+		"type":      "rate_limit_error",
+		"code":      4008,
+		"resets_at": resetsAt,
+	}
+	return map[string]any{"error": errBody}
 }
 
 // handleStreamError 流式响应中的上游业务错误 → pool 冷却状态机。

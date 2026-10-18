@@ -5,10 +5,13 @@ package upstream
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net/http"
 	"strings"
 	"time"
@@ -347,32 +350,125 @@ func (c *Client) CheckinStatus(a *auth.Auth) (checkedIn bool, credits int64, ena
 	return resp.CheckedIn, resp.Credits, resp.Enable, nil
 }
 
-// CheckinClaim 执行签到。
+// CheckinClaimRetryPolicy 控制签到抢名额的重试节奏。
+//
+// 签到奖励是「每一天、先到先得」的有限名额池：09:00 前后并发极高，单次 claim
+// 极易被上游以 9074「当前参与用户太多」或 429 拒绝。奖励名额一旦被别人抢空，
+// 当天就再也补不回来（账号当天 0 积分 → 当晚 4008 预热冷却）。因此这里对
+// 「可重试」的业务失败做有限次抖动重试，而不是一次失败就放弃当天。
+type CheckinClaimRetryPolicy struct {
+	MaxAttempts int           // 总尝试次数（含首次），<=0 时退化为 1
+	BaseBackoff time.Duration // 首次退避
+	MaxBackoff  time.Duration // 退避上限
+	Jitter      time.Duration // 每次退避叠加的随机抖动上限
+}
+
+// DefaultCheckinClaimRetryPolicy 默认策略：最多 8 次、退避 2s 起步翻倍、上限 60s。
+// 抖动来源是 crypto/rand，避免多个账号重试节奏完全同步而继续互相踩踏。
+func DefaultCheckinClaimRetryPolicy() CheckinClaimRetryPolicy {
+	return CheckinClaimRetryPolicy{
+		MaxAttempts: 8,
+		BaseBackoff: 2 * time.Second,
+		MaxBackoff:  60 * time.Second,
+		Jitter:      1500 * time.Millisecond,
+	}
+}
+
+// CheckinClaim 用默认策略执行签到（最多重试 8 次）。
+func (c *Client) CheckinClaim(a *auth.Auth) error {
+	return c.CheckinClaimWithPolicy(a, DefaultCheckinClaimRetryPolicy())
+}
+
+// CheckinClaimWithPolicy 执行签到并按策略重试。
 //
 // 上游用 HTTP 200 + 业务码表示失败（如 9074「当前参与用户太多，请稍后再试」），
 // 只看 HTTP 状态会把「没签到成功」记成成功，签到奖励也就再也补不上，
 // 所以这里必须校验 code。
-func (c *Client) CheckinClaim(a *auth.Auth) error {
+//
+// 可重试：9074（参与名额已满，稍后可能放量）与 429/5xx（限流、抖动）。
+// 不可重试：业务码 0 之外的其余确定性拒绝，以及 401 等会话类错误，重试无意义。
+func (c *Client) CheckinClaimWithPolicy(a *auth.Auth, policy CheckinClaimRetryPolicy) error {
+	attempts := policy.MaxAttempts
+	if attempts <= 0 {
+		attempts = 1
+	}
+	var lastErr error
+	backoff := policy.BaseBackoff
+	for attempt := 1; attempt <= attempts; attempt++ {
+		retryable, err := c.checkinClaimOnce(a)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if !retryable || attempt == attempts {
+			break
+		}
+		sleep := backoff + jitterDuration(policy.Jitter)
+		log.Printf("checkin claim retry uid=%s attempt=%d/%d backoff=%s err=%v", a.UID, attempt, attempts, sleep, err)
+		time.Sleep(sleep)
+		if backoff < policy.MaxBackoff {
+			backoff *= 2
+			if backoff > policy.MaxBackoff {
+				backoff = policy.MaxBackoff
+			}
+		}
+	}
+	return lastErr
+}
+
+// checkinClaimOnce 单次 claim；第二个返回值表示失败是否值得重试。
+func (c *Client) checkinClaimOnce(a *auth.Auth) (retryable bool, err error) {
 	req, err := http.NewRequest(http.MethodPost, c.ugBase()+EpCheckinClaim, bytes.NewReader([]byte("{}")))
 	if err != nil {
-		return err
+		return false, err
 	}
 	UgHeaders(req, a)
 	data, err := c.doJSON(req)
 	if err != nil {
-		return err
+		// 429/5xx 属于上游抖动，值得再试；401/403 等会话类错误不重试。
+		var ue *Error
+		if errors.As(err, &ue) {
+			switch ue.Kind {
+			case ErrSoftRate, ErrServer:
+				return true, err
+			}
+		}
+		return false, err
 	}
 	var resp struct {
 		Code    int64  `json:"code"`
 		Message string `json:"message"`
 	}
 	if err := json.Unmarshal(data, &resp); err != nil {
-		return fmt.Errorf("checkin claim parse: %w", err)
+		return false, fmt.Errorf("checkin claim parse: %w", err)
 	}
 	if resp.Code != 0 {
-		return fmt.Errorf("checkin claim rejected: code=%d msg=%s", resp.Code, resp.Message)
+		return isRetryableCheckinCode(resp.Code), fmt.Errorf("checkin claim rejected: code=%d msg=%s", resp.Code, resp.Message)
 	}
-	return nil
+	return false, nil
+}
+
+// isRetryableCheckinCode 判定业务码是否值得重试。
+// 9074「当前参与用户太多」是名额/并发闸门，重试常能命中放量窗口。
+func isRetryableCheckinCode(code int64) bool {
+	switch code {
+	case 9074:
+		return true
+	default:
+		return false
+	}
+}
+
+// jitterDuration 返回 [0, max) 的随机时长；max<=0 时为 0。
+func jitterDuration(max time.Duration) time.Duration {
+	if max <= 0 {
+		return 0
+	}
+	n, err := rand.Int(rand.Reader, big.NewInt(int64(max)))
+	if err != nil {
+		return 0
+	}
+	return time.Duration(n.Int64())
 }
 
 // UserEntUsage 查询真实剩余积分（ide_user_ent_usage）。
