@@ -172,8 +172,26 @@ func TestAutoContinueCompactionGrowsChunksBeforeGivingUp(t *testing.T) {
 	summary, _, count, err := svc.summarizeHistory(context.Background(), c, account, "text-model", history, 16<<10, 4, 0)
 	require.NoError(t, err)
 	require.Equal(t, autoCompactTestSummary, summary)
-	require.Equal(t, 4, count)
+	// 直接放大到单块上限，一次摘要即可覆盖，避免按块数上限切碎后反复等待模型生成。
+	require.Equal(t, 1, count)
 	require.Greater(t, largest, 16<<10)
+}
+
+// 1M+ tokens 级别的历史必须用最少的摘要往返覆盖，否则每轮模型生成会把压缩拖过超时。
+func TestAutoContinueCompactionMinimizesSummaryRoundTrips(t *testing.T) {
+	calls := 0
+	svc, account, _, _ := autoContinueTestService(t, "repair", func(_ []byte, _ int) (*http.Response, error) {
+		calls++
+		return autoCompactTestReply(true, autoCompactTestSummary), nil
+	})
+	account.Extra[openai_compat.ExtraKeyResponsesMode] = string(openai_compat.ResponsesSupportModeForceResponses)
+	c, _ := autoContinueTestContext(nil, 9, 7)
+	history := strings.Repeat("历史诊断输出。", 200000) // ≈4.2MB，约合 1.2M 中文 tokens
+	summary, _, count, err := svc.summarizeHistory(context.Background(), c, account, "text-model", history, 16<<10, 32, 0)
+	require.NoError(t, err)
+	require.Equal(t, autoCompactTestSummary, summary)
+	require.Equal(t, 9, count)
+	require.Equal(t, 9, calls)
 }
 
 // 单块放大到硬上限仍超预算时，按组做分层摘要，且每次摘要输入都不超过上限。

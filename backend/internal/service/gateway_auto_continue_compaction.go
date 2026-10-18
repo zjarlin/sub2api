@@ -145,7 +145,15 @@ func (s *OpenAIGatewayService) compactAutoContinue(ctx context.Context, parent *
 		// 降级目标可能拥有更小的上下文窗口，限制每次摘要输入而不是重发整段历史。
 		chunkBytes = min(chunkBytes, 64<<10)
 	}
-	ctx, cancel := context.WithTimeout(ctx, time.Duration(p.CompactionTimeoutSeconds)*time.Second)
+	// 超大历史要分成多轮摘要，每轮都包含一次模型生成；按块数放大总预算，
+	// 上限 5 分钟，避免真实 1M+ 历史在默认 120 秒内被误判为压缩失败。
+	timeout := time.Duration(p.CompactionTimeoutSeconds) * time.Second
+	if estimated := (history.Len() + autoCompactionMaxChunkBytes - 1) / autoCompactionMaxChunkBytes; estimated > 1 {
+		if scaled := time.Duration(estimated) * 30 * time.Second; scaled > timeout {
+			timeout = min(scaled, 300*time.Second)
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	model := gjson.GetBytes(body, "model").String()
 	// 账号声明了 compact 映射时优先使用，避免摘要落到该账号不兼容的通用模型上。
@@ -187,10 +195,10 @@ func (s *OpenAIGatewayService) summarizeHistory(ctx context.Context, parent *gin
 	if chunkBytes < utf8.UTFMax {
 		chunkBytes = utf8.UTFMax
 	}
-	// 块数超预算时优先放大分块；单块上限受摘要回合可安全承载的输入约束。
+	// 块数超预算时直接放大到单块安全上限：每次摘要都要等模型生成，块数越多越容易
+	// 撞上压缩超时，因此优先减少往返次数而不是贴着块数上限切。
 	if need := (len(history) + chunkBytes - 1) / chunkBytes; need > maxChunks {
-		grown := (len(history) + maxChunks - 1) / maxChunks
-		chunkBytes = min(grown, max(chunkBytes, autoCompactionMaxChunkBytes))
+		chunkBytes = min(len(history), max(chunkBytes, autoCompactionMaxChunkBytes))
 	}
 	if chunks, err := autoContinueSummaryChunks(history, chunkBytes, maxChunks); err == nil {
 		summary, observed := "", model
