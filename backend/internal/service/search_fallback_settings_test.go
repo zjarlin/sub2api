@@ -176,5 +176,9 @@ func TestSearchFallbackUnverifiedNativePrimaryDelegatesToVerifiedHelper(t *testi
 	policy.ProbeResults = nil
 	isolated := context.WithValue(ctx, autoModelSearchPolicyKey{}, policy)
 	isolated = WithAutoModelRequestCapabilities(isolated, body)
-	require.False(t, AutoModelRequestAccountCompatible(isolated, &primary, primary.Name, body), "无可用助手与原生证据时不宣称搜索兼容")
+	// 无可用助手与原生证据时仍须可服务：丢弃可选搜索声明，而不是把整轮判成不可调度。
+	require.True(t, AutoModelRequestAccountCompatible(isolated, &primary, primary.Name, body), "无可用助手与原生证据时丢弃托管搜索声明")
+	converted, err = (&OpenAIGatewayService{}).prepareSearchFallback(isolated, c, &primary, body)
+	require.NoError(t, err)
+	require.False(t, modelRequestNeedsNativeSearchTools(converted), "转发前必须移除上游无法执行的托管搜索工具")
 }

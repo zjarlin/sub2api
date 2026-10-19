@@ -571,3 +571,23 @@ func TestAutoModelPlanKeepsCandidatesForReferenceInput(t *testing.T) {
 		}
 	}
 }
+
+// Codex 默认附带 web_search；不能因为池内没有原生搜索账号就把整个 Auto 计划判空。
+func TestAutoModelPlanDropsUnpreservedHostedSearch(t *testing.T) {
+	accounts := []service.Account{{
+		ID: 901, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+		Status: service.StatusActive, Schedulable: true,
+		Credentials: map[string]any{"model_mapping": map[string]any{"chat-model": "chat-model"}},
+		Extra:       map[string]any{"openai_responses_supported": false},
+	}}
+	h := newAutoModelTestHandler(accounts)
+	ctx, err := h.settingService.BindAutoModelRoutingPolicy(context.Background())
+	require.NoError(t, err)
+	ctx, models, err := h.gatewayService.BindAutoModelInventory(ctx, 71)
+	require.NoError(t, err)
+	body := []byte(`{"model":"auto","input":"find the docs","tools":[{"type":"web_search"},{"type":"function","name":"shell","parameters":{"type":"object"}}]}`)
+	requestCtx := service.WithAutoModelRequestCapabilities(ctx, body)
+	routes, _, err := h.autoModelPlan(requestCtx, &service.Group{ID: 71, Platform: service.PlatformOpenAI}, nil, "/v1/responses", body, models)
+	require.NoError(t, err)
+	require.NotEmpty(t, routes, "托管搜索不可用时必须丢弃声明继续路由，而不是 503 no eligible model")
+}

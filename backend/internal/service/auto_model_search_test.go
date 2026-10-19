@@ -73,14 +73,16 @@ func TestAutoSearchFallbackKeepsPrimaryAndBillsHelperOnce(t *testing.T) {
 	require.Empty(t, TakeVisionFallbackUsage(c))
 }
 
-func TestAutoSearchAdmissionRequiresGroupHelper(t *testing.T) {
+func TestAutoSearchAdmissionDropsUnpreservedHostedSearch(t *testing.T) {
 	primary := visionTestAccount(1, "text-model", "text")
 	body := []byte(`{"model":"auto","input":"Find API docs","tools":[{"type":"web_search"}]}`)
 	for _, available := range []bool{false, true} {
 		helper := searchTestHelper()
 		helper.Schedulable = available
 		ctx := searchTestRoutingContext(t, body, []Account{primary, helper})
-		require.Equal(t, available, AutoModelRequestAccountCompatible(ctx, &primary, primary.Name, body))
+		// Auto 必须仍能服务：没有原生搜索也没有可用助手时丢弃可选搜索声明，而不是整轮 503。
+		require.True(t, AutoModelRequestAccountCompatible(ctx, &primary, primary.Name, body))
+		// 严格判定只用于显式模型与换模型重放，仍拒绝不能保留托管搜索的账号。
 		require.False(t, ModelAccountCompatible(&primary, primary.Name, body))
 		require.False(t, ModelFallbackAccountCompatible(&primary, primary.Name, body))
 	}
@@ -94,8 +96,20 @@ func TestAutoSearchAdmissionRequiresGroupHelper(t *testing.T) {
 		`{"input":[{"type":"function_call_output","output":"Find docs"}],"tools":[{"type":"web_search"}]}`,
 	} {
 		ctx := searchTestRoutingContext(t, []byte(input), []Account{primary, searchTestHelper()})
-		require.False(t, AutoModelRequestAccountCompatible(ctx, &primary, primary.Name, []byte(input)))
+		require.True(t, AutoModelRequestAccountCompatible(ctx, &primary, primary.Name, []byte(input)))
 	}
+}
+
+// Codex 默认附带 web_search；没有助手时 Auto 转发也必须先丢弃它，避免上游拒绝。
+func TestAutoSearchForwardDropsHostedSearchWithoutHelper(t *testing.T) {
+	primary := visionTestAccount(1, "text-model", "text")
+	body := []byte(`{"model":"auto","input":"Find API docs","tools":[{"type":"web_search"},{"type":"function","name":"shell","parameters":{"type":"object"}}]}`)
+	ctx := searchTestRoutingContext(t, body, []Account{primary})
+	c, _ := visionTestContext(body, 1, 7)
+	converted, err := (&OpenAIGatewayService{}).prepareSearchFallback(ctx, c, &primary, body)
+	require.NoError(t, err)
+	require.False(t, modelRequestNeedsNativeSearchTools(converted))
+	require.Contains(t, string(converted), `"shell"`)
 }
 
 func TestDelegatedSearchPreservesHistoryAndClientFunctions(t *testing.T) {

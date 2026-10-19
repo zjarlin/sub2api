@@ -65,10 +65,10 @@ func AutoModelRequestAccountCompatible(ctx context.Context, account *Account, mo
 	}
 	capabilities, _ := ctx.Value(autoModelRequestCapabilitiesContextKey{}).(autoModelRequestCapabilities)
 	assistedVision := capabilities.visionFallback && accountNeedsVisionFallback(account, model)
-	if modelRequestNeedsNativeSearchTools(body) && !configuredAccountHasNativeSearch(ctx, account, model, body) {
-		if !capabilities.searchFallback {
-			return false
-		}
+	if IsAutoModelRouting(ctx) && modelRequestNeedsNativeSearchTools(body) && !configuredAccountHasNativeSearch(ctx, account, model, body) {
+		// 托管搜索只是可选工具：没有原生能力或辅助助手时丢弃该声明，继续用同一账号
+		// 服务其余文本与函数工具。否则 Codex 默认附带的 web_search 会让 Auto 预检把
+		// 全部候选判成 no_compatible_account，整轮请求直接 503（2026-10-19 事故）。
 		var err error
 		body, err = stripDelegatedSearchTools(body)
 		if err != nil {

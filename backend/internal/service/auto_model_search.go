@@ -215,11 +215,13 @@ func searchFallbackError(message string) *UpstreamFailoverError {
 
 func (s *OpenAIGatewayService) prepareSearchFallback(ctx context.Context, c *gin.Context, primary *Account, body []byte) ([]byte, error) {
 	caps, _ := ctx.Value(autoModelRequestCapabilitiesContextKey{}).(autoModelRequestCapabilities)
-	if c.GetBool(searchFallbackInternalKey) || !IsAutoModelRouting(ctx) || !caps.searchFallback ||
+	if c.GetBool(searchFallbackInternalKey) || !IsAutoModelRouting(ctx) ||
 		configuredAccountHasNativeSearch(ctx, primary, gjson.GetBytes(body, "model").String(), body) {
 		return body, nil
 	}
-	if !shouldRunSearchFallback(body) {
+	// 没有可用的搜索助手，或当前不是新的用户搜索回合：丢弃托管搜索声明，
+	// 保留其余历史与函数工具。显式模型和换模型重放不走此分支，仍按严格能力判定。
+	if !caps.searchFallback || !shouldRunSearchFallback(body) {
 		return stripDelegatedSearchTools(body)
 	}
 	value, _ := c.Get("api_key")

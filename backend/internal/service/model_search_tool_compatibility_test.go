@@ -35,6 +35,21 @@ func TestModelAccountSearchToolsPreserveNativeProtocol(t *testing.T) {
 	}
 }
 
+func TestAutoRequestDropsHostedSearchWithoutNativeOrHelper(t *testing.T) {
+	primary := Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Extra: map[string]any{"openai_responses_supported": false}}
+	body := []byte(`{"model":"auto","input":"Find docs","tools":[{"type":"web_search"},{"type":"function","name":"shell","parameters":{"type":"object","properties":{}}}]}`)
+	ctx := context.WithValue(context.Background(), autoModelRoutingPolicyContextKey{}, &autoModelRoutingPolicy{policy: &AutoModelPolicy{}})
+	ctx = WithAutoModelRequestCapabilities(ctx, body)
+	require.True(t, AutoModelRequestAccountCompatible(ctx, &primary, "text-model", body))
+	stripped, err := stripDelegatedSearchTools(body)
+	require.NoError(t, err)
+	require.False(t, modelRequestNeedsNativeSearchTools(stripped))
+	require.Contains(t, string(stripped), `"shell"`)
+	// 严格判定仍拒绝：显式模型与换模型重放不丢弃服务端搜索工具。
+	require.False(t, ModelAccountCompatible(&primary, "text-model", body))
+	require.False(t, ModelFallbackAccountCompatible(&primary, "text-model", body))
+}
+
 func TestSearchToolsMatchGrokAndOpenCodeActualProtocol(t *testing.T) {
 	body := []byte(`{"tools":[{"type":"web_search"}]}`)
 	grok := &Account{Platform: PlatformGrok, Type: AccountTypeAPIKey}
