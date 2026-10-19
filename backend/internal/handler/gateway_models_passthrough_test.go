@@ -27,7 +27,7 @@ func TestGatewayModelsPassthroughPreservesConfiguredModelsAndAliases(t *testing.
 		want      []string
 	}{
 		// fork：目录含 LLM 客户端可见的虚拟模型；透传账号的陈旧映射不应隐藏其他账号的别名。
-		{name: "all configured models", want: []string{canonical, "gpt-6-astra", "unverified-model", autoModelID, askModelID}},
+		{name: "all configured models", want: []string{canonical, "gpt-6-astra", autoModelID, askModelID}},
 		{
 			name:      "group allowlist remains effective",
 			allowlist: service.GroupModelAllowlist{Enabled: true, Models: []string{"deepseek/*"}},

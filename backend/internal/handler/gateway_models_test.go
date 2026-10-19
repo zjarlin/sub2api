@@ -183,7 +183,7 @@ func TestGatewayModelsIncludesUnverifiedConfiguredModels(t *testing.T) {
 			groupID: {{
 				ID:          820,
 				Platform:    service.PlatformOpenAI,
-				Credentials: map[string]any{"model_mapping": map[string]any{"gpt-unverified": "gpt-unverified"}},
+				Credentials: map[string]any{"model_mapping": map[string]any{"gpt-6.1-sol": "gpt-6.1-sol"}},
 			}},
 		}},
 		&gatewayModelsHealthRepoStub{},
@@ -201,7 +201,7 @@ func TestGatewayModelsIncludesUnverifiedConfiguredModels(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{autoModelID, askModelID, "gpt-unverified"}, modelIDsForTest(got.Data))
+	require.Equal(t, []string{autoModelID, askModelID, "gpt-6.1-sol"}, modelIDsForTest(got.Data))
 }
 
 func TestGatewayModelsEmptyGroupDoesNotRestoreDefaults(t *testing.T) {
@@ -493,7 +493,7 @@ func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T
 		{
 			name:     "unmapped accounts alone retain default response shape",
 			accounts: accounts[:1],
-			want:     append(append([]string{}, subscriptionDefaults...), autoModelID, askModelID),
+			want:     openai.DefaultModelIDs(),
 		},
 		{
 			name:     "custom list can select defaults and aliases",
@@ -522,7 +522,7 @@ func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T
 				Credentials: map[string]any{"model_mapping": map[string]any{"stale-model": "stale-model"}},
 				Extra:       map[string]any{"openai_passthrough": true},
 			}}, accounts[1:]...),
-			want: append(append([]string{}, subscriptionDefaults...), alias),
+			want: []string{autoModelID, askModelID},
 		},
 		{
 			name:     "unmapped accounts from another platform do not add defaults",
@@ -547,12 +547,22 @@ func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T
 				var got gatewayModelsResponseForTest
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 				require.Equal(t, "list", got.Object)
-				require.ElementsMatch(t, tt.want, modelIDsForTest(got.Data))
+				want := tt.want
+				if !tt.config.Enabled && c.GetBool(autoModelListingKey) {
+					want = []string{autoModelID, askModelID}
+					for _, id := range tt.want {
+						switch id {
+						case "gpt-6-astra", "gpt-6.1-sol", "gpt-image-1", "gpt-image-1.5", "gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst":
+							want = append(want, id)
+						}
+					}
+				}
+				require.ElementsMatch(t, want, modelIDsForTest(got.Data))
 				for _, model := range got.Data {
 					require.Equal(t, "model", model.Object, model.ID)
 					require.Positive(t, model.Created, model.ID)
 					owner := "openai"
-					if model.ID == autoModelID {
+					if isVirtualModelID(model.ID) {
 						owner = "sub2api"
 					}
 					require.Equal(t, owner, model.OwnedBy, model.ID)
@@ -926,7 +936,7 @@ func TestGatewayModels_CustomModelsListDisabledKeepsOriginalModels(t *testing.T)
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{autoModelID, askModelID, "gpt-5.4", "gpt-5.5"}, modelIDsForTest(got.Data))
+	require.Equal(t, []string{autoModelID, askModelID}, modelIDsForTest(got.Data))
 }
 
 func TestGatewayModels_CustomModelsListFiltersAndOrdersMappedModels(t *testing.T) {
@@ -1098,8 +1108,9 @@ func TestGatewayModels_CompositeUnmappedAccountsFallbackToLinkedPlatformsOnly(t 
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 
 	ids := modelIDsForTest(got.Data)
-	require.Contains(t, ids, "gpt-5.5")
-	require.Contains(t, ids, "grok-4.3")
+	require.Contains(t, ids, "gpt-6.1-sol")
+	require.NotContains(t, ids, "gpt-5.5")
+	require.NotContains(t, ids, "grok-4.3")
 	require.NotContains(t, ids, "claude-sonnet-4-6")
 	require.NotContains(t, ids, "gemini-2.5-flash")
 }
@@ -2015,7 +2026,11 @@ func TestGatewayModels_CompositeCodexFiltersEffectiveResponsesRoutes(t *testing.
 										"/models 不应出现白名单外的模型 %q", id)
 								}
 							} else {
-								require.Contains(t, listed, scenario.model)
+								if !allowlisted && ctx.GetBool(autoModelListingKey) {
+									require.NotContains(t, listed, scenario.model)
+								} else {
+									require.Contains(t, listed, scenario.model)
+								}
 							}
 						}
 						require.Equal(t, http.StatusOK, recorder.Code)

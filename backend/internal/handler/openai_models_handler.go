@@ -60,6 +60,11 @@ func writeOpenAIModelsResponse(c *gin.Context, manifest *service.OpenAIModelsRes
 			writeOpenAIModelsError(c, http.StatusBadGateway, "upstream_error", "Invalid model catalogue")
 			return
 		}
+		body, err = filterPackagedModelCatalog(body, modelIDs, service.ModelAliasesFromContext(c.Request.Context()))
+		if err != nil {
+			writeOpenAIModelsError(c, http.StatusBadGateway, "upstream_error", "Invalid model catalogue")
+			return
+		}
 		clone := *manifest
 		clone.Body = body
 		clone.ETag = service.CodexModelsManifestETag(body)
@@ -182,6 +187,7 @@ func appendVirtualModelsToCatalog(body []byte, modelIDs []string) ([]byte, error
 		} else {
 			item["display_name"] = json.RawMessage(`"Auto"`)
 		}
+		item["owned_by"] = json.RawMessage(`"sub2api"`)
 		item["input_modalities"] = json.RawMessage(`["text","image"]`)
 		item["supports_image_detail_original"] = json.RawMessage(`false`)
 		encoded, err := json.Marshal(item)
@@ -277,4 +283,52 @@ func writeRetrievedModel(c *gin.Context, body []byte) {
 		"type": "invalid_request_error", "code": "model_not_found", "param": "model",
 		"message": fmt.Sprintf("Model %q does not exist or is not available for this group", modelID),
 	}})
+}
+
+// 打包目录隐藏 Auto/Ask 的底层文本候选，仅保留三个可直连模型和专用能力入口。
+// 此处只筛选展示，不改变候选库存、降级策略和模型调用权限。
+func filterPackagedModelCatalog(body []byte, virtualIDs []string, aliases *service.ModelAliasPolicy) ([]byte, error) {
+	packaged := false
+	for _, id := range virtualIDs {
+		if id == autoModelID || id == askModelID {
+			packaged = true
+		}
+	}
+	if !packaged {
+		return body, nil
+	}
+	var catalog map[string]json.RawMessage
+	if err := json.Unmarshal(body, &catalog); err != nil {
+		return nil, err
+	}
+	field, idField := "data", "id"
+	if _, ok := catalog["models"]; ok {
+		field, idField = "models", "slug"
+	}
+	var entries []map[string]json.RawMessage
+	if err := json.Unmarshal(catalog[field], &entries); err != nil {
+		return nil, err
+	}
+	visible := make([]map[string]json.RawMessage, 0, len(entries))
+	for _, entry := range entries {
+		var id string
+		if err := json.Unmarshal(entry[idField], &id); err != nil {
+			return nil, err
+		}
+		id = aliases.Canonicalize(id)
+		switch id {
+		case "deepseek-v4.1-flash", "gpt-6.1-sol", "gpt-6-astra":
+			visible = append(visible, entry)
+		default:
+			if isVirtualModelID(id) || !autoModelTextCandidate(id) {
+				visible = append(visible, entry)
+			}
+		}
+	}
+	encoded, err := json.Marshal(visible)
+	if err != nil {
+		return nil, err
+	}
+	catalog[field] = encoded
+	return json.Marshal(catalog)
 }

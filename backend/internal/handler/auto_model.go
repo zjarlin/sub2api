@@ -207,10 +207,12 @@ func (h *GatewayHandler) virtualModelAvailable(ctx context.Context, group *servi
 	if err != nil || len(h.autoModelEligibleCandidates(ctx, group, models)) == 0 {
 		return false
 	}
-	platforms := h.gatewayService.GetSchedulablePlatforms(ctx, &group.ID)
-	for platform := range platforms {
-		if autoModelTextPlatform(platform) && service.AutoModelPlatformAllowed(ctx, platform) {
-			return true
+	// 目录展示配置能力，不随账号离线或冷却抖动；实际请求仍由调度器检查可用性。
+	for _, candidate := range h.autoModelEligibleCandidates(ctx, group, models) {
+		for _, platform := range service.AutoModelInventoryPlatforms(ctx, candidate) {
+			if autoModelTextPlatform(platform) && service.AutoModelPlatformAllowed(ctx, platform) {
+				return true
+			}
 		}
 	}
 	return false
