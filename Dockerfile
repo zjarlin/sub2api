@@ -18,6 +18,7 @@ ARG POSTGRES_IMAGE=postgres:18-alpine
 ARG GOPROXY=https://goproxy.cn,direct
 ARG GOSUMDB=sum.golang.google.cn
 ARG NPM_CONFIG_REGISTRY=
+ARG COREPACK_NPM_REGISTRY=https://registry.npmmirror.com
 
 # -----------------------------------------------------------------------------
 # Stage 1: Frontend Builder
@@ -26,11 +27,19 @@ ARG NPM_CONFIG_REGISTRY=
 # it on the native host arch instead of under QEMU emulation for the target.
 FROM --platform=${BUILDPLATFORM} ${NODE_IMAGE} AS frontend-builder
 ARG NPM_CONFIG_REGISTRY
+ARG COREPACK_NPM_REGISTRY
 
 WORKDIR /app/frontend
 
-# Install pnpm (pinned to v9 to match CI and keep builds reproducible)
-RUN corepack enable && corepack prepare pnpm@9 --activate
+# pnpm 固定为 lockfile 兼容的 9.15.9。Corepack 元数据单独走镜像源并重试三次，
+# 避免一次性网络抖动让整个部署在依赖安装前终止；实际依赖仍由 NPM_CONFIG_REGISTRY 控制。
+RUN corepack enable && \
+    for attempt in 1 2 3; do \
+      COREPACK_NPM_REGISTRY="${COREPACK_NPM_REGISTRY}" corepack prepare pnpm@9.15.9 --activate && break; \
+      if [ "${attempt}" = "3" ]; then exit 1; fi; \
+      sleep "${attempt}"; \
+    done && \
+    pnpm --version
 
 # Install dependencies first (better caching)
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
