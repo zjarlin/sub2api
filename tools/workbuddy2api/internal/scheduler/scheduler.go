@@ -535,6 +535,7 @@ func (s *Scheduler) checkinLocked(uids []string) ([]CheckinOutcome, error) {
 	}
 	out := make([]CheckinOutcome, 0, len(statuses))
 	var okN, alreadyN, failN, skipN int
+	today := travelDay(time.Now())
 	for _, st := range statuses {
 		oc := CheckinOutcome{UID: st.UID, Nickname: st.Nickname}
 		if st.Disabled {
@@ -559,6 +560,15 @@ func (s *Scheduler) checkinLocked(uids []string) ([]CheckinOutcome, error) {
 			oc.Status, oc.Detail = CheckinSkipped, "global"
 			skipN++
 			s.recordCheckin(st.UID, st.Credits, oc)
+			out = append(out, oc)
+			continue
+		}
+		// 今天已经签过（ok/already）就不再打上游：重复签到虽被上游按幂等拒绝，
+		// 但每一次都是真实的签到请求，频繁重放容易被风控识别成批量刷分。
+		// 直接按 already 返回，且**不写新历史**——否则「本次领取」会被一串 0 覆盖。
+		if checkedInTodayCST(s.cfg.Pool.CheckinHistory(st.UID), today) {
+			oc.Status = CheckinAlready
+			alreadyN++
 			out = append(out, oc)
 			continue
 		}
@@ -632,6 +642,27 @@ func (s *Scheduler) checkinLocked(uids []string) ([]CheckinOutcome, error) {
 	log.Printf("checkin done: total=%d ok=%d already=%d fail=%d skipped=%d",
 		len(statuses), okN, alreadyN, failN, skipN)
 	return out, nil
+}
+
+// checkedInTodayCST 报告账号今天（CST 自然日）是否已有签到成功记录（ok/already）。
+//
+// 上游按 CST 自然日重置签到，这里用同一口径（travelDay）判定：容器时区是 UTC
+// 也不会把凌晨的签到算成前一天。历史按时间升序追加，遇到早于今天的记录即可停止回溯。
+func checkedInTodayCST(hist []pool.CheckinRecord, today string) bool {
+	for i := len(hist) - 1; i >= 0; i-- {
+		rec := hist[i]
+		if rec.At.IsZero() {
+			continue // 结构破损条目：跳过，不据此判定
+		}
+		day := travelDay(rec.At)
+		if day < today {
+			return false
+		}
+		if day == today && (rec.Status == "ok" || rec.Status == "already") {
+			return true
+		}
+	}
+	return false
 }
 
 // joinDetail 拼接多段原因，避免后一段覆盖前一段的失败信息。

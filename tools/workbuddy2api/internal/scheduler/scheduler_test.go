@@ -524,6 +524,68 @@ func TestCheckinAllAlready(t *testing.T) {
 	}
 }
 
+// TestCheckinAllSkipsUpstreamWhenCheckedInToday 今天已经签到成功过 → 不再打上游
+// daily-checkin（重复请求容易被风控盯上），按 already 返回且不追加历史。
+func TestCheckinAllSkipsUpstreamWhenCheckedInToday(t *testing.T) {
+	stub := &checkinStub{checkinBody: `{"code":0,"msg":"ok","data":{}}`, resourceRemain: 500}
+	s, p := newCheckinS(t, stub)
+	p.RecordCheckin("u1", pool.CheckinRecord{
+		At: time.Now(), Status: "ok", Credits: 500, Delta: 100,
+	})
+	out, err := s.CheckinAll()
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if len(out) != 1 || out[0].Status != CheckinAlready {
+		t.Fatalf("out=%+v want already", out)
+	}
+	if got := stub.checkinCalls.Load(); got != 0 {
+		t.Errorf("daily-checkin calls=%d want 0（当天已签到不应重复打上游）", got)
+	}
+	if hist := p.CheckinHistory("u1"); len(hist) != 1 {
+		t.Errorf("历史条数=%d want 1（跳过不应追加 0 值记录）", len(hist))
+	}
+}
+
+// TestCheckinAllRunsWhenOnlyYesterdayRecorded 昨天的成功记录不构成当天闸门。
+func TestCheckinAllRunsWhenOnlyYesterdayRecorded(t *testing.T) {
+	stub := &checkinStub{checkinBody: `{"code":0,"msg":"ok","data":{}}`, resourceRemain: 500}
+	s, p := newCheckinS(t, stub)
+	p.RecordCheckin("u1", pool.CheckinRecord{
+		At: time.Now().Add(-24 * time.Hour), Status: "ok", Credits: 400, Delta: 100,
+	})
+	out, err := s.CheckinAll()
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	if len(out) != 1 || out[0].Status != CheckinOK {
+		t.Fatalf("out=%+v want ok", out)
+	}
+	if got := stub.checkinCalls.Load(); got != 1 {
+		t.Errorf("daily-checkin calls=%d want 1", got)
+	}
+}
+
+// TestCheckedInTodayCST CST 自然日口径：昨天 23:59 CST 不算今天，今天 00:01 算。
+func TestCheckedInTodayCST(t *testing.T) {
+	now := time.Date(2026, 10, 20, 0, 1, 0, 0, cstZone)
+	today := travelDay(now)
+	hist := []pool.CheckinRecord{
+		{At: time.Date(2026, 10, 19, 23, 59, 0, 0, cstZone), Status: "ok"},
+	}
+	if checkedInTodayCST(hist, today) {
+		t.Error("昨天 23:59 不应判定为今天已签到")
+	}
+	hist = append(hist, pool.CheckinRecord{At: now, Status: "already"})
+	if !checkedInTodayCST(hist, today) {
+		t.Error("今天 00:01 already 应判定为今天已签到")
+	}
+	hist = []pool.CheckinRecord{{At: now, Status: "fail"}}
+	if checkedInTodayCST(hist, today) {
+		t.Error("fail 不构成当天闸门，仍需重试")
+	}
+}
+
 // TestCheckinAllFail 签到上游 500 → fail、detail 填报错。
 func TestCheckinAllFail(t *testing.T) {
 	s, _ := newCheckinS(t, &checkinStub{
@@ -696,28 +758,28 @@ func TestCheckinAllReenablesCoolingAccount(t *testing.T) {
 // 老 CN 文件（空 domain，无 realm 键）→ cn；再次 refresh 不改变已补的标识（幂等）。
 func TestRunKeepaliveBackfillsRealm(t *testing.T) {
 	cases := []struct {
-		name       string
-		fixture    string
-		filename   string
-		wantRealm  string
+		name      string
+		fixture   string
+		filename  string
+		wantRealm string
 	}{
 		{
-			name: "老 global 落盘补 global",
-			fixture: `{"auth":{"accessToken":"old","refreshToken":"rt","expiresAt":1,"domain":"www.workbuddy.ai"},"account":{"uid":"g1"}}`,
-			filename:   "workbuddy-g1.json",
-			wantRealm:  "global",
+			name:      "老 global 落盘补 global",
+			fixture:   `{"auth":{"accessToken":"old","refreshToken":"rt","expiresAt":1,"domain":"www.workbuddy.ai"},"account":{"uid":"g1"}}`,
+			filename:  "workbuddy-g1.json",
+			wantRealm: "global",
 		},
 		{
-			name: "老 CN 空 domain 落盘补 cn",
-			fixture: `{"auth":{"accessToken":"old","refreshToken":"rt","expiresAt":1,"domain":""},"account":{"uid":"c1"}}`,
-			filename:   "workbuddy-c1.json",
-			wantRealm:  "cn",
+			name:      "老 CN 空 domain 落盘补 cn",
+			fixture:   `{"auth":{"accessToken":"old","refreshToken":"rt","expiresAt":1,"domain":""},"account":{"uid":"c1"}}`,
+			filename:  "workbuddy-c1.json",
+			wantRealm: "cn",
 		},
 		{
-			name: "已有 realm 不被覆盖——global domain 显式 cn 保持 cn",
-			fixture: `{"auth":{"accessToken":"old","refreshToken":"rt","expiresAt":1,"domain":"www.workbuddy.ai","realm":"cn"},"account":{"uid":"c2"}}`,
-			filename:   "workbuddy-c2.json",
-			wantRealm:  "cn",
+			name:      "已有 realm 不被覆盖——global domain 显式 cn 保持 cn",
+			fixture:   `{"auth":{"accessToken":"old","refreshToken":"rt","expiresAt":1,"domain":"www.workbuddy.ai","realm":"cn"},"account":{"uid":"c2"}}`,
+			filename:  "workbuddy-c2.json",
+			wantRealm: "cn",
 		},
 	}
 	for _, c := range cases {

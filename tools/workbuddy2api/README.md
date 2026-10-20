@@ -105,7 +105,7 @@ WorkBuddy2API 是一个自托管的 **OpenAI 兼容上游网关**，将 ```CodeB
 ### 辅助工具
 
 - 积分日报：`./credit.sh`（美化 / `-json`，realm 感知双域）
-- 手动签到：`./signin.sh`（批量、幂等不重复计）；HTTP 入口 `POST /checkin`，body `{"uids":["<uid>"]}`（省略 `uids` 为全池；sub2api 的「全部签到」按钮即走全池），与定时签到互斥、撞车返回 409——sub2api 面板「积分与签到」的「签到」按钮即走这里
+- 手动签到：`./signin.sh`（批量；**当天已签到的账号直接跳过、不再打上游**，只按「今日已签」回执，避免重复签到请求触发风控）；HTTP 入口 `POST /checkin`，body `{"uids":["<uid>"]}`（省略 `uids` 为全池；sub2api 的「全部签到」按钮即走全池），与定时签到互斥、撞车返回 409——sub2api 面板「积分与签到」的「签到」按钮即走这里
 - 账号停用 / 恢复：`./acct.sh list | disable <uid> [原因] | enable <uid> | revive <uid>`（需 `admin.enabled`，走网关管理端点）
 - 领养联动 / 任务查询：`scripts/task_runner.py`（成长任务一体机，默认 dry-run）
 - 个性化提示词：`prompt.file` 指向自定义提示词文件即整体替换内置默认（`custom`/`append` 模式生效）

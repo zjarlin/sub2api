@@ -32,8 +32,8 @@
           v-if="canBind"
           type="button"
           class="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-emerald-600 transition-colors hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-emerald-400 dark:hover:bg-emerald-900/30"
-          :disabled="loading || platformChecking"
-          :title="t('admin.accounts.builtinCheckin.checkinAllHint')"
+          :disabled="loading || platformChecking || allCheckedInToday"
+          :title="allCheckedInToday ? t('admin.accounts.builtinCheckin.checkinAllDoneHint') : t('admin.accounts.builtinCheckin.checkinAllHint')"
           @click="runPlatformCheckin"
         >
           <svg v-if="platformChecking" class="h-3.5 w-3.5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -102,21 +102,28 @@
                   <span v-else class="text-xs text-gray-400">{{ t('admin.accounts.builtinCheckin.notCheckedIn') }}</span>
                 </td>
                 <td class="px-3 py-2 text-right tabular-nums">
-                  <span v-if="acc.checkin && acc.checkin.delta > 0" class="text-emerald-600 dark:text-emerald-400">+{{ acc.checkin.delta }}</span>
+                  <span v-if="claimedDelta(acc) > 0" class="text-emerald-600 dark:text-emerald-400">+{{ claimedDelta(acc) }}</span>
                   <span v-else-if="acc.checkin" class="text-gray-400">0</span>
                   <span v-else class="text-gray-300">-</span>
                 </td>
-                <td class="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">{{ acc.checkin ? formatTime(acc.checkin.at) : '-' }}</td>
+                <td class="px-3 py-2 text-xs text-gray-500 dark:text-gray-400">{{ lastAt(acc) ? formatTime(lastAt(acc)) : '-' }}</td>
                 <td class="px-3 py-2 text-right">
                   <div class="inline-flex items-center gap-1">
                     <button
                       v-if="!overview.binding_required"
                       type="button"
                       class="rounded px-2 py-0.5 text-xs font-medium text-emerald-600 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50 dark:text-emerald-400 dark:hover:bg-emerald-900/30"
-                      :disabled="!!checkingUid || binding"
+                      :disabled="!!checkingUid || binding || checkedInToday(acc)"
+                      :title="checkedInToday(acc) ? t('admin.accounts.builtinCheckin.checkinDoneHint') : ''"
                       @click.stop="runCheckin(acc.uid)"
                     >
-                      {{ checkingUid === acc.uid ? t('admin.accounts.builtinCheckin.checkinRunning') : t('admin.accounts.builtinCheckin.checkinNow') }}
+                      {{
+                        checkingUid === acc.uid
+                          ? t('admin.accounts.builtinCheckin.checkinRunning')
+                          : checkedInToday(acc)
+                            ? t('admin.accounts.builtinCheckin.checkinDone')
+                            : t('admin.accounts.builtinCheckin.checkinNow')
+                      }}
                     </button>
                     <button
                       type="button"
@@ -182,7 +189,7 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import { adminAPI } from '@/api/admin'
-import type { BuiltinAdapterCheckinOverview } from '@/api/admin/accounts'
+import type { BuiltinAdapterCheckinAccount, BuiltinAdapterCheckinOverview } from '@/api/admin/accounts'
 import type { BuiltinAdapterScope } from '@/api/admin/builtinAdapters'
 import type { Account } from '@/types'
 
@@ -220,6 +227,28 @@ const reversedHistory = computed(() => {
   const list = selectedAccount.value?.checkins || []
   return [...list].reverse()
 })
+
+// 签到按自然日（CST）重置：判定必须在客户端做一次，否则「今日已签」的账号还能点
+// 签到、按钮每次都要打一趟上游（上游虽按幂等拒绝，但重复请求容易被风控识别）。
+const CST_OFFSET_MS = 8 * 60 * 60 * 1000
+const dayKey = (t: Date) => new Date(t.getTime() + CST_OFFSET_MS).toISOString().slice(0, 10)
+const todayKey = () => dayKey(new Date())
+// 今天（CST）已签到成功（ok/already）的记录；没有返回 null。
+const todayRecord = (acc: BuiltinAdapterCheckinAccount) => {
+  const key = todayKey()
+  return (acc.checkins || []).find((rec) => rec.at && dayKey(new Date(rec.at)) === key) || null
+}
+// 「本次领取」取当天的领取额：最近一条记录往往是「今日已签」的 0，不能拿它代表今天收益。
+const claimedDelta = (acc: BuiltinAdapterCheckinAccount) => todayRecord(acc)?.delta ?? 0
+// 「签到时间」同理展示当天那次真实签到的时间。
+const lastAt = (acc: BuiltinAdapterCheckinAccount) => todayRecord(acc)?.at || acc.checkin?.at || ''
+const checkedInToday = (acc: BuiltinAdapterCheckinAccount) => {
+  const rec = todayRecord(acc)
+  return !!rec && (rec.status === 'ok' || rec.status === 'already')
+}
+const allCheckedInToday = computed(() =>
+  !!overview.value?.accounts.length && overview.value.accounts.every((acc) => checkedInToday(acc))
+)
 
 const shortUid = (uid: string) => (uid.length > 10 ? `${uid.slice(0, 10)}…` : uid)
 const formatCredits = (v: number) => new Intl.NumberFormat().format(v)
