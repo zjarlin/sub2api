@@ -1345,13 +1345,15 @@ func (s *OpenAIGatewayService) forwardAttempt(ctx context.Context, c *gin.Contex
 		}
 		defer func() { _ = resp.Body.Close() }()
 
+		maxLineSize := defaultMaxLineSize
+		if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
+			maxLineSize = s.cfg.Gateway.MaxLineSize
+		}
 		if mapping, ok := openAIResponsesClientToolMapping(c); ok && isEventStreamResponse(resp.Header) {
-			maxLineSize := defaultMaxLineSize
-			if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
-				maxLineSize = s.cfg.Gateway.MaxLineSize
-			}
 			resp.Body = newResponsesClientToolStreamBody(resp.Body, mapping, maxLineSize)
 		}
+		// 上游把工具调用写成 DSML 文本时，在出站前还原成真实调用。
+		attachToolMarkupRecovery(c, resp, body, maxLineSize)
 
 		serviceTier := extractOpenAIServiceTierFromBody(body)
 		// 上游接受后只保留计费需要的标量，避免响应处理期间继续保活完整 input/tools map。

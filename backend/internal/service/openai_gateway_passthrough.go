@@ -533,13 +533,14 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			return nil, s.handleErrorResponsePassthrough(ctx, resp, c, account, body, probeBody)
 		}
 
+		maxLineSize := defaultMaxLineSize
+		if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
+			maxLineSize = s.cfg.Gateway.MaxLineSize
+		}
 		if mapping, ok := openAIResponsesClientToolMapping(c); ok && isEventStreamResponse(resp.Header) {
-			maxLineSize := defaultMaxLineSize
-			if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
-				maxLineSize = s.cfg.Gateway.MaxLineSize
-			}
 			resp.Body = newGrokResponsesClientToolStreamBody(resp.Body, mapping, maxLineSize)
 		}
+		attachToolMarkupRecovery(c, resp, body, maxLineSize)
 
 		// x-codex-turn-state 溯源：下游回传由 writeOpenAIPassthroughResponseHeaders
 		// 在各 handler 的写头点强制放行，铸造账号在此统一记录，供出站守卫剥离
@@ -2510,6 +2511,8 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 		return nil, newOpenAIResponsesEmptyCompletedFailoverError(c, account, resp.Header.Get("x-request-id"))
 	}
 	logOpenAISuccessMissingUsage(ctx, c, account, resp, usage, "json", false)
+	// 上游把工具调用写成文本标记时，还原成真实调用；usage/id 不受影响。
+	body, _ = recoverToolMarkupJSONBody(c, body)
 
 	writeOpenAIPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 

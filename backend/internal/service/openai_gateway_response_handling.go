@@ -1712,6 +1712,8 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 		}
 		return nil, fmt.Errorf("parse response: invalid json response")
 	}
+	// 上游把工具调用写成文本标记时，先还原成真实调用；usage/id 不受影响。
+	body, _ = recoverToolMarkupJSONBody(c, body)
 	usage := &usageValue
 	if gjson.GetBytes(body, "status").String() == "completed" && openAIResponsesCompletedEventIsEmpty(body, usage) {
 		return nil, newOpenAIResponsesEmptyCompletedFailoverError(c, account, resp.Header.Get("x-request-id"))
