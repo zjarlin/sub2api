@@ -547,6 +547,37 @@ func TestCheckinAllSkipsUpstreamWhenCheckedInToday(t *testing.T) {
 	}
 }
 
+// TestCheckinAllRecordsPositiveBalanceDelta 余额上涨时记正数差额（池快照 → 签到后余额）。
+func TestCheckinAllRecordsPositiveBalanceDelta(t *testing.T) {
+	stub := &checkinStub{checkinBody: `{"code":0,"msg":"ok","data":{}}`, resourceRemain: 120}
+	s, p := newCheckinS(t, stub)
+	p.SetCredits("u1", 100) // 签到前余额：池快照
+	p.RecordCheckin("u1", pool.CheckinRecord{At: time.Now().Add(-24 * time.Hour), Status: "ok", Credits: 100, Delta: 100})
+	if _, err := s.CheckinAll(); err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	hist := p.CheckinHistory("u1")
+	if last := hist[len(hist)-1]; last.Delta != 20 {
+		t.Errorf("delta=%d want 20（余额差）", last.Delta)
+	}
+}
+
+// TestCheckinAllNeverRecordsNegativeDelta 签到前后有扣费导致余额下降时记为 0，
+// 不能把"领了但被花掉"写成负数领取。
+func TestCheckinAllNeverRecordsNegativeDelta(t *testing.T) {
+	stub := &checkinStub{checkinBody: `{"code":0,"msg":"ok","data":{}}`, resourceRemain: 60}
+	s, p := newCheckinS(t, stub)
+	p.SetCredits("u1", 100)
+	p.RecordCheckin("u1", pool.CheckinRecord{At: time.Now().Add(-24 * time.Hour), Status: "ok", Credits: 100, Delta: 100})
+	if _, err := s.CheckinAll(); err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	hist := p.CheckinHistory("u1")
+	if last := hist[len(hist)-1]; last.Delta != 0 {
+		t.Errorf("delta=%d want 0（余额下降不应记成负领取）", last.Delta)
+	}
+}
+
 // TestCheckinAllRunsWhenOnlyYesterdayRecorded 昨天的成功记录不构成当天闸门。
 func TestCheckinAllRunsWhenOnlyYesterdayRecorded(t *testing.T) {
 	stub := &checkinStub{checkinBody: `{"code":0,"msg":"ok","data":{}}`, resourceRemain: 500}

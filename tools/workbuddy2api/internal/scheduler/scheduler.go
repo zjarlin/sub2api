@@ -477,8 +477,9 @@ func (s *Scheduler) deferCheckinRetry() {
 // session dead 走 Pool.NoteSessionDead 的**连续计数**语义（与 keepalive 一致）：
 // 一次刷新失败不再立即杀号，连续 sessionDeadThreshold 次才禁用，刷新成功清计数。
 // recordCheckin 把单账号签到结果写入 pool 的签到历史（面板「领了多少 / 还剩多少」）。
-// creditsBefore 为签到前余额（来自 CheckinAll 的池快照）：delta = 签到后 - 签到前，
-// 表达"本次实际领取"。already（今天已签）delta 视为 0——余额可能因消耗略降，不代表领取。
+// creditsBefore 为签到前余额（来自 CheckinAll 的池快照）：delta = 签到后 − 签到前，
+// 只取正数差额，表达"本次实际领取"。already（今天已签）delta 视为 0——余额可能因
+// 消耗略降，不代表领取。
 // 余额查询失败（oc.Credits==nil）时 credits/delta 均记 0，detail 已含失败原因。
 func (s *Scheduler) recordCheckin(uid string, creditsBefore int64, oc CheckinOutcome) {
 	after := creditsBefore
@@ -486,7 +487,10 @@ func (s *Scheduler) recordCheckin(uid string, creditsBefore int64, oc CheckinOut
 		after = *oc.Credits
 	}
 	delta := int64(0)
-	if oc.Credits != nil && oc.Status == CheckinOK {
+	// 余额差会被两次查询之间的真实调用消耗污染（实测把 100 记成 99，甚至被扣费
+	// 抵消成 -51）。上游回执暂时没有可用的领取字段，这里只保留正数差额：宁可少记，
+	// 也不把"没领到 / 领了但被花掉"显示成一次领取。
+	if oc.Credits != nil && oc.Status == CheckinOK && after > creditsBefore {
 		delta = after - creditsBefore
 	}
 	s.cfg.Pool.RecordCheckin(uid, pool.CheckinRecord{
