@@ -160,6 +160,40 @@ describe('BuiltinCheckinDialog user scope', () => {
     user.unmount()
   })
 
+  it('shows the claimed amount of today\'s successful check-in and blocks re-check-in', async () => {
+    const now = new Date()
+    const today = new Date(now.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    getBuiltinAdapterCheckins.mockResolvedValue({
+      ...unbound, binding_required: false, total_credits: 1550,
+      accounts: [{
+        ...accounts[0],
+        credits: 1550,
+        // 当天先签到成功（+100），随后手动又点了一次得到 already(delta 0)。
+        checkins: [
+          { at: `${today}T09:00:00+08:00`, status: 'ok', credits: 1550, delta: 100 },
+          { at: `${today}T09:30:00+08:00`, status: 'already', credits: 1550, delta: 0 }
+        ],
+        checkin: { at: `${today}T09:30:00+08:00`, status: 'already', credits: 1550, delta: 0 }
+      }]
+    })
+    const wrapper = mount(BuiltinCheckinDialog, {
+      props: { show: true, account, scope: 'user' },
+      global: { stubs: { BaseDialog: { template: '<div><slot /></div>' } } }
+    })
+    await flushPromises()
+    // 「本次领取」要显示当天真正领到的数值，而不是最近一条 already 的 0。
+    expect(wrapper.text()).toContain('+100')
+    // 当天已签到：不再给出可点的「签到」，改为「今日已签」。
+    const buttons = wrapper.findAll('button')
+    expect(buttons.some(b => b.text() === 'admin.accounts.builtinCheckin.checkinDone')).toBe(true)
+    const done = buttons.find(b => b.text() === 'admin.accounts.builtinCheckin.checkinDone')!
+    expect(done.attributes('disabled')).toBeDefined()
+    await done.trigger('click')
+    await flushPromises()
+    expect(runBuiltinAdapterCheckin).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   it('keeps binding admin-only even if the payload asks for it', async () => {
     getBuiltinAdapterCheckins.mockResolvedValue(unbound)
     const wrapper = mount(BuiltinCheckinDialog, {
