@@ -887,3 +887,23 @@ func frameHasData(lines []string) bool {
 	}
 	return false
 }
+
+// splitRecoveredSSEMessages 把重建的 SSE 文本拆成逐条客户端消息（与上游逐事件下发一致）。
+func splitRecoveredSSEMessages(sse []byte, eventType string) [][]byte {
+	var out [][]byte
+	forEachOpenAISSEFrame(string(sse), func(typ string, payload []byte) {
+		if typ == "" {
+			typ = eventType
+		}
+		out = append(out, []byte(openAICompatPayloadWithEventType(string(payload), typ)))
+	})
+	return out
+}
+
+// toolMarkupQueueMessage 返回用于首输出判定与记账的代表消息；整帧被扣住时返回 nil。
+func toolMarkupQueueMessage(messages [][]byte) []byte {
+	if len(messages) == 0 {
+		return nil
+	}
+	return messages[len(messages)-1]
+}

@@ -642,6 +642,9 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	tokenEventCount := 0
 	terminalEventCount := 0
 	replayCollector := &openAIWSToolCallReplayCollector{}
+	// DSML 文本退化恢复：与 HTTP 出站路径共用同一套解析与事件生成。
+	toolMarkup := newToolMarkupRecoverer(collectResponsesToolNames(body))
+	var toolMarkupCalls []recoveredToolCall
 	firstEventType := ""
 	lastEventType := ""
 	upstreamTerminalEvent := ""
@@ -894,6 +897,28 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 				clientMessage = rewritten
 			}
 		}
+		// 上游把工具调用写成 DSML 文本时，先把标记还原成标准调用再下发；
+		// 跨帧的尾巴扣在 toolMarkup 里，等下一帧或终态再放。
+		clientMessages := [][]byte{clientMessage}
+		if toolMarkup != nil {
+			if rewritten, replaced := rewriteToolCallSSE([]byte(trimmedData), eventType, &toolMarkupCalls, toolMarkup); replaced {
+				clientMessages = splitRecoveredSSEMessages(rewritten, pendingSSEEventType)
+				clientMessage = toolMarkupQueueMessage(clientMessages)
+			} else if flushed := flushToolMarkupSSE(toolMarkup, &toolMarkupCalls, gjson.GetBytes(upstreamMessage, "sequence_number").Int()-1); len(flushed) > 0 {
+				clientMessages = append(splitRecoveredSSEMessages(flushed, pendingSSEEventType), clientMessage)
+				clientMessage = toolMarkupQueueMessage(clientMessages)
+			}
+		}
+		if clientMessage == nil {
+			// 整帧被扣住：等后续帧补齐再下发，同时保留事件计数与终止判定所需的记账。
+			if !clientDisconnected && !suppressClientMessage {
+				markOpenAIWSClientVisibleFailure(c, eventType, upstreamMessage)
+			}
+			if upstreamEventErr != nil {
+				return resultWithUsage(), upstreamEventErr
+			}
+			continue
+		}
 		if !clientDisconnected && !suppressClientMessage {
 			isKeepalive := eventType == "keepalive"
 			stageBeforeSemanticOutput := turn == 1 && account.Platform == PlatformOpenAI && !wroteDownstream
@@ -912,8 +937,10 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 						resp.Header,
 					)
 				}
-				pendingClientMessages = append(pendingClientMessages, append([]byte(nil), clientMessage...))
-				pendingClientMessageBytes += int64(len(clientMessage))
+				for _, message := range clientMessages {
+					pendingClientMessages = append(pendingClientMessages, message)
+					pendingClientMessageBytes += int64(len(message))
+				}
 			} else {
 				// Keep the client connection alive without committing this attempt
 				// or exposing its staged lifecycle metadata.
@@ -923,7 +950,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 					pendingClientMessages = nil
 					pendingClientMessageBytes = 0
 				}
-				messages = append(messages, clientMessage)
+				messages = append(messages, clientMessages...)
 				for _, message := range messages {
 					if err := writeClientMessage(message); err != nil {
 						if isOpenAIWSClientDisconnectError(err) {
