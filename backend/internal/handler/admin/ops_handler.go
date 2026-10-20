@@ -586,6 +586,7 @@ func (h *OpsHandler) ListRequestDetails(c *gin.Context) {
 	filter.Kind = strings.TrimSpace(c.Query("kind"))
 	filter.Platform = strings.TrimSpace(c.Query("platform"))
 	filter.Model = strings.TrimSpace(c.Query("model"))
+	filter.ModelQuery = strings.TrimSpace(c.Query("model_query"))
 	filter.RequestID = strings.TrimSpace(c.Query("request_id"))
 	filter.Query = strings.TrimSpace(c.Query("q"))
 	filter.Sort = strings.TrimSpace(c.Query("sort"))

@@ -45,7 +45,8 @@ const items = ref<OpsRequestDetail[]>([])
 const total = ref(0)
 const page = ref(1)
 const pageSize = ref(10)
-// 调度账号搜索：输入账号名或账号号（支持「#905」），后端按账号名/账号 ID 匹配。
+// 请求明细筛选：模型按请求名/实际模型模糊匹配，调度账号按账号名或账号 ID 匹配。
+const modelQuery = ref('')
 const accountName = ref('')
 let searchTimer: ReturnType<typeof setTimeout> | undefined
 // 明细行只带 account_id，账号名来自 lite 账号列表映射（见 refreshAccountNames）。
@@ -92,6 +93,9 @@ const fetchData = async () => {
     const platform = (props.platform || '').trim()
     if (platform) params.platform = platform
     if (typeof props.groupId === 'number' && props.groupId > 0) params.group_id = props.groupId
+
+    const modelFilter = modelQuery.value.trim()
+    if (modelFilter) params.model_query = modelFilter
 
     const dispatchQuery = accountName.value.trim()
     if (dispatchQuery) params.account_name = dispatchQuery
@@ -142,8 +146,8 @@ watch(
   }
 )
 
-// 调度账号搜索：输入停顿 300ms 再查询，避免逐字打请求；回车立即查询。
-watch(accountName, () => {
+// 模型/调度账号筛选：输入停顿 300ms 再查询，避免逐字打请求；回车立即查询。
+watch([modelQuery, accountName], () => {
   if (!props.modelValue) return
   if (searchTimer) clearTimeout(searchTimer)
   searchTimer = setTimeout(() => {
@@ -158,8 +162,13 @@ function handleSearchSubmit() {
   fetchData()
 }
 
+function clearModelSearch() {
+  // 交给 watch 触发一次查询，避免重复请求。
+  modelQuery.value = ''
+}
+
 function clearDispatchSearch() {
-  // 交给 accountName 的 watch 触发一次查询，避免重复请求。
+  // 交给 watch 触发一次查询，避免重复请求。
   accountName.value = ''
 }
 
@@ -270,34 +279,55 @@ function accountLabel(row: OpsRequestDetail): string {
   <BaseDialog :show="modelValue" :title="props.preset.title || t('admin.ops.requestDetails.title')" width="full" @close="close">
     <template #default>
       <div class="flex h-full min-h-0 flex-col">
-        <div class="mb-4 flex flex-shrink-0 items-center justify-between gap-3">
+        <div class="mb-4 flex flex-shrink-0 flex-wrap items-center gap-3">
           <div class="whitespace-nowrap text-xs text-gray-500 dark:text-gray-400">
             {{ t('admin.ops.requestDetails.rangeLabel', { range: rangeLabel }) }}
           </div>
-          <div class="relative min-w-0 max-w-xs flex-1">
-            <input
-              v-model="accountName"
-              type="text"
-              class="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 pr-8 text-xs text-gray-700 placeholder-gray-400 focus:border-blue-400 focus:outline-none dark:border-dark-700 dark:bg-dark-800 dark:text-gray-200"
-              :placeholder="t('admin.ops.requestDetails.dispatchSearchPlaceholder')"
-              @keyup.enter="handleSearchSubmit"
-            />
+          <div class="ml-auto flex min-w-0 flex-1 flex-wrap items-center justify-end gap-2">
+            <div class="relative min-w-0 max-w-xs flex-1 basis-48">
+              <input
+                v-model="modelQuery"
+                data-testid="model-search"
+                type="text"
+                class="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 pr-8 text-xs text-gray-700 placeholder-gray-400 focus:border-blue-400 focus:outline-none dark:border-dark-700 dark:bg-dark-800 dark:text-gray-200"
+                :placeholder="t('admin.ops.requestDetails.modelSearchPlaceholder')"
+                @keyup.enter="handleSearchSubmit"
+              />
+              <button
+                v-if="modelQuery"
+                type="button"
+                class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                @click="clearModelSearch"
+              >
+                ✕
+              </button>
+            </div>
+            <div class="relative min-w-0 max-w-xs flex-1 basis-48">
+              <input
+                v-model="accountName"
+                data-testid="dispatch-search"
+                type="text"
+                class="w-full rounded-lg border border-gray-200 bg-white px-3 py-1.5 pr-8 text-xs text-gray-700 placeholder-gray-400 focus:border-blue-400 focus:outline-none dark:border-dark-700 dark:bg-dark-800 dark:text-gray-200"
+                :placeholder="t('admin.ops.requestDetails.dispatchSearchPlaceholder')"
+                @keyup.enter="handleSearchSubmit"
+              />
+              <button
+                v-if="accountName"
+                type="button"
+                class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                @click="clearDispatchSearch"
+              >
+                ✕
+              </button>
+            </div>
             <button
-              v-if="accountName"
               type="button"
-              class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
-              @click="clearDispatchSearch"
+              class="btn btn-secondary btn-sm"
+              @click="fetchData"
             >
-              ✕
+              {{ t('common.refresh') }}
             </button>
           </div>
-          <button
-            type="button"
-            class="btn btn-secondary btn-sm"
-            @click="fetchData"
-          >
-            {{ t('common.refresh') }}
-          </button>
         </div>
 
         <!-- Loading -->

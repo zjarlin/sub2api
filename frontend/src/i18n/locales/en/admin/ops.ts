@@ -444,6 +444,7 @@ export default {
         emptyHint: 'Try a different time range or remove filters.',
         failedToLoad: 'Failed to load request details',
         requestIdCopied: 'Request ID copied',
+        modelSearchPlaceholder: 'Search model',
         dispatchSearchPlaceholder: 'Search dispatch account (name or ID)',
         copyFailed: 'Copy failed',
         copy: 'Copy',

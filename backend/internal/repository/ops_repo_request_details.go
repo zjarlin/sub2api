@@ -69,6 +69,17 @@ func (r *opsRepository) ListRequestDetails(ctx context.Context, filter *service.
 		if model := strings.TrimSpace(filter.Model); model != "" {
 			addCondition(fmt.Sprintf("model = $%d", len(args)+1), model)
 		}
+		// 按模型搜索：请求模型（auto/别名）与实际调度模型都要能命中，忽略大小写。
+		if modelQuery := strings.TrimSpace(filter.ModelQuery); modelQuery != "" {
+			like := "%" + strings.ToLower(escapeLikePattern(modelQuery)) + "%"
+			startIdx := len(args) + 1
+			addCondition(
+				fmt.Sprintf("(LOWER(COALESCE(requested_model,'')) LIKE $%d OR LOWER(COALESCE(model,'')) LIKE $%d OR LOWER(COALESCE(upstream_model,'')) LIKE $%d OR LOWER(COALESCE(error_model,'')) LIKE $%d)",
+					startIdx, startIdx+1, startIdx+2, startIdx+3,
+				),
+				like, like, like, like,
+			)
+		}
 		if requestID := strings.TrimSpace(filter.RequestID); requestID != "" {
 			addCondition(fmt.Sprintf("request_id = $%d", len(args)+1), requestID)
 		}

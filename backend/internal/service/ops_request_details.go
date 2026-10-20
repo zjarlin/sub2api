@@ -69,6 +69,8 @@ type OpsRequestDetailFilter struct {
 	Model     string
 	RequestID string
 	Query     string
+	// ModelQuery 按模型搜索：匹配请求模型或实际调度模型（不区分大小写）。
+	ModelQuery string
 	// AccountName 按调度账号过滤：匹配账号名（不区分大小写）或账号 ID。
 	AccountName string
 

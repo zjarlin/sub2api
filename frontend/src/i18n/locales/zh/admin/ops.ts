@@ -444,6 +444,7 @@ export default {
         emptyHint: '可尝试调整时间范围或取消部分筛选。',
         failedToLoad: '加载请求明细失败',
         requestIdCopied: '请求ID已复制',
+        modelSearchPlaceholder: '搜索模型',
         dispatchSearchPlaceholder: '搜索调度账号（名称或 ID）',
         copyFailed: '复制失败',
         copy: '复制',

@@ -164,6 +164,8 @@ export interface OpsRequestDetailsParams {
   account_id?: number
 
   model?: string
+  // model_query 按模型搜索：匹配请求模型或实际调度模型（不区分大小写，支持部分名称）。
+  model_query?: string
   request_id?: string
   q?: string
   // account_name 按调度账号搜索：匹配账号名（不区分大小写）或账号 ID。

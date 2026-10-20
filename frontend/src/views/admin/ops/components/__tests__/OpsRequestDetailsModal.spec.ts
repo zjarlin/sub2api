@@ -141,13 +141,39 @@ describe('Ops request latency details', () => {
     wrapper.unmount()
   })
 
-  it('searches request details by dispatch account', async () => {
+  it('searches request details by model and dispatch account', async () => {
     const wrapper = await openDetails('duration_desc')
-    const input = wrapper.get('input[type="text"]')
-    await input.setValue('yueyue_workbuddy')
-    await input.trigger('keyup.enter')
+    const modelInput = wrapper.get('[data-testid="model-search"]')
+    await modelInput.setValue('deepseek-v4.1')
+    await modelInput.trigger('keyup.enter')
     await flushPromises()
-    expect(listRequestDetails).toHaveBeenLastCalledWith(expect.objectContaining({ account_name: 'yueyue_workbuddy' }))
+    expect(listRequestDetails).toHaveBeenLastCalledWith(expect.objectContaining({ model_query: 'deepseek-v4.1' }))
+
+    const dispatchInput = wrapper.get('[data-testid="dispatch-search"]')
+    await dispatchInput.setValue('yueyue_workbuddy')
+    await dispatchInput.trigger('keyup.enter')
+    await flushPromises()
+    expect(listRequestDetails).toHaveBeenLastCalledWith(expect.objectContaining({
+      model_query: 'deepseek-v4.1',
+      account_name: 'yueyue_workbuddy'
+    }))
+    wrapper.unmount()
+  })
+
+  it('clears each search filter independently', async () => {
+    const wrapper = await openDetails('duration_desc')
+    const modelInput = wrapper.get('[data-testid="model-search"]')
+    const dispatchInput = wrapper.get('[data-testid="dispatch-search"]')
+    await modelInput.setValue('deepseek')
+    await dispatchInput.setValue('yueyue')
+    await dispatchInput.trigger('keyup.enter')
+    await flushPromises()
+
+    await wrapper.get('[data-testid="model-search"] + button').trigger('click')
+    await dispatchInput.trigger('keyup.enter')
+    await flushPromises()
+    expect(listRequestDetails).toHaveBeenLastCalledWith(expect.not.objectContaining({ model_query: expect.anything() }))
+    expect(listRequestDetails).toHaveBeenLastCalledWith(expect.objectContaining({ account_name: 'yueyue' }))
     wrapper.unmount()
   })
 
