@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"slices"
 	"sort"
 	"strings"
 
@@ -46,6 +47,12 @@ func (h *GatewayHandler) autoModelPlan(ctx context.Context, group *service.Group
 	domain := autoModelRequestDomain(body)
 	// ask 是问答专属打包模型组：只影响 ask 链路，auto 与其他打包组保持原样。
 	isAsk := service.AutoModelRequestIsAsk(ctx)
+	// free 只使用真实免费模型，避免与 auto 同义；其他候选取由 auto 完整承担。
+	if service.AutoModelRequestIsFree(ctx) {
+		canonical = slices.DeleteFunc(canonical, func(model string) bool {
+			return !service.AutoModelFreeModelID(model)
+		})
+	}
 	sort.SliceStable(canonical, func(i, j int) bool {
 		di, domainI := autoModelDomainPriority(domain, canonical[i])
 		dj, domainJ := autoModelDomainPriority(domain, canonical[j])

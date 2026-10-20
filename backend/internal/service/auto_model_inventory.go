@@ -106,9 +106,10 @@ func AutoModelTextCandidate(model string) bool {
 	return true
 }
 
-// 保留的虚拟模型 ID：auto（自动选模）、ask（问答专用）、tier-N（能力档位）。
-// 它们由 Auto 中间件解析为真实模型，不能作为真实候选。
+// 保留的虚拟模型 ID：auto（自动选模）、ask（问答专用）、free（免费模型池）、
+// tier-N（能力档位）。它们由 Auto 中间件解析为真实模型，不能作为真实候选。
 const AskModelID = "ask"
+const FreeModelID = "free"
 const ModelTierVirtualIDPrefix = "tier-"
 
 // AutoModelTextPlatform 报告平台是否可作为文本生成目标；决策平台与专用媒体
@@ -126,9 +127,9 @@ func AutoModelTextPlatform(platform string) bool {
 	}
 }
 
-// IsVirtualModelID 报告模型是否是保留的虚拟模型 ID（auto/ask/档位）。
+// IsVirtualModelID 报告模型是否是保留的虚拟模型 ID（auto/ask/free/档位）。
 func IsVirtualModelID(model string) bool {
-	if model == ModelFallbackAutoModel || model == AskModelID {
+	if model == ModelFallbackAutoModel || model == AskModelID || model == FreeModelID {
 		return true
 	}
 	value, ok := strings.CutPrefix(model, ModelTierVirtualIDPrefix)
@@ -207,6 +208,15 @@ func AutoModelRequestIsAsk(ctx context.Context) bool {
 	}
 	capabilities, _ := ctx.Value(autoModelRequestCapabilitiesContextKey{}).(autoModelRequestCapabilities)
 	return capabilities.ask
+}
+
+// AutoModelRequestIsFree 报告当前 Auto 路由请求是否只使用真实免费模型。
+func AutoModelRequestIsFree(ctx context.Context) bool {
+	if ctx == nil {
+		return false
+	}
+	capabilities, _ := ctx.Value(autoModelRequestCapabilitiesContextKey{}).(autoModelRequestCapabilities)
+	return capabilities.free
 }
 
 // autoModelWebAskPlatform 报告平台是否属于 Ask 专属的 web 问答适配器：

@@ -55,6 +55,7 @@ type autoModelRequestCapabilitiesContextKey struct{}
 
 type autoModelRequestCapabilities struct {
 	ask            bool
+	free           bool
 	tools          bool
 	images         bool
 	visionFallback bool

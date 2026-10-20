@@ -21,12 +21,22 @@ import (
 const (
 	autoModelID               = "auto"
 	askModelID                = "ask"
+	freeModelID               = service.FreeModelID
 	autoModelListingKey       = "auto_model_listing"
 	autoModelListingModelsKey = "auto_model_listing_models"
 	autoModelListingETagKey   = "auto_model_listing_etag"
 	modelTierListingKey       = "model_tier_listing"
 	modelTierListingModelsKey = "model_tier_listing_models"
+	packagedCatalogVisibleKey = "packaged_catalog_visible_models"
 )
+
+// 客户端只需少量稳定直连入口；其余文本模型统一由 auto 的候选池和降级链路调度。
+var packagedDirectModelIDs = []string{
+	"deepseek-v4.1-flash",
+	"gpt-6.1-sol",
+	"gpt-6-astra",
+	"q3-4b",
+}
 
 type autoModelRouteCandidate struct {
 	model          string
@@ -61,10 +71,10 @@ func (h *GatewayHandler) availableVirtualModelIDs(ctx context.Context, group *se
 	if h.askModelAvailable(ctx, group, models) {
 		virtualModels = append(virtualModels, askModelID)
 	}
-	tiers, _ := h.modelTierVirtualModels(ctx, models)
-	for _, tier := range tiers {
-		virtualModels = append(virtualModels, tier.ID)
+	if h.freeVirtualModelAvailable(ctx, group, models) {
+		virtualModels = append(virtualModels, freeModelID)
 	}
+	// 能力档位由 auto 内部选择，tier-* 不再作为公开模型暴露。
 	return virtualModels
 }
 
@@ -74,6 +84,16 @@ func (h *GatewayHandler) prependAvailableVirtualModels(ctx context.Context, grou
 		return models
 	}
 	return prependVirtualModels(models, virtualModels...)
+}
+
+// 目录保留客户端入口；tier-* 由 auto 内部承载，不属于公开入口。
+func isPublicPackagedVirtualModel(model string) bool {
+	switch model {
+	case autoModelID, askModelID, freeModelID, "translate":
+		return true
+	default:
+		return false
+	}
 }
 
 // 虚拟模型判定委托服务层，保证 Auto 中间件、模型清单与档位降级共用同一集合。
@@ -192,6 +212,37 @@ func (h *GatewayHandler) askModelAvailable(ctx context.Context, group *service.G
 	return h.virtualModelAvailable(ctx, group, models, askModelID)
 }
 
+func (h *GatewayHandler) freeModelAvailable(ctx context.Context, group *service.Group, models []string) bool {
+	return h.virtualModelAvailable(ctx, group, models, freeModelID)
+}
+
+// freeVirtualModelAvailable 只在候选池确有真实免费模型时才发布 free 入口。
+func (h *GatewayHandler) freeVirtualModelAvailable(ctx context.Context, group *service.Group, models []string) bool {
+	if h == nil || h.gatewayService == nil || group == nil ||
+		(group.Platform != service.PlatformComposite && group.Platform != service.PlatformOpenAI) ||
+		(group.ModelAllowlistEnabled() && !group.ModelAllowlist.Allows(freeModelID)) {
+		return false
+	}
+	ctx, err := h.settingService.BindAutoModelRoutingPolicy(ctx)
+	if err != nil {
+		return false
+	}
+	ctx, models, err = h.gatewayService.BindAutoModelInventory(ctx, group.ID)
+	if err != nil {
+		return false
+	}
+	return h.hasFreeVirtualModelCandidate(ctx, group, models)
+}
+
+func (h *GatewayHandler) hasFreeVirtualModelCandidate(ctx context.Context, group *service.Group, models []string) bool {
+	for _, candidate := range h.autoModelEligibleCandidates(ctx, group, models) {
+		if service.AutoModelFreeModelID(candidate) {
+			return true
+		}
+	}
+	return false
+}
+
 func (h *GatewayHandler) virtualModelAvailable(ctx context.Context, group *service.Group, models []string, virtualModel string) bool {
 	ctx = service.WithAutoModelRequestCapabilities(ctx, []byte(`{"model":"`+virtualModel+`"}`))
 	if h == nil || h.gatewayService == nil || group == nil ||
@@ -216,6 +267,16 @@ func (h *GatewayHandler) virtualModelAvailable(ctx context.Context, group *servi
 		}
 	}
 	return false
+}
+
+// MarkPackagedCatalogListing 固定 /v1/models 的可见直连模型。q3-14b 曾回落到
+// 其他供应商模型，且当前 Auto 策略明确排除，因此不把它当作可直连模型发布。
+// 未出现在目录中的文本模型仍由 auto 的候选池和降级链路承担。
+func (h *GatewayHandler) MarkPackagedCatalogListing(c *gin.Context, group *service.Group) {
+	if c == nil || group == nil {
+		return
+	}
+	c.Set(packagedCatalogVisibleKey, append([]string(nil), packagedDirectModelIDs...))
 }
 
 func (h *GatewayHandler) autoModelCatalog(ctx context.Context, group *service.Group) []string {

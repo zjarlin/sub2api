@@ -60,7 +60,7 @@ func writeOpenAIModelsResponse(c *gin.Context, manifest *service.OpenAIModelsRes
 			writeOpenAIModelsError(c, http.StatusBadGateway, "upstream_error", "Invalid model catalogue")
 			return
 		}
-		body, err = filterPackagedModelCatalog(body, modelIDs, service.ModelAliasesFromContext(c.Request.Context()))
+		body, err = filterPackagedModelCatalog(body, modelIDs, service.ModelAliasesFromContext(c.Request.Context()), c.GetStringSlice(packagedCatalogVisibleKey))
 		if err != nil {
 			writeOpenAIModelsError(c, http.StatusBadGateway, "upstream_error", "Invalid model catalogue")
 			return
@@ -285,12 +285,12 @@ func writeRetrievedModel(c *gin.Context, body []byte) {
 	}})
 }
 
-// 打包目录隐藏 Auto/Ask 的底层文本候选，仅保留三个可直连模型和专用能力入口。
-// 此处只筛选展示，不改变候选库存、降级策略和模型调用权限。
-func filterPackagedModelCatalog(body []byte, virtualIDs []string, aliases *service.ModelAliasPolicy) ([]byte, error) {
+// 打包目录采用明确白名单：仅保留客户端入口和少量直连模型，隐藏媒体、向量、
+// 分类及 Auto 的底层候选。此处只筛选展示，不改变候选库存、降级策略和调用权限。
+func filterPackagedModelCatalog(body []byte, virtualIDs []string, aliases *service.ModelAliasPolicy, directIDs []string) ([]byte, error) {
 	packaged := false
 	for _, id := range virtualIDs {
-		if id == autoModelID || id == askModelID {
+		if id == autoModelID || id == askModelID || id == freeModelID {
 			packaged = true
 		}
 	}
@@ -316,14 +316,10 @@ func filterPackagedModelCatalog(body []byte, virtualIDs []string, aliases *servi
 			return nil, err
 		}
 		id = aliases.Canonicalize(id)
-		switch id {
-		case "deepseek-v4.1-flash", "gpt-6.1-sol", "gpt-6-astra":
-			visible = append(visible, entry)
-		default:
-			if isVirtualModelID(id) || !autoModelTextCandidate(id) {
-				visible = append(visible, entry)
-			}
+		if !containsString(virtualIDs, id) && !containsString(directIDs, id) && !isPublicPackagedVirtualModel(id) {
+			continue
 		}
+		visible = append(visible, entry)
 	}
 	encoded, err := json.Marshal(visible)
 	if err != nil {

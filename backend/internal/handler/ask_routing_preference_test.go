@@ -59,3 +59,11 @@ func TestAskRoutingPrefersFreeThenWebAskExcludesDeepseek(t *testing.T) {
 	require.NotEmpty(t, autoRoutes)
 	require.Equal(t, "deepseek-v4.1-flash", autoRoutes[0].model, "auto routing is unchanged and still prefers deepseek-v4.1-flash")
 }
+
+func modelIDsFromAutoRoutes(routes []autoModelRouteCandidate) []string {
+	ids := make([]string, 0, len(routes))
+	for _, route := range routes {
+		ids = append(ids, route.model)
+	}
+	return ids
+}

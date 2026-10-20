@@ -363,7 +363,7 @@ func TestAutoModelPlanUsesCatalogScopeAndExplainsDiscoveryOnlyModels(t *testing.
 	for _, platform := range []string{service.PlatformOpenAI, service.PlatformComposite} {
 		t.Run(platform, func(t *testing.T) {
 			accounts := make([]service.Account, 5)
-			for i, model := range []string{"vendor/healthy-model", "vendor/error-model", "private-model", "disabled-model", ""} {
+			for i, model := range []string{"vendor/healthy-model", "vendor/error-model", "gpt-6-astra", "disabled-model", ""} {
 				accounts[i] = service.Account{
 					ID: int64(i + 1), Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
 					Status: service.StatusActive, Schedulable: true,
@@ -386,7 +386,7 @@ func TestAutoModelPlanUsesCatalogScopeAndExplainsDiscoveryOnlyModels(t *testing.
 			require.NoError(t, err)
 			ctx, models, err := h.gatewayService.BindAutoModelInventory(ctx, 71)
 			require.NoError(t, err)
-			require.ElementsMatch(t, []string{"vendor/healthy-model", "vendor/error-model"}, models)
+			require.ElementsMatch(t, []string{"vendor/healthy-model", "vendor/error-model", "gpt-6-astra"}, models)
 			require.NotNil(t, repo.requestedGroup)
 			require.Equal(t, int64(71), *repo.requestedGroup)
 			require.False(t, repo.includeGrouped)
@@ -413,8 +413,12 @@ func TestAutoModelPlanUsesCatalogScopeAndExplainsDiscoveryOnlyModels(t *testing.
 				require.True(t, exists, model)
 				if model != "vendor/healthy-model" && model != "vendor/error-model" {
 					require.False(t, entry.Eligible, model)
-					require.Equal(t, "source_missing", entry.Reason, model)
-					require.Empty(t, entry.Platform, model)
+					if model == "gpt-6-astra" {
+						require.Equal(t, "auto_policy_excluded", entry.Reason, model)
+					} else {
+						require.Equal(t, "source_missing", entry.Reason, model)
+						require.Empty(t, entry.Platform, model)
+					}
 				}
 			}
 			require.Equal(t, 1, repo.reads, "catalog projection and Auto plan must reuse the same account snapshot")

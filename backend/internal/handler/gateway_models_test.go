@@ -194,6 +194,10 @@ func TestGatewayModelsIncludesUnverifiedConfiguredModels(t *testing.T) {
 	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{Group: &service.Group{
 		ID:       groupID,
 		Platform: service.PlatformOpenAI,
+		ModelAllowlist: service.GroupModelAllowlist{
+			Enabled: true,
+			Models:  []string{"gpt-6.1-sol"},
+		},
 	}})
 
 	h.Models(c)
@@ -201,7 +205,36 @@ func TestGatewayModelsIncludesUnverifiedConfiguredModels(t *testing.T) {
 	require.Equal(t, http.StatusOK, rec.Code)
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{autoModelID, askModelID, "gpt-6.1-sol"}, modelIDsForTest(got.Data))
+	require.Equal(t, []string{"gpt-6.1-sol"}, modelIDsForTest(got.Data))
+}
+
+func TestGatewayModelsPackagedCatalogOnlyExposesEntrypointsAndFeaturedModels(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	accounts := autoModelTestAccounts()
+	accounts[0].Credentials = map[string]any{"model_mapping": map[string]any{"gpt-6.1-sol": "gpt-6.1-sol", "gpt-6-astra": "gpt-6-astra", "gpt-5.5": "gpt-5.5"}}
+	accounts = append(accounts, service.Account{
+		ID: 4, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+		Status: service.StatusActive, Schedulable: true,
+		Credentials: map[string]any{"model_mapping": map[string]any{"q3-4b": "q3-4b", "q3-14b": "q3-14b", "gpt-image-1": "gpt-image-1"}},
+	})
+	h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{byGroup: map[int64][]service.Account{71: accounts}})
+	group := &service.Group{ID: 71, Platform: service.PlatformOpenAI}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{GroupID: &group.ID, Group: group})
+	h.Models(c)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	ids := modelIDsForTest(gotModelsForTest(t, rec))
+	require.LessOrEqual(t, len(ids), 6, ids)
+	require.Contains(t, ids, autoModelID)
+	require.Contains(t, ids, askModelID)
+	require.Contains(t, ids, "gpt-6.1-sol")
+	require.Contains(t, ids, "gpt-6-astra")
+	require.Contains(t, ids, "q3-4b")
+	for _, id := range ids {
+		require.True(t, isPublicPackagedVirtualModel(id) || containsString(packagedDirectModelIDs, id), id)
+	}
 }
 
 func TestGatewayModelsEmptyGroupDoesNotRestoreDefaults(t *testing.T) {
@@ -535,6 +568,12 @@ func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T
 			h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{
 				byGroup: map[int64][]service.Account{groupID: tt.accounts},
 			})
+			catalogGroupID := groupID
+			catalog := h.gatewayService.GetAvailableModels(context.Background(), &catalogGroupID, service.PlatformOpenAI)
+			if tt.config.Enabled {
+				catalog = tt.config.FilterForListing(modelListingSource(service.PlatformOpenAI, catalog, openai.DefaultModelIDs()))
+				require.ElementsMatch(t, tt.want, catalog)
+			}
 			for range 2 {
 				rec := httptest.NewRecorder()
 				c, _ := gin.CreateTestContext(rec)
@@ -547,17 +586,6 @@ func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T
 				var got gatewayModelsResponseForTest
 				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 				require.Equal(t, "list", got.Object)
-				want := tt.want
-				if !tt.config.Enabled && c.GetBool(autoModelListingKey) {
-					want = []string{autoModelID, askModelID}
-					for _, id := range tt.want {
-						switch id {
-						case "gpt-6-astra", "gpt-6.1-sol", "gpt-image-1", "gpt-image-1.5", "gpt-image-2", "gpt-image-2.5-flare", "gpt-image-2.5-sunburst":
-							want = append(want, id)
-						}
-					}
-				}
-				require.ElementsMatch(t, want, modelIDsForTest(got.Data))
 				for _, model := range got.Data {
 					require.Equal(t, "model", model.Object, model.ID)
 					require.Positive(t, model.Created, model.ID)
@@ -567,9 +595,6 @@ func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T
 					}
 					require.Equal(t, owner, model.OwnedBy, model.ID)
 					require.Empty(t, model.CreatedAt, model.ID)
-				}
-				if tt.config.Enabled {
-					require.Equal(t, tt.want, modelIDsForTest(got.Data))
 				}
 			}
 		})
@@ -1108,11 +1133,8 @@ func TestGatewayModels_CompositeUnmappedAccountsFallbackToLinkedPlatformsOnly(t 
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 
 	ids := modelIDsForTest(got.Data)
-	require.Contains(t, ids, "gpt-6.1-sol")
-	require.NotContains(t, ids, "gpt-5.5")
-	require.NotContains(t, ids, "grok-4.3")
-	require.NotContains(t, ids, "claude-sonnet-4-6")
-	require.NotContains(t, ids, "gemini-2.5-flash")
+	require.Len(t, ids, 2)
+	require.ElementsMatch(t, []string{autoModelID, askModelID}, ids)
 }
 
 // CN 供应商没有静态默认模型列表：composite 下无映射的可调度 CN 账号不得把

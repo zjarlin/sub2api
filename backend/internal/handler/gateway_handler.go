@@ -1203,6 +1203,9 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 
 	// Get available models from account configurations for the selected group platform.
 	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
+	if apiKey != nil && apiKey.Group != nil {
+		h.MarkPackagedCatalogListing(c, apiKey.Group)
+	}
 	if platform == service.PlatformOpenAI && apiKey != nil && apiKey.Group != nil {
 		virtualModels := h.availableVirtualModelIDs(c.Request.Context(), apiKey.Group, availableModels)
 		if len(virtualModels) > 0 {
