@@ -25,6 +25,22 @@ function ConvertTo-TomlString {
     return $Value.Replace("\", "\\").Replace('"', '\"')
 }
 
+# 生成一行 key = "value" 的 TOML 字符串。
+# 注意：不要在 @(...) 数组字面量里直接写 'a' + $x + 'b'，
+# PowerShell 会让 , 比 + 结合得更紧，把表达式拆成多个数组元素，
+# 结果写出跨行的 experimental_bearer_token，Codex 解析时报
+# `key with no value, expected =`。这里统一走函数调用，元素数恒为 1。
+function New-TomlStringLine {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Key,
+        [Parameter(Mandatory = $true)]
+        [AllowEmptyString()]
+        [string]$Value
+    )
+    return "$Key = `"$(ConvertTo-TomlString $Value)`""
+}
+
 $gatewayRoot = $BaseUrl.Trim().TrimEnd("/")
 try {
     $parsedGateway = [Uri]$gatewayRoot
@@ -114,11 +130,11 @@ try {
     Write-Warning "Model catalog download failed: $($_.Exception.Message)"
 }
 
-$catalogLine = if ($catalogJson) { 'model_catalog_json = "' + (ConvertTo-TomlString $catalogPath) + '"' } else { "" }
+$catalogLine = if ($catalogJson) { New-TomlStringLine "model_catalog_json" $catalogPath } else { "" }
 $authLines = if ($AuthMode -eq "legacy") {
     @('env_key = "SUB2API_API_KEY"', 'requires_openai_auth = false')
 } else {
-    @('requires_openai_auth = false', 'experimental_bearer_token = "' + (ConvertTo-TomlString $ApiKey) + '"')
+    @('requires_openai_auth = false', (New-TomlStringLine "experimental_bearer_token" $ApiKey))
 }
 $config = @"
 # Codex CLI -> Sub2API
@@ -135,6 +151,25 @@ $($authLines -join "`n")
 wire_api = "responses"
 supports_websockets = false
 "@
+# 写盘前自检：每一行只能是注释、表头或 key = value，且字符串值必须在同一行闭合。
+# 一旦生成逻辑再次退化成多行 token，这里直接失败，不再留下一个启动不了的 config.toml。
+$invalidLines = @()
+$configLines = $config -split "`r?`n"
+for ($i = 0; $i -lt $configLines.Count; $i++) {
+    $line = $configLines[$i].Trim()
+    if ($line -eq "" -or $line.StartsWith("#") -or $line.StartsWith("[")) { continue }
+    if ($line -notmatch "^[A-Za-z0-9_.-]+\s*=") {
+        $invalidLines += "line $($i + 1) is not a key = value line: $line"
+        continue
+    }
+    $value = $line.Substring($line.IndexOf("=") + 1)
+    if ((([regex]::Matches($value, '(?<!\\)"')).Count % 2) -ne 0) {
+        $invalidLines += "line $($i + 1) has an unterminated string value: $line"
+    }
+}
+if ($invalidLines.Count -gt 0) {
+    throw "Refusing to write an invalid config.toml:`n$($invalidLines -join "`n")"
+}
 [IO.File]::WriteAllText($configPath, $config, (New-Object Text.UTF8Encoding($false)))
 
 if ($AuthMode -eq "legacy") {

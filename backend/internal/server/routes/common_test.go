@@ -47,6 +47,11 @@ func TestCodexSetupScriptRoute(t *testing.T) {
 	require.Contains(t, recorder.Body.String(), "Get-AppxPackage")
 	require.Contains(t, recorder.Body.String(), "registry.npmmirror.com")
 	require.Contains(t, recorder.Header().Get("Content-Disposition"), "codex-setup.ps1")
+	// Regression: PowerShell 的数组字面量里 , 比 + 结合更紧，曾把
+	// experimental_bearer_token 拆成三行，导致 Codex 无法解析 config.toml。
+	require.Contains(t, recorder.Body.String(), `New-TomlStringLine "experimental_bearer_token" $ApiKey`)
+	require.NotContains(t, recorder.Body.String(), `'experimental_bearer_token = "' + (ConvertTo-TomlString $ApiKey) + '"'`)
+	require.Contains(t, recorder.Body.String(), "Refusing to write an invalid config.toml")
 }
 
 func TestCachedInstallerRoutePrefersLocalFile(t *testing.T) {
