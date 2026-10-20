@@ -261,6 +261,7 @@ func WithAutoModelRequestCapabilities(ctx context.Context, body []byte) context.
 	}
 	capabilities := autoModelRequestCapabilities{
 		ask:    gjson.GetBytes(body, "model").String() == "ask",
+		free:   gjson.GetBytes(body, "model").String() == FreeModelID,
 		tools:  gjson.GetBytes(body, "tools.#").Int() > 0,
 		images: autoModelInputHasImages(gjson.GetBytes(body, "input")) || autoModelInputHasImages(gjson.GetBytes(body, "messages")),
 	}

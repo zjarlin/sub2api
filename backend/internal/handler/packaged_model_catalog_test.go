@@ -77,21 +77,32 @@ func TestPackagedCatalogFiltersBothShapesAndVirtualEntrypoints(t *testing.T) {
 func TestPackagedFreeEntrypointOnlyUsesFreeModels(t *testing.T) {
 	accounts := []service.Account{
 		{ID: 1, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true,
-			Credentials: map[string]any{"model_mapping": map[string]any{"gpt-6-astra": "gpt-6-astra"}}},
+			Credentials: map[string]any{"model_mapping": map[string]any{
+				"deepseek-v4.1-flash":          "deepseek-v4.1-flash",
+				"deepseek/deepseek-v4.1-flash": "deepseek/deepseek-v4.1-flash",
+			}}},
 		{ID: 2, Platform: service.PlatformKilo, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true,
-			Credentials: map[string]any{"model_mapping": map[string]any{"kilo-auto/free": "kilo-auto/free"}}},
+			Credentials: map[string]any{"model_mapping": map[string]any{"kilo-auto/free": "kilo-auto/free", "openrouter/free": "openrouter/free"}}},
 	}
 	h := newAutoModelTestHandler(accounts)
 	group := &service.Group{ID: 71, Platform: service.PlatformOpenAI}
+	aliases := &service.ModelAliasPolicy{Groups: []service.ModelAliasGroup{{
+		Canonical: "deepseek-v4.1-flash",
+		Aliases:   []string{"deepseek/deepseek-v4.1-flash"},
+	}}}
 	ctx, err := h.settingService.BindAutoModelRoutingPolicy(context.Background())
 	require.NoError(t, err)
+	ctx = service.WithModelAliases(ctx, aliases)
 	ctx, models, err := h.gatewayService.BindAutoModelInventory(ctx, group.ID)
 	require.NoError(t, err)
+	require.Contains(t, models, "kilo-auto/free")
+	require.Contains(t, models, "openrouter/free")
+	require.Contains(t, models, "deepseek/deepseek-v4.1-flash")
 	body := []byte(`{"model":"free","input":"hello"}`)
 	ctx = service.WithAutoModelRequestCapabilities(ctx, body)
 	routes, plan, err := h.autoModelPlan(ctx, group, nil, "/v1/responses", body, models)
 	require.NoError(t, err)
-	require.Equal(t, []string{"kilo-auto/free"}, modelIDsFromAutoRoutes(routes))
+	require.ElementsMatch(t, []string{"kilo-auto/free", "openrouter/free"}, modelIDsFromAutoRoutes(routes))
 	for _, candidate := range plan {
 		if candidate.Eligible {
 			require.True(t, service.AutoModelFreeModelID(candidate.Model), candidate.Model)

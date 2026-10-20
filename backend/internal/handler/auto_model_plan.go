@@ -11,13 +11,12 @@ import (
 
 const autoModelPlanKey = "auto_model_plan"
 
-// All configured models enter the plan; eligible models are ordered by cost and capability.
+// free 入口使用独立的候选集合，确保后续重试、降级和路由观测都只包含免费模型。
 func (h *GatewayHandler) autoModelPlan(ctx context.Context, group *service.Group, resolver *service.CompositeRouteResolver, path string, body []byte, models []string) ([]autoModelRouteCandidate, []service.AutoModelCandidate, error) {
 	explicit, err := resolver.AutoModelRoutes(ctx, group.ID)
 	if err != nil {
 		return nil, nil, err
 	}
-	// The display catalog and real sources enter metadata together; defaults without a source explain exclusion only.
 	var discovered []string
 	if group.Platform == service.PlatformComposite {
 		discovered = h.compositeAvailableModels(ctx, &group.ID)
@@ -36,6 +35,12 @@ func (h *GatewayHandler) autoModelPlan(ctx context.Context, group *service.Group
 			}
 		}
 	}
+	isFree := service.AutoModelRequestIsFree(ctx)
+	if isFree {
+		models = slices.DeleteFunc(models, func(model string) bool {
+			return !service.AutoModelFreeModelID(model)
+		})
+	}
 	aliasesByModel := make(map[string][]string)
 	for _, id := range models {
 		canonical := aliases.Canonicalize(id)
@@ -45,14 +50,8 @@ func (h *GatewayHandler) autoModelPlan(ctx context.Context, group *service.Group
 	}
 	canonical := aliases.CanonicalIDs(models)
 	domain := autoModelRequestDomain(body)
-	// ask 是问答专属打包模型组：只影响 ask 链路，auto 与其他打包组保持原样。
 	isAsk := service.AutoModelRequestIsAsk(ctx)
-	// free 只使用真实免费模型，避免与 auto 同义；其他候选取由 auto 完整承担。
-	if service.AutoModelRequestIsFree(ctx) {
-		canonical = slices.DeleteFunc(canonical, func(model string) bool {
-			return !service.AutoModelFreeModelID(model)
-		})
-	}
+
 	sort.SliceStable(canonical, func(i, j int) bool {
 		di, domainI := autoModelDomainPriority(domain, canonical[i])
 		dj, domainJ := autoModelDomainPriority(domain, canonical[j])
@@ -103,6 +102,9 @@ func (h *GatewayHandler) autoModelPlan(ctx context.Context, group *service.Group
 		for _, platform := range platforms {
 			// An explicit composite rule also cannot point a text model at a decision-only platform.
 			if service.IsSystemOneDecisionPlatform(platform) && !service.AutoModelInventoryDecisionSource(platform, model) {
+				continue
+			}
+			if isFree && !service.AutoModelFreeModelID(model) && !service.AutoModelFreeModelID(upstream) {
 				continue
 			}
 			entry := service.AutoModelCandidate{Model: model, Platform: platform, Aliases: aliasesByModel[model]}
