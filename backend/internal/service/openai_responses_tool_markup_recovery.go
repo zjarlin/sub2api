@@ -370,12 +370,14 @@ func recoverResponsesToolMarkupBody(body []byte, set responsesToolNames) ([]byte
 			continue
 		}
 		var kept, appended []map[string]any
+		itemChanged := false
 		for _, part := range item.Get("content").Array() {
 			parsed := set.parseToolMarkup(part.Get("text").String())
 			if len(parsed.Calls) == 0 || parsed.Partial || parsed.Malformed {
 				kept = append(kept, objectFromRaw(part.Raw))
 				continue
 			}
+			itemChanged = true
 			changed = true
 			if cleaned := stripToolMarkup(part.Get("text").String()); cleaned != "" {
 				next := objectFromRaw(part.Raw)
@@ -386,7 +388,7 @@ func recoverResponsesToolMarkupBody(body []byte, set responsesToolNames) ([]byte
 				appended = append(appended, callObject(call))
 			}
 		}
-		if !changed {
+		if !itemChanged {
 			rebuilt = append(rebuilt, json.RawMessage(item.Raw))
 			continue
 		}

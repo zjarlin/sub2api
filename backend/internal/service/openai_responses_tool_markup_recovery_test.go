@@ -277,3 +277,27 @@ func quoteJSON(value string) string {
 	encoded, _ := json.Marshal(value)
 	return string(encoded)
 }
+
+// 线上真实退化形态：parameter 内容是未转义的 JSON（引号直接出现在里面），
+// 标记外壳写成 calls/invoke/parameter。
+func TestParseToolMarkupRealWorldPowerShellPayload(t *testing.T) {
+	text := "我会从中断处继续做只读排查。\n\n" +
+		"<|DSML|calls>\n<|DSML|invoke name=\"exec\">\n" +
+		"<|DSML|parameter name=\"input\" string=\"true\">const r = await tools.exec_command({cmd:\"$ErrorActionPreference='Continue'\\n$pwdPath=(Get-Location).Path\",\"workdir\":\"C:\\\\Users\\\\admin\\\\Documents\\\\Codex\",\"timeout_ms\":20000});\ntext(r.output);</|DSML|parameter>\n" +
+		"</|DSML|invoke>\n</|DSML|calls>"
+	set := collectResponsesToolNames([]byte(`{"tools":[{"type":"custom","name":"exec"},{"type":"custom","name":"exec_command"}]}`))
+	parsed := set.parseToolMarkup(text)
+	if len(parsed.Calls) != 1 || parsed.Malformed || parsed.Partial {
+		t.Fatalf("parsed=%+v", parsed)
+	}
+	call := parsed.Calls[0]
+	if call.Name != "exec" || !strings.Contains(call.Input, `tools.exec_command({cmd:"$ErrorActionPreference='Continue'`) {
+		t.Fatalf("call=%+v", call)
+	}
+	if !strings.Contains(call.Input, "\n$pwdPath=(Get-Location).Path") || !strings.Contains(call.Input, `text(r.output);`) {
+		t.Fatalf("换行/尾行应解码: %q", call.Input)
+	}
+	if got := stripToolMarkup(text); got != "我会从中断处继续做只读排查。" {
+		t.Fatalf("正文应只保留说明，got=%q", got)
+	}
+}
