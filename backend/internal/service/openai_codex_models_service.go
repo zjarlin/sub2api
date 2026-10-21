@@ -382,11 +382,16 @@ const (
 	// 本地阈值触发前上游就已经超限，请求只能整体失败。这里把有效窗口收到 60%，
 	// 让原生压缩在约 54 万本地 tokens（≈85 万上游 tokens）时触发。
 	configuredCodexDeepSeekV4EffectivePercent = 60
-	configuredCodexGrokContext                = 500_000
-	configuredCodexGrokBuildContext           = 256_000
-	configuredCodexGPT56MaxContext            = 872_000
-	configuredCodexGPT6AstraContext           = 1_050_000
-	configuredCodexToolOutputMaxTokens        = 10_000
+	// V4.1 Flash 经代理路由时，实际上游硬上限只有 262144（超过即
+	// "maximum context length is 262144 tokens"）。上游同步目录仍会报 1M，
+	// 若原样下发，客户端要到 ~95 万才触发压缩，34 万 token 的请求就会被上游直接拒绝。
+	// 这里按真实值硬覆盖窗口，并沿用 V4 系列的 60% 有效窗口与 90% 压缩线。
+	configuredCodexDeepSeekV41FlashContext = 262_144
+	configuredCodexGrokContext             = 500_000
+	configuredCodexGrokBuildContext        = 256_000
+	configuredCodexGPT56MaxContext         = 872_000
+	configuredCodexGPT6AstraContext        = 1_050_000
+	configuredCodexToolOutputMaxTokens     = 10_000
 )
 
 type configuredCodexReasoningLevel struct {
@@ -529,6 +534,12 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 		descriptor.MaxContextWindow = configuredCodexDeepSeekV4Context
 		descriptor.EffectiveContextWindowPercent = configuredCodexDeepSeekV4EffectivePercent
 		descriptor.AutoCompactTokenLimit = int64(configuredCodexDeepSeekV4Context * configuredCodexDeepSeekV4EffectivePercent / 100 * 9 / 10)
+	}
+
+	// V4.1 Flash 的代理链路真实硬上限与 V4 系列不同；该判断独立于
+	// isDeepSeekCodexModel，带渠道前缀的写法同样按真实窗口下发。
+	if isDeepSeekV41FlashCodexModel(modelID) {
+		applyDeepSeekV41FlashTrueContext(&descriptor)
 	}
 
 	if isGrokCodexModel(modelID) {
@@ -839,6 +850,73 @@ func deepSeekCodexDisplayName(modelID string) string {
 
 func isDeepSeekCodexModel(modelID string) bool {
 	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(modelID)), "deepseek-")
+}
+
+// isDeepSeekV41FlashCodexModel 覆盖 V4.1 Flash 及其大小写、下划线、日期与渠道前缀写法；
+// V4.1 Flash 是目前唯一实测为 262144 硬窗口的 DeepSeek 型号，其余 V4 系列仍按 1M 声明。
+func isDeepSeekV41FlashCodexModel(modelID string) bool {
+	normalized := strings.ToLower(strings.TrimSpace(modelID))
+	if i := strings.LastIndex(normalized, "/"); i >= 0 {
+		normalized = normalized[i+1:]
+	}
+	normalized = strings.ToLower(strings.NewReplacer("_", "-", ".", "-").Replace(normalized))
+	if !strings.HasPrefix(normalized, "deepseek-v4-1-flash") {
+		return false
+	}
+	rest := strings.TrimPrefix(normalized, "deepseek-v4-1-flash")
+	return rest == "" || strings.HasPrefix(rest, "-") || strings.HasPrefix(rest, ":")
+}
+
+// applyDeepSeekV41FlashTrueContext 把目录窗口收到上游真实硬上限，并沿用 V4 系列的
+// 60% 有效窗口，而不是等客户端估算越过 1M 才压缩。
+func applyDeepSeekV41FlashTrueContext(descriptor *configuredCodexModelDescriptor) {
+	descriptor.ContextWindow = configuredCodexDeepSeekV41FlashContext
+	descriptor.MaxContextWindow = configuredCodexDeepSeekV41FlashContext
+	descriptor.EffectiveContextWindowPercent = configuredCodexDeepSeekV4EffectivePercent
+	descriptor.AutoCompactTokenLimit = deepSeekV41FlashAutoCompactLimit()
+}
+
+// deepSeekV41FlashAutoCompactLimit 与 V4 系列同一口径：真实窗口的 60% 有效比例
+// 再取 90%，让原生压缩在客户端估算约 14 万 token 时触发，留足上游计数偏差。
+func deepSeekV41FlashAutoCompactLimit() int64 {
+	return int64(configuredCodexDeepSeekV41FlashContext * configuredCodexDeepSeekV4EffectivePercent / 100 * 9 / 10)
+}
+
+// applyDeepSeekV41FlashTrueContextToManifest 按真实上限纠正已编码的目录项，
+// 返回是否发生了改动。
+func applyDeepSeekV41FlashTrueContextToManifest(model map[string]json.RawMessage, modelID string) bool {
+	if !isDeepSeekV41FlashCodexModel(modelID) {
+		return false
+	}
+	changed := false
+	trueContext, err := json.Marshal(int64(configuredCodexDeepSeekV41FlashContext))
+	if err != nil {
+		return false
+	}
+	compactLimit, err := json.Marshal(deepSeekV41FlashAutoCompactLimit())
+	if err != nil {
+		return false
+	}
+	effectivePercent, err := json.Marshal(int64(configuredCodexDeepSeekV4EffectivePercent))
+	if err != nil {
+		return false
+	}
+	for _, field := range []struct {
+		name  string
+		value json.RawMessage
+	}{
+		{"context_window", trueContext},
+		{"max_context_window", trueContext},
+		{"effective_context_window_percent", effectivePercent},
+		{"auto_compact_token_limit", compactLimit},
+	} {
+		if bytes.Equal(bytes.TrimSpace(model[field.name]), field.value) {
+			continue
+		}
+		model[field.name] = append(json.RawMessage(nil), field.value...)
+		changed = true
+	}
+	return changed
 }
 
 func isGrokCodexModel(modelID string) bool {
@@ -2436,6 +2514,11 @@ func applySyncedAPIKeyCodexModelMetadata(body []byte, account *Account, overwrit
 			model["context_window"] = append(json.RawMessage(nil), model["max_context_window"]...)
 			modelChanged = true
 		}
+		// 同步元数据只声明 1M 能力，不代表代理链路的真实硬上限；这里必须按真实窗口
+		// 再压一次，否则前面按字段补全后窗口又会被同步值抬回 1M。
+		if applyDeepSeekV41FlashTrueContextToManifest(model, slug) {
+			modelChanged = true
+		}
 		if !modelChanged {
 			continue
 		}
@@ -2542,6 +2625,10 @@ func completeAPIKeyCodexModelsManifestMetadata(body []byte, completeAll bool, ac
 				return nil, fmt.Errorf("complete model %q: %w", slug, err)
 			}
 			modelChanged = merged || modelChanged
+		}
+		// V4.1 Flash 的原生目录已带 1M 窗口，补缺不会改它，必须在合并后按真实上限覆盖。
+		if applyDeepSeekV41FlashTrueContextToManifest(model, slug) {
+			modelChanged = true
 		}
 		if forceOfficialImage {
 			modalities, err := json.Marshal([]string{"text", "image"})

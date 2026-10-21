@@ -464,6 +464,21 @@ func TestBuildCodexModelsManifestBoundsDeepSeekAutoCompaction(t *testing.T) {
 	require.NoError(t, err)
 	model := gjson.GetBytes(body, `models.#(slug=="deepseek-v4.1-flash")`)
 	require.True(t, model.Exists(), string(body))
+	// V4.1 Flash 的代理链路真实硬上限是 256K，不能按上游同步目录的 1M 下发，
+	// 否则客户端到 95 万才压缩，实际请求会先被上游拒绝。
+	require.Equal(t, int64(262_144), model.Get("context_window").Int())
+	require.Equal(t, int64(262_144), model.Get("max_context_window").Int())
+	require.Equal(t, int64(60), model.Get("effective_context_window_percent").Int())
+	require.Equal(t, int64(141_557), model.Get("auto_compact_token_limit").Int())
+}
+
+func TestBuildCodexModelsManifestKeepsOtherDeepSeekWindow(t *testing.T) {
+	t.Parallel()
+
+	body, err := BuildCodexModelsManifest([]string{"deepseek-v4-pro"})
+	require.NoError(t, err)
+	model := gjson.GetBytes(body, `models.#(slug=="deepseek-v4-pro")`)
+	require.True(t, model.Exists(), string(body))
 	require.Equal(t, int64(1_000_000), model.Get("context_window").Int())
 	require.Equal(t, int64(60), model.Get("effective_context_window_percent").Int())
 	require.Equal(t, int64(540_000), model.Get("auto_compact_token_limit").Int())
@@ -4275,4 +4290,53 @@ func TestGPT61SolAPIKeyCatalogContextWindow(t *testing.T) {
 			require.EqualValues(t, tc.want, models[0]["context_window"])
 		})
 	}
+}
+
+func TestDeepSeekV41FlashCodexDescriptorUsesTrueUpstreamContext(t *testing.T) {
+	t.Parallel()
+
+	for _, modelID := range []string{
+		"deepseek-v4.1-flash", "deepseek-v4-1-flash", "deepseek/deepseek-v4.1-flash",
+		"DeepSeek-V4.1-Flash", "deepseek-v4.1-flash-0910",
+	} {
+		descriptor := newConfiguredCodexModelDescriptor(modelID)
+		require.Equal(t, int64(262_144), descriptor.ContextWindow, modelID)
+		require.Equal(t, int64(262_144), descriptor.MaxContextWindow, modelID)
+		require.Equal(t, int64(60), descriptor.EffectiveContextWindowPercent, modelID)
+		require.EqualValues(t, 141_557, descriptor.AutoCompactTokenLimit, modelID)
+	}
+
+	// 同系列其他 V4 型号仍按上游 1M 声明，不被本规则误伤。
+	for _, modelID := range []string{"deepseek-v4-pro", "deepseek-v4-flash", "deepseek-chat"} {
+		descriptor := newConfiguredCodexModelDescriptor(modelID)
+		require.Equal(t, int64(1_000_000), descriptor.ContextWindow, modelID)
+	}
+}
+
+func TestCompleteAPIKeyCodexModelsManifestForClientCapsDeepSeekV41FlashToTrueContext(t *testing.T) {
+	t.Parallel()
+
+	account := newCodexModelsAPIKeyTestAccount("https://upstream.example/v1")
+	account.SetUpstreamModelMetadataSnapshot(UpstreamModelMetadataSnapshot{Models: map[string]UpstreamModelMetadata{
+		"deepseek-ai/deepseek-v4.1-flash": {
+			ID:               "deepseek-ai/deepseek-v4.1-flash",
+			ContextWindow:    1_000_000,
+			MaxContextWindow: 1_000_000,
+		},
+	}})
+	manifest := &OpenAIModelsResponse{Body: []byte(`{"models":[{
+		"slug":"deepseek-v4.1-flash",
+		"context_window":1000000,
+		"max_context_window":1000000,
+		"auto_compact_token_limit":null
+	}]}`)}
+	svc := &OpenAIGatewayService{}
+
+	require.NoError(t, svc.CompleteAPIKeyCodexModelsManifestForClient(manifest, account))
+	models := decodeCodexManifestModels(t, manifest.Body)
+	require.Len(t, models, 1)
+	require.EqualValues(t, 262_144, models[0]["context_window"])
+	require.EqualValues(t, 262_144, models[0]["max_context_window"])
+	require.EqualValues(t, 60, models[0]["effective_context_window_percent"])
+	require.EqualValues(t, 141_557, models[0]["auto_compact_token_limit"])
 }
