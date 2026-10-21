@@ -8,13 +8,13 @@
 
 新增渠道后需要核对上游目录里的精确 ID。独立账号测试成功只说明该账号接受传入的 ID，不代表规范 ID 已经能匹配到它。例如 `deepseek/deepseek-v4.1-flash` 必须显式归入 `deepseek-v4.1-flash` 的同义词组；转发仍保留渠道要求的 `deepseek/` 前缀。版本、`fast`、`vision-exp` 等变体不会自动合并。
 
-迁移 `246_deepseek_provider_model_aliases.sql` 为 V4 Flash、V4 Pro、V4.1 Flash 补齐上述前缀。迁移 `249_complete_model_aliases.sql` 补齐 V4.1 Flash 的新名及大小写写法、MiniMax M3 的大小写写法，并把 MiniMax M2.7 的 `cn:` 与大写写法归到 `minimax-m2.7`。迁移 `260_deepseek_v41_flash_hyphen_alias.sql` 补齐 `deepseek-v4-1-flash` 这种把版本点号写成短横线的写法。迁移 `261_deepseek_v4_family_prefer_v41.sql` 把 V4 Flash、V4 Pro 并入 V4.1 Flash 规范组，顺序为 V4.1、V4 Flash、V4 Pro，使账号不支持 V4.1 时自动改用其可用的兼容 ID。迁移 `262_prioritize_glm_qwen_fallback.sql` 在同时包含 V4.1 Flash 与 GPT-5.6 Terra 的档位中，把降级顺序调整为 V4.1 Flash、GLM、Qwen、其他模型、GPT-5.6 Terra。迁移 `263_add_glm52_sensenova_fallback.sql` 在已有 GLM-5.2 的档位中，把 `sensenova-6.8-flash-lite` 紧跟其后纳入同一降级路线。迁移 `270_model_fallback_guard_tier_and_auto.sql` 为 `meta/llama-guard-4-12b` 等内容安全小模型追加以「内容安全轻量」为名的档位（同类互降），并开启 `auto_fallback`；仅在管理员策略已存在时生效，已存在同名档位时幂等跳过。迁移不改变档位、账号映射或管理员已分配的别名；空同义词策略保持为空。后续变更新增迁移，不修改已执行迁移的校验和。
+迁移 `246_deepseek_provider_model_aliases.sql` 为 V4 Flash、V4 Pro、V4.1 Flash 补齐上述前缀。迁移 `249_complete_model_aliases.sql` 补齐 V4.1 Flash 的新名及大小写写法、MiniMax M3 的大小写写法，并把 MiniMax M2.7 的 `cn:` 与大写写法归到 `minimax-m2.7`。迁移 `260_deepseek_v41_flash_hyphen_alias.sql` 补齐 `deepseek-v4-1-flash` 这种把版本点号写成短横线的写法。迁移 `261_deepseek_v4_family_prefer_v41.sql` 把 V4 Flash、V4 Pro 并入 V4.1 Flash 规范组，顺序为 V4.1、V4 Flash、V4 Pro，使账号不支持 V4.1 时自动改用其可用的兼容 ID。迁移 `262_prioritize_glm_qwen_fallback.sql` 在同时包含 V4.1 Flash 与 GPT-5.6 Terra 的档位中，把降级顺序调整为 V4.1 Flash、GLM、Qwen、其他模型、GPT-5.6 Terra。迁移 `263_add_glm52_sensenova_fallback.sql` 在已有 GLM-5.2 的档位中，把 `sensenova-6.8-flash-lite` 紧跟其后纳入同一降级路线。迁移 `270_model_fallback_guard_tier_and_auto.sql` 为 `meta/llama-guard-4-12b` 等内容安全小模型追加以「内容安全轻量」为名的档位（同类互降），并开启 `auto_fallback`；仅在管理员策略已存在时生效，已存在同名档位时幂等跳过。迁移 `274_alias_deepseek_v41_flash_1017.sql` 把上游 Cline 目录里的并列 ID `deepseek/deepseek-v4.1-flash-1017` 追加为 `deepseek-v4.1-flash` 的同义词；只追加别名，不改档位、账号映射或其他组。迁移 `274_alias_deepseek_v41_flash_1017.sql` 把上游 Cline 目录新增的带日期后缀写法 `deepseek/deepseek-v4.1-flash-1017` 归入 `deepseek-v4.1-flash`，并在同时收录两者的档位里把它紧跟规范名之后；其他档位与模型顺序不变。迁移不改变档位、账号映射或管理员已分配的别名；空同义词策略保持为空。后续变更新增迁移，不修改已执行迁移的校验和。
 
 默认同义词组的规范 ID 如下；`GET /v1/models` 和 Codex 模型清单在最终写出时按这些组去重，旧 ID 仍可用于请求。管理员修改过的 `model_aliases` 以实际设置为准。
 
 | 规范 ID | 默认同义词 |
 | --- | --- |
-| `deepseek-v4.1-flash` | `cn:deepseek-v4.1-flash`、`deepseek/deepseek-v4.1-flash`、`DeepSeek-V4.1-Flash`、`deepseek-flash`、`deepseek-v4-1-flash`；兼容层依次为 `deepseek-v4-flash`、`deepseek-v4-pro` 及其默认渠道写法 |
+| `deepseek-v4.1-flash` | `cn:deepseek-v4.1-flash`、`deepseek/deepseek-v4.1-flash`、`deepseek/deepseek-v4.1-flash-1017`、`DeepSeek-V4.1-Flash`、`deepseek-flash`、`deepseek-v4-1-flash`；兼容层依次为 `deepseek-v4-flash`、`deepseek-v4-pro` 及其默认渠道写法 |
 | `glm-5.3`、`glm-5.2`、`glm-5.3-flash` | 各自对应的 `cn:` 前缀 ID |
 | `kimi-k3`、`kimi-k2.6` | 分别对应 `cn:kimi-k3-1`、`cn:kimi-k2.6` |
 | `minimax-m3` | `cn:minimax-m3`、`MiniMax-M3` |
