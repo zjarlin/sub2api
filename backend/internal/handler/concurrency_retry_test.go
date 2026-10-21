@@ -128,6 +128,21 @@ func TestLocalCapacityRetryAndAccountSwitchBudget(t *testing.T) {
 		"OpenAI-compatible accounts in an OpenAI group must continue account failover on 429")
 }
 
+// 同义词还有候选时，普通换号预算不能提前跨模型降级。
+func TestModelAliasAlternativesKeepSwitchBudgetForSynonyms(t *testing.T) {
+	policy := &service.ModelAliasPolicy{Groups: []service.ModelAliasGroup{
+		{Canonical: "ds"},
+		{Canonical: "deepseek-flash", Parent: "ds", Routes: []service.ModelAliasRoute{{Model: "deepseek/deepseek-v4.1-flash-1017", Priority: 0}, {Model: "deepseek-v4.1-flash", Priority: 1}}},
+	}}
+	ctx := service.WithModelAliases(context.Background(), policy)
+	account := &service.Account{ID: 1, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://upstream.example"}}
+	budget := openAIAccountSwitchBudget{limit: 0, replayable: true}
+	failure := &service.UpstreamFailoverError{StatusCode: http.StatusBadGateway}
+	require.True(t, service.HasModelAliasAlternatives(ctx, "ds"))
+	require.False(t, budget.exhausted(account, failure, service.HasModelAliasAlternatives(ctx, "ds")))
+	require.Equal(t, 0, budget.failures, "同义词未耗尽时不得消耗换号预算")
+}
+
 func TestMixedSchedulingAccount429ContinuesFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	groupID := int64(6)

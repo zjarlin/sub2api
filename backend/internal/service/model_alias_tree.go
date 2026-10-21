@@ -198,6 +198,11 @@ func (p *ModelAliasPolicy) routeAllows(a *Account, group *ModelAliasGroup, model
 
 func (p *ModelAliasPolicy) accountTreeTarget(ctx context.Context, a *Account, model string) string {
 	// 只从原生白名单、精确目录或实测成功中选择，禁止借同义词推断另一个端点的能力。
+	return p.accountTreeTargetWithin(ctx, a, model, nil)
+}
+
+// 跨账号降级同样遵守叶子优先级：更高优先级的账号没有资格时，不能借低优先级叶子跨模型。
+func (p *ModelAliasPolicy) accountTreeTargetWithin(ctx context.Context, a *Account, model string, limit func(target string) bool) string {
 	native := a.getNativeModelMapping()
 	for _, id := range p.IDs(model) {
 		owner := p.group(p.Canonicalize(id))
@@ -207,6 +212,9 @@ func (p *ModelAliasPolicy) accountTreeTarget(ctx context.Context, a *Account, mo
 		target, explicit := native[id]
 		if !explicit {
 			target = id
+		}
+		if limit != nil && !limit(target) {
+			continue
 		}
 		if targetOwner := p.group(p.Canonicalize(target)); targetOwner != nil && !p.routeAllows(a, targetOwner, target) {
 			continue
@@ -218,7 +226,7 @@ func (p *ModelAliasPolicy) accountTreeTarget(ctx context.Context, a *Account, mo
 		if probe == "unsupported" {
 			continue
 		}
-		if probe != "supported" && a.IsModelKnownUnsupported(target) {
+		if a.IsModelKnownUnsupported(target) {
 			continue
 		}
 		evidenced := probe == "supported"
@@ -248,12 +256,12 @@ func (p *ModelAliasPolicy) accountTreeTarget(ctx context.Context, a *Account, mo
 
 // 请求内只遍历每个账号/地址/叶子一次；重新选号时派生映射会跳过已经失败的叶子。
 func TryNextModelAlias(ctx context.Context, a *Account, model string, status int) bool {
-	if a == nil || (status != 429 && status != 404 && status != 410 && status != 503) {
+	if a == nil || (status != 0 && status != 400 && status != 408 && status != 429 && status != 404 && status != 410 && (status < 500 || status > 599)) {
 		return false
 	}
 	p := ModelAliasesFromContext(ctx)
 	model = p.Canonicalize(model)
-	if !p.isTreeGroup(model) {
+	if p.group(model) == nil {
 		return false
 	}
 	target := ResolveOpenAIAccountUpstreamModelForRequest(a, model, false)
@@ -264,6 +272,12 @@ func TryNextModelAlias(ctx context.Context, a *Account, model string, status int
 	attempts.Store(modelAliasAttemptKey(a, target), true)
 	next := p.accountTreeTarget(ctx, a, model)
 	return next != "" && next != target
+}
+
+// 同义词组的账号与叶子需要先耗尽，普通换号预算不能提前跳到其他模型。
+func HasModelAliasAlternatives(ctx context.Context, model string) bool {
+	p := ModelAliasesFromContext(ctx)
+	return p != nil && len(p.IDs(model)) > 1
 }
 
 // 跨账号也遵循叶子顺序；账号自身的权重与负载只在同一叶子内部排序。

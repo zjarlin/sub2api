@@ -211,6 +211,9 @@ func accountWithModelAliases(ctx context.Context, account *Account) *Account {
 			if target == "" || (!defaultTarget && !clone.IsModelSupported(id)) {
 				continue
 			}
+			if modelAliasAttempted(ctx, account, target) || clone.isRateLimitActiveForKey(modelAliasRateLimitKey(account, target)) {
+				continue
+			}
 			// 不递归映射目标，已有账号映射的优先级高于全局别名。
 			overlay[group.Canonical] = target
 			break

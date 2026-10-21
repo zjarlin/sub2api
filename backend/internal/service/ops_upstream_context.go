@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -540,6 +541,36 @@ func RecordOpsModelFallback(c *gin.Context, from, to, tier string) {
 		Kind: "model_fallback", Stage: string(GatewayFailureStageRouting),
 		Platform: PlatformOpenAI, Model: to, FromModel: from, ModelTier: tier,
 		Reason: "model_candidates_exhausted", Message: "Trying another model after eligible accounts were exhausted",
+	})
+}
+
+// 每次失败归属真实账号；已有上游事件时补齐路由信息，不重复计数。
+func recordOpsFailoverAccount(c *gin.Context, account *Account, model string, failure *UpstreamFailoverError) {
+	baseURL, err := url.Parse(account.GetOpenAIBaseURL())
+	base := ""
+	if err == nil && baseURL.Host != "" {
+		baseURL.User, baseURL.RawQuery, baseURL.Fragment = nil, "", ""
+		base = baseURL.String()
+	}
+	value, _ := c.Get(OpsUpstreamErrorsKey)
+	events, _ := value.([]*OpsUpstreamErrorEvent)
+	if len(events) > 0 {
+		last := events[len(events)-1]
+		if last != nil && last.AccountID == account.ID && last.RequestRole != "vision" &&
+			(last.Model == model || last.Model == c.GetString(OpsAttemptModelKey)) {
+			last.Model = model
+			if last.UpstreamURL == "" {
+				last.UpstreamURL = base
+			}
+			return
+		}
+	}
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		AccountID: account.ID, AccountName: account.Name, Platform: account.Platform,
+		Model: model, UpstreamURL: base, Kind: "failover", Stage: string(failure.Stage),
+		Scope: string(failure.Scope), Reason: string(failure.Reason), UpstreamStatusCode: failure.StatusCode,
+		Message: extractUpstreamErrorMessage(failure.ResponseBody),
+		ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
 	})
 }
 

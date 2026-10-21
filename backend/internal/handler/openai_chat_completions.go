@@ -430,7 +430,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 						h.handleFailoverExhausted(c, failoverErr, true)
 						return
 					}
-					if service.TryNextModelAlias(c.Request.Context(), account, reqModel, failoverErr.StatusCode) {
+					if h.gatewayService.TryNextModelAlias(c.Request.Context(), c, account, reqModel, failoverErr) {
 						continue
 					}
 					if failoverErr.ShouldReportAccountScheduleFailure() {
@@ -468,7 +468,7 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
 					busyRetry.record(account.ID, failoverErr)
-					if switchBudget.exhausted(account, failoverErr) {
+					if switchBudget.exhausted(account, failoverErr, service.HasModelAliasAlternatives(c.Request.Context(), reqModel)) {
 						if advanceModel() {
 							continue
 						}

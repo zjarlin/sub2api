@@ -995,7 +995,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					if c.Writer.Written() {
 						streamStarted = true
 					}
-					if service.TryNextModelAlias(c.Request.Context(), account, forwardModel, failoverErr.StatusCode) {
+					if h.gatewayService.TryNextModelAlias(c.Request.Context(), c, account, forwardModel, failoverErr) {
 						continue
 					}
 					if failoverErr.ShouldReportAccountScheduleFailure() {
@@ -1005,7 +1005,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
 						return
 					}
-					if openAIFirstOutputFailoverExhausted(failoverErr, &firstOutputTimeoutSwitchCount) {
+					if !service.HasModelAliasAlternatives(c.Request.Context(), forwardModel) && openAIFirstOutputFailoverExhausted(failoverErr, &firstOutputTimeoutSwitchCount) {
 						if advanceModel() {
 							continue
 						}
@@ -1040,7 +1040,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
 					busyRetry.record(account.ID, failoverErr)
-					if switchBudget.exhausted(account, failoverErr) {
+					if switchBudget.exhausted(account, failoverErr, service.HasModelAliasAlternatives(c.Request.Context(), forwardModel)) {
 						if advanceModel() {
 							continue
 						}
@@ -1683,7 +1683,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						h.handleAnthropicFailoverExhausted(c, failoverErr, true)
 						return
 					}
-					if service.TryNextModelAlias(c.Request.Context(), account, currentRoutingModel, failoverErr.StatusCode) {
+					if h.gatewayService.TryNextModelAlias(c.Request.Context(), c, account, currentRoutingModel, failoverErr) {
 						continue
 					}
 					if failoverErr.ShouldReportAccountScheduleFailure() {
@@ -1721,7 +1721,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
 					busyRetry.record(account.ID, failoverErr)
-					if switchBudget.exhausted(account, failoverErr) {
+					if switchBudget.exhausted(account, failoverErr, service.HasModelAliasAlternatives(c.Request.Context(), currentRoutingModel)) {
 						if advanceModel() {
 							continue
 						}
@@ -2981,7 +2981,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		if ctx.Err() != nil {
 			return false
 		}
-		if service.TryNextModelAlias(c.Request.Context(), account, wsForwardModel, failoverErr.StatusCode) {
+		if h.gatewayService.TryNextModelAlias(c.Request.Context(), c, account, wsForwardModel, failoverErr) {
 			releaseAccountSlot()
 			return true
 		}
@@ -3001,7 +3001,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		}
 		failedAccountIDs[account.ID] = struct{}{}
 		lastFailoverErr = failoverErr
-		if switchBudget.exhausted(account, failoverErr) {
+		if switchBudget.exhausted(account, failoverErr, service.HasModelAliasAlternatives(c.Request.Context(), wsForwardModel)) {
 			closeOpenAIWSFailoverExhausted(c, wsConn, failoverErr)
 			return false
 		}

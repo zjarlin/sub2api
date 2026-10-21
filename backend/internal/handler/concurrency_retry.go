@@ -36,11 +36,15 @@ func tryRemainingOpenAIAccounts(account *service.Account, err *service.UpstreamF
 		(err.StatusCode == http.StatusTooManyRequests || err.IsUpstreamConcurrencyLimited())
 }
 
-func (b *openAIAccountSwitchBudget) exhausted(account *service.Account, err *service.UpstreamFailoverError) bool {
+func (b *openAIAccountSwitchBudget) exhausted(account *service.Account, err *service.UpstreamFailoverError, aliasAlternatives ...bool) bool {
 	if err.IsAutoModelExcluded() {
 		return false
 	}
 	if tryRemainingOpenAIAccounts(account, err) {
+		return false
+	}
+	if len(aliasAlternatives) > 0 && aliasAlternatives[0] && err.ShouldRetryNextAccount() &&
+		!err.RequestScopedTransient && err.Scope != service.GatewayFailureScopeRequest {
 		return false
 	}
 	// Auto 的账号级鉴权和能力失败不能耗尽换号预算后跳过同模型的其他账号。

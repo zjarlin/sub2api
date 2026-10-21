@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
@@ -119,6 +121,51 @@ func TestModelAliasTree429DoesNotBlockAccount(t *testing.T) {
 	require.Nil(t, a.RateLimitResetAt)
 	require.True(t, a.Schedulable)
 	require.False(t, svc.handleModelAlias429(ctx, a, 401, nil, nil, dsLegacy))
+}
+
+// 连续网关故障按账号/地址/精确模型逐步退避；成功响应必须能抬升下一次可用。
+func TestModelAliasFailureLearningRelaxesAfterSuccess(t *testing.T) {
+	policy := dsTreePolicy()
+	ctx := WithModelAliases(context.Background(), policy)
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &OpenAIGatewayService{rateLimitService: &RateLimitService{accountRepo: repo}}
+	account := dsTreeAccount()
+	account = accountWithModelAliases(ctx, account)
+	failure := &UpstreamFailoverError{StatusCode: http.StatusBadGateway}
+	for range 3 {
+		svc.learnModelAliasFailure(ctx, dsTreeAccount(), ds1017, failure)
+	}
+	cooled := dsTreeAccount()
+	setAccountModelRateLimitSnapshot(cooled, modelAliasRateLimitKey(cooled, ds1017), time.Now().Add(time.Minute), "model_alias_leaf_transient", time.Now())
+	require.Equal(t, dsLegacy, accountWithModelAliases(ctx, cooled).GetMappedModel("ds"), "冷却期内应选择下一条同义词")
+	cooled = dsTreeAccount()
+	svc.ReportOpenAIAccountScheduleResult(account, ds1017, true, nil)
+	require.True(t, svc.getOpenAIAccountModelTransientState().isBlocked(account.ID, modelAliasRateLimitKey(account, ds1017), time.Now()) == false, "成功后连续失败窗口应清零")
+	require.Equal(t, ds1017, accountWithModelAliases(ctx, cooled).GetMappedModel("ds"), "同一成功请求直接恢复优先叶子")
+}
+
+// 学习失败：同义词内先试下一条，并把真实账号与上游 ID 写进错误链。
+func TestModelAliasFailureLearningKeepsAccountAttribution(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &modelNotFoundAccountRepoStub{}
+	svc := &OpenAIGatewayService{rateLimitService: &RateLimitService{accountRepo: repo}}
+	ctx := WithModelAliases(context.Background(), dsTreePolicy())
+	a := accountWithModelAliases(ctx, dsTreeAccount())
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(ctx)
+	SetOpsAttemptModel(c, "ds")
+	failure := &UpstreamFailoverError{StatusCode: http.StatusBadGateway, ResponseBody: []byte(`{"error":{"message":"upstream busy"}}`)}
+	require.True(t, svc.TryNextModelAlias(ctx, c, a, "ds", failure))
+	require.Len(t, repo.modelRateLimitCalls, 1)
+	require.Equal(t, int64(872), repo.modelRateLimitCalls[0].accountID)
+	require.Equal(t, modelAliasRateLimitKey(a, ds1017), repo.modelRateLimitCalls[0].scope)
+	require.Equal(t, "model_alias_leaf_transient", repo.modelRateLimitCalls[0].reason)
+	events := c.MustGet(OpsUpstreamErrorsKey).([]*OpsUpstreamErrorEvent)
+	require.Len(t, events, 1)
+	require.Equal(t, int64(872), events[0].AccountID)
+	require.Equal(t, ds1017, events[0].Model)
+	require.Equal(t, 502, events[0].UpstreamStatusCode)
 }
 
 func TestModelAliasTreeCatalogRootsFallbackAndValidation(t *testing.T) {
