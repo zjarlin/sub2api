@@ -2727,6 +2727,45 @@ func (h *AccountHandler) GetTempUnschedulable(c *gin.Context) {
 	})
 }
 
+// SetQuotaRecoveryDate accepts an explicit date at which a quota-exhausted
+// account becomes schedulable again.
+// PUT /api/v1/admin/accounts/:id/quota-recovery
+//
+// 只接受显式 ISO-8601 时间（含时区），避免服务器时区与操作者预期不一致时把
+// 恢复日期理解为另一天；历史上限与「必须晚于当前时间」由 service 统一校验。
+func (h *AccountHandler) SetQuotaRecoveryDate(c *gin.Context) {
+	accountID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+
+	var req struct {
+		Until string `json:"until"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	raw := strings.TrimSpace(req.Until)
+	if raw == "" {
+		response.BadRequest(c, "until is required")
+		return
+	}
+	until, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		response.BadRequest(c, "until must be an RFC3339 timestamp with timezone")
+		return
+	}
+
+	account, err := h.rateLimitService.SetManualQuotaRecovery(c.Request.Context(), accountID, until)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
+}
+
 // ClearTempUnschedulable handles clearing temporary unschedulable status
 // DELETE /api/v1/admin/accounts/:id/temp-unschedulable
 func (h *AccountHandler) ClearTempUnschedulable(c *gin.Context) {

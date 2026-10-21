@@ -452,6 +452,18 @@ export async function getTempUnschedulableStatus(id: number): Promise<TempUnsche
 }
 
 /**
+ * Set an explicit quota recovery date for an account.
+ * The account stops scheduling until the date and is picked up automatically afterwards.
+ * @param id - Account ID
+ * @param until - RFC3339 timestamp with timezone
+ * @returns Updated account
+ */
+export async function setQuotaRecoveryDate(id: number, until: string): Promise<Account> {
+  const { data } = await apiClient.put<Account>(`/admin/accounts/${id}/quota-recovery`, { until })
+  return data
+}
+
+/**
  * Reset temporary unschedulable status
  * @param id - Account ID
  * @returns Success confirmation
@@ -1241,6 +1253,7 @@ export const accountsAPI = {
   resetAccountQuota,
   getTempUnschedulableStatus,
   resetTempUnschedulable,
+  setQuotaRecoveryDate,
   setSchedulable,
   getAvailableModels,
   syncUpstreamModels,

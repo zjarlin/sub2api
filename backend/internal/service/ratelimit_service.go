@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/tidwall/gjson"
 )
@@ -2345,6 +2346,76 @@ func (s *RateLimitService) samplePassiveUsageFromHeaders(ctx context.Context, ac
 			slog.Warn("passive_usage_update_failed", "account_id", account.ID, "error", err)
 		}
 	}
+}
+
+// 管理员手动指定「额度用尽」账号的恢复日期。
+//
+// 额度用尽（上游 429 / 余额耗尽）在现有实现里表现为可自愈的临时停调，但冷却时长由
+// 错误码规则或响应头推断，管理员无法录入供应商给出的真实恢复日期。这里把日期写入同一
+// 套 temp_unschedulable 链路：在日期前不参与调度，到期后调度器自动放回候选池，
+// 不新增第三套账号状态，也不做永久禁用。
+const (
+	manualQuotaRecoveryReasonPrefix = "manual_quota_recovery"
+	// manualQuotaRecoveryMaxAhead 限制可录入的最远日期，避免误输入导致账号被长期静默停调。
+	manualQuotaRecoveryMaxAhead = 366 * 24 * time.Hour
+)
+
+// SetManualQuotaRecovery 设置账号的额度恢复日期。
+//
+// until 必须是未来时间且不超过一年：恢复日期是「何时重新参与调度」的承诺，
+// 过去时间会让账号立即恢复，与调用方「额度用尽需要停到某天」的意图不符，
+// 因此直接拒绝而不是静默改写。
+func (s *RateLimitService) SetManualQuotaRecovery(ctx context.Context, accountID int64, until time.Time) (*Account, error) {
+	if s == nil || s.accountRepo == nil || accountID <= 0 {
+		return nil, infraerrors.BadRequest("ACCOUNT_QUOTA_RECOVERY_INVALID", "account id is required")
+	}
+	now := time.Now()
+	until = until.UTC().Truncate(time.Minute)
+	if !until.After(now) {
+		return nil, infraerrors.BadRequest("ACCOUNT_QUOTA_RECOVERY_INVALID", "quota recovery date must be in the future")
+	}
+	if until.Sub(now) > manualQuotaRecoveryMaxAhead {
+		return nil, infraerrors.BadRequest("ACCOUNT_QUOTA_RECOVERY_INVALID", "quota recovery date must be within one year")
+	}
+	account, err := s.accountRepo.GetByID(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	if account == nil {
+		return nil, ErrAccountNotFound
+	}
+	if !account.IsActive() {
+		// 永久禁用 / 未启用调度的账号不能靠恢复日期复活，避免掩盖真实的停用决策。
+		return nil, infraerrors.BadRequest("ACCOUNT_QUOTA_RECOVERY_NOT_ACTIVE", "quota recovery can only be set on an active account")
+	}
+	if account.Platform == PlatformMail {
+		return nil, infraerrors.BadRequest("ACCOUNT_QUOTA_RECOVERY_UNSUPPORTED", "mail accounts are not scheduled as models")
+	}
+
+	state := &TempUnschedState{
+		UntilUnix:           until.Unix(),
+		TriggeredAtUnix:     now.Unix(),
+		MatchedKeyword:      manualQuotaRecoveryReasonPrefix,
+		RuleIndex:           upstreamCreditsExhaustedRuleIndex,
+		Scope:               TempUnschedScopeAccount,
+		ManualQuotaRecovery: true,
+	}
+	raw, err := json.Marshal(state)
+	if err != nil {
+		return nil, err
+	}
+	reason := string(raw)
+	s.notifyAccountSchedulingBlocked(account, until, manualQuotaRecoveryReasonPrefix)
+	if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, until, reason); err != nil {
+		return nil, err
+	}
+	if s.tempUnschedCache != nil {
+		if err := s.tempUnschedCache.SetTempUnsched(ctx, account.ID, state); err != nil {
+			slog.Warn("manual_quota_recovery_cache_set_failed", "account_id", account.ID, "error", err)
+		}
+	}
+	slog.Info("manual_quota_recovery_set", "account_id", account.ID, "until", until)
+	return s.accountRepo.GetByID(ctx, accountID)
 }
 
 // ClearRateLimit 清除账号的限流状态

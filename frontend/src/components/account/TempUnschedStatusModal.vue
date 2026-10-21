@@ -109,6 +109,39 @@
         >
           {{ triggerEvidenceText }}
         </div>
+
+        <!-- 手动指定恢复日期：额度用尽的账号在日期前不参与调度，到期后自动回到候选池。 -->
+        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+          <p class="text-sm font-medium text-gray-900 dark:text-gray-100">
+            {{ t('admin.accounts.tempUnschedulable.recoveryDate') }}
+          </p>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.accounts.tempUnschedulable.recoveryDateHint') }}
+          </p>
+          <div class="mt-3 flex flex-wrap items-center gap-2">
+            <input
+              v-model="recoveryInput"
+              type="datetime-local"
+              class="input w-auto"
+              :aria-label="t('admin.accounts.tempUnschedulable.recoveryDate')"
+              data-testid="quota-recovery-input"
+            />
+            <button
+              type="button"
+              class="btn btn-primary btn-sm"
+              :disabled="savingDate || !recoveryInput"
+              @click="handleSaveRecoveryDate"
+            >
+              {{ savingDate ? t('admin.accounts.tempUnschedulable.savingRecoveryDate') : t('admin.accounts.tempUnschedulable.saveRecoveryDate') }}
+            </button>
+          </div>
+          <p v-if="recoveryDateHint" class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+            {{ recoveryDateHint }}
+          </p>
+          <p class="mt-2 text-xs text-amber-600 dark:text-amber-400">
+            {{ t('admin.accounts.tempUnschedulable.recoveryDateTimezoneHint') }}
+          </p>
+        </div>
       </div>
     </div>
 
@@ -157,7 +190,7 @@ import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
 import type { Account, TempUnschedulableStatus } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
-import { formatDateTime } from '@/utils/format'
+import { formatDateTime, formatDateTimeLocalInput, parseDateTimeLocalInput } from '@/utils/format'
 
 const props = defineProps<{
   show: boolean
@@ -174,10 +207,26 @@ const appStore = useAppStore()
 
 const loading = ref(false)
 const resetting = ref(false)
+const savingDate = ref(false)
+const recoveryInput = ref('')
+
+// 默认给出「明天此刻」，让额度用尽账号有一个明确的可提交值，同时保留编辑。
+const defaultRecoveryInput = () => formatDateTimeLocalInput(Math.floor(Date.now() / 1000) + 24 * 3600)
+const resetRecoveryInput = (seed: string | null = null) => {
+  recoveryInput.value = seed || defaultRecoveryInput()
+}
 const status = ref<TempUnschedulableStatus | null>(null)
 let requestVersion = 0
 
 const state = computed(() => status.value?.state || null)
+
+// 已有恢复日期时回填到本地时间控件，避免管理员重复推算时区。
+const recoveryDateHint = computed(() => {
+  if (!state.value?.until_unix) return ''
+  return t('admin.accounts.status.tempUnschedulableUntil', {
+    time: formatDateTime(new Date(state.value.until_unix * 1000))
+  })
+})
 
 const isActive = computed(() => {
   if (!status.value?.active || !state.value) return false
@@ -242,7 +291,13 @@ const loadStatus = async () => {
   loading.value = true
   try {
     const result = await adminAPI.accounts.getTempUnschedulableStatus(props.account.id)
-    if (version === requestVersion) status.value = result
+    if (version !== requestVersion) return
+    status.value = result
+    const untilUnix = result.state?.until_unix
+    if (untilUnix && untilUnix * 1000 > Date.now()) {
+      // 已有恢复日期时以真实值回填，避免管理员重复推算时区。
+      resetRecoveryInput(formatDateTimeLocalInput(untilUnix))
+    }
   } catch (error: any) {
     if (version !== requestVersion) return
     appStore.showError(error?.message || t('admin.accounts.tempUnschedulable.failedToLoad'))
@@ -254,6 +309,32 @@ const loadStatus = async () => {
 
 const handleClose = () => {
   emit('close')
+}
+
+const handleSaveRecoveryDate = async () => {
+  if (!props.account) return
+  const timestamp = parseDateTimeLocalInput(recoveryInput.value)
+  if (!timestamp) {
+    appStore.showError(t('admin.accounts.tempUnschedulable.recoveryDateInvalid'))
+    return
+  }
+  if (timestamp * 1000 <= Date.now()) {
+    appStore.showError(t('admin.accounts.tempUnschedulable.recoveryDateMustBeFuture'))
+    return
+  }
+  savingDate.value = true
+  try {
+    // 控件是本地时间，提交前转成带时区的 UTC，避免服务端按各自时区解释。
+    const until = new Date(timestamp * 1000).toISOString()
+    const updated = await adminAPI.accounts.setQuotaRecoveryDate(props.account.id, until)
+    appStore.showSuccess(t('admin.accounts.tempUnschedulable.recoveryDateSaved'))
+    emit('reset', updated)
+    handleClose()
+  } catch (error: any) {
+    appStore.showError(error?.message || t('admin.accounts.tempUnschedulable.recoveryDateSaveFailed'))
+  } finally {
+    savingDate.value = false
+  }
 }
 
 const handleReset = async () => {
@@ -276,6 +357,7 @@ watch(
   ([visible], _, onCleanup) => {
     onCleanup(() => { requestVersion++ })
     if (visible && props.account) {
+      resetRecoveryInput()
       loadStatus()
       return
     }

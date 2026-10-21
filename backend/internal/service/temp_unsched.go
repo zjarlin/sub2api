@@ -18,6 +18,9 @@ type TempUnschedState struct {
 	TriggerWindowMinutes int    `json:"trigger_window_minutes,omitempty"` // 计数窗口（分钟）
 	Scope                string `json:"scope,omitempty"`                  // 隔离粒度：account / model
 	Model                string `json:"model,omitempty"`                  // 模型级时被冷却的模型键
+	// ManualQuotaRecovery 标记这条停调由管理员手动指定「额度恢复日期」写入。
+	// 它仍是可自愈的临时停调：到期后调度器自动放回候选池，不需要清理任务。
+	ManualQuotaRecovery bool `json:"manual_quota_recovery,omitempty"`
 }
 
 // TempUnschedCache 临时不可调度缓存接口
