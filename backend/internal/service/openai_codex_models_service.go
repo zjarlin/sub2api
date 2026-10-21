@@ -849,7 +849,12 @@ func deepSeekCodexDisplayName(modelID string) string {
 }
 
 func isDeepSeekCodexModel(modelID string) bool {
-	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(modelID)), "deepseek-")
+	normalized := strings.ToLower(strings.TrimSpace(modelID))
+	// 渠道前缀不改变模型能力；顶层别名投影需要继承真实叶子的思考档位。
+	if i := strings.LastIndex(normalized, "/"); i >= 0 {
+		normalized = normalized[i+1:]
+	}
+	return strings.HasPrefix(normalized, "deepseek-")
 }
 
 // isDeepSeekV41FlashCodexModel 覆盖 V4.1 Flash 及其大小写、下划线、日期与渠道前缀写法；

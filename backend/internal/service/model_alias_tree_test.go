@@ -39,6 +39,26 @@ func dsTreeAccount() *Account {
 	return a
 }
 
+func TestModelAliasTreeCodexCatalogInheritsDeepSeekReasoningLevels(t *testing.T) {
+	t.Parallel()
+
+	for _, modelID := range []string{ds1017, dsLegacy, "deepseek-flash"} {
+		t.Run(modelID, func(t *testing.T) {
+			// 同时列出通用根节点，验证优先叶子的能力确实替换根节点默认值。
+			body, err := BuildCodexModelsManifest([]string{"ds", modelID})
+			require.NoError(t, err)
+			body, err = dsTreePolicy().CanonicalizeCatalog(body)
+			require.NoError(t, err)
+			models := decodeCodexManifestModels(t, body)
+			require.Len(t, models, 1)
+			require.Equal(t, "ds", models[0]["slug"])
+			require.Equal(t, "high", models[0]["default_reasoning_level"])
+			require.Equal(t, []string{"low", "high", "max"}, effortsFromManifestModel(t, models[0]))
+			require.EqualValues(t, 262_144, models[0]["context_window"])
+		})
+	}
+}
+
 func TestModelAliasTreePriorityExactEvidenceAndBaseURL(t *testing.T) {
 	p := dsTreePolicy()
 	require.NoError(t, p.Validate())
