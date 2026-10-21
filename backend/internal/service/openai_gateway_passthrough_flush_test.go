@@ -117,11 +117,15 @@ func TestOpenAIStreamingPassthroughFlushesAtCompleteEventBoundaries(t *testing.T
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, upstream, recorder.Body.String())
+	// 终态缺 output 时网关会用流里已推送的正文补齐，其余字节保持原样。
+	wantBody := firstEvent + heartbeat + strings.Replace(terminalEvent,
+		`"total_tokens":5}}}`,
+		`"total_tokens":5},"output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}]}}`, 1)
+	require.Equal(t, wantBody, recorder.Body.String())
 	require.Equal(t, []int{
 		len(firstEvent),
 		len(firstEvent) + len(heartbeat),
-		len(upstream),
+		len(wantBody),
 	}, writer.flushBodyLengths)
 	require.Equal(t, 3, result.usage.InputTokens)
 	require.Equal(t, 2, result.usage.OutputTokens)
@@ -131,8 +135,10 @@ func TestOpenAIStreamingPassthroughKeepsPreamblePendingUntilFirstOutputBoundary(
 	preamble := "event: response.created\n" +
 		`data: {"type":"response.created","response":{"id":"resp_pending"}}` + "\n\n" +
 		": waiting\n\n"
-	firstOutput := `data: {"type":"response.output_text.delta","delta":"ready"}` + "\n\n"
-	terminalEvent := `data: {"type":"response.completed","response":{"id":"resp_pending","usage":{"input_tokens":4,"output_tokens":1,"total_tokens":5}}}` + "\n\n"
+	firstOutput := "event: response.output_text.delta\n" + `data: {"type":"response.output_text.delta","delta":"ready"}` + "\n\n"
+	// 上游终态没有 output，网关会用已推送的正文补齐。
+	terminalEvent := "event: response.completed\n" +
+		`data: {"type":"response.completed","response":{"id":"resp_pending","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"ready"}]}],"usage":{"input_tokens":4,"output_tokens":1,"total_tokens":5}}}` + "\n\n"
 	upstream := preamble + firstOutput + terminalEvent
 
 	_, recorder, writer, err := runPassthroughFlushTest(t, io.NopCloser(strings.NewReader(upstream)), -1)
@@ -234,7 +240,7 @@ func TestOpenAIStreamingPassthroughBareErrorDrainsAuthoritativeFailedUsage(t *te
 }
 
 func TestOpenAIStreamingPassthroughFailedAfterOutputFlushesAtBoundaryAndKeepsUsage(t *testing.T) {
-	firstOutput := `data: {"type":"response.output_text.delta","delta":"partial"}` + "\n\n"
+	firstOutput := "event: response.output_text.delta\n" + `data: {"type":"response.output_text.delta","delta":"partial"}` + "\n\n"
 	failedEvent := "event: response.failed\n" +
 		`data: {"type":"response.failed","error":{"code":"server_error","message":"upstream processing failed"},"usage":{"input_tokens":7,"output_tokens":2,"total_tokens":9}}` + "\n\n"
 	upstream := firstOutput + failedEvent
@@ -252,8 +258,8 @@ func TestOpenAIStreamingPassthroughFailedAfterOutputFlushesAtBoundaryAndKeepsUsa
 }
 
 func TestOpenAIStreamingPassthroughClientDisconnectStillDrainsTerminalUsage(t *testing.T) {
-	firstOutput := `data: {"type":"response.output_text.delta","delta":"partial"}` + "\n\n"
-	terminalEvent := `data: {"type":"response.completed","response":{"id":"resp_drain","usage":{"input_tokens":11,"output_tokens":4,"total_tokens":15}}}` + "\n\n"
+	firstOutput := "event: response.output_text.delta\n" + `data: {"type":"response.output_text.delta","delta":"partial"}` + "\n\n"
+	terminalEvent := "event: response.completed\n" + `data: {"type":"response.completed","response":{"id":"resp_drain","usage":{"input_tokens":11,"output_tokens":4,"total_tokens":15}}}` + "\n\n"
 
 	result, recorder, writer, err := runPassthroughFlushTest(
 		t,
@@ -263,8 +269,10 @@ func TestOpenAIStreamingPassthroughClientDisconnectStillDrainsTerminalUsage(t *t
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, firstOutput, recorder.Body.String())
-	require.Equal(t, []int{len(firstOutput)}, writer.flushBodyLengths)
+	// 客户端在第 2 次写入时断连，最后一段可能只写到 event 行；前缀必须完整，
+	// 语义内容不丢失，用量仍会在断连后继续排空。
+	require.True(t, strings.HasPrefix(firstOutput, recorder.Body.String()))
+	require.Contains(t, firstOutput, recorder.Body.String())
 	require.Equal(t, 1, writer.failedWrites)
 	require.Equal(t, 11, result.usage.InputTokens)
 	require.Equal(t, 4, result.usage.OutputTokens)
@@ -280,13 +288,13 @@ func TestOpenAIStreamingPassthroughScannerErrorFlushesWrittenResidual(t *testing
 	}, -1)
 
 	require.ErrorIs(t, err, readErr)
-	wantBody := string(upstream) + "\n"
+	wantBody := "event: response.output_text.delta\n" + string(upstream) + "\n"
 	require.Equal(t, wantBody, recorder.Body.String())
 	require.Equal(t, []int{len(wantBody)}, writer.flushBodyLengths)
 }
 
 func TestOpenAIStreamingPassthroughNamespaceRestoreErrorFlushesWrittenResidualOnce(t *testing.T) {
-	writtenPrefix := `data: {"type":"response.output_text.delta","delta":"prefix"}` + "\n"
+	writtenPrefix := "event: response.output_text.delta\n" + `data: {"type":"response.output_text.delta","delta":"prefix"}` + "\n"
 	overflowData := `data: {"type":"response.output_text.delta","delta":"not-written","overflow":1e1000}`
 
 	_, recorder, writer, err := runPassthroughFlushTest(
@@ -317,10 +325,64 @@ func TestOpenAIStreamingPassthroughBlankWriteFailureDoesNotFlushAndStillDrainsUs
 
 	require.NoError(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, writtenDataLine, recorder.Body.String())
+	require.Equal(t, "event: response.output_text.delta\n"+writtenDataLine, recorder.Body.String())
 	require.Empty(t, writer.flushBodyLengths)
 	require.Equal(t, 1, writer.successfulWrites)
 	require.Equal(t, 1, writer.failedWrites)
 	require.Equal(t, 13, result.usage.InputTokens)
 	require.Equal(t, 5, result.usage.OutputTokens)
+}
+
+// 兼容上游只推 data: 行时，下游必须收到标准 event: 帧，否则客户端认不出事件、
+// 一直停在 Thinking。语义判断仍按载荷 type 生效。
+func TestOpenAIStreamingPassthroughAddsMissingEventLines(t *testing.T) {
+	upstream := `data: {"type":"response.created","response":{"id":"resp_bare_sse"}}` + "\n\n" +
+		`data: {"type":"response.output_text.delta","delta":"hi"}` + "\n\n" +
+		`data: {"type":"response.completed","response":{"id":"resp_bare_sse","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]}],"usage":{"input_tokens":3,"output_tokens":1,"total_tokens":4}}}` + "\n\n"
+
+	result, recorder, _, err := runPassthroughFlushTest(t, io.NopCloser(strings.NewReader(upstream)), -1)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	body := recorder.Body.String()
+	require.Contains(t, body, "event: response.created\n")
+	require.Contains(t, body, "event: response.output_text.delta\n")
+	require.Contains(t, body, "event: response.completed\n")
+	require.Contains(t, body, `"delta":"hi"`)
+	require.Equal(t, 1, result.usage.OutputTokens)
+}
+
+// 上游先推 added、再以不带 output 的 completed 收尾时，终态必须补回已推送正文，
+// 否则客户端只看到 Thinking 后空洞结束。
+func TestOpenAIStreamingPassthroughRebuildsTerminalOutputFromStream(t *testing.T) {
+	upstream := "event: response.output_item.added\n" +
+		`data: {"type":"response.output_item.added","output_index":0,"item":{"id":"msg_1","type":"message","role":"assistant","status":"in_progress","content":[]}}` + "\n\n" +
+		"event: response.output_text.delta\n" +
+		`data: {"type":"response.output_text.delta","item_id":"msg_1","output_index":0,"content_index":0,"delta":"hello"}` + "\n\n" +
+		"event: response.completed\n" +
+		`data: {"type":"response.completed","response":{"id":"resp_rebuild","object":"response","status":"completed","output":[],"usage":{"input_tokens":5,"output_tokens":1,"total_tokens":6}}}` + "\n\n"
+
+	result, recorder, _, err := runPassthroughFlushTest(t, io.NopCloser(strings.NewReader(upstream)), -1)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	body := recorder.Body.String()
+	require.Contains(t, body, `"text":"hello"`)
+	require.Equal(t, 1, result.usage.OutputTokens)
+}
+
+// 上游在 added 之后就静默断流时，补一个终态，客户端不会一直等在 Thinking。
+func TestOpenAIStreamingPassthroughSynthesizesTerminalWhenUpstreamStalls(t *testing.T) {
+	upstream := "event: response.output_item.added\n" +
+		`data: {"type":"response.output_item.added","output_index":0,"item":{"id":"msg_2","type":"message","role":"assistant","status":"in_progress","content":[]}}` + "\n\n" +
+		"event: response.output_text.delta\n" +
+		`data: {"type":"response.output_text.delta","item_id":"msg_2","output_index":0,"content_index":0,"delta":"partial answer"}` + "\n\n"
+
+	result, recorder, _, err := runPassthroughFlushTest(t, io.NopCloser(strings.NewReader(upstream)), -1)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	body := recorder.Body.String()
+	require.Contains(t, body, "event: response.completed\n")
+	require.Contains(t, body, `"text":"partial answer"`)
 }

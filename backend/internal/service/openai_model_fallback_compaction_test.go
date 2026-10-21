@@ -147,7 +147,8 @@ func TestOpenAIFailoverCompactionAllowsAuthenticatedUngroupedKey(t *testing.T) {
 	require.True(t, compacted)
 }
 
-func TestOpenAIFailoverCompactionRejectsUnreadableHistoryAndFailedSummary(t *testing.T) {
+// 不透明压缩历史无法摘要时必须报错；摘要回合本身失败则退回可移植明文历史继续降级。
+func TestOpenAIFailoverCompactionRejectsUnreadableHistoryAndKeepsSummaryFailure(t *testing.T) {
 	for _, tc := range []string{"opaque_compaction", "summary_failure"} {
 		t.Run(tc, func(t *testing.T) {
 			calls := 0
@@ -161,17 +162,19 @@ func TestOpenAIFailoverCompactionRejectsUnreadableHistoryAndFailedSummary(t *tes
 				body = []byte(`{"model":"text-model","input":[{"type":"compaction","encrypted_content":"unknown"},{"role":"user","content":"continue"}]}`)
 			}
 			c, recorder := autoContinueTestContext(body, 9, 7)
-			_, _, err := svc.CompactOpenAIFailoverHistory(context.Background(), c, account, body)
-			require.Error(t, err)
+			next, compacted, err := svc.CompactOpenAIFailoverHistory(context.Background(), c, account, body)
 			require.Empty(t, recorder.Body.String())
 			if tc == "opaque_compaction" {
+				require.Error(t, err)
 				require.Zero(t, calls)
 				require.ErrorContains(t, err, "opaque compaction")
-			} else {
-				var failover *UpstreamFailoverError
-				require.ErrorAs(t, err, &failover)
-				require.Equal(t, 503, failover.StatusCode)
+				return
 			}
+			// 摘要失败不再把降级请求打成 502：保留清理后的可移植历史继续转发。
+			require.NoError(t, err)
+			require.False(t, compacted)
+			require.NotNil(t, next)
+			require.Equal(t, 1, calls)
 		})
 	}
 }

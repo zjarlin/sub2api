@@ -2002,6 +2002,62 @@ func (s *OpenAIGatewayService) nonStreamingTerminalFailureFailover(
 	return s.newOpenAIStreamFailoverErrorWithModel(c, account, passthrough, upstreamRequestID, payload, message, firstNonEmpty(canonicalModel...), headers)
 }
 
+// 兼容上游会按时序只推 data: 行（不带 event: 行）。客户端认不出事件类型时
+// 只会一直停在 Thinking，因此转发前按载荷 type 补回标准 SSE 事件名。
+func shouldAddOpenAISSEEventLine(line, eventType string) bool {
+	if strings.TrimSpace(eventType) == "" || !strings.HasPrefix(line, "data:") {
+		return false
+	}
+	if strings.TrimSpace(eventType) == "[DONE]" {
+		return false
+	}
+	return true
+}
+
+// 上游在推送正文后静默断流时，用本流累积的正文补一个终态，避免客户端永远等待；
+// 没有任何可交付内容时返回 nil，交由原有断流处理决定是否重试。
+func synthesizeOpenAIResponsesTerminalEvent(responseID, model string, acc *apicompat.BufferedResponseAccumulator) []byte {
+	output, ok := buildResponsesOutputJSON(acc, nil)
+	if !ok || !openAIResponsesOutputHasContent(gjson.ParseBytes(output)) {
+		return nil
+	}
+	payload, err := sjson.SetRawBytes([]byte(`{"type":"response.completed","response":{"object":"response","status":"completed","output":[]}}`), "response.output", output)
+	if err != nil {
+		return nil
+	}
+	if strings.TrimSpace(responseID) != "" {
+		payload, err = sjson.SetBytes(payload, "response.id", responseID)
+		if err != nil {
+			return nil
+		}
+	}
+	if strings.TrimSpace(model) != "" {
+		payload, err = sjson.SetBytes(payload, "response.model", model)
+		if err != nil {
+			return nil
+		}
+	}
+	return payload
+}
+
+// 终态里没有可见正文时，用流里已推送的 reasoning/message 补齐 output；
+// 终态本身就是最后一条正文（部分上游只把它放在 completed 里）时保持原样。
+func rebuildOpenAIResponsesTerminalOutput(data []byte, acc *apicompat.BufferedResponseAccumulator) ([]byte, bool) {
+	terminal := gjson.GetBytes(data, "response")
+	if terminal.Exists() && openAIResponsesOutputHasContent(terminal.Get("output")) {
+		return data, false
+	}
+	rebuilt, ok := buildResponsesOutputJSON(acc, nil)
+	if !ok || !openAIResponsesOutputHasContent(gjson.ParseBytes(rebuilt)) {
+		return data, false
+	}
+	patched, err := sjson.SetRawBytes(data, "response.output", rebuilt)
+	if err != nil {
+		return data, false
+	}
+	return patched, true
+}
+
 func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	ctx context.Context,
 	resp *http.Response,
@@ -2045,6 +2101,8 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	sawResponseFailed := false
 	terminalEventType := ""
 	semanticOutputSeen := false
+	// 透传只在终态缺 output 时才需要重建正文，按事件累积即可，成本可忽略。
+	outputAccumulator := apicompat.NewBufferedResponseAccumulator()
 	capacityFailoverSuppressedLogged := false
 	failedMessage := ""
 	clientOutputStarted := false
@@ -2175,6 +2233,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			dataBytes := []byte(data)
 			trimmedData := strings.TrimSpace(data)
 			rawEventType := effectiveOpenAISSEEventType(dataBytes, pendingSSEEventType)
+			eventLineMissing := strings.TrimSpace(pendingSSEEventType) == ""
 			observer.ObserveOpenAI(dataBytes, rawEventType)
 			if preserved := s.preserveDeepSeekReasoning(c, account, dataBytes); !bytes.Equal(preserved, dataBytes) {
 				dataBytes = preserved
@@ -2213,6 +2272,18 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			}
 			eventType := effectiveOpenAISSEEventType(dataBytes, rawEventType)
 			createdAtTracker.Observe(dataBytes, eventType)
+			// 部分兼容上游按时序只推 data: 行、不给 event: 行（客户端拿到后
+			// 认不出事件类型就会一直停在 Thinking）。这里按载荷 type 补回
+			// event 行，让下游看到的仍是标准 SSE 帧。
+			if eventLineMissing && shouldAddOpenAISSEEventLine(line, eventType) {
+				line = "event: " + eventType + "\n" + line
+			}
+			if responsesStreamEventMayContributeToOutput(eventType) && trimmedData != "[DONE]" {
+				var accumulated apicompat.ResponsesStreamEvent
+				if err := json.Unmarshal([]byte(openAICompatPayloadWithEventType(trimmedData, eventType)), &accumulated); err == nil {
+					outputAccumulator.ProcessEvent(&accumulated)
+				}
+			}
 			if codexFailureTerminal && sawBareError && !sawResponseFailed && eventType != "response.failed" {
 				suppressCurrentEvent = true
 			}
@@ -2336,6 +2407,18 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			if lineStartsClientOutput && trimmedData != "[DONE]" && !openAIStreamEventTypeIsTerminal(eventType) {
 				semanticOutputSeen = true
 			}
+			// 有的上游先推送 reasoning/message 的 added 帧，再以不带 output 的
+			// completed 收尾（或干脆在末帧里才带正文）；客户端只会看到 Thinking
+			// 然后空洞结束。终态缺正文时用本流已推送的内容补齐。
+			if (eventType == "response.completed" || eventType == "response.done") && trimmedData != "[DONE]" && !sawFailedEvent {
+				if patched, rebuilt := rebuildOpenAIResponsesTerminalOutput(dataBytes, outputAccumulator); rebuilt {
+					dataBytes, trimmedData, line = patched, string(patched), "data: "+string(patched)
+					semanticOutputSeen = true
+					logger.LegacyPrintf("service.openai_gateway",
+						"[OpenAI passthrough] Rebuilt missing terminal output from streamed events: account=%d request_id=%s",
+						account.ID, upstreamRequestID)
+				}
+			}
 			// OpenAI Responses streams that terminate with an empty
 			// response.completed (no output, no usage, no error, nothing sent
 			// to the client) are silent upstream refusals: fail over instead of
@@ -2399,6 +2482,31 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			break
 		}
 	}
+	// 有看到正文却始终没拿到终态（上游在 added 之后就静默断流）时，客户端只会
+	// 停在 Thinking；补一个终态帧，把已经推送的内容收尾。
+	synthesizeTerminal := func() bool {
+		if sawDone || sawTerminalEvent || sawFailedEvent || clientDisconnected || ctx.Err() != nil {
+			return false
+		}
+		synthesized := synthesizeOpenAIResponsesTerminalEvent(responseID, originalModel, outputAccumulator)
+		if synthesized == nil {
+			return false
+		}
+		if clientOutputStarted && !writePendingLines() {
+			clientDisconnected = true
+			return false
+		}
+		if _, err := fmt.Fprintf(w, "event: response.completed\ndata: %s\n\n", synthesized); err != nil {
+			return false
+		}
+		flushPending = true
+		flushPendingOutput()
+		sawTerminalEvent, terminalEventType = true, "response.completed"
+		logger.LegacyPrintf("service.openai_gateway",
+			"[OpenAI passthrough] Synthesized missing terminal event: account=%d request_id=%s",
+			account.ID, upstreamRequestID)
+		return true
+	}
 	ensureResponseFailedTerminal()
 	if err := documentScanner.Err(); err != nil {
 		if (sawDone || sawTerminalEvent) && !sawFailedEvent {
@@ -2447,6 +2555,11 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		if !openAIStreamClientOutputStarted(c, clientOutputStarted) {
 			return resultWithUsage(),
 				s.newOpenAIStreamFailoverError(c, account, true, upstreamRequestID, nil, "OpenAI stream ended before a terminal event")
+		}
+		if synthesizeTerminal() {
+			s.recordOpenAIProxyStreamDisconnect(account, errors.New("stream ended before terminal event"), upstreamRequestID)
+			logOpenAISuccessMissingUsage(ctx, c, account, resp, usage, terminalEventType, clientDisconnected)
+			return resultWithUsage(), nil
 		}
 		s.recordOpenAIProxyStreamDisconnect(account, errors.New("stream ended before terminal event"), upstreamRequestID)
 		return resultWithUsage(), newOpenAIUpstreamStreamReadError(

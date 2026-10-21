@@ -269,6 +269,14 @@ func autoContinueSummaryChunks(text string, size, maxChunks int) ([]string, erro
 	return chunks, nil
 }
 
+// 空摘要只区分「没有正文」和「超出上限」，日志不携带任何正文内容。
+func autoCompactionSummaryState(summary string) string {
+	if summary == "" {
+		return "empty"
+	}
+	return "too_large"
+}
+
 func (s *OpenAIGatewayService) callAutoContinueSummary(ctx context.Context, parent *gin.Context, account *Account, model, previous, chunk string) (string, string, error) {
 	data, err := json.Marshal(map[string]string{"previous_summary": previous, "history_chunk": chunk})
 	if err != nil {
@@ -306,15 +314,15 @@ func (s *OpenAIGatewayService) callAutoContinueSummary(ctx context.Context, pare
 		return "", "", fmt.Errorf("auto compaction summary request failed: %w", forwardErr)
 	}
 	summaryBody := writer.body.Bytes()
-	status := gjson.GetBytes(summaryBody, "status").String()
-	incompleteReason := gjson.GetBytes(summaryBody, "incomplete_details.reason").String()
-	// 达到输出上限的摘要仍包含可用正文；按 max_output_tokens 截断不算摘要失败。
-	truncated := status == "incomplete" && incompleteReason == "max_output_tokens"
-	if result == nil || writer.Status() >= 400 || writer.overflow || (status != "completed" && !truncated) {
-		return "", "", fmt.Errorf("auto compaction summary request failed: status=%s reason=%s", status, incompleteReason)
+	if result == nil || writer.Status() >= 400 || writer.overflow {
+		return "", "", fmt.Errorf("auto compaction summary request failed: status=%s reason=%s",
+			gjson.GetBytes(summaryBody, "status").String(), gjson.GetBytes(summaryBody, "incomplete_details.reason").String())
 	}
+	// 上游对截断的标注并不统一：有的只给 incomplete 不填 reason，有的把
+	// max_output_tokens 写进正文。摘要只要拿到可用正文就照常采用，只有正文
+	// 为空才按失败处理，避免一次截断把整个请求打成 502。
 	var text strings.Builder
-	for _, item := range gjson.GetBytes(writer.body.Bytes(), "output").Array() {
+	for _, item := range gjson.GetBytes(summaryBody, "output").Array() {
 		if item.Get("type").String() == "reasoning" {
 			continue
 		}
@@ -329,7 +337,9 @@ func (s *OpenAIGatewayService) callAutoContinueSummary(ctx context.Context, pare
 	}
 	summary := strings.TrimSpace(text.String())
 	if summary == "" || len(summary) > 32<<10 {
-		return "", "", errors.New("auto compaction summary is empty or too large")
+		return "", "", fmt.Errorf("auto compaction summary request failed: state=%s status=%s reason=%s",
+			autoCompactionSummaryState(summary), gjson.GetBytes(summaryBody, "status").String(),
+			gjson.GetBytes(summaryBody, "incomplete_details.reason").String())
 	}
 	if result.UpstreamResponseModel != "" {
 		model = result.UpstreamResponseModel

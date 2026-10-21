@@ -2548,7 +2548,8 @@ func TestOpenAIStreamingMissingTerminalEventReturnsIncompleteError(t *testing.T)
 	}
 }
 
-func TestOpenAIStreamingPassthroughMissingTerminalEventReturnsIncompleteError(t *testing.T) {
+// 已经向客户端推送正文后上游静默断流时，网关补发终态收尾，避免客户端一直 Thinking。
+func TestOpenAIStreamingPassthroughMissingTerminalEventSynthesizesCompletion(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{
 		Gateway: config.GatewayConfig{
@@ -2575,8 +2576,11 @@ func TestOpenAIStreamingPassthroughMissingTerminalEventReturnsIncompleteError(t 
 
 	_, err := svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, &Account{ID: 1}, time.Now(), "", "")
 	_ = pr.Close()
-	if err == nil || !strings.Contains(err.Error(), "missing terminal event") {
-		t.Fatalf("expected missing terminal event error, got %v", err)
+	if err != nil {
+		t.Fatalf("expected synthesized terminal event, got %v", err)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, "event: response.completed") || !strings.Contains(body, `"text":"partial"`) {
+		t.Fatalf("expected synthesized completed event with streamed text, got %q", body)
 	}
 }
 

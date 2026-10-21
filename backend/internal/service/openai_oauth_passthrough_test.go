@@ -2666,7 +2666,7 @@ func TestOpenAIGatewayService_OAuthPassthrough_InfoWhenStreamEndsWithoutDone(t *
 	c.Request.Header.Set("User-Agent", "codex_cli_rs/0.1.0")
 
 	originalBody := []byte(`{"model":"gpt-5.2","stream":true,"input":[{"type":"text","text":"hi"}]}`)
-	// 注意：刻意不发送 [DONE]，模拟上游中途断流。
+	// 注意：只推送一段正文就结束，模拟上游中途断流；网关必须补发终态收尾。
 	resp := &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "X-Request-Id": []string{"rid-truncate"}},
@@ -2691,8 +2691,10 @@ func TestOpenAIGatewayService_OAuthPassthrough_InfoWhenStreamEndsWithoutDone(t *
 	}
 
 	_, err := svc.Forward(context.Background(), c, account, originalBody)
-	require.ErrorContains(t, err, "missing terminal event")
-	require.ErrorIs(t, err, ErrOpenAIUpstreamStreamTruncated)
+	require.NoError(t, err)
+	body := rec.Body.String()
+	require.Contains(t, body, "event: response.completed")
+	require.Contains(t, body, `"text":"h"`)
 	require.True(t, logSink.ContainsMessage("上游流在未收到 [DONE] 时结束，疑似断流"))
 	require.True(t, logSink.ContainsMessageAtLevel("上游流在未收到 [DONE] 时结束，疑似断流", "info"))
 	require.True(t, logSink.ContainsFieldValue("upstream_request_id", "rid-truncate"))

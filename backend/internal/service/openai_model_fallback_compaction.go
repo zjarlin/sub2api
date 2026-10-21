@@ -3,8 +3,8 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
@@ -69,7 +69,12 @@ func (s *OpenAIGatewayService) CompactOpenAIFailoverHistory(ctx context.Context,
 		return cleaned, false, nil
 	}
 	if err != nil {
-		return nil, false, fmt.Errorf("compact model fallback history: %w", err)
+		// 摘要回合失败不能连累主请求：可移植的明文历史已经算好，直接用它
+		// 继续降级，最多损失压缩率，不会把客户端请求变成 502。
+		logger.LegacyPrintf("service.openai_gateway_fallback",
+			"[OpenAI] Model fallback keeps cleaned history after compaction failure (account: %d, history_bytes: %d): %v",
+			account.ID, len(cleaned), err)
+		return cleaned, false, nil
 	}
 	return next, true, nil
 }

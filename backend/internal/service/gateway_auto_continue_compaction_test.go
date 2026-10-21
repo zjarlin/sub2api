@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -406,4 +407,65 @@ func TestAutoContinueCompactionSummaryDoesNotReuseCallerTurnState(t *testing.T) 
 	require.Equal(t, "caller-session", c.GetHeader("session_id"))
 	require.Equal(t, "caller-state", c.GetHeader(openAICodexTurnStateHeader))
 	require.Equal(t, "caller-metadata", c.GetHeader("x-codex-turn-metadata"))
+}
+
+// 部分上游只把截断标成 incomplete、不填 reason（或写进正文），
+// 只要 output 里有正文就必须照常采用，否则整个请求会被误判成 502。
+func TestAutoContinueCompactionAcceptsSummaryWithoutIncompleteReason(t *testing.T) {
+	for _, reason := range []any{nil, "", "stop", "max_output_tokens"} {
+		t.Run(fmt.Sprintf("reason=%v", reason), func(t *testing.T) {
+			svc, account, _, _ := autoContinueTestService(t, "repair", func(_ []byte, _ int) (*http.Response, error) {
+				details := map[string]any{}
+				if reason != nil {
+					details["reason"] = reason
+				}
+				body, _ := json.Marshal(map[string]any{"id": "resp_compact_bare", "object": "response", "model": "text-model", "status": "incomplete",
+					"incomplete_details": details,
+					"output": []any{map[string]any{"type": "message", "role": "assistant", "status": "incomplete",
+						"content": []any{map[string]any{"type": "output_text", "text": autoCompactTestSummary}}}},
+					"usage": map[string]any{"input_tokens": 11, "output_tokens": 4096, "total_tokens": 4107}})
+				return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(bytes.NewReader(body))}, nil
+			})
+			account.Extra[openai_compat.ExtraKeyResponsesMode] = string(openai_compat.ResponsesSupportModeForceResponses)
+			c, _ := autoContinueTestContext(nil, 9, 7)
+			summary, _, err := svc.callAutoContinueSummary(context.Background(), c, account, "text-model", "", "history")
+			require.NoError(t, err)
+			require.Equal(t, autoCompactTestSummary, summary)
+		})
+	}
+}
+
+// 终态没有正文时仍要判失败，不能拿空摘要污染后续降级历史。
+func TestAutoContinueCompactionRejectsEmptyIncompleteSummary(t *testing.T) {
+	svc, account, _, _ := autoContinueTestService(t, "repair", func(_ []byte, _ int) (*http.Response, error) {
+		body, _ := json.Marshal(map[string]any{"id": "resp_compact_empty", "object": "response", "model": "text-model", "status": "incomplete",
+			"incomplete_details": map[string]any{"reason": "max_output_tokens"},
+			"output": []any{map[string]any{"type": "message", "role": "assistant", "status": "incomplete",
+				"content": []any{map[string]any{"type": "output_text", "text": "  "}}}},
+			"usage": map[string]any{"input_tokens": 11, "output_tokens": 4096, "total_tokens": 4107}})
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(bytes.NewReader(body))}, nil
+	})
+	account.Extra[openai_compat.ExtraKeyResponsesMode] = string(openai_compat.ResponsesSupportModeForceResponses)
+	c, _ := autoContinueTestContext(nil, 9, 7)
+	_, _, err := svc.callAutoContinueSummary(context.Background(), c, account, "text-model", "", "history")
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "state=empty")
+}
+
+// 摘要回合失败时降级必须继续：返回清理后的可移植历史，而不是把请求打成 502。
+func TestModelFallbackCompactionKeepsCleanedHistoryWhenSummaryFails(t *testing.T) {
+	svc, account, _, _ := autoContinueTestService(t, "repair", func(_ []byte, _ int) (*http.Response, error) {
+		body, _ := json.Marshal(map[string]any{"id": "resp_compact_bad", "object": "response", "model": "text-model", "status": "failed",
+			"error": map[string]any{"code": "server_error", "message": "summary upstream failed"}})
+		return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(bytes.NewReader(body))}, nil
+	})
+	account.Extra[openai_compat.ExtraKeyResponsesMode] = string(openai_compat.ResponsesSupportModeForceResponses)
+	c, _ := autoContinueTestContext(nil, 9, 7)
+	body := autoCompactTestInput(t)
+	next, compacted, err := svc.CompactOpenAIFailoverHistory(context.Background(), c, account, body)
+	require.NoError(t, err)
+	require.False(t, compacted)
+	require.NotNil(t, next)
+	require.NotContains(t, string(next), "context_management")
+	require.Equal(t, string(body), string(next))
 }
