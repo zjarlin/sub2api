@@ -262,7 +262,7 @@ func writeRetrievedModel(c *gin.Context, body []byte) {
 		writeOpenAIModelsError(c, http.StatusBadGateway, "upstream_error", "Invalid model catalogue")
 		return
 	}
-	modelID := service.ModelAliasesFromContext(c.Request.Context()).Canonicalize(c.Param("model"))
+	modelID := service.ModelAliasesFromContext(c.Request.Context()).RootID(c.Param("model"))
 	for _, raw := range catalog.Data {
 		var model map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &model); err != nil {
@@ -316,7 +316,7 @@ func filterPackagedModelCatalog(body []byte, virtualIDs []string, aliases *servi
 			return nil, err
 		}
 		id = aliases.Canonicalize(id)
-		if !containsString(virtualIDs, id) && !containsString(directIDs, id) && !isPublicPackagedVirtualModel(id) {
+		if !containsString(virtualIDs, id) && !containsString(directIDs, id) && !isPublicPackagedVirtualModel(id) && aliases.RootID(id) == id {
 			continue
 		}
 		visible = append(visible, entry)

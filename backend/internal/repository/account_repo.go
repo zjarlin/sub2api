@@ -1020,6 +1020,8 @@ func accountModelSearchPredicate(search string) dbpredicate.Account {
 				Ident(credentials).WriteString("->>'compact_model_mapping' ILIKE ").Arg(pattern).
 				WriteString(" OR ").
 				Ident(extra).WriteString("->'upstream_supported_models'->>'models' ILIKE ").Arg(pattern).
+				WriteString(" OR ").
+				Ident(extra).WriteString("->'model_route_probes'->>'models' ILIKE ").Arg(pattern).
 				WriteString(")")
 		}))
 	})

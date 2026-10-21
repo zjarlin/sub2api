@@ -10,12 +10,13 @@ import (
 	"go.uber.org/zap"
 )
 
-// 在鉴权后加载请求快照，覆盖 OpenAI 兼容及 Composite 分组的文本 HTTP 与模型目录。
+// 在鉴权后加载请求快照，覆盖 OpenAI 兼容及 Composite 分组的文本 HTTP、WebSocket 与模型目录。
 func GlobalModelAliases(settings *service.SettingService) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		key, ok := GetAPIKeyFromContext(c)
 		path := strings.TrimSuffix(c.Request.URL.Path, "/")
 		text := c.Request.Method == http.MethodPost && (strings.HasSuffix(path, "/responses") || strings.HasSuffix(path, "/responses/compact") || strings.HasSuffix(path, "/chat/completions") || strings.HasSuffix(path, "/messages"))
+		text = text || (c.Request.Method == http.MethodGet && strings.HasSuffix(path, "/responses") && strings.EqualFold(c.GetHeader("Upgrade"), "websocket"))
 		catalog := c.Request.Method == http.MethodGet && (strings.HasSuffix(path, "/models") || c.Param("model") != "")
 		if !ok || key == nil || key.Group == nil || (!text && !catalog) {
 			c.Next()

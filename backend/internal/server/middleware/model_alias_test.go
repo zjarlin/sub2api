@@ -194,3 +194,23 @@ func TestGlobalModelAliasesLoadsCompositeCatalogPolicy(t *testing.T) {
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/v1/responses", nil))
 	require.Equal(t, http.StatusOK, recorder.Code)
 }
+
+func TestGlobalModelAliasesWebSocketUpgrade(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &modelAliasToggleRepo{values: map[string]string{service.SettingKeyModelAliases: `{"groups":[{"canonical":"ds","aliases":[]},{"canonical":"deepseek-flash","parent":"ds","aliases":["deepseek-v4.1-flash"]}]}`}}
+	settings := service.NewSettingService(repo, nil)
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(ContextKeyAPIKey), &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI}})
+	})
+	router.Use(GlobalModelAliases(settings))
+	router.GET("/v1/responses", func(c *gin.Context) {
+		require.Equal(t, "ds", service.ModelAliasesFromContext(c.Request.Context()).RootID("deepseek-v4.1-flash"))
+		c.Status(200)
+	})
+	request := httptest.NewRequest("GET", "/v1/responses", nil)
+	request.Header.Set("Upgrade", "websocket")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	require.Equal(t, 200, recorder.Code)
+}

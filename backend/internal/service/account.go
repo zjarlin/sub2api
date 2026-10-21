@@ -24,7 +24,8 @@ import (
 
 type Account struct {
 	// 请求级全局别名派生映射，不持久化。
-	globalModelMapping map[string]string
+	globalModelMapping        map[string]string
+	modelAliasTreeUnavailable map[string]bool
 	// 请求级别名组成员快照（来自 model_aliases 设置），不持久化。
 	// 供上游目录的同义词归一化判定使用，使 provider 前缀不同的同一模型可互认。
 	modelAliasGroups        []ModelAliasGroup
@@ -1010,6 +1011,9 @@ func (a *Account) explicitMappingTrustsCatalogAbsence(requestedModel string, map
 // fork 侧额外保留「已登记不支持模型」短路与空映射的适配器约束。
 func (a *Account) IsModelSupported(requestedModel string) bool {
 	if a == nil {
+		return false
+	}
+	if a.modelAliasTreeUnavailable[requestedModel] {
 		return false
 	}
 	if a.IsModelKnownUnsupported(requestedModel) {

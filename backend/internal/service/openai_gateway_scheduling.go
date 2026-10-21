@@ -1004,7 +1004,7 @@ func (s *OpenAIGatewayService) selectAccountForModelWithExclusionsStickyHit(ctx 
 // tryStickySessionHit attempts to get account from sticky session.
 // Returns account if hit and usable; clears session and returns nil if account is unavailable.
 func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID *int64, platform string, sessionHash, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, stickyAccountID int64, requiredCapability OpenAIEndpointCapability) *Account {
-	if sessionHash == "" {
+	if aliases := ModelAliasesFromContext(ctx); sessionHash == "" || aliases.isTreeGroup(aliases.Canonicalize(requestedModel)) {
 		return nil
 	}
 	platform = NormalizeOpenAICompatiblePlatform(platform)
@@ -1137,6 +1137,10 @@ func (s *OpenAIGatewayService) selectBestAccount(ctx context.Context, groupID *i
 	}
 	sort.SliceStable(eligible, func(i, j int) bool {
 		a, b := eligible[i], eligible[j]
+		aliases := ModelAliasesFromContext(ctx)
+		if ar, br := aliases.AccountRouteRank(a, requestedModel), aliases.AccountRouteRank(b, requestedModel); ar != br {
+			return ar < br
+		}
 		if requireCompact && compactTiers[a.ID] != compactTiers[b.ID] {
 			return compactTiers[a.ID] > compactTiers[b.ID]
 		}
@@ -1262,7 +1266,8 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	// rewriting the durable binding here would make a short burst migrate the
 	// whole conversation to a cache-cold account.
 	stickySpillover := false
-	if sessionHash != "" {
+	aliases := ModelAliasesFromContext(ctx)
+	if sessionHash != "" && !aliases.isTreeGroup(aliases.Canonicalize(requestedModel)) {
 		accountID := stickyAccountID
 		if accountID > 0 && !isExcluded(accountID) {
 			account, err := s.getSchedulableAccount(ctx, accountID)
@@ -1438,6 +1443,10 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			selectionOrder = append(selectionOrder, available...)
 		}
 
+		sort.SliceStable(selectionOrder, func(i, j int) bool {
+			aliases := ModelAliasesFromContext(ctx)
+			return aliases.AccountRouteRank(selectionOrder[i].account, requestedModel) < aliases.AccountRouteRank(selectionOrder[j].account, requestedModel)
+		})
 		for _, item := range selectionOrder {
 			fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, item.account, platform, requestedModel, false, requiredCapability)
 			if fresh == nil {
@@ -1527,6 +1536,10 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 	if requireCompact {
 		candidates = prioritizeOpenAICompactAccounts(candidates)
 	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		aliases := ModelAliasesFromContext(ctx)
+		return aliases.AccountRouteRank(candidates[i], requestedModel) < aliases.AccountRouteRank(candidates[j], requestedModel)
+	})
 	for _, acc := range candidates {
 		fresh := s.resolveFreshSchedulableOpenAIAccount(ctx, acc, platform, requestedModel, false, requiredCapability)
 		if fresh == nil {

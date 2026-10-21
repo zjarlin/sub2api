@@ -1687,7 +1687,8 @@ export async function updateVisionFallbackPolicy(policy: VisionFallbackPolicy): 
   return data;
 }
 
-export interface ModelAliasGroup { canonical: string; aliases: string[] }
+export interface ModelAliasRoute { model: string; base_urls?: string[]; priority: number }
+export interface ModelAliasGroup { canonical: string; aliases: string[]; parent?: string; routes?: ModelAliasRoute[] }
 export interface ModelAliasPolicy { groups: ModelAliasGroup[] }
 export async function getModelAliasPolicy(): Promise<ModelAliasPolicy> {
   const { data } = await apiClient.get<ModelAliasPolicy>("/admin/settings/model-aliases");

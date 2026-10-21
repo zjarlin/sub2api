@@ -81,7 +81,7 @@ func (h *GatewayHandler) autoModelPlan(ctx context.Context, group *service.Group
 	plan := make([]service.AutoModelCandidate, 0, len(canonical))
 	for _, model := range canonical {
 		// ask 链路排除 deepseek-v4.1-flash，避免问答被该模型抢占；auto 链路不受影响。
-		if isAsk && service.ModelAliasesFromContext(ctx).Canonicalize(model) == "deepseek-v4.1-flash" {
+		if isAsk && (aliases.Canonicalize(model) == "deepseek-v4.1-flash" || aliases.Canonicalize(model) == "deepseek-flash" || model == "ds") {
 			continue
 		}
 		platforms := service.AutoModelInventoryPlatforms(ctx, model)

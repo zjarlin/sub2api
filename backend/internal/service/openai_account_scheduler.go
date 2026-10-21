@@ -531,7 +531,9 @@ func (s *defaultOpenAIAccountScheduler) Select(
 		}
 	}
 
-	if !req.StickyWeighted {
+	// 树请求先比较上游叶子，再使用会话权重；续接与父任务的强绑定在上方保留。
+	aliases := ModelAliasesFromContext(ctx)
+	if !req.StickyWeighted && !aliases.isTreeGroup(aliases.Canonicalize(req.RequestedModel)) {
 		var escapedAccountID int64
 		req.escapedStickyAccountID = &escapedAccountID
 		selection, escapedSticky, err := s.selectBySessionHash(ctx, req)
@@ -1188,7 +1190,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 	req OpenAIAccountScheduleRequest,
 	plan openAIAccountLoadPlan,
 ) []openAIAccountCandidateScore {
-	buildSelectionOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
+	buildRankedSelectionOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
 		if len(pool) == 0 || plan.topK <= 0 {
 			return nil
 		}
@@ -1250,6 +1252,32 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAISelectionOrder(
 			return isOpenAIAccountCandidateBetter(overflow[i], overflow[j])
 		})
 		return append(primary, overflow...)
+	}
+
+	// 先按叶子分池，再在各池内应用权重与 topK，避免首选路由被低优先级的高分账号挤出。
+	buildSelectionOrder := func(pool []openAIAccountCandidateScore) []openAIAccountCandidateScore {
+		if len(pool) == 0 {
+			return nil
+		}
+		aliases := &ModelAliasPolicy{Groups: pool[0].account.modelAliasGroups}
+		if !aliases.isTreeGroup(aliases.Canonicalize(req.RequestedModel)) {
+			return buildRankedSelectionOrder(pool)
+		}
+		byRank := map[int][]openAIAccountCandidateScore{}
+		ranks := []int{}
+		for _, candidate := range pool {
+			rank := aliases.AccountRouteRank(candidate.account, req.RequestedModel)
+			if _, ok := byRank[rank]; !ok {
+				ranks = append(ranks, rank)
+			}
+			byRank[rank] = append(byRank[rank], candidate)
+		}
+		sort.Ints(ranks)
+		var order []openAIAccountCandidateScore
+		for _, rank := range ranks {
+			order = append(order, buildRankedSelectionOrder(byRank[rank])...)
+		}
+		return order
 	}
 
 	if req.RequireCompact {

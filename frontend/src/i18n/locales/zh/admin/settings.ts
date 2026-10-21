@@ -78,7 +78,8 @@ export default {
   title: '模型系统提示词', description: '为指定模型追加一段 system 提示词，用来统一约束语言、语气等。按别名归一后的模型 ID 精确匹配，只对 OpenAI 兼容入口生效。', model: '模型 ID {index}', prompt: '提示词 {index}', promptPlaceholder: '例如：始终使用简体中文回答，除非用户明确要求其他语言。', hint: '模型 ID 使用别名归一后的规范 ID（见“全局模型同义词”）。命中时提示词会追加在已有 system 之后，不覆盖客户端自带的 system。', add: '添加模型提示词', saved: '模型提示词已保存，后续请求生效。', required: '每条都需要模型 ID 和提示词。', duplicate: '模型 ID 不能重复。',
 },
       modelAliases: {
-  title: '全局模型同义词', description: '统一管理不同渠道使用的同一模型 ID。请求日志会同时记录原始 ID、规范 ID、实际上游 ID 和账号。', canonical: '规范模型 ID {index}', aliases: '同义模型 ID {index}', hint: '每组第一行是规范 ID，第二行填写同义 ID，每行一个。不会修改账号映射。', add: '添加同义词组', saved: '同义词已保存，后续请求生效。', required: '每组都需要规范 ID 和至少一个同义 ID。', duplicate: '所有模型 ID 必须全局唯一。',
+  title: '全局模型同义词', description: '统一管理不同渠道使用的同一模型 ID。请求日志会同时记录原始 ID、规范 ID、实际上游 ID 和账号。', canonical: '规范模型 ID {index}', aliases: '同义模型 ID {index}', hint: '父节点组成降级树，对外只显示根 ID。路由优先级越小越优先；基础地址精确匹配（可填多个，留空不限渠道）。只有账号白名单、精确目录或调用验证支持的模型才参与调度。', add: '添加同义词组', saved: '同义词已保存，后续请求生效。', required: '每组都需要规范 ID。', duplicate: '所有模型 ID 必须全局唯一。',
+ parent: '父节点', root: '顶层入口', routeModel: '精确上游模型 ID', priority: '优先级', baseURLs: '基础地址过滤（空格分隔，留空不限）', addRoute: '添加渠道路由', invalidTree: '父节点必须存在，且不能循环。', invalidRoute: '路由 ID 必须属于本组，优先级必须是整数。',
 },
       title: '系统设置',
       description: '管理注册、邮箱验证、默认值和 SMTP 设置',

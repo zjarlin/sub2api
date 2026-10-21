@@ -7,20 +7,23 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 )
 
 const SettingKeyModelAliases = "model_aliases"
 
 type ModelAliasGroup struct {
-	Canonical string   `json:"canonical"`
-	Aliases   []string `json:"aliases"`
+	Canonical string            `json:"canonical"`
+	Aliases   []string          `json:"aliases"`
+	Parent    string            `json:"parent,omitempty"`
+	Routes    []ModelAliasRoute `json:"routes,omitempty"`
 }
 
 type ModelAliasPolicy struct {
 	Groups []ModelAliasGroup `json:"groups"`
 }
 
-// 别名必须唯一归属，禁止循环、链式引用和通配符；不推断模型版本等价关系。
+// 别名唯一归属；父子关系与渠道约束由树校验负责，禁止循环和通配符。
 func (p *ModelAliasPolicy) Validate() error {
 	if p == nil || len(p.Groups) > 256 {
 		return fmt.Errorf("at most 256 alias groups are allowed")
@@ -37,7 +40,7 @@ func (p *ModelAliasPolicy) Validate() error {
 	if len(seen) > 2048 {
 		return fmt.Errorf("at most 2048 model IDs are allowed")
 	}
-	return nil
+	return p.validateTree()
 }
 
 func (p *ModelAliasPolicy) Canonicalize(model string) string {
@@ -64,7 +67,12 @@ func cloneModelAliasPolicy(policy *ModelAliasPolicy) *ModelAliasPolicy {
 	}
 	clone := &ModelAliasPolicy{Groups: make([]ModelAliasGroup, len(policy.Groups))}
 	for i, group := range policy.Groups {
-		clone.Groups[i] = ModelAliasGroup{Canonical: group.Canonical, Aliases: slices.Clone(group.Aliases)}
+		clone.Groups[i] = group
+		clone.Groups[i].Aliases = slices.Clone(group.Aliases)
+		clone.Groups[i].Routes = slices.Clone(group.Routes)
+		for j := range group.Routes {
+			clone.Groups[i].Routes[j].BaseURLs = slices.Clone(group.Routes[j].BaseURLs)
+		}
 	}
 	return clone
 }
@@ -131,7 +139,11 @@ type modelAliasContextKey struct{}
 
 // 每个请求固定同一份设置；SQL/API 修改在后续请求生效，不污染共享账号快照。
 func WithModelAliases(ctx context.Context, policy *ModelAliasPolicy) context.Context {
-	return context.WithValue(ctx, modelAliasContextKey{}, policy)
+	ctx = context.WithValue(ctx, modelAliasContextKey{}, policy)
+	if _, ok := ctx.Value(modelAliasAttemptsKey{}).(*sync.Map); !ok {
+		ctx = context.WithValue(ctx, modelAliasAttemptsKey{}, &sync.Map{})
+	}
+	return ctx
 }
 
 func ModelAliasesFromContext(ctx context.Context) *ModelAliasPolicy {
@@ -140,14 +152,7 @@ func ModelAliasesFromContext(ctx context.Context) *ModelAliasPolicy {
 }
 
 func (p *ModelAliasPolicy) IDs(model string) []string {
-	if p != nil {
-		for _, group := range p.Groups {
-			if model == group.Canonical || slices.Contains(group.Aliases, model) {
-				return append([]string{group.Canonical}, group.Aliases...)
-			}
-		}
-	}
-	return []string{model}
+	return p.treeIDs(p.Canonicalize(model), make(map[string]bool))
 }
 
 func (p *ModelAliasPolicy) CanonicalIDs(ids []string) []string {
@@ -172,11 +177,20 @@ func accountWithModelAliases(ctx context.Context, account *Account) *Account {
 	}
 	clone := *account
 	clone.globalModelMapping = nil
+	clone.modelAliasTreeUnavailable = make(map[string]bool)
 	// 记录本次请求的别名组快照，供上游目录的同义词归一化判定使用。
 	clone.modelAliasGroups = policy.Groups
 	native := clone.GetModelMapping()
 	overlay := make(map[string]string)
 	for _, group := range policy.Groups {
+		if policy.isTreeGroup(group.Canonical) {
+			if target := policy.accountTreeTarget(ctx, account, group.Canonical); target != "" {
+				overlay[group.Canonical] = target
+			} else {
+				clone.modelAliasTreeUnavailable[group.Canonical] = true
+			}
+			continue
+		}
 		for _, id := range policy.IDs(group.Canonical) {
 			target, explicit := native[id]
 			defaultTarget := false
@@ -234,7 +248,7 @@ func (a *Account) modelAliasCatalogMatch(candidate, target string) bool {
 		return false
 	}
 	for _, group := range a.modelAliasGroups {
-		if modelAliasGroupContains(group, candidate) && modelAliasGroupContains(group, target) {
+		if !(&ModelAliasPolicy{Groups: a.modelAliasGroups}).isTreeGroup(group.Canonical) && modelAliasGroupContains(group, candidate) && modelAliasGroupContains(group, target) {
 			return true
 		}
 	}

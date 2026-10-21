@@ -48,4 +48,5 @@ func TestListWithFilters_SearchMatchesModelID(t *testing.T) {
 	require.Contains(t, listSQL, `->>'model_mapping' ILIKE`)
 	require.Contains(t, listSQL, `->>'compact_model_mapping' ILIKE`)
 	require.Contains(t, listSQL, `'upstream_supported_models'->>'models' ILIKE`)
+	require.Contains(t, listSQL, `'model_route_probes'->>'models' ILIKE`)
 }

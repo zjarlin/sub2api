@@ -17,7 +17,7 @@ func ensureCompositeTargetPlatform(c *gin.Context, apiKey *service.APIKey, model
 	if _, ok := service.ResolvedTargetPlatformFromContext(c.Request.Context()); ok {
 		return
 	}
-	if platform, ok := service.DetectModelPlatform(model); ok {
+	if platform, ok := service.DetectModelPlatformWithAliases(c.Request.Context(), model); ok {
 		c.Request = c.Request.WithContext(service.WithResolvedTargetPlatform(c.Request.Context(), platform))
 	}
 }

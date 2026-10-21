@@ -2175,6 +2175,8 @@ const collectAccountModelIds = (account: Account): string[] => {
   pushMapping(credentials.model_mapping)
   pushMapping(credentials.compact_model_mapping)
   const extra = (account.extra ?? {}) as Record<string, unknown>
+  const probes = extra.model_route_probes as { models?: Record<string, string> } | undefined
+  if (probes?.models) models.push(...Object.keys(probes.models))
   const upstream = extra.upstream_supported_models as { models?: unknown } | undefined
   if (upstream && Array.isArray(upstream.models)) {
     for (const model of upstream.models) {

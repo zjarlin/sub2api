@@ -99,6 +99,9 @@ func (a *Account) GetUpstreamSupportedModelsSnapshot() *UpstreamSupportedModelsS
 // released models. Deterministic negative observations are checked first by
 // Account.IsModelSupported.
 func (a *Account) upstreamModelCatalogSupport(requestedModel string, now time.Time) (known, supported bool) {
+	if a.modelRouteProbe(a.GetMappedModel(requestedModel)) == "supported" {
+		return true, true
+	}
 	snapshot := a.GetUpstreamSupportedModelsSnapshot()
 	if snapshot == nil {
 		return false, false

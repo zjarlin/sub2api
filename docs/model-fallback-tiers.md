@@ -6,15 +6,38 @@
 
 每档包含名称与精确模型 ID，档位数组由高到低排列。手动指定模型的同名账号重试耗尽后，先按该档的填写顺序尝试其他模型，再逐档往下；仍未成功时，从原请求最近的高档开始逐档向上补偿，包含最高档。补偿模型继续通过分组权限、请求能力和利润检查，费用按实际模型记录。等价 ID 在“全局模型同义词”中配置，档位使用规范 ID，执行时自动归一化去重；未评级的模型不猜测档位。开启 `auto_fallback` 后，档位候选耗尽（含未评级模型本身没有任何档位候选）会在降级链末尾追加虚拟模型 `auto`，由 Auto 的完整候选与性价比顺序挑选真实模型承接；`auto` 展开出的候选是分组目录中真实存在的文本生成模型，并沿用它自己的黑名单、白名单与成本边界，因此 guard/safety 等专用模型不会成为自动候选。关闭 `auto_fallback` 恢复“未评级模型不降级”的旧行为。一次请求固定候选清单，每个模型最多进入一次，配置最多 12 档、256 个模型。客户端取消和既有超时仍立即生效。
 
-新增渠道后需要核对上游目录里的精确 ID。独立账号测试成功只说明该账号接受传入的 ID，不代表规范 ID 已经能匹配到它。例如 `deepseek/deepseek-v4.1-flash` 必须显式归入 `deepseek-v4.1-flash` 的同义词组；转发仍保留渠道要求的 `deepseek/` 前缀。版本、`fast`、`vision-exp` 等变体不会自动合并。
+新增渠道后需要核对上游目录里的精确 ID。独立账号测试成功只说明该账号接受传入的 ID，不代表规范 ID 已经能匹配到它。例如 `deepseek/deepseek-v4.1-flash` 必须显式归入 `deepseek-flash` 的同义词组；转发仍保留渠道要求的 `deepseek/` 前缀。版本、`fast`、`vision-exp` 等变体不会自动合并。
 
-迁移 `246_deepseek_provider_model_aliases.sql` 为 V4 Flash、V4 Pro、V4.1 Flash 补齐上述前缀。迁移 `249_complete_model_aliases.sql` 补齐 V4.1 Flash 的新名及大小写写法、MiniMax M3 的大小写写法，并把 MiniMax M2.7 的 `cn:` 与大写写法归到 `minimax-m2.7`。迁移 `260_deepseek_v41_flash_hyphen_alias.sql` 补齐 `deepseek-v4-1-flash` 这种把版本点号写成短横线的写法。迁移 `261_deepseek_v4_family_prefer_v41.sql` 把 V4 Flash、V4 Pro 并入 V4.1 Flash 规范组，顺序为 V4.1、V4 Flash、V4 Pro，使账号不支持 V4.1 时自动改用其可用的兼容 ID。迁移 `262_prioritize_glm_qwen_fallback.sql` 在同时包含 V4.1 Flash 与 GPT-5.6 Terra 的档位中，把降级顺序调整为 V4.1 Flash、GLM、Qwen、其他模型、GPT-5.6 Terra。迁移 `263_add_glm52_sensenova_fallback.sql` 在已有 GLM-5.2 的档位中，把 `sensenova-6.8-flash-lite` 紧跟其后纳入同一降级路线。迁移 `270_model_fallback_guard_tier_and_auto.sql` 为 `meta/llama-guard-4-12b` 等内容安全小模型追加以「内容安全轻量」为名的档位（同类互降），并开启 `auto_fallback`；仅在管理员策略已存在时生效，已存在同名档位时幂等跳过。迁移 `274_alias_deepseek_v41_flash_1017.sql` 把上游 Cline 目录里的并列 ID `deepseek/deepseek-v4.1-flash-1017` 追加为 `deepseek-v4.1-flash` 的同义词；只追加别名，不改档位、账号映射或其他组。迁移 `274_alias_deepseek_v41_flash_1017.sql` 把上游 Cline 目录新增的带日期后缀写法 `deepseek/deepseek-v4.1-flash-1017` 归入 `deepseek-v4.1-flash`，并在同时收录两者的档位里把它紧跟规范名之后；其他档位与模型顺序不变。迁移不改变档位、账号映射或管理员已分配的别名；空同义词策略保持为空。后续变更新增迁移，不修改已执行迁移的校验和。
+迁移 `246_deepseek_provider_model_aliases.sql` 为 V4 Flash、V4 Pro、V4.1 Flash 补齐上述前缀。迁移 `249_complete_model_aliases.sql` 补齐 V4.1 Flash 的新名及大小写写法、MiniMax M3 的大小写写法，并把 MiniMax M2.7 的 `cn:` 与大写写法归到 `minimax-m2.7`。迁移 `260_deepseek_v41_flash_hyphen_alias.sql` 补齐 `deepseek-v4-1-flash` 这种把版本点号写成短横线的写法。迁移 `261_deepseek_v4_family_prefer_v41.sql` 把 V4 Flash、V4 Pro 并入 V4.1 Flash 规范组，顺序为 V4.1、V4 Flash、V4 Pro，使账号不支持 V4.1 时自动改用其可用的兼容 ID。迁移 `262_prioritize_glm_qwen_fallback.sql` 在同时包含 V4.1 Flash 与 GPT-5.6 Terra 的档位中，把降级顺序调整为 V4.1 Flash、GLM、Qwen、其他模型、GPT-5.6 Terra。迁移 `263_add_glm52_sensenova_fallback.sql` 在已有 GLM-5.2 的档位中，把 `sensenova-6.8-flash-lite` 紧跟其后纳入同一降级路线。迁移 `270_model_fallback_guard_tier_and_auto.sql` 为 `meta/llama-guard-4-12b` 等内容安全小模型追加以「内容安全轻量」为名的档位（同类互降），并开启 `auto_fallback`；仅在管理员策略已存在时生效，已存在同名档位时幂等跳过。迁移 `274_alias_deepseek_v41_flash_1017.sql` 将日期版加入旧平铺组。迁移 `275_deepseek_model_routing_tree.sql` 把该组规范名升级为 `deepseek-flash`，新增公开根 `ds` 并将 1017 置为最高优先级，仅用于 `https://api.cline.bot/api`。其他组、账号白名单和显式空策略保持原样；新名称被其他组占用或已有自定义树时跳过升级。迁移不修改已执行文件的校验和。
+
+树配置通过原有 `GET/PUT /api/v1/admin/settings/model-aliases` 管理：
+
+```json
+{"groups":[
+  {"canonical":"ds","aliases":[]},
+  {"canonical":"deepseek-flash","parent":"ds","aliases":["deepseek-v4.1-flash","deepseek/deepseek-v4.1-flash-1017"],"routes":[
+    {"model":"deepseek/deepseek-v4.1-flash-1017","priority":0,"base_urls":["https://api.cline.bot/api"]},
+    {"model":"deepseek-flash","priority":1},
+    {"model":"deepseek-v4.1-flash","priority":2}
+  ]}
+]}
+```
+
+`parent` 指向另一个规范节点，禁止缺失父节点、环和重复 ID。根允许空 aliases。先按子节点配置顺序遍历，再按 routes 的 priority 升序尝试；同优先级保持填写顺序。未配置的原有别名仍保留在末尾。`base_urls` 空表示不限制，填写后按完整基础路径匹配（忽略末尾 `/`），同时检查账号映射后的精确目标，防止映射绕过过滤。筛选仍受账号白名单和分组权限约束，旧目录里的同义 ID 不能证明新 ID 可用。
+
+请求 `ds` 会在后代叶子中选择；请求某个子型号时先使用本组叶子，开启降级后再尝试同父兄弟并逐级上溯，随后沿用原有能力档位降级。内部 Canonicalize 保留子型号，不会将不同型号全部混同为根。`/v1/models` 和 Codex 目录最终仅输出树根，同根去重；单模型查询也投影到根，旧别名仍可请求。根目录沿用首选可见叶子的能力字段，`deepseek-flash` 保持真实 262144 窗口。
+
+兼容 API Key 账号的树叶 429 仅写入 `账号 + base URL + 精确上游模型` 冷却键，不触发账号限流或内存熔断。Cline Pass 的月额度重置文案会保留真实等待时间，按量 1017 可继续使用。认证、明确的钱包/账号总额度错误和原生供应商窗口继续使用原有保护。管理页的测试接口同样只冷却选中的精确叶子，不把显式叶子先改成首选型号。一次请求内每个账号/地址/叶子最多尝试一次；无语义输出的失败可换叶子，全部耗尽后继续原有换号与降级边界。
+
+普通请求先比较叶子优先级，再在同叶子账号内按原有权重/负载挑选，topK 与普通会话粘性不能提升低优先级叶子。已有响应续接和父任务的强账号绑定仍保留，避免丢失上游会话状态。
+
+账号实测成功证据保存在 `extra.model_route_probes`，绑定 base URL；只有明确模型错误作为短期否定（12 小时），429/余额/超时均保持能力未知。账号管理搜索涵盖这份证据，可以按精确 ID 找到相关账号。2026-10-21 的逐号结果与状态分类见 [探测报告](verification/deepseek-routing-2026-10-21/README.md)，原始通用探测结论不会写成安装迁移。
 
 默认同义词组的规范 ID 如下；`GET /v1/models` 和 Codex 模型清单在最终写出时按这些组去重，旧 ID 仍可用于请求。管理员修改过的 `model_aliases` 以实际设置为准。
 
 | 规范 ID | 默认同义词 |
 | --- | --- |
-| `deepseek-v4.1-flash` | `cn:deepseek-v4.1-flash`、`deepseek/deepseek-v4.1-flash`、`deepseek/deepseek-v4.1-flash-1017`、`DeepSeek-V4.1-Flash`、`deepseek-flash`、`deepseek-v4-1-flash`；兼容层依次为 `deepseek-v4-flash`、`deepseek-v4-pro` 及其默认渠道写法 |
+| `ds`（公开根）→ `deepseek-flash`（规范子型号） | `deepseek-v4.1-flash`、`cn:deepseek-v4.1-flash`、`deepseek/deepseek-v4.1-flash`、`deepseek/deepseek-v4.1-flash-1017`、`DeepSeek-V4.1-Flash`、`deepseek-flash`、`deepseek-v4-1-flash`；兼容层依次为 `deepseek-v4-flash`、`deepseek-v4-pro` 及其默认渠道写法 |
 | `glm-5.3`、`glm-5.2`、`glm-5.3-flash` | 各自对应的 `cn:` 前缀 ID |
 | `kimi-k3`、`kimi-k2.6` | 分别对应 `cn:kimi-k3-1`、`cn:kimi-k2.6` |
 | `minimax-m3` | `cn:minimax-m3`、`MiniMax-M3` |
@@ -34,7 +57,7 @@ Auto 的 Responses 请求声明 `web_search` 或 `web_search_preview`，而首�
 
 `auto` 排除已配置模型档位中的最高档（`tiers[0]`，即“夯”档），不在初选和失败降级时进入该档。未保存自定义分档时，内置最高档是 `AA 50+`，当前包含 `gpt-6-astra`。档位模型及其显式同义词按本次请求的设置快照排除，渠道、合成路由和账号的实际上游改名同样需要通过检查。Responses 转 Chat 的协议回退、compact 专用模型和重试也不能进入最高档。
 
-Auto 的执行顺序独立于手动指定模型的逐档降级，采用「能力档位优先、档内性价比次序」两级排序：先按已配置能力档位从高到低（`ranks` 为档位号乘以 1000 加档内序号），同一档位内再按用户指定的性价比顺序——GLM 系列先于其他 DeepSeek、Kimi、MiniMax、Mimo、Qwen3、Step 系列，其余文本模型最后，未评级模型排在所有已评级模型之后。因此 `gpt-5.6-terra` 在手动档位降级中降到同档末尾，从 `deepseek-v4.1-flash` 降级时同档 GLM/Qwen 先于 Terra，通用档中 `glm-5.2` 与 `sensenova-6.8-flash-lite` 相邻进入降级路线；品牌加成只在同一档位内生效，不会让低档模型（如通用档的 `glm-5.2`）反超更高档的可用模型。`deepseek-v4.1-flash` 作为用户指定的首选无视档位固定排在最前，同一规范组内规范名先于带前缀的重复项。以模型 ID 保证稳定顺序。这是用户指定的性价比偏好，不是逐供应商实时报价；System One 不参与该确定性选择，决策账号离线不会阻断 Auto。
+Auto 的执行顺序独立于手动指定模型的逐档降级，采用「能力档位优先、档内性价比次序」两级排序：先按已配置能力档位从高到低（`ranks` 为档位号乘以 1000 加档内序号），同一档位内再按用户指定的性价比顺序——GLM 系列先于其他 DeepSeek、Kimi、MiniMax、Mimo、Qwen3、Step 系列，其余文本模型最后，未评级模型排在所有已评级模型之后。因此 `gpt-5.6-terra` 在手动档位降级中降到同档末尾，从 `deepseek-v4.1-flash` 降级时同档 GLM/Qwen 先于 Terra，通用档中 `glm-5.2` 与 `sensenova-6.8-flash-lite` 相邻进入降级路线；品牌加成只在同一档位内生效，不会让低档模型（如通用档的 `glm-5.2`）反超更高档的可用模型。`ds` / `deepseek-flash`（旧规范 ID `deepseek-v4.1-flash` 仍兼容）作为用户指定的首选无视档位固定排在最前，同一规范组内规范名先于带前缀的重复项。以模型 ID 保证稳定顺序。这是用户指定的性价比偏好，不是逐供应商实时报价；System One 不参与该确定性选择，决策账号离线不会阻断 Auto。
 
 Auto 的请求领域偏好（UI 设计、前端、架构推理、图片）只从用户本次真实请求文本判断，取最后一条用户消息并按需回溯越过工具结果；不读取客户端注入的 `instructions` 系统/开发者指令，也不读取 developer 与工具消息。Codex 等 Harness 会把技能、插件与工具说明整段注入，其中固定出现 `figma`、`react`、`vue`、`css`、`layout`、`页面`、`组件` 等词，若参与分类会让几乎每个请求都命中 UI 设计或前端领域，使 claude 系列反超首选 `deepseek-v4.1-flash`。领域偏好只影响领域内候选的次序，通用任务始终保留 `deepseek-v4.1-flash` 为首选；图片请求按顶层 `input_image` 判定为多模态，图片输入本身不会取消首选。高级任务领域（UI 设计、前端、架构推理）内依次优先本站真实可用的旗舰 `gpt-6-astra` / `gpt-6-sol` / `gpt-6.1-sol`，其次本站 GPT-6 家族，再其他经济型编码模型（DeepSeek/Kimi/GLM）；仅附带图片不算高级任务，仍走通用档位顺序；`claude` 系列在本站基本没有、有了也基本不可用，因此不再参与领域加成，由通用档位顺序排到后面。领域加成只改变领域内次序，不会让被最高档排除的模型（如默认最高档的 `gpt-6-astra`）重新进入候选。（2026-10-07 修复与调整）
 
@@ -110,6 +133,7 @@ psql -X -v ON_ERROR_STOP=1 -f migrations/testdata/deepseek_provider_model_aliase
 psql -X -v ON_ERROR_STOP=1 -f migrations/testdata/complete_model_aliases.sql
 psql -X -v ON_ERROR_STOP=1 -f migrations/testdata/provider_free_model_aliases.sql
 psql -X -v ON_ERROR_STOP=1 -f migrations/testdata/deepseek_v41_flash_hyphen_alias.sql
+psql -X -v ON_ERROR_STOP=1 -f migrations/testdata/deepseek_model_routing_tree.sql
 psql -X -v ON_ERROR_STOP=1 -f migrations/testdata/deepseek_v4_family_prefer_v41.sql
 psql -X -v ON_ERROR_STOP=1 -f migrations/testdata/fallback_glm_qwen_priority.sql
 psql -X -v ON_ERROR_STOP=1 -f migrations/testdata/add_glm52_sensenova_fallback.sql

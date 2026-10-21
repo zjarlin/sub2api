@@ -1,6 +1,9 @@
 package service
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"slices"
+)
 
 // 对最终可见目录做精确归一和去重；保留选中条目的能力字段，不合并不兼容能力。
 func (p *ModelAliasPolicy) CanonicalizeCatalog(body []byte) ([]byte, error) {
@@ -22,7 +25,7 @@ func (p *ModelAliasPolicy) CanonicalizeCatalog(body []byte) ([]byte, error) {
 		}
 		out := make([]map[string]json.RawMessage, 0, len(entries))
 		seen := map[string]int{}
-		preferred := map[string]bool{}
+		preferred := map[string]int{}
 		for _, entry := range entries {
 			idField := "id"
 			if _, ok := entry["slug"]; ok {
@@ -32,9 +35,12 @@ func (p *ModelAliasPolicy) CanonicalizeCatalog(body []byte) ([]byte, error) {
 			if err := json.Unmarshal(entry[idField], &id); err != nil {
 				return nil, err
 			}
-			canonical := p.Canonicalize(id)
-			if pos, exists := seen[canonical]; exists && (id != canonical || preferred[canonical]) {
-				_ = pos
+			canonical := p.RootID(id)
+			rank := slices.Index(p.IDs(canonical), id)
+			if rank < 0 {
+				rank = 4096
+			}
+			if _, exists := seen[canonical]; exists && rank >= preferred[canonical] {
 				continue
 			}
 			entry[idField], _ = json.Marshal(canonical)
@@ -50,7 +56,7 @@ func (p *ModelAliasPolicy) CanonicalizeCatalog(body []byte) ([]byte, error) {
 				seen[canonical] = len(out)
 				out = append(out, entry)
 			}
-			preferred[canonical] = id == canonical
+			preferred[canonical] = rank
 		}
 		encoded, err := json.Marshal(out)
 		if err != nil {

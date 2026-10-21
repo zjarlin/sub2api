@@ -471,6 +471,9 @@ func (s *OpenAIGatewayService) ModelFallbackCandidates(ctx context.Context, grou
 	policy = aliases.NormalizeFallback(policy)
 	ctx = WithModelAliases(ctx, aliases)
 	raw := policy.Candidates(canonical)
+	if policy.Enabled {
+		raw = append(aliases.TreeFallbackCandidates(canonical), raw...)
+	}
 	if len(raw) == 0 {
 		return nil, nil
 	}

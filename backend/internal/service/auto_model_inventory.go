@@ -185,7 +185,7 @@ func AutoModelPriority(ctx context.Context, model string) (int, int) {
 		}
 	}
 	// 首选模型无视档位固定排在最前；仍保留 tier 让规范名先于带前缀的重复项。
-	if name == "deepseek-v4.1-flash" {
+	if name == "deepseek-v4.1-flash" || name == "deepseek-flash" || name == "ds" {
 		return 0, tier
 	}
 	family := 3

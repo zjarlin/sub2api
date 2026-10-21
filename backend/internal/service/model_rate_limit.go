@@ -77,6 +77,9 @@ func (a *Account) modelRateLimitKeysForRequest(ctx context.Context, requestedMod
 	}
 
 	keys := []string{modelKey}
+	if (&ModelAliasPolicy{Groups: a.modelAliasGroups}).isTreeGroup((&ModelAliasPolicy{Groups: a.modelAliasGroups}).Canonicalize(requestedModel)) {
+		keys = append(keys, modelAliasRateLimitKey(a, modelKey))
+	}
 	switch a.Platform {
 	case PlatformAntigravity:
 		if isAntigravityGeminiModel(modelKey) && !isAntigravityGeminiImageModel(modelKey) && modelKey != antigravityGeminiModelRateLimitKey {

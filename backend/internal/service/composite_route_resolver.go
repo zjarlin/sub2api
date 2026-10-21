@@ -147,14 +147,14 @@ func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, mod
 		if err != nil {
 			// A recognizable model can still use the existing detector when the
 			// account catalog is temporarily unavailable. Unknown aliases cannot.
-			if _, detectable := DetectModelPlatform(model); !detectable {
+			if _, detectable := DetectModelPlatformWithAliases(ctx, model); !detectable {
 				return decision, fmt.Errorf("resolve account model ownership: %w", err)
 			}
 		} else if ownership.Ambiguous {
 			decision.Reason = CompositeRouteReasonAmbiguous
 			// 未解析的请求由下游 handler 按模型名前缀兜底选平台；只有兜底落在
 			// OpenAI 网关族时，OpenAI 网关 OAuth 声明方才会被误送进 Anthropic 管线。
-			if guessed, ok := DetectModelPlatform(model); ok && ownership.OpenAIGatewayOAuthClaimed && domain.UsesOpenAIGateway(guessed) {
+			if guessed, ok := DetectModelPlatformWithAliases(ctx, model); ok && ownership.OpenAIGatewayOAuthClaimed && domain.UsesOpenAIGateway(guessed) {
 				decision.Reason = CompositeRouteReasonOAuthAmbiguous
 			}
 			return decision, nil
@@ -176,7 +176,7 @@ func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, mod
 		}
 	}
 
-	if platform, ok := DetectModelPlatform(model); ok {
+	if platform, ok := DetectModelPlatformWithAliases(ctx, model); ok {
 		return CompositeRouteDecision{
 			Matched:        true,
 			Source:         CompositeRouteSourceDetector,

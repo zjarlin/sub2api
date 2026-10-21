@@ -1054,7 +1054,11 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	// the test path uses the same mapping as gateway scheduling.
 	if s.settingService != nil {
 		if aliases, aliasErr := s.settingService.GetModelAliasPolicy(ctx); aliasErr == nil {
-			testModelID = aliases.Canonicalize(testModelID)
+			// 树中的显式叶子用于诊断该精确路由；逻辑节点仍按配置选首选上游。
+			canonical := aliases.Canonicalize(testModelID)
+			if !aliases.isTreeGroup(canonical) || canonical == testModelID {
+				testModelID = canonical
+			}
 			// 与网关调度保持一致：把请求级别名快照绑定到 context 并叠加到账号映射。
 			// 透传账号（openai_passthrough）的 credentials model_mapping 可能以 provider
 			// 前缀形式键控（如 deepseek/deepseek-v4.1-flash），仅做 Canonicalize +
@@ -1245,7 +1249,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 			return s.testOpenAIAccountConnection(c, account, modelID, prompt, mode)
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
-			s.reconcileOpenAI429State(ctx, account, resp.Header, body)
+			s.reconcileOpenAI429State(ctx, account, resp.Header, body, testModelID)
 		}
 		// 401 Unauthorized: 标记账号为永久错误
 		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
@@ -2476,7 +2480,7 @@ func (s *AccountTestService) testOpenAIEmbeddingsConnection(c *gin.Context, acco
 
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusTooManyRequests {
-			s.reconcileOpenAI429State(ctx, account, resp.Header, body)
+			s.reconcileOpenAI429State(ctx, account, resp.Header, body, testModelID)
 		}
 		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
 			errMsg := fmt.Sprintf("Embeddings authentication failed (401): %s", string(body))
@@ -2569,7 +2573,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		if resp.StatusCode == http.StatusTooManyRequests {
-			s.reconcileOpenAI429State(ctx, account, resp.Header, body)
+			s.reconcileOpenAI429State(ctx, account, resp.Header, body, testModelID)
 		}
 		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
 			errMsg := fmt.Sprintf("Chat Completions authentication failed (401): %s", string(body))
@@ -2729,7 +2733,7 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 		}
 		// 探测如返回 429,主动同步限流状态,避免后续短时间内继续选中。
 		if resp.StatusCode == http.StatusTooManyRequests {
-			s.reconcileOpenAI429State(ctx, account, resp.Header, body)
+			s.reconcileOpenAI429State(ctx, account, resp.Header, body, testModelID)
 		}
 	}
 
@@ -2750,8 +2754,14 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 	return nil
 }
 
-func (s *AccountTestService) reconcileOpenAI429State(ctx context.Context, account *Account, headers http.Header, body []byte) {
+func (s *AccountTestService) reconcileOpenAI429State(ctx context.Context, account *Account, headers http.Header, body []byte, requestedModel ...string) {
 	if s == nil || s.accountRepo == nil || account == nil {
+		return
+	}
+
+	// 管理页测试与真实转发共用叶子冷却，不能因一次 Pass 测试冻结按量路线。
+	limiter := &RateLimitService{accountRepo: s.accountRepo, cfg: s.cfg, settingService: s.settingService}
+	if limiter.handleModelAlias429(ctx, account, http.StatusTooManyRequests, headers, body, firstRequestedModel(requestedModel)) {
 		return
 	}
 

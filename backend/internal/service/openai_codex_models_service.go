@@ -859,6 +859,9 @@ func isDeepSeekV41FlashCodexModel(modelID string) bool {
 	if i := strings.LastIndex(normalized, "/"); i >= 0 {
 		normalized = normalized[i+1:]
 	}
+	if normalized == "deepseek-flash" {
+		return true
+	}
 	normalized = strings.ToLower(strings.NewReplacer("_", "-", ".", "-").Replace(normalized))
 	if !strings.HasPrefix(normalized, "deepseek-v4-1-flash") {
 		return false
