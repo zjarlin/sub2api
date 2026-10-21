@@ -1295,6 +1295,7 @@ export default {
       syncUpstreamModelsEmpty: '上游没有返回可同步的模型',
       syncUpstreamModelsFailed: '同步上游模型失败',
       syncUpstreamModelsError: '同步上游模型失败：{message}',
+      syncUpstreamModelsBuiltinCatalog: '该平台没有可直接拉取的上游目录，已填入内置官方模型 ID；实际可用性取决于账号套餐。',
       syncUpstreamModelsMetadataIncomplete: '模型 ID 已同步，但未能更新任何能力元数据。',
       syncUpstreamModelsMetadataPartial: '已更新部分模型的能力元数据；其余模型能力仍不完整。',
       syncModelAliases: '读取全局同义词并添加映射',

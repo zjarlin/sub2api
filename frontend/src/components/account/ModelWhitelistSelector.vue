@@ -442,8 +442,17 @@ const syncUpstreamModels = async () => {
     const hasIncompleteMetadata = warnings.some(
       warning => warning.code === 'upstream_model_metadata_incomplete'
     )
+    // 平台没有可直接拉取的目录时，同步结果来自内置官方 ID，必须明确告知而不是
+    // 让用户以为这就是账号套餐的真实授权列表。
+    const usedBuiltinCatalog = warnings.some(
+      warning => warning.code === 'qoder_catalog_builtin'
+    )
     if (hasIncompleteMetadata) {
       appStore.showWarning(t('admin.accounts.syncUpstreamModelsMetadataIncomplete'))
+      return
+    }
+    if (usedBuiltinCatalog) {
+      appStore.showInfo(t('admin.accounts.syncUpstreamModelsBuiltinCatalog'))
       return
     }
     if (addedCount > 0) {

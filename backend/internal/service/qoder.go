@@ -1,12 +1,17 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/qoder"
 	"github.com/google/uuid"
 )
 
@@ -32,17 +37,63 @@ const (
 	qoderModelServerProdHost = "api2-v2.qoder.sh"
 )
 
-// DefaultQoderModelIDs 只提供官方目录中的模型候选，账号套餐权限由目录快照决定。
+// QoderBuiltinCatalogWarningCode 表示本次同步没有读到 IDE 签名目录，使用了内置官方 ID。
+const QoderBuiltinCatalogWarningCode = "qoder_catalog_builtin"
+
+// DefaultQoderModelIDs 是 Qoder 官方客户端目录中的模型键。
+//
+// Qoder IDE / CLI 通过 HTTPDNS 选路 + Cosy 签名的 /api/v2/model/list 取目录，
+// 该端点无法用账号令牌直接调用；部署侧也没有可替换的公开目录接口。这里的
+// 官方 ID 只用于选择器候选与映射补全，账号真实可用的模型仍由套餐决定。
 func DefaultQoderModelIDs() []string {
+	// 只列已在 Model Server 上验证过的模型键；IDE 里出现的展示名不是上游 ID。
 	return []string{DefaultQoderModel, "qmodel_38max", "qfmodel"}
 }
 
-// QoderAccountModels 优先返回已同步的账号目录，展示名来自同一份上游元数据。
-func QoderAccountModels(account *Account) []openai.Model {
-	ids := DefaultQoderModelIDs()
-	if snapshot := account.GetUpstreamSupportedModelsSnapshot(); snapshot != nil {
-		ids = snapshot.Models
+// QoderBuiltinModelCatalog 构造 Qoder 的内置目录：模型 ID 来自官方客户端键，
+// 展示名优先复用账号已保存的元数据快照，避免把内置候选当作上游授权结果。
+func QoderBuiltinModelCatalog(account *Account) *UpstreamModelCatalog {
+	catalog := &UpstreamModelCatalog{
+		Models:   QoderAccountModelIDs(account),
+		Metadata: make(map[string]UpstreamModelMetadata),
 	}
+	catalog.Warnings = append(catalog.Warnings, UpstreamModelSyncWarning{
+		Code: QoderBuiltinCatalogWarningCode,
+		Message: "Qoder exposes its model catalog only through the IDE's signed endpoint; " +
+			"this sync returned the built-in official model IDs. Account entitlement still depends on the Qoder plan.",
+	})
+	for _, modelID := range catalog.Models {
+		if metadata, ok := account.GetUpstreamModelMetadata(modelID); ok {
+			catalog.Metadata[modelID] = metadata
+		}
+	}
+	return catalog
+}
+
+// QoderAccountModelIDs 优先返回账号已同步的目录；没有目录时才用内置官方候选，
+// 避免把内置 ID 误报为套餐已授权的可用模型。
+func QoderAccountModelIDs(account *Account) []string {
+	if snapshot := account.GetUpstreamSupportedModelsSnapshot(); snapshot != nil && len(snapshot.Models) > 0 {
+		ids := make([]string, 0, len(snapshot.Models))
+		seen := make(map[string]bool, len(snapshot.Models))
+		for _, id := range snapshot.Models {
+			id = strings.TrimSpace(id)
+			if id == "" || strings.Contains(id, "*") || seen[id] {
+				continue
+			}
+			seen[id] = true
+			ids = append(ids, id)
+		}
+		if len(ids) > 0 {
+			return ids
+		}
+	}
+	return DefaultQoderModelIDs()
+}
+
+// QoderAccountModels 返回内置官方候选与账号目录的并集，展示名来自上游元数据。
+func QoderAccountModels(account *Account) []openai.Model {
+	ids := QoderAccountModelIDs(account)
 	models := make([]openai.Model, 0, len(ids))
 	seen := make(map[string]bool, len(ids))
 	for _, id := range ids {
@@ -253,4 +304,27 @@ func validateQoderCredentials(platform, accountType string, credentials map[stri
 		return infraerrors.BadRequest("INVALID_QODER_CREDENTIALS", "qoder only supports the chat_completions upstream protocol")
 	}
 	return nil
+}
+
+// qoderQuotaDiagnosis 在上游 402 时补充套餐与额度事实，避免只看到
+// “quota exceeded” 而误判为令牌失效。读取失败时静默返回空串，不影响原始错误。
+func qoderQuotaDiagnosis(ctx context.Context, accessToken string) string {
+	client := &qoder.Client{HTTPClient: &http.Client{Timeout: 15 * time.Second}, UserAgent: "qoder-cli"}
+	status, err := client.FetchAccountStatus(ctx, accessToken)
+	if err != nil || status == nil {
+		return ""
+	}
+	parts := make([]string, 0, 3)
+	if status.Plan != "" {
+		parts = append(parts, "plan="+status.Plan)
+	}
+	if status.UserTag != "" {
+		parts = append(parts, "tag="+status.UserTag)
+	}
+	if status.IsQuotaExceeded || status.Quota <= 0 {
+		parts = append(parts, "quota exhausted")
+	} else {
+		parts = append(parts, fmt.Sprintf("quota=%d", status.Quota))
+	}
+	return " (Qoder account: " + strings.Join(parts, ", ") + ")"
 }

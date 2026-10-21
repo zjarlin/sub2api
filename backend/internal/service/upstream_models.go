@@ -335,6 +335,14 @@ func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, accou
 	if account != nil && account.Platform == PlatformV0 {
 		return &UpstreamModelCatalog{Models: V0DefaultModelIDs(), Metadata: make(map[string]UpstreamModelMetadata)}, nil
 	}
+	// Qoder 的目录只对 IDE 的签名端点开放，返回内置官方 ID 并明确告警，
+	// 避免把不可达的 /api/v2/model/list 误报成账号凭据失效。
+	//
+	// 这里故意不写 upstream_supported_models 快照：内置候选不是上游授权结果，
+	// 一旦作为权威目录落库，会收窄调度范围（目录缺失被视为「不支持」）。
+	if account != nil && account.Platform == PlatformQoder {
+		return QoderBuiltinModelCatalog(account), nil
+	}
 	// 3D 官方接口没有聊天模型列表，使用适配器目录，避免误探测 /models。
 	if account != nil && account.Platform == PlatformModel3D {
 		provider, err := Model3DAccountProvider(account)

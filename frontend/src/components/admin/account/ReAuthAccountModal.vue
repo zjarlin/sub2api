@@ -33,7 +33,9 @@
             }}</span>
             <span class="text-sm text-gray-500 dark:text-gray-400">
               {{
-                isBuiltinAdapterAccount
+                isQoder
+                  ? t('admin.accounts.qoder.title') + ' ' + t('admin.accounts.qoder.oauthHint')
+                  : isBuiltinAdapterAccount
                   ? t(`admin.accounts.${builtinAdapterPlatform}.title`)
                   : isOpenAI
                   ? t('admin.accounts.openaiAccount')
@@ -129,8 +131,41 @@
         </div>
       </div>
 
+      <!-- Qoder：设备流授权（生成链接 → 浏览器选择账号 → 自动轮询完成） -->
+      <div v-if="isQoder" class="space-y-3">
+        <div class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+          <p class="text-sm text-gray-700 dark:text-gray-300">
+            {{ t('admin.accounts.qoder.oauthDesc') }}
+          </p>
+          <div class="mt-3 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              data-testid="qoder-reauth-action"
+              class="btn btn-primary"
+              :disabled="qoderLoading"
+              @click="startQoderAuth"
+            >
+              {{
+                qoderError
+                  ? t('admin.accounts.qoder.restartAuthorization')
+                  : qoderAuthUrl
+                    ? t('admin.accounts.qoder.reopenAuthPage')
+                    : t('admin.accounts.qoder.openAuthPage')
+              }}
+            </button>
+            <span v-if="qoderPolling" class="text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.qoder.waitingAuthorization') }}
+            </span>
+          </div>
+          <p v-if="qoderAuthUrl" class="mt-3 break-all text-xs text-gray-500 dark:text-gray-400">
+            {{ qoderAuthUrl }}
+          </p>
+          <p v-if="qoderError" class="mt-3 text-sm text-red-600 dark:text-red-400">{{ qoderError }}</p>
+        </div>
+      </div>
+
       <OAuthAuthorizationFlow
-        v-if="!isBuiltinAdapterAccount"
+        v-if="!isBuiltinAdapterAccount && !isQoder"
         ref="oauthFlowRef"
         :add-method="addMethod"
         :auth-url="currentAuthUrl"
@@ -162,7 +197,7 @@
           {{ t('common.cancel') }}
         </button>
         <button
-          v-if="isManualInputMethod"
+          v-if="isManualInputMethod && !isQoder"
           type="button"
           :disabled="!canExchangeCode"
           class="btn btn-primary"
@@ -219,6 +254,7 @@ import Icon from '@/components/icons/Icon.vue'
 import BuiltinAdapterLogin from '@/components/account/BuiltinAdapterLogin.vue'
 import OAuthAuthorizationFlow from '@/components/account/OAuthAuthorizationFlow.vue'
 import type { BuiltinLoginPlatform, BuiltinLoginSession } from '@/api/admin/builtinAdapters'
+import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
 
 // Type for exposed OAuthAuthorizationFlow component
 // Note: defineExpose automatically unwraps refs, so we use the unwrapped types
@@ -259,6 +295,15 @@ const oauthFlowRef = ref<OAuthFlowExposed | null>(null)
 const addMethod = ref<AddMethod>('oauth')
 const geminiOAuthType = ref<'code_assist' | 'google_one' | 'ai_studio'>('code_assist')
 
+// Qoder 设备流授权状态（与新建账号页共用同一套 /admin/qoder/oauth/* 接口）
+const qoderAuthUrl = ref('')
+const qoderSessionId = ref('')
+const qoderLoading = ref(false)
+const qoderError = ref('')
+const qoderPolling = ref(false)
+const qoderPollTimer = ref<number | null>(null)
+let qoderPollGeneration = 0
+
 // Computed - check platform
 const isOpenAI = computed(() => props.account?.platform === 'openai')
 const isOpenAILike = computed(() => isOpenAI.value)
@@ -266,6 +311,7 @@ const isGemini = computed(() => props.account?.platform === 'gemini')
 const isAnthropic = computed(() => props.account?.platform === 'anthropic')
 const isAntigravity = computed(() => props.account?.platform === 'antigravity')
 const isGrok = computed(() => props.account?.platform === 'grok')
+const isQoder = computed(() => props.account?.platform === 'qoder')
 const isBuiltinAdapterAccount = computed(() => ['traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'madao', 'arena', 'cursor', 'windsurf', 'teleagent'].includes(props.account?.platform ?? ''))
 const BUILTIN_ADAPTER_LOGIN_PLATFORMS: readonly BuiltinLoginPlatform[] = ['traework', 'workbuddy', 'vibex', 'zcode', 'deepseek_web', 'madao', 'arena', 'cursor', 'windsurf', 'teleagent']
 const builtinAdapterPlatform = computed<BuiltinLoginPlatform | null>(() => {
@@ -375,6 +421,7 @@ watch(
 const resetState = () => {
   addMethod.value = 'oauth'
   geminiOAuthType.value = 'code_assist'
+  resetQoderOAuth()
   claudeOAuth.resetState()
   openaiOAuth.resetState()
   geminiOAuth.resetState()
@@ -385,6 +432,127 @@ const resetState = () => {
 
 const handleClose = () => {
   emit('close')
+}
+
+// ── Qoder 设备流授权 ──
+const stopQoderPolling = () => {
+  qoderPollGeneration += 1
+  qoderPolling.value = false
+  if (qoderPollTimer.value !== null) {
+    window.clearTimeout(qoderPollTimer.value)
+    qoderPollTimer.value = null
+  }
+}
+
+const resetQoderOAuth = () => {
+  stopQoderPolling()
+  qoderAuthUrl.value = ''
+  qoderSessionId.value = ''
+  qoderLoading.value = false
+  qoderError.value = ''
+}
+
+/**
+ * 完成 Qoder 设备授权：把设备令牌写回现有账号。
+ * Qoder 的 access_token 是设备令牌，refresh_token 用于续期，expires_at 由后端解析；
+ * 映射与 api_protocol 沿用账号既有配置（applyOAuthCredentials 会做合并）。
+ */
+const finishQoderOAuth = async (token: {
+  access_token: string
+  refresh_token?: string
+  expires_at?: number
+}) => {
+  if (!props.account) return
+  const credentials: Record<string, unknown> = {
+    access_token: token.access_token,
+    api_protocol: 'chat_completions',
+    openai_capabilities: ['chat_completions']
+  }
+  if (token.refresh_token) credentials.refresh_token = token.refresh_token
+  if (token.expires_at) {
+    credentials.expires_at = new Date(token.expires_at * 1000).toISOString()
+  }
+
+  const updatedAccount = await adminAPI.accounts.applyOAuthCredentials(props.account.id, {
+    type: 'oauth',
+    credentials
+  })
+  appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
+  emit('reauthorized', updatedAccount)
+  handleClose()
+}
+
+const scheduleQoderPoll = () => {
+  stopQoderPolling()
+  const generation = qoderPollGeneration
+  const sessionId = qoderSessionId.value
+  qoderPolling.value = true
+  const deadline = Date.now() + 5 * 60 * 1000
+  const poll = async () => {
+    if (!qoderPolling.value || generation !== qoderPollGeneration || !sessionId) return
+    try {
+      const result = await adminAPI.qoder.pollToken(sessionId)
+      if (generation !== qoderPollGeneration) return
+      if (result.done && result.token) {
+        qoderPolling.value = false
+        await finishQoderOAuth(result.token)
+        return
+      }
+    } catch (error: any) {
+      if (generation !== qoderPollGeneration) return
+      stopQoderPolling()
+      const code = extractApiErrorCode(error)
+      const expired =
+        code === 'QODER_OAUTH_SESSION_NOT_FOUND' || code === 'QODER_OAUTH_SESSION_EXPIRED'
+      qoderError.value = expired
+        ? t('admin.accounts.qoder.authorizationExpired')
+        : extractApiErrorMessage(error, t('admin.accounts.qoder.pollFailed'))
+      appStore.showError(qoderError.value)
+      return
+    }
+    if (Date.now() > deadline) {
+      stopQoderPolling()
+      qoderError.value = t('admin.accounts.qoder.authorizationTimeout')
+      return
+    }
+    qoderPollTimer.value = window.setTimeout(poll, 1500)
+  }
+  qoderPollTimer.value = window.setTimeout(poll, 1500)
+}
+
+const startQoderAuth = async () => {
+  if (qoderLoading.value) return
+  // 重新打开仍在等待的页面时复用会话，避免浏览器授权了已被替换的链接。
+  if (qoderPolling.value && qoderAuthUrl.value) {
+    window.open(qoderAuthUrl.value, '_blank', 'noopener,noreferrer')
+    return
+  }
+  stopQoderPolling()
+  const generation = qoderPollGeneration
+  qoderLoading.value = true
+  qoderError.value = ''
+  qoderAuthUrl.value = ''
+  qoderSessionId.value = ''
+  try {
+    const result = await adminAPI.qoder.generateAuthURL()
+    if (generation !== qoderPollGeneration) return
+    qoderAuthUrl.value = result.auth_url
+    qoderSessionId.value = result.session_id
+    window.open(result.auth_url, '_blank', 'noopener,noreferrer')
+    qoderLoading.value = false
+    scheduleQoderPoll()
+  } catch (error: any) {
+    if (generation !== qoderPollGeneration) return
+    qoderError.value =
+      error.response?.data?.detail ||
+      error.message ||
+      t('admin.accounts.qoder.failedToGenerateUrl')
+    appStore.showError(qoderError.value)
+  } finally {
+    if (generation === qoderPollGeneration) {
+      qoderLoading.value = false
+    }
+  }
 }
 
 const handleBuiltinAuthorized = async (session: BuiltinLoginSession) => {

@@ -85,7 +85,11 @@ func (s *AccountTestService) testQoderCommitMessageConnection(c *gin.Context, ac
 		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
 			_ = s.accountRepo.SetError(ctx, account.ID, fmt.Sprintf("Qoder authentication failed (401): %s", strings.TrimSpace(string(body))))
 		}
-		return s.sendErrorAndEnd(c, fmt.Sprintf("Qoder /model/v1/chat/completions returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body))))
+		message := fmt.Sprintf("Qoder /model/v1/chat/completions returned %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
+		if resp.StatusCode == http.StatusPaymentRequired {
+			message += qoderQuotaDiagnosis(ctx, token)
+		}
+		return s.sendErrorAndEnd(c, message)
 	}
 
 	return s.processQoderCommitMessageStream(c, resp.Body)

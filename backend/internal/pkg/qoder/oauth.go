@@ -257,6 +257,16 @@ type PollResult struct {
 	Token *TokenResult
 }
 
+// AccountStatus 是 openapi /api/v3/user/status 的账号套餐与额度快照。
+// 只用于把上游配额拒绝翻译成可读原因，不参与鉴权判定。
+type AccountStatus struct {
+	UserType        string `json:"userType"`
+	Plan            string `json:"plan"`
+	UserTag         string `json:"userTag"`
+	Quota           int64  `json:"quota"`
+	IsQuotaExceeded bool   `json:"isQuotaExceeded"`
+}
+
 // Client 执行设备流轮询与令牌刷新。
 type Client struct {
 	HTTPClient *http.Client
@@ -357,6 +367,45 @@ func (c *Client) WaitForToken(ctx context.Context, nonce, verifier, challengeMet
 		case <-time.After(DefaultPollInterval):
 		}
 	}
+}
+
+// FetchAccountStatus 读取账号套餐与额度快照（设备令牌可直接调用）。
+// 读取失败返回错误，由调用方决定是否忽略；该接口不改变账号状态。
+func (c *Client) FetchAccountStatus(ctx context.Context, accessToken string) (*AccountStatus, error) {
+	if strings.TrimSpace(accessToken) == "" {
+		return nil, errors.New("qoder account status requires access_token")
+	}
+	endpoint := openAPIBase() + "/api/v3/user/status"
+	if !trustedURL(endpoint) {
+		return nil, fmt.Errorf("qoder account status url is not trusted: %s", endpoint)
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Authorization", "Bearer "+accessToken)
+
+	response, err := c.httpClient().Do(request)
+	if err != nil {
+		return nil, err
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, maxAuthBody+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(body) > maxAuthBody {
+		return nil, errors.New("qoder account status response exceeds 1 MiB")
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, fmt.Errorf("qoder account status failed (%d): %s", response.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var status AccountStatus
+	if err := json.Unmarshal(body, &status); err != nil {
+		return nil, fmt.Errorf("parse qoder account status response: %w", err)
+	}
+	return &status, nil
 }
 
 // Refresh 使用 refresh_token 换取新的设备令牌。
