@@ -209,6 +209,11 @@ func newOpenAIVisionErrorGateway(helperPresent bool) (*service.OpenAIGatewayServ
 		Status: service.StatusActive, Schedulable: true, Concurrency: 1,
 		Credentials: map[string]any{"api_key": "test-only", "base_url": "https://upstream.example", "model_mapping": map[string]any{"deepseek-v4.1-flash": "deepseek-v4.1-flash"}},
 	}
+	// 明确的文本-only 能力声明是负面证据；能力未知（无快照、无读图探测）时网关
+	// 保留原转发行为，不会替模型下“纯文本”结论。
+	primary.SetUpstreamModelMetadataSnapshot(service.UpstreamModelMetadataSnapshot{Models: map[string]service.UpstreamModelMetadata{
+		"deepseek-v4.1-flash": {ID: "deepseek-v4.1-flash", InputModalities: []string{"text"}},
+	}})
 	accounts := []service.Account{primary}
 	if helperPresent {
 		helper := service.Account{

@@ -35,16 +35,19 @@ func accountHasNativeVision(account *Account, model string) bool {
 	return accountCodexModelSupportsImageInput(account, upstream)
 }
 
+// 只有在拿到显式的文本-only 能力声明（目录快照或真实读图探测失败）时才断言
+// “纯文本”。模型名不是能力证据：deepseek-v4.1-flash 这类型号在多家上游都能直接
+// 读图，按前缀判定会把图片从本可原生处理的模型上抽走，改走昂贵且易失败的辅助链路。
 func accountHasKnownTextOnlyInput(account *Account, model string) bool {
+	if account == nil {
+		return false
+	}
 	_, upstream := resolveOpenAIForwardMappedModels(account, model, false)
 	if metadata, ok := account.GetUpstreamModelMetadata(upstream); ok && len(metadata.InputModalities) > 0 {
 		return !stringSliceContains(normalizeCodexInputModalities(metadata.InputModalities), "image")
 	}
-	// WorkBuddy 的地域前缀只参与路由，不能掩盖纯文本模型的能力限制。
-	if realm, bareModel, ok := strings.Cut(upstream, ":"); account.IsWorkbuddy() && ok && (realm == "cn" || realm == "global") {
-		upstream = bareModel
-	}
-	return isDeepSeekCodexModel(upstream)
+	// 没有任何证据时保持 unknown，不回退到模型家族/前缀假设。
+	return false
 }
 
 // 所有缺少原生视觉证据的对话模型统一使用辅助，不按模型家族豁免。
@@ -67,6 +70,18 @@ func visionFallbackPlatform(platform string) bool {
 // 候选仅来自调用方分组的可调度 API Key 账号，不扫描其他租户、不猜测模型名。
 func visionFallbackCandidates(accounts []Account, cfg *config.Config, group *Group) []visionFallbackCandidate {
 	return visionFallbackCandidatesWithPolicy(accounts, DefaultVisionFallbackPolicy(cfg), group, nil)
+}
+
+// 图片生成/编辑模型能把图片当输入，但输出的是图片而不是可读描述，不能充当视觉助手。
+// 名称只是廉价过滤，真正的能力判定仍由目录与官方规则给出。
+func visionDescriptorCandidate(account *Account, model string) bool {
+	if account == nil || model == "" {
+		return false
+	}
+	if isCodexDedicatedMediaModel(model) || IsGPTImageGenerationModel(model) || isGrokImageGenerationModel(model) {
+		return false
+	}
+	return account.IsModelSupported(model) && account.IsSchedulableForModel(model) && accountHasNativeVision(account, model)
 }
 
 func visionFallbackCandidatesWithPolicy(accounts []Account, policy *VisionFallbackPolicy, group *Group, aliases *ModelAliasPolicy) []visionFallbackCandidate {
@@ -102,7 +117,7 @@ func visionFallbackCandidatesWithPolicy(accounts []Account, policy *VisionFallba
 			if model == "" || strings.Contains(model, "*") {
 				continue
 			}
-			if isCodexDedicatedMediaModel(model) || !account.IsModelSupported(model) || !account.IsSchedulableForModel(model) || !accountHasNativeVision(account, model) {
+			if !visionDescriptorCandidate(account, model) {
 				continue
 			}
 			candidates = append(candidates, visionFallbackCandidate{account: account, model: model})
@@ -181,15 +196,16 @@ func groupVisionAccounts(accounts []Account, platform, model string) []*Account 
 }
 
 func groupModelHasNativeVision(accounts []Account, platform, model string) bool {
-	// 已验证的型号能力不随账号临时冷却或新账号缺少快照而消失。
+	// 已验证的能力不随账号临时冷却或新账号缺少快照而消失。
+	// 证据来源包括目录快照与真实读图探测；两者都落在 upstream_model_metadata，
+	// 因此以“是否有显式 image 声明”为准，而不是只认某个特定 source 字符串。
 	verifiedModels := make(map[string]bool)
 	for i := range accounts {
 		account := &accounts[i]
 		if !openAIAccountMatchesPlatform(account, platform) || account.Status != StatusActive || !account.IsModelSupported(model) {
 			continue
 		}
-		verified := account.GetUpstreamModelMetadataSnapshot()
-		if verified == nil || verified.Source != "verified-responses-image" || !accountHasNativeVision(account, model) {
+		if !accountHasNativeVision(account, model) {
 			continue
 		}
 		_, upstream := resolveOpenAIForwardMappedModels(account, model, false)

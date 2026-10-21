@@ -3284,7 +3284,40 @@ func (h *AccountHandler) SyncUpstreamModels(c *gin.Context) {
 
 	// 快速添加时创建请求尚无模型映射，同步完成后用真实模型重新探测协议。
 	h.scheduleOpenAIResponsesProbe(account)
+	// 目录来自 /models，只能证明“模型存在”，不能证明读图能力；用一张真实图片
+	// 复核后写入能力快照，避免把可原生读图的模型误判为纯文本而改走视觉助手。
+	if probe, ok := h.detectVisionImageInputSupport(c.Request.Context(), account); ok {
+		if catalog == nil {
+			catalog = &service.UpstreamModelCatalog{}
+		}
+		catalog.Warnings = append(catalog.Warnings, probe)
+	}
 	response.Success(c, catalog)
+}
+
+// detectVisionImageInputSupport 对账号已配置的上游对话模型做一次真实读图探测，
+// 并把确凿结论写回能力快照。目录同步是模型列表，不是视觉能力证据。
+func (h *AccountHandler) detectVisionImageInputSupport(ctx context.Context, account *service.Account) (service.UpstreamModelSyncWarning, bool) {
+	if h.accountTestService == nil || account == nil ||
+		(account.Platform != service.PlatformOpenAI && !account.RoutesProtocolByInbound()) {
+		return service.UpstreamModelSyncWarning{}, false
+	}
+	upstreamModel := strings.TrimSpace(service.FirstConfiguredUpstreamModel(account))
+	if upstreamModel == "" {
+		return service.UpstreamModelSyncWarning{}, false
+	}
+	result := h.accountTestService.ProbeOpenAIModelImageInput(ctx, account, upstreamModel)
+	if !result.Conclusive {
+		return service.UpstreamModelSyncWarning{}, false
+	}
+	if err := h.accountTestService.ApplyVisionImageProbeResult(ctx, account, upstreamModel, result); err != nil {
+		slog.Warn("vision_image_probe_persist_failed", "account_id", account.ID, "model", upstreamModel, "error", err)
+		return service.UpstreamModelSyncWarning{}, false
+	}
+	return service.UpstreamModelSyncWarning{
+		Code:    service.VisionImageProbeWarningCode,
+		Message: fmt.Sprintf("Vision image input %s for %s (verified with a real image request)", map[bool]string{true: "supported", false: "not supported"}[result.SupportsImage], upstreamModel),
+	}, true
 }
 
 // SyncUpstreamModelsPreview handles syncing live supported models using provided credentials (no account ID needed).

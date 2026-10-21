@@ -20,13 +20,16 @@ import (
 )
 
 const (
-	visionFallbackInternalKey = "vision_fallback_internal"
-	visionFallbackUsageKey    = "vision_fallback_usage"
-	visionFallbackStateKey    = "vision_fallback_state"
-	visionDescriptionMaxBytes = 32 << 10
-	visionDescriptionTTL      = 10 * time.Minute
-	visionHelperTimeout       = 60 * time.Second
-	visionFallbackTimeout     = 120 * time.Second
+	// 助手在该 Key 上已无名额（限流/配额耗尽/无视觉容量）。同一回合的后续图片与
+	// 外层换主账号重试都不再重复尝试它。
+	visionHelperCapacityReason = GatewayFailureReason("vision_helper_capacity")
+	visionFallbackInternalKey  = "vision_fallback_internal"
+	visionFallbackUsageKey     = "vision_fallback_usage"
+	visionFallbackStateKey     = "vision_fallback_state"
+	visionDescriptionMaxBytes  = 32 << 10
+	visionDescriptionTTL       = 10 * time.Minute
+	visionHelperTimeout        = 60 * time.Second
+	visionFallbackTimeout      = 120 * time.Second
 )
 
 // 视觉模型只负责忠实观察；图片、工具输出和附带文字中的指令均作为待描述资料。
@@ -42,13 +45,16 @@ type visionHelperID struct {
 
 // 同一 HTTP 请求/WS 回合冻结策略，外层换主账号不能重置预算或再次调用已失败的助手。
 type visionFallbackState struct {
-	turn         int
-	policy       *VisionFallbackPolicy
-	aliases      *ModelAliasPolicy
-	deadline     time.Time
-	failed       map[visionHelperID]bool
-	descriptions map[[32]byte]string
-	lastErr      error
+	turn     int
+	policy   *VisionFallbackPolicy
+	aliases  *ModelAliasPolicy
+	deadline time.Time
+	failed   map[visionHelperID]bool
+	// 本回合内已确认无名额（限流/配额/无视觉容量）的助手，以及整把 Key 级别的不可用。
+	unavailable         map[visionHelperID]bool
+	unavailableAccounts map[int64]bool
+	descriptions        map[[32]byte]string
+	lastErr             error
 }
 
 func (s *OpenAIGatewayService) visionFallbackState(ctx context.Context, c *gin.Context) (*visionFallbackState, error) {
@@ -71,7 +77,8 @@ func (s *OpenAIGatewayService) visionFallbackState(ctx context.Context, c *gin.C
 	}
 	state := &visionFallbackState{
 		turn: turn, policy: policy, aliases: aliases, deadline: time.Now().Add(time.Duration(policy.TimeoutSeconds) * time.Second),
-		failed: make(map[visionHelperID]bool), descriptions: make(map[[32]byte]string),
+		failed: make(map[visionHelperID]bool), unavailable: make(map[visionHelperID]bool),
+		unavailableAccounts: make(map[int64]bool), descriptions: make(map[[32]byte]string),
 	}
 	c.Set(visionFallbackStateKey, state)
 	return state, nil
@@ -399,7 +406,7 @@ func (s *OpenAIGatewayService) describeVisionInput(ctx context.Context, parent *
 		candidate := remaining[0]
 		remaining = remaining[1:]
 		id := visionHelperID{candidate.account.ID, candidate.model}
-		if state.failed[id] {
+		if state.failed[id] || state.unavailable[id] || state.unavailableAccounts[candidate.account.ID] {
 			continue
 		}
 		if !isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx, candidate.account, candidate.account.Platform, candidate.model, false, "") ||
@@ -448,6 +455,13 @@ func (s *OpenAIGatewayService) describeVisionInput(ctx context.Context, parent *
 			lastErr = callErr
 			state.lastErr = callErr
 			state.failed[id] = true
+			var helperErr *UpstreamFailoverError
+			if errors.As(callErr, &helperErr) && helperErr != nil && helperErr.Reason == visionHelperCapacityReason {
+				// 被限流/配额耗尽/无视觉容量的助手在整次请求内不再重复尝试；
+				// 配额与无视觉容量属于整把 Key，同账号的其余视觉模型也一并跳过。
+				state.unavailable[id] = true
+				state.unavailableAccounts[candidate.account.ID] = true
+			}
 			continue
 		}
 		s.visionFallbackCache.put(cacheKey, text)
@@ -522,6 +536,7 @@ func (s *OpenAIGatewayService) callVisionHelper(ctx context.Context, parent *gin
 		var failoverErr *UpstreamFailoverError
 		failoverStatus := writer.Status()
 		responseHeaders := writer.Header().Clone()
+		helperCapacityExhausted := false
 		if errors.As(forwardErr, &failoverErr) && failoverErr != nil {
 			// 换号错误通常尚未写入 child.Writer，必须保留上游真实状态与限流响应头。
 			if failoverErr.StatusCode >= http.StatusBadRequest {
@@ -533,6 +548,9 @@ func (s *OpenAIGatewayService) callVisionHelper(ctx context.Context, parent *gin
 			if upstreamRequestID == "" {
 				upstreamRequestID = strings.TrimSpace(failoverErr.ResponseHeaders.Get("x-request-id"))
 			}
+			// 限流/配额耗尽/无视觉容量是整把 Key 的状态，不是一次偶发：同一回合的后续
+			// 图片与外层换号重试都不该再打这台助手（线上 60s 级图片超时的起点）。
+			helperCapacityExhausted = visionHelperCapacityByUpstream(failoverErr, visionHelperUpstreamErrorText(writer.body.Bytes(), failoverErr.ResponseBody))
 		}
 		if failoverStatus < http.StatusBadRequest {
 			failoverStatus = http.StatusBadGateway
@@ -580,6 +598,9 @@ func (s *OpenAIGatewayService) callVisionHelper(ctx context.Context, parent *gin
 		helperFailoverErr := newVisionFallbackFailoverError(clientStatus, clientMessage)
 		helperFailoverErr.StatusCode = failoverStatus
 		helperFailoverErr.ResponseHeaders = responseHeaders
+		if helperCapacityExhausted {
+			helperFailoverErr.Reason = visionHelperCapacityReason
+		}
 		appendOpsUpstreamError(parent, OpsUpstreamErrorEvent{
 			ProxyID:            opsUpstreamProxyID(candidate.account),
 			ProxyName:          opsUpstreamProxyName(candidate.account),
@@ -678,4 +699,38 @@ func (s *OpenAIGatewayService) observeVisionHelperFailure(account *Account, mode
 	}
 	model = canonicalOpenAIAccountSchedulingModel(account, model)
 	_ = s.ReportOpenAIAccountScheduleResult(account, model, false, nil, err)
+}
+
+func visionHelperUpstreamErrorText(body, responseBody []byte) string {
+	var parts []string
+	for _, raw := range [][]byte{body, responseBody} {
+		if len(raw) == 0 {
+			continue
+		}
+		if message := strings.TrimSpace(extractUpstreamErrorMessage(raw)); message != "" {
+			parts = append(parts, message)
+			continue
+		}
+		parts = append(parts, string(raw))
+	}
+	return strings.Join(parts, "\n")
+}
+
+// 429/5xx 且报文指向限流、配额或“无视觉容量”时，助手在该 Key 上已无名额；
+// 单次超时、空摘要和普通 5xx 仍允许换号后重试，避免一次抖动就整回合放弃助手。
+func visionHelperCapacityByUpstream(failoverErr *UpstreamFailoverError, text string) bool {
+	if failoverErr == nil {
+		return false
+	}
+	status := failoverErr.StatusCode
+	if status != http.StatusTooManyRequests && status < http.StatusInternalServerError {
+		return false
+	}
+	lower := strings.ToLower(text)
+	for _, keyword := range []string{"rate limit", "rate_limit", "quota", "concurren", "capacity", "too many", "并发", "额度", "配额", "限流", "容量"} {
+		if strings.Contains(lower, keyword) {
+			return true
+		}
+	}
+	return false
 }

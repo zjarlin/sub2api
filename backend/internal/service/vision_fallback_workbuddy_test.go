@@ -15,10 +15,11 @@ func TestVisionFallbackWorkbuddyForward(t *testing.T) {
 	for _, protocol := range []string{"responses", "chat"} {
 		for _, helperAvailable := range []bool{true, false} {
 			t.Run(fmt.Sprintf("%s/helper=%t", protocol, helperAvailable), func(t *testing.T) {
-				// 线上账号没有能力快照，公开别名映射到带地域前缀的模型。
+				// 能力未知（无目录快照、也未做过读图探测）：公开别名映射到带地域前缀的模型。
 				primary := visionTestAccount(844, "deepseek-v4.1-flash")
 				primary.Platform = PlatformWorkbuddy
 				primary.Credentials["model_mapping"] = map[string]any{"deepseek-v4.1-flash": "cn:deepseek-v4.1-flash"}
+				primary.Extra = map[string]any{}
 				helper := visionTestAccount(831, "vision-model", "text", "image")
 				accounts := []Account{primary}
 				if helperAvailable {
@@ -28,7 +29,6 @@ func TestVisionFallbackWorkbuddyForward(t *testing.T) {
 				svc := &OpenAIGatewayService{
 					cfg: visionTestConfig(), accountRepo: &countingCodexModelsAccountRepo{accounts: accounts},
 					httpUpstream: &codexModelsHTTPUpstreamStub{do: func(req *http.Request, _ string, id int64, _ int) (*http.Response, error) {
-						require.True(t, helperAvailable, "助手不可用时不能把原始图片送入纯文本模型")
 						calls = append(calls, id)
 						body, err := io.ReadAll(req.Body)
 						require.NoError(t, err)
@@ -37,8 +37,14 @@ func TestVisionFallbackWorkbuddyForward(t *testing.T) {
 							return visionTestResponse(helper.Name, "IMAGE_DESCRIPTION"), nil
 						}
 						require.Equal(t, "cn:deepseek-v4.1-flash", gjson.GetBytes(body, "model").String())
-						require.Contains(t, string(body), "IMAGE_DESCRIPTION")
-						require.NotContains(t, string(body), "data:image/")
+						if helperAvailable {
+							require.Contains(t, string(body), "IMAGE_DESCRIPTION")
+							require.NotContains(t, string(body), "data:image/")
+						} else {
+							// 能力未知且没有助手：保持“现状即证据”，原图照常转发，
+							// 不能因为模型名像 DeepSeek 就判成纯文本并整轮失败。
+							require.Contains(t, string(body), "data:image/png;base64,AAAA")
+						}
 						if protocol == "responses" {
 							require.Contains(t, string(body), "call_image")
 						}
@@ -60,13 +66,12 @@ func TestVisionFallbackWorkbuddyForward(t *testing.T) {
 				} else {
 					_, err = svc.ForwardAsChatCompletions(context.Background(), c, &primary, body, "", "")
 				}
+				require.NoError(t, err)
 				if !helperAvailable {
-					var failure *UpstreamFailoverError
-					require.ErrorAs(t, err, &failure)
-					require.Empty(t, calls)
+					require.Equal(t, []int64{primary.ID}, calls)
+					require.Contains(t, recorder.Body.String(), "observed image")
 					return
 				}
-				require.NoError(t, err)
 				require.Equal(t, []int64{helper.ID, primary.ID}, calls)
 				require.Contains(t, recorder.Body.String(), "observed image")
 			})
@@ -88,18 +93,33 @@ func TestVisionFallbackWorkbuddyPreservesFailureAcrossAccountSwitch(t *testing.T
 	require.Nil(t, converted)
 }
 
-func TestVisionFallbackWorkbuddyModelCapabilities(t *testing.T) {
+// 模型名不是能力证据：DeepSeek 型号在不同上游的读图支持并不一致，只能由目录快照
+// 或真实读图探测下结论；没有证据时保持 unknown，不得断言“纯文本”。
+func TestVisionFallbackDeepSeekCapabilityRequiresEvidence(t *testing.T) {
 	for _, model := range []string{"deepseek-v4.1-flash", "cn:deepseek-v4.1-flash", "global:deepseek-v4.1-flash"} {
-		t.Run(model, func(t *testing.T) {
-			account := visionTestAccount(844, model)
-			account.Platform = PlatformWorkbuddy
-			require.True(t, accountHasKnownTextOnlyInput(&account, model))
-			require.True(t, accountNeedsVisionFallback(&account, model))
-			// 显式同步的能力仍然优先，不按名称覆盖供应商快照。
-			account = visionTestAccount(844, model, "text", "image")
-			account.Platform = PlatformWorkbuddy
-			require.False(t, accountHasKnownTextOnlyInput(&account, model))
-			require.False(t, accountNeedsVisionFallback(&account, model))
-		})
+		for _, platform := range []string{PlatformWorkbuddy, PlatformOpenAI} {
+			t.Run(platform+"/"+model, func(t *testing.T) {
+				unknown := visionTestAccount(844, model)
+				unknown.Platform = platform
+				unknown.Extra = map[string]any{}
+				require.False(t, accountHasKnownTextOnlyInput(&unknown, model), "无证据时不能断言纯文本")
+				require.False(t, accountHasNativeVision(&unknown, model))
+				// 仍可借助组内视觉助手，能力由助手补齐。
+				require.True(t, accountNeedsVisionFallback(&unknown, model))
+
+				// 显式同步的能力优先，不受模型名影响。
+				vision := visionTestAccount(844, model, "text", "image")
+				vision.Platform = platform
+				require.False(t, accountHasKnownTextOnlyInput(&vision, model))
+				require.True(t, accountHasNativeVision(&vision, model))
+				require.False(t, accountNeedsVisionFallback(&vision, model))
+
+				// 上游明确声明纯文本（如 models.dev 快照）才是负面证据。
+				textOnly := visionTestAccount(844, model, "text")
+				textOnly.Platform = platform
+				require.True(t, accountHasKnownTextOnlyInput(&textOnly, model))
+				require.True(t, accountNeedsVisionFallback(&textOnly, model))
+			})
+		}
 	}
 }
