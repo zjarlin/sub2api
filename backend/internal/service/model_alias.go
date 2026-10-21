@@ -317,3 +317,39 @@ func (p *ModelAliasPolicy) NormalizeFallback(policy *ModelFallbackPolicy) *Model
 	}
 	return out
 }
+
+// 请求名必须能作为档位成员被识别；档位里的同义词统一替换为
+// 请求所在树的叶子，确保网关先耗尽同义词再跨模型。
+func (p *ModelAliasPolicy) NormalizeFallbackForRequest(policy *ModelFallbackPolicy, requestModel string) *ModelFallbackPolicy {
+	if policy == nil {
+		return nil
+	}
+	requestIDs := p.IDs(requestModel)
+	if len(requestIDs) == 0 {
+		return policy
+	}
+	requestSet := map[string]bool{}
+	for _, id := range requestIDs {
+		requestSet[p.Canonicalize(id)] = true
+	}
+	for i := range policy.Tiers {
+		models := make([]string, 0, len(policy.Tiers[i].Models)+1)
+		hasRequest := false
+		for _, model := range policy.Tiers[i].Models {
+			canonical := p.Canonicalize(model)
+			if !requestSet[canonical] {
+				models = append(models, model)
+				continue
+			}
+			if hasRequest {
+				continue
+			}
+			hasRequest = true
+			models = append(models, requestModel)
+		}
+		if hasRequest {
+			policy.Tiers[i].Models = models
+		}
+	}
+	return policy
+}

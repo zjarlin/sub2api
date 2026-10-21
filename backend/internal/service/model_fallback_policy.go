@@ -468,7 +468,7 @@ func (s *OpenAIGatewayService) ModelFallbackCandidates(ctx context.Context, grou
 		return nil, err
 	}
 	canonical := aliases.Canonicalize(model)
-	policy = aliases.NormalizeFallback(policy)
+	policy = aliases.NormalizeFallbackForRequest(policy, canonical)
 	ctx = WithModelAliases(ctx, aliases)
 	raw := policy.Candidates(canonical)
 	if policy.Enabled {

@@ -168,6 +168,23 @@ func TestModelAliasFailureLearningKeepsAccountAttribution(t *testing.T) {
 	require.Equal(t, 502, events[0].UpstreamStatusCode)
 }
 
+// 档位写子型号时，根名请求仍必须先走完同义词树，再进入其他档位模型。
+func TestModelAliasTreeFallbackStartsFromRequestedRoot(t *testing.T) {
+	policy := dsTreePolicy()
+	fallback := &ModelFallbackPolicy{Enabled: true, Tiers: []ModelCapabilityTier{{
+		Name: "main", Models: []string{"deepseek-flash", "gpt-5.6-terra"},
+	}}}
+	out := policy.NormalizeFallbackForRequest(fallback, "ds")
+	candidates := out.Candidates("ds")
+	require.Len(t, candidates, 1)
+	require.Equal(t, "gpt-5.6-terra", candidates[0].Model, "同义词在请求内先耗尽，跨模型不能抢跑")
+	// 子型号请求同样按整棵树匹配；档位起点映射为该请求名，其余同义词仍先于跨模型尝试。
+	// 子型号请求落在同一档位，起点映射为请求名，跨模型候选保持一致。
+	out = policy.NormalizeFallbackForRequest(fallback, "deepseek-flash")
+	require.Equal(t, []string{"ds", "gpt-5.6-terra"}, out.Tiers[0].Models)
+	require.Equal(t, []ModelFallbackCandidate{{Model: "gpt-5.6-terra", Tier: "main"}}, out.Candidates("ds"))
+}
+
 func TestModelAliasTreeCatalogRootsFallbackAndValidation(t *testing.T) {
 	p := dsTreePolicy()
 	for _, payload := range []string{
