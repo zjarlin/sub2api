@@ -355,6 +355,18 @@ const loadAvailableModels = async () => {
     if (availableModels.value.length > 0) {
       if (props.account.platform === 'gemini') {
         selectedModelId.value = availableModels.value[0].id
+      } else if (props.account.platform === 'qoder') {
+        // 与投递 /admin/accounts/:id/models 的目录保持一致：默认选本套餐
+        // 可用（enable!==false）且免费/default 的模型，避免默认 402。
+        const usable = availableModels.value.filter((m) => m.enable !== false)
+        const preferred =
+          usable.find((m) => m.default && m.free) ||
+          usable.find((m) => m.default) ||
+          usable.find((m) => m.free) ||
+          usable.find((m) => /flash/i.test(m.id) || /flash/i.test(m.display_name || '')) ||
+          usable[0] ||
+          availableModels.value[0]
+        selectedModelId.value = preferred?.id || ''
       } else {
         // Try to select Sonnet as default, otherwise use first model
         const sonnetModel = availableModels.value.find((m) => m.id.includes('sonnet'))

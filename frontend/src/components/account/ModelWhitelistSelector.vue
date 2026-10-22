@@ -316,7 +316,8 @@ interface CatalogOption {
 const catalogOptions = ref<CatalogOption[]>([])
 
 const loadCatalogOptions = async () => {
-  if (!props.accountId) {
+  const accountId = props.accountId
+  if (!accountId) {
     catalogOptions.value = []
     return
   }
@@ -325,8 +326,11 @@ const loadCatalogOptions = async () => {
     catalogOptions.value = []
     return
   }
+  const requestVersion = catalogVersion
   try {
-    const models = await api.getAvailableModels(props.accountId)
+    const models = await api.getAvailableModels(accountId)
+    // 账号切换后旧请求不能覆盖新账号目录。
+    if (requestVersion !== catalogVersion) return
     catalogOptions.value = models
       .map(model => ({
         value: model.id,
@@ -337,6 +341,7 @@ const loadCatalogOptions = async () => {
       .filter(option => option.value)
   } catch {
     // 目录不可得时保持空：调用方回退平台预设。
+    if (requestVersion !== catalogVersion) return
     catalogOptions.value = []
   }
 }
