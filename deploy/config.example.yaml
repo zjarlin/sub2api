@@ -1153,6 +1153,17 @@ builtin_adapter:
   # JEV 上游要求共享密钥；启用账号前须配置。
   jev_url: "http://sub2api-jev:18083"
   jev_key: ""
+  # Qoder 模型目录签名侧车（可选）。Qoder 的 /api/v2/model/list 需要官方 WASM
+  # 签名；配置脚本后「同步上游模型」会写真实套餐目录，留空则回退内置 15 个 chat 模型。
+  # 生产由 deploy/docker-compose.qoder-catalog.yml 注入下列变量：
+  #   qoder_catalog_script:    /opt/qoder-catalog/fetch.mjs
+  #   qoder_catalog_wasm:      /opt/qoder-catalog/wasm-lib.mjs
+  #   qoder_catalog_queue_dir: /var/lib/qoder-catalog   # 文件队列，必填才走侧车
+  #   qoder_catalog_node:      ""                       # 仅本机直跑 node 或 docker stdio 兼容模式
+  qoder_catalog_script: ""
+  qoder_catalog_wasm: ""
+  qoder_catalog_node: ""
+  qoder_catalog_queue_dir: ""
 
 plugins:
   # Empty means {{DATA_DIR}}/plugins, or ./data/plugins when DATA_DIR is unset.

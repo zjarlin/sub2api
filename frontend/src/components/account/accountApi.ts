@@ -42,9 +42,20 @@ export interface UpstreamModelSyncPreviewParams {
  * 传入账号弹窗/编辑器的 API 对象（管理员 `adminAPI.accounts` 或用户
  * `userAccountsAPI`）；不传时组件回退到管理员 API 以保持管理端既有行为。
  */
+export interface UpstreamCatalogModel {
+  id: string
+  display_name?: string
+  /** 上游目录是否对该账号套餐启用；缺省表示未知（旧快照）。 */
+  enable?: boolean
+  free?: boolean
+  default?: boolean
+}
+
 export interface UpstreamModelSyncApi {
   syncUpstreamModels?(id: number): Promise<UpstreamModelSyncOutcome>
   syncUpstreamModelsPreview?(params: UpstreamModelSyncPreviewParams): Promise<UpstreamModelSyncOutcome>
+  /** 账号的真实模型目录（与测试弹窗同一接口）；未声明时调用方回退平台预设。 */
+  getAvailableModels?(id: number): Promise<UpstreamCatalogModel[]>
 }
 
 export interface AccountModalApi {

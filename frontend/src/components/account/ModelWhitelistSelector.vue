@@ -86,6 +86,21 @@
               </span>
               <ModelIcon :model="model.value" size="18px" />
               <span class="truncate text-gray-900 dark:text-white" :title="model.value">{{ model.value }}</span>
+              <span
+                v-if="model.label && model.label !== model.value"
+                data-testid="model-display-name"
+                class="shrink-0 truncate text-xs text-gray-400 dark:text-gray-500"
+                :title="model.label"
+              >{{ model.label }}</span>
+              <span
+                v-if="model.enable === false"
+                data-testid="model-unavailable"
+                class="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[11px] text-amber-600 dark:bg-amber-900/30 dark:text-amber-400"
+              >{{ t('admin.accounts.qoderModelNotEnabled') }}</span>
+              <span
+                v-else-if="model.free"
+                class="shrink-0 rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400"
+              >{{ t('admin.accounts.qoderModelFree') }}</span>
             </button>
             <button
               type="button"
@@ -243,7 +258,8 @@ let catalogVersion = 0
 watch(() => [props.accountId, props.platform, props.platforms, props.syncCredentials], () => {
   catalogVersion += 1
   syncedModels.value = []
-}, { deep: true, flush: 'sync' })
+  void loadCatalogOptions()
+}, { deep: true, flush: 'sync', immediate: true })
 
 // 作用域 API：父级传入的账号 API（用户侧 userAccountsAPI）优先；未传入时才
 // 惰性回退到管理员 API，保持管理端既有行为。回退必须惰性求值——否则只用到
@@ -287,10 +303,65 @@ const availableOptions = computed(() => {
   return options
 })
 
+// 「已同步目录」的候选：测试弹窗用的是同一个接口（/admin/accounts/:id/models），
+// 因此这里以它为准，避免白名单硬编码与账号真实目录不一致。
+interface CatalogOption {
+  value: string
+  label: string
+  /** 上游目录可用性；undefined 表示未知（旧快照/平台预设）。 */
+  enable?: boolean
+  free?: boolean
+}
+
+const catalogOptions = ref<CatalogOption[]>([])
+
+const loadCatalogOptions = async () => {
+  if (!props.accountId) {
+    catalogOptions.value = []
+    return
+  }
+  const api = props.accountApi ?? accountsAPI
+  if (typeof api.getAvailableModels !== 'function') {
+    catalogOptions.value = []
+    return
+  }
+  try {
+    const models = await api.getAvailableModels(props.accountId)
+    catalogOptions.value = models
+      .map(model => ({
+        value: model.id,
+        label: model.display_name || model.id,
+        enable: model.enable,
+        free: model.free,
+      }))
+      .filter(option => option.value)
+  } catch {
+    // 目录不可得时保持空：调用方回退平台预设。
+    catalogOptions.value = []
+  }
+}
+
+const allCandidateOptions = computed<CatalogOption[]>(() => {
+  if (catalogOptions.value.length === 0) return availableOptions.value
+  const seen = new Set<string>()
+  const options: CatalogOption[] = []
+  for (const option of catalogOptions.value) {
+    if (seen.has(option.value)) continue
+    seen.add(option.value)
+    options.push(option)
+  }
+  for (const model of props.modelValue) {
+    if (seen.has(model)) continue
+    seen.add(model)
+    options.push({ value: model, label: model })
+  }
+  return options
+})
+
 const filteredModels = computed(() => {
   const query = searchQuery.value.toLowerCase().trim()
-  if (!query) return availableOptions.value
-  return availableOptions.value.filter(
+  if (!query) return allCandidateOptions.value
+  return allCandidateOptions.value.filter(
     m => m.value.toLowerCase().includes(query) || m.label.toLowerCase().includes(query)
   )
 })
@@ -379,6 +450,13 @@ const handleEnter = () => {
 
 const fillRelated = () => {
   const newModels = [...props.modelValue]
+  if (catalogOptions.value.length > 0) {
+    for (const option of catalogOptions.value) {
+      if (!newModels.includes(option.value)) newModels.push(option.value)
+    }
+    emit('update:modelValue', newModels)
+    return
+  }
   for (const platform of normalizedPlatforms.value) {
     for (const model of getModelsByPlatform(platform)) {
       if (!newModels.includes(model)) {
@@ -425,6 +503,9 @@ const syncUpstreamModels = async () => {
       emit('upstream-synced')
     }
 
+    // 同步完成后刷新「真实目录」，让白名单候选与测试弹窗保持一致。
+    void loadCatalogOptions()
+
     const newModels = [...props.modelValue]
     let addedCount = 0
     for (const model of upstreamModels) {
@@ -447,12 +528,31 @@ const syncUpstreamModels = async () => {
     const usedBuiltinCatalog = warnings.some(
       warning => warning.code === 'qoder_catalog_builtin'
     )
+    const syncedCatalog = warnings.find(
+      warning => warning.code === 'qoder_catalog_synced'
+    )
+    const noEnabledModels = warnings.some(
+      warning => warning.code === 'qoder_catalog_no_enabled_models'
+    )
     if (hasIncompleteMetadata) {
       appStore.showWarning(t('admin.accounts.syncUpstreamModelsMetadataIncomplete'))
       return
     }
     if (usedBuiltinCatalog) {
       appStore.showInfo(t('admin.accounts.syncUpstreamModelsBuiltinCatalog'))
+      return
+    }
+    if (syncedCatalog) {
+      const enabledMatch = /(\d+)\s+enabled/.exec(syncedCatalog.message || '')
+      appStore.showInfo(
+        t('admin.accounts.syncUpstreamModelsSyncedCatalog', {
+          total: upstreamModels.length,
+          enabled: enabledMatch ? Number(enabledMatch[1]) : upstreamModels.length,
+        })
+      )
+      if (noEnabledModels) {
+        appStore.showWarning(t('admin.accounts.syncUpstreamModelsNoEnabledModels'))
+      }
       return
     }
     if (addedCount > 0) {

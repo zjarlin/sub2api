@@ -969,6 +969,10 @@ export interface ClaudeModel {
   type: string
   display_name: string
   created_at: string
+  /** Qoder 签名目录透出的可用性；其他平台不返回，undefined 表示未知。 */
+  enable?: boolean
+  free?: boolean
+  default?: boolean
 }
 
 export interface Proxy {

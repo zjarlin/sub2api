@@ -517,7 +517,13 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'teleagent': return ['chat-pro', 'chat-flagship', 'chat-flash']
     case 'workbuddy': return ['glm-5.2']
     case 'zcode': return ['glm-5.3', 'glm-5.3-flash']
-    case 'qoder': return ['auto', 'qmodel_38max', 'qfmodel']
+    // Qoder 内置 chat 目录（仅用于无目录接口时的兜底），实际以账号目录
+    // GET /admin/accounts/:id/models 为准。
+    case 'qoder': return [
+      'auto', 'ultimate', 'efficient', 'smodel', 'cmodel',
+      'qmodel_38max', 'qfmodel', 'qmodel', 'kmodel_latest', 'kmodel',
+      'gmodel', 'gfmodel', 'dmodel', 'dfmodel', 'mmodel'
+    ]
     // Laya / JEV 是 System One 决策模型，不生成文本；模型名只用于选择决策检查点。
     case 'laya': return ['laya', 'laya-english', 'laya-multilingual']
     case 'jev': return ['typesafe/jev']

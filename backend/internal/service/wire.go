@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"os"
+	"strings"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
@@ -289,7 +290,48 @@ func ProvideAccountTestService(
 	service.SetOpenAIGatewayService(openAIGatewayService)
 	service.SetSettingService(settingService)
 	service.SetPluginManager(pluginManager)
+	ConfigureQoderCatalogSidecar(cfg)
 	return service
+}
+
+// ConfigureQoderCatalogSidecar 按配置装配 Qoder 签名目录侧车。
+//
+// 未配置 qoder_catalog_script 时保持 nil：同步会回退内置目录且不写快照，
+// 与旧行为一致；配置后同步写真实套餐目录。
+func ConfigureQoderCatalogSidecar(cfg *config.Config) {
+	if cfg == nil || strings.TrimSpace(cfg.BuiltinAdapter.QoderCatalogScript) == "" {
+		SetQoderCatalogFetcher(nil)
+		return
+	}
+	SetQoderCatalogFetcher(&QoderCatalogSidecarFetcher{
+		ScriptPath: strings.TrimSpace(cfg.BuiltinAdapter.QoderCatalogScript),
+		LibPath:    strings.TrimSpace(cfg.BuiltinAdapter.QoderCatalogWasm),
+		NodeBin:    strings.TrimSpace(cfg.BuiltinAdapter.QoderCatalogNode),
+		QueueDir:   strings.TrimSpace(cfg.BuiltinAdapter.QoderCatalogQueueDir),
+		Args:       qoderCatalogSidecarArgs(strings.TrimSpace(cfg.BuiltinAdapter.QoderCatalogNode)),
+	})
+}
+
+// qoderCatalogSidecarArgs 在 NodeBin 为 docker 时插入 exec 参数（stdio 兼容路径）。
+//
+// 注意：生产不使用这条路径——docker exec 的 stdout 在 64KB 处截断，
+// 约 77KB 的目录响应会被切坏。生产配置 qoder_catalog_queue_dir 走文件队列。
+//
+// 生产主镜像基于 alpine，没有 Node；由 deploy/docker-compose.qoder-catalog.yml
+// 提供 node:22 侧车容器。此时配置 `node=docker`，实际执行：
+//
+//	docker exec -i <sidecar容器> <脚本> <参数>
+//
+// 容器名固定，避免依赖 compose 生成名；脚本路径是侧车容器内的路径。
+func qoderCatalogSidecarArgs(nodeBin string) []string {
+	if nodeBin != "docker" && nodeBin != "docker.exe" {
+		return nil
+	}
+	container := strings.TrimSpace(os.Getenv("QODER_CATALOG_SIDECAR_CONTAINER"))
+	if container == "" {
+		container = "sub2api-qoder-catalog"
+	}
+	return []string{"exec", "-i", container}
 }
 
 func ProvideUpstreamModelRefreshService(

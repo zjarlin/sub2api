@@ -85,7 +85,9 @@ func TestQoderBuiltinModelCatalogWithoutSnapshotKeepsOfficialDefaults(t *testing
 	account := &Account{ID: 855, Platform: PlatformQoder, Type: AccountTypeOAuth}
 	catalog := QoderBuiltinModelCatalog(account)
 	require.Equal(t, DefaultQoderModelIDs(), catalog.Models)
-	require.Empty(t, catalog.Metadata)
+	// 无快照时内置目录自带给定的展示元数据，前端仍能显示可读的模型名。
+	require.Len(t, catalog.Metadata, len(DefaultQoderModelIDs()))
+	require.Equal(t, "Qwen3.8-Max", catalog.Metadata["qmodel_38max"].DisplayName)
 	require.Equal(t, QoderBuiltinCatalogWarningCode, catalog.Warnings[0].Code)
 }
 

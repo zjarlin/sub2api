@@ -143,6 +143,15 @@ type BuiltinAdapterConfig struct {
 	LayaKey string `mapstructure:"laya_key"`
 	JevURL  string `mapstructure:"jev_url"`
 	JevKey  string `mapstructure:"jev_key"`
+	// Qoder 模型目录签名侧车：Qoder 的 /api/v2/model/list 只接受官方客户端签名，
+	// 这里配置 Node 侧车脚本（tools/qoder-catalog/fetch.mjs）与切分好的 WASM 库。
+	// 留空则同步回退内置目录，不写账号快照。
+	QoderCatalogScript string `mapstructure:"qoder_catalog_script"`
+	QoderCatalogWasm   string `mapstructure:"qoder_catalog_wasm"`
+	QoderCatalogNode   string `mapstructure:"qoder_catalog_node"`
+	// QoderCatalogQueueDir 是主进程与侧车共享的文件队列目录（容器内路径）。
+	// 配置后走文件队列，不再用 docker exec 的 stdout（64KB 截断会切坏 JSON）。
+	QoderCatalogQueueDir string `mapstructure:"qoder_catalog_queue_dir"`
 }
 
 // DesktopBaseURL 返回豆包桌面适配器地址，未显式配置时使用编排内的服务名。
@@ -2415,6 +2424,12 @@ func setDefaults() {
 	viper.SetDefault("builtin_adapter.laya_key", "")
 	viper.SetDefault("builtin_adapter.jev_url", "")
 	viper.SetDefault("builtin_adapter.jev_key", "")
+	// 必须注册空默认值，否则只经环境变量提供的侧车路径不会被 viper 解码，
+	// Qoder 目录同步会静默退回内置目录。
+	viper.SetDefault("builtin_adapter.qoder_catalog_script", "")
+	viper.SetDefault("builtin_adapter.qoder_catalog_wasm", "")
+	viper.SetDefault("builtin_adapter.qoder_catalog_node", "")
+	viper.SetDefault("builtin_adapter.qoder_catalog_queue_dir", "")
 	viper.SetDefault("gateway.min_output_tokens", 128)
 	viper.SetDefault("simple_mode.auto_create_default_groups", true)
 	viper.SetDefault("simple_mode_key_rate_limit_enabled", false)

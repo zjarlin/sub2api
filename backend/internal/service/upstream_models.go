@@ -47,6 +47,13 @@ type UpstreamModelMetadata struct {
 	MaxContextWindow         int64                      `json:"max_context_window,omitempty"`
 	MaxOutputTokens          int64                      `json:"max_output_tokens,omitempty"`
 	CodexToolCapabilities    map[string]json.RawMessage `json:"codex_tool_capabilities,omitempty"`
+	// Enable / Free / Default 来自能给出「套餐可用性」的目录（目前只有 Qoder 的
+	// 签名目录）。指针类型区分「上游没给」与「上游明确给了 false」。
+	Enable  *bool `json:"enable,omitempty"`
+	Free    *bool `json:"free,omitempty"`
+	Default *bool `json:"default,omitempty"`
+	// PriceFactor 是上游计费倍率，仅用于展示与排序提示。
+	PriceFactor *float64 `json:"price_factor,omitempty"`
 }
 
 type UpstreamModelMetadataSnapshot struct {
@@ -338,12 +345,20 @@ func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, accou
 	if account != nil && account.Platform == PlatformV0 {
 		return &UpstreamModelCatalog{Models: V0DefaultModelIDs(), Metadata: make(map[string]UpstreamModelMetadata)}, nil
 	}
-	// Qoder 的目录只对 IDE 的签名端点开放，返回内置官方 ID 并明确告警，
-	// 避免把不可达的 /api/v2/model/list 误报成账号凭据失效。
+	// Qoder 的目录只对官方客户端的签名端点开放（路径带 /algo 前缀 + Cosy 签名）。
+	// 配好签名侧车时按真实套餐目录落库；侧车缺失或失败才回退内置目录并明确告警。
 	//
-	// 这里故意不写 upstream_supported_models 快照：内置候选不是上游授权结果，
+	// 内置回退不写 upstream_supported_models 快照：内置候选不是上游授权结果，
 	// 一旦作为权威目录落库，会收窄调度范围（目录缺失被视为「不支持」）。
 	if account != nil && account.Platform == PlatformQoder {
+		catalog, err := s.syncQoderSignedCatalog(ctx, account)
+		if err == nil && catalog != nil {
+			return catalog, nil
+		}
+		if err != nil {
+			slog.Warn("qoder signed catalog sync failed; falling back to builtin catalog",
+				"account_id", upstreamModelSyncAccountID(account), "error", err)
+		}
 		return QoderBuiltinModelCatalog(account), nil
 	}
 	// 3D 官方接口没有聊天模型列表，使用适配器目录，避免误探测 /models。

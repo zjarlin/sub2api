@@ -20,6 +20,13 @@ if [ -f "$ADAPTER_COMPOSE" ]; then
   COMPOSE+=(-f "$ADAPTER_COMPOSE")
 fi
 
+# Qoder 签名目录侧车（Node + 官方 WASM）。缺失时账号同步回退内置目录，
+# 不影响启动；存在则追加共享卷与文件队列配置。
+QODER_CATALOG_COMPOSE="$DEPLOY_DIR/deploy/docker-compose.qoder-catalog.yml"
+if [ -f "$QODER_CATALOG_COMPOSE" ]; then
+  COMPOSE+=(-f "$QODER_CATALOG_COMPOSE")
+fi
+
 # 只读取编排开关，不执行 .env 中的 shell 内容；显式环境变量优先。
 EDGE_MEDIA_ENABLED="${SUB2API_EDGE_MEDIA:-}"
 if [ -z "$EDGE_MEDIA_ENABLED" ] && [ -f "$DEPLOY_DIR/.env" ]; then

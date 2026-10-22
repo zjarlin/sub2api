@@ -250,7 +250,24 @@ describe('AccountTestModal', () => {
     await flushPromises()
     const start = wrapper.findAll('button').find(button => button.text().includes('admin.accounts.startTest'))!
     expect(start.attributes('disabled')).toBeUndefined()
-    expect(getAvailableModels).toHaveBeenLastCalledWith(42, expect.objectContaining({ timeout: 10000, signal: expect.any(AbortSignal) }))
+    expect(getAvailableModels).toHaveBeenLastCalledWith(42, expect.objectContaining({ timeout: 15000, signal: expect.any(AbortSignal) }))
+    wrapper.unmount()
+  })
+
+  it('弹窗先渲染，模型列表在后台加载完成后可选', async () => {
+    let finish!: (models: unknown[]) => void
+    getAvailableModels.mockImplementationOnce(() => new Promise(resolve => { finish = resolve }))
+    const wrapper = mountModal()
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    // 模型请求还没回来时，弹窗主体已经渲染并提示加载中。
+    expect(wrapper.text()).toContain('Gemini Image Test')
+    expect(wrapper.text()).toContain('admin.accounts.readyToTest')
+    expect(wrapper.find('[role="status"]').text()).toContain('loadingTestModels')
+    finish([{ id: 'gemini-3.1-flash-image', display_name: 'Gemini 3.1 Flash Image' }])
+    await flushPromises()
+    expect((wrapper.vm as any).availableModels).toHaveLength(1)
+    expect((wrapper.vm as any).selectedModelId).toBe('gemini-3.1-flash-image')
     wrapper.unmount()
   })
 

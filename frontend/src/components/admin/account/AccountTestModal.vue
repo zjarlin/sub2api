@@ -795,6 +795,20 @@ const pickDefaultModelForMode = () => {
     return
   }
   if (opts.some((m) => m.id === selectedModelId.value)) return
+  if (isQoderAccount.value) {
+    // 目录接口会带 enable/free/default；优先本套餐可用且默认的免费模型，
+    // 避免默认选中需要付费套餐、一点就 402 的模型。
+    const usable = opts.filter((m) => m.enable !== false)
+    const preferred =
+      usable.find((m) => m.default && m.free) ||
+      usable.find((m) => m.default) ||
+      usable.find((m) => m.free) ||
+      usable.find((m) => /flash/i.test(m.id) || /flash/i.test(m.display_name || '')) ||
+      usable[0] ||
+      opts[0]
+    selectedModelId.value = preferred.id
+    return
+  }
   if (grokTestMode.value === 'text') {
     const preferred =
       opts.find((m) => m.id.includes('grok-4.5')) ||
@@ -816,10 +830,13 @@ watch(
       testMode.value = 'default'
       qoderTestMode.value = 'commit-message'
       grokTestMode.value = 'text'
-      // 切换账号/重新打开时清空上一次的模型选择，避免沿用到另一个账号。
+      // 切换账号/重新打开时清空上一次的模型选择与列表，避免沿用到另一个账号。
       selectedModelId.value = ''
+      availableModels.value = []
       resetState()
-      await loadAvailableModels()
+      // 不 await：弹窗先按账号数据渲染，模型列表在后台补齐，避免打开时整屏空等。
+      void loadAvailableModels()
+      seedModelsFromAccountSnapshot()
       if (isGrokAccount.value) {
         pickDefaultModelForMode()
         applyDefaultPromptForMode()
@@ -838,6 +855,47 @@ watch(grokTestMode, () => {
   applyDefaultPromptForMode()
 })
 
+// 列表里已带有账号的上游目录/映射快照时，先据此填出可测模型，等目录请求回来
+// 再以真实结果覆盖。这样「点测试」与「编辑模型列表」一样立即可选。
+// 注意：白名单不能当作可测目录——上游目录可能不校验凭证，可测性只认同步结果。
+const seedModelsFromAccountSnapshot = () => {
+  const account = props.account
+  if (!account || availableModels.value.length > 0) return
+  const snapshot = (account.extra as Record<string, unknown> | undefined)?.upstream_supported_models as
+    | { models?: unknown }
+    | undefined
+  const ids = Array.isArray(snapshot?.models)
+    ? snapshot!.models.map((id) => String(id).trim()).filter(Boolean)
+    : []
+  if (ids.length === 0) return
+  availableModels.value = props.account.platform === 'gemini' || props.account.platform === 'antigravity'
+    ? sortTestModels(ids.map((id) => ({ id, type: 'model', display_name: id, created_at: '' })))
+    : ids.map((id) => ({ id, type: 'model', display_name: id, created_at: '' }))
+  // 快照先给出默认值，但不覆盖用户已手填的模型 ID。
+  if (selectedModelId.value && !availableModels.value.some((m) => m.id === selectedModelId.value)) return
+  if (props.account.platform === 'qoder') {
+    // 快照元数据里带 enable/free/default（签名目录同步后写入），据此优先选中
+    // 本套餐可用的免费模型；都没有标记时回退名称含 Flash 的模型。
+    const metadata = (props.account.extra as Record<string, unknown> | undefined)?.upstream_model_metadata as
+      | { models?: Record<string, { enable?: boolean; free?: boolean; default?: boolean }> }
+      | undefined
+    const flags = metadata?.models ?? {}
+    const enabled = (id: string) => flags[id]?.enable !== false
+    const usable = availableModels.value.filter((m) => enabled(m.id))
+    const preferred =
+      usable.find((m) => flags[m.id]?.default && flags[m.id]?.free) ||
+      usable.find((m) => flags[m.id]?.default) ||
+      usable.find((m) => flags[m.id]?.free) ||
+      usable.find((m) => /flash/i.test(m.id) || /flash/i.test(m.display_name || '')) ||
+      usable[0]
+    // 全部未启用时仍给出第一个模型：管理员需要能点测试并看到 402 原因。
+    selectedModelId.value = preferred?.id || availableModels.value[0].id
+    return
+  }
+  const sonnet = availableModels.value.find((m) => m.id.includes('sonnet'))
+  selectedModelId.value = sonnet?.id || availableModels.value[0].id
+}
+
 const loadAvailableModels = async () => {
   if (!props.account) return
 
@@ -845,22 +903,31 @@ const loadAvailableModels = async () => {
   const previousSelection = selectedModelId.value
   loadingModels.value = true
   modelsLoadFailed.value = false
-  availableModels.value = []
+  // 不清空：快照种子列表先占位，请求失败时也保留它，测试按钮仍然可用。
   modelsController?.abort()
   const request = new AbortController()
   modelsController = request
   const account = props.account
   try {
-    const models = await adminAPI.accounts.getAvailableModels(account.id, { signal: request.signal, timeout: 10000 })
+    // 后端 HTTP 客户端默认 30 秒；这里收紧到 15 秒（目录 8s + 鉴权探测 5s
+    // 仍在窗口内），超时后给出可重试提示，不让弹窗无限停在「正在加载测试模型」。
+    const models = await adminAPI.accounts.getAvailableModels(account.id, { signal: request.signal, timeout: 15000 })
     if (request.signal.aborted) return
     availableModels.value = props.account.platform === 'gemini' || props.account.platform === 'antigravity'
       ? sortTestModels(models)
       : models
     // Default selection by platform. Manual/previous selection wins so an
     // operator-typed model id is not overwritten by the upstream list.
-    if (previousSelection) {
+    const previous = availableModels.value.find((m) => m.id === previousSelection)
+    // Qoder 当前选择在本套餐未启用时不能沿用：保留一个肯定 402 的默认值正是
+    // 「列表能选、一测就报错」的体验问题，改为切到本套餐可用模型。
+    if (previous && previous.enable !== false) {
       selectedModelId.value = previousSelection
     } else if (availableModels.value.length > 0) {
+      if (props.account.platform === 'qoder') {
+        pickDefaultModelForMode()
+        return
+      }
       if (props.account.platform === 'gemini') {
         selectedModelId.value = availableModels.value[0].id
       } else {
@@ -873,9 +940,8 @@ const loadAvailableModels = async () => {
     if (request.signal.aborted) return
     modelsLoadFailed.value = true
     console.error('Failed to load available models:', error)
-    // Fallback to empty list,但保留用户手填的模型 ID。
-    availableModels.value = []
-    selectedModelId.value = previousSelection
+    // 保留快照种子与用户手填的模型 ID，避免一次超时把可选列表清空。
+    selectedModelId.value = previousSelection || selectedModelId.value
   } finally {
     if (modelsController === request) {
       loadingModels.value = false

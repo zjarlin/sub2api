@@ -1197,6 +1197,10 @@ export default {
       syncUpstreamModelsEmpty: 'Upstream returned no models to sync',
       syncUpstreamModelsFailed: 'Failed to sync upstream models',
       syncUpstreamModelsError: 'Failed to sync upstream models: {message}',
+      syncUpstreamModelsSyncedCatalog: 'Synced the Qoder official catalog: {total} chat models, {enabled} enabled for this plan.',
+      syncUpstreamModelsNoEnabledModels: 'No Qoder model is schedulable for this account right now; check the plan or quota before enabling it.',
+      qoderModelNotEnabled: 'Not available on this plan',
+      qoderModelFree: 'Free',
       syncUpstreamModelsBuiltinCatalog: 'This platform has no directly fetchable upstream catalog; built-in official model IDs were filled in. Entitlement still depends on the account plan.',
       syncUpstreamModelsMetadataIncomplete:
         'Model IDs were synced, but no capability metadata could be updated.',

@@ -38,6 +38,41 @@ func setupAvailableModelsRouter(adminSvc service.AdminService) *gin.Engine {
 	return router
 }
 
+func TestAccountHandlerGetAvailableModels_QoderExposesAvailability(t *testing.T) {
+	enabled, disabled, free := true, false, true
+	account := service.Account{ID: 855, Platform: service.PlatformQoder, Type: service.AccountTypeOAuth}
+	account.SetUpstreamSupportedModelsSnapshot(service.UpstreamSupportedModelsSnapshot{
+		Source: "qoder_signed", Models: []string{"auto", "qmodel_38max", "qfmodel"},
+	})
+	account.SetUpstreamModelMetadataSnapshot(service.UpstreamModelMetadataSnapshot{Source: "qoder_signed", Models: map[string]service.UpstreamModelMetadata{
+		"auto":         {ID: "auto", DisplayName: "Auto", Enable: &disabled},
+		"qmodel_38max": {ID: "qmodel_38max", DisplayName: "Qwen3.8-Max", Enable: &disabled},
+		"qfmodel":      {ID: "qfmodel", DisplayName: "Qwen3.8-Flash", Enable: &enabled, Free: &free},
+	}})
+	router := setupAvailableModelsRouter(&availableModelsAdminService{stubAdminService: newStubAdminService(), account: account})
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/855/models", nil))
+	require.Equal(t, http.StatusOK, recorder.Code)
+	var response struct {
+		Data []struct {
+			ID     string `json:"id"`
+			Enable *bool  `json:"enable"`
+			Free   *bool  `json:"free"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.Len(t, response.Data, 3)
+	byID := map[string]int{}
+	for i, model := range response.Data {
+		byID[model.ID] = i
+	}
+	// 未启用的模型仍返回，但必须明确 enable=false，前端才能标注。
+	require.False(t, *response.Data[byID["auto"]].Enable)
+	require.False(t, *response.Data[byID["qmodel_38max"]].Enable)
+	require.True(t, *response.Data[byID["qfmodel"]].Enable)
+	require.True(t, *response.Data[byID["qfmodel"]].Free)
+}
+
 func TestAccountHandlerGetAvailableModels_QoderUsesAccountCatalog(t *testing.T) {
 	account := service.Account{ID: 855, Platform: service.PlatformQoder, Type: service.AccountTypeOAuth}
 	account.SetUpstreamSupportedModelsSnapshot(service.UpstreamSupportedModelsSnapshot{Source: "upstream", Models: []string{"qmodel_38max", "qfmodel"}})

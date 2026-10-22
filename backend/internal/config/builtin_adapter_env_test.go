@@ -25,6 +25,10 @@ func TestBuiltinAdapterEnvReachable(t *testing.T) {
 	t.Setenv("BUILTIN_ADAPTER_MADAO_URL", "http://sub2api-madao:7870")
 	t.Setenv("BUILTIN_ADAPTER_TELEAGENT_KEY", "teleagent-key")
 	t.Setenv("BUILTIN_ADAPTER_TELEAGENT_URL", "http://teleagent.internal:7872")
+	t.Setenv("BUILTIN_ADAPTER_QODER_CATALOG_SCRIPT", "/opt/qoder-catalog/fetch.mjs")
+	t.Setenv("BUILTIN_ADAPTER_QODER_CATALOG_WASM", "/opt/qoder-catalog/wasm-lib.mjs")
+	t.Setenv("BUILTIN_ADAPTER_QODER_CATALOG_NODE", "/usr/local/bin/node")
+	t.Setenv("BUILTIN_ADAPTER_QODER_CATALOG_QUEUE_DIR", "/var/lib/qoder-catalog")
 	viper.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
 	viper.AutomaticEnv()
 	viper.SetDefault("builtin_adapter.enabled", false)
@@ -40,6 +44,10 @@ func TestBuiltinAdapterEnvReachable(t *testing.T) {
 	viper.SetDefault("builtin_adapter.windsurf_url", "")
 	viper.SetDefault("builtin_adapter.madao_key", "")
 	viper.SetDefault("builtin_adapter.madao_url", "")
+	viper.SetDefault("builtin_adapter.qoder_catalog_script", "")
+	viper.SetDefault("builtin_adapter.qoder_catalog_wasm", "")
+	viper.SetDefault("builtin_adapter.qoder_catalog_node", "")
+	viper.SetDefault("builtin_adapter.qoder_catalog_queue_dir", "")
 	var cfg Config
 	if err := viper.Unmarshal(&cfg); err != nil {
 		t.Fatal(err)
@@ -70,6 +78,12 @@ func TestBuiltinAdapterEnvReachable(t *testing.T) {
 	}
 	if cfg.BuiltinAdapter.TeleagentKey != "teleagent-key" || cfg.BuiltinAdapter.TeleagentBaseURL() != "http://teleagent.internal:7872" {
 		t.Fatal("TeleAgent adapter environment not mapped")
+	}
+	if cfg.BuiltinAdapter.QoderCatalogScript != "/opt/qoder-catalog/fetch.mjs" ||
+		cfg.BuiltinAdapter.QoderCatalogWasm != "/opt/qoder-catalog/wasm-lib.mjs" ||
+		cfg.BuiltinAdapter.QoderCatalogNode != "/usr/local/bin/node" ||
+		cfg.BuiltinAdapter.QoderCatalogQueueDir != "/var/lib/qoder-catalog" {
+		t.Fatalf("Qoder catalog sidecar environment not mapped: %+v", cfg.BuiltinAdapter)
 	}
 }
 
