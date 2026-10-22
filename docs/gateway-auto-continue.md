@@ -4,6 +4,10 @@ HTTP `/v1/responses` 的 Agent 请求在助手停在“请选 1/2/3”“等待�
 
 System One 判断原始任务授权、剩余工作和决策来源，默认模型为 `typesafe/jev`，可通过 `decision_model` 改为 `laya`。用户已确认的设计覆盖当前问题时沿用设计；已经定位且用户要求解决的明确缺陷直接修复、验证。新的方案取舍、决策接口不可用或判断不确定时交给最高档裁决者，最高档来源为后台 `model_fallback_policy.tiers[0]`，不硬编码模型名，不向低档降级。有明确且有效的推荐时优先推荐，否则裁决者选最佳方案；“全部都做”不作为默认最优答案。
 
+助手在选项里标了唯一推荐（推荐/最佳/首选），且用户没有要求只分析、没有提出新需求时，用户说“按推荐”“遇到选择直接按推荐”之类就直接采用该推荐续跑，不再额外询问。只有助手声明“尚未修复/未验证”或“是否继续”时，才让 laya/JEV 先确认执行状态。没有推荐项的询问也不能直接停下，仍要过判据；判据不可用时交最高档仲裁。用户只要分析或提出新需求时，即使选项带推荐也要真实取舍。
+
+判据确认要继续后，网关先让低档模型把遗留工作整理成结构化 TODO（`{"todos":["步骤"]}`），再连同该清单作为开发者消息注入续跑请求，让较弱的执行模型按顺序完成并验证。规划失败时从助手正文的编号行兜底；带推荐标记的备选方案不算待办。规划使用原执行账号的低档模型，默认沿用请求映射模型，可通过 `plan_model` 指定；清单最多 `plan_max_steps` 项，规划回合超时 `plan_timeout_seconds`。
+
 判断请求复用本进程的 `/v1/systemone` 入口，以原始已鉴权的分组 Key 调用，沿用账号调度、显式 `base_url`、上游密钥、并发限制和调用记录，不读取旧的 `gateway.laya.url` 或直连本机 `edge-laya`。本机目的地址固定由服务监听端口构造，不信任客户端 Host。跨机 Laya 配在 System One 账号中，例如 `base_url=https://ai.addzero.site/v1` 配合该上游的分组 Key；请求内容按 System One 契约透传。返回的实际模型写入裁决记录，JEV 回退到 Laya 时不冒充 JEV 结果。
 
 上下文超限也是已确定的技术恢复步骤。网关识别尚未向客户端发出的真实 `11115`、`prompt_too_long`、`context_length_exceeded` 错误，或助手明确停在“上下文已满，需压缩才能继续”。原样保留 `instructions`、系统/开发者消息、动态工具定义、请求工具和最新用户请求，将早期历史按默认 256 KiB 数据块逐步合并为摘要。摘要提示明确保留目标、授权、既定方案、已完成/失败/未知的操作状态和剩余工作；摘要回合不提供执行工具。之后记录压缩决策并以缩小后的请求继续原始任务，异步报告已采用的恢复步骤。
@@ -22,6 +26,6 @@ System One 判断原始任务授权、剩余工作和决策来源，默认模型
 
 启用条件是请求声明了执行工具，并提供可判断的完整对话。普通无工具问答、后台任务、压缩请求、不透明的 `previous_response_id` / `conversation` 请求及 WebSocket 入站不会自动续跑；这些路径没有足够的原始任务上下文或不同的流生命周期。直接 `/v1/chat/completions` 入站也不进入此 Responses 策略。
 
-配置在 `gateway.auto_continue`，默认开启。环境变量：`GATEWAY_AUTO_CONTINUE_ENABLED`、`GATEWAY_AUTO_CONTINUE_DECISION_MODEL`、`GATEWAY_AUTO_CONTINUE_MAX_ROUNDS`、`GATEWAY_AUTO_CONTINUE_TIMEOUT_SECONDS`、`GATEWAY_AUTO_CONTINUE_MIN_CONFIDENCE`、`GATEWAY_AUTO_CONTINUE_JUDGE_TIMEOUT_SECONDS`。本地测试使用假上游和假原生 System One 入口，不修改线上容器。概率、`confidence` 和 `answer_confidence` 中已提供的值都必须达到置信阈值，不用概率覆盖更低的上游置信度。
+配置在 `gateway.auto_continue`，默认开启。环境变量：`GATEWAY_AUTO_CONTINUE_ENABLED`、`GATEWAY_AUTO_CONTINUE_DECISION_MODEL`、`GATEWAY_AUTO_CONTINUE_MAX_ROUNDS`、`GATEWAY_AUTO_CONTINUE_TIMEOUT_SECONDS`、`GATEWAY_AUTO_CONTINUE_MIN_CONFIDENCE`、`GATEWAY_AUTO_CONTINUE_JUDGE_TIMEOUT_SECONDS`、`GATEWAY_AUTO_CONTINUE_PLAN_MODEL`、`GATEWAY_AUTO_CONTINUE_PLAN_TIMEOUT_SECONDS`（默认 30）、`GATEWAY_AUTO_CONTINUE_PLAN_MAX_STEPS`（默认 8）。本地测试使用假上游和假原生 System One 入口，不修改线上容器。概率、`confidence` 和 `answer_confidence` 中已提供的值都必须达到置信阈值，不用概率覆盖更低的上游置信度。
 
 压缩预算可通过 `GATEWAY_AUTO_CONTINUE_COMPACTION_CHUNK_BYTES`、`GATEWAY_AUTO_CONTINUE_COMPACTION_MAX_CHUNKS`、`GATEWAY_AUTO_CONTINUE_COMPACTION_TIMEOUT_SECONDS` 调整。摘要回合使用原执行账号/模型及独立会话状态，不携带原任务的会话 ID 和回合游标；压缩后的内部重试保留会话关联并清除旧回合游标。真实用量通过已有辅助队列独立记录；首次超限请求没有生成有效用量时不虚构用量，最终回合照常计量。

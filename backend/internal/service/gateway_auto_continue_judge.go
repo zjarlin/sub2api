@@ -24,14 +24,18 @@ type AutoContinueDecision struct {
 	Model      string            `json:"model"`
 	Selections map[string]string `json:"selections"`
 	Plan       string            `json:"plan,omitempty"`
-	Reason     string            `json:"reason"`
-	RecordedAt int64             `json:"recorded_at"`
+	// Todo 是续跑前整理的结构化待办，写入裁决记录便于追溯实际执行目标。
+	Todo       []string `json:"todo,omitempty"`
+	Reason     string   `json:"reason"`
+	RecordedAt int64    `json:"recorded_at"`
 }
 
-func (s *OpenAIGatewayService) judgeAutoContinue(ctx context.Context, parent *gin.Context, primary *Account, candidate *autoContinueCandidate, state map[string]any) (*AutoContinueDecision, error) {
-	value, _ := parent.Get("api_key")
-	key, _ := value.(*APIKey)
-	if key == nil || key.GroupID == nil || s.accountRepo == nil {
+func (s *OpenAIGatewayService) judgeAutoContinue(ctx context.Context, parent *gin.Context, primary *Account, body []byte, candidate *autoContinueCandidate, state map[string]any) (*AutoContinueDecision, error) {
+	if s.accountRepo == nil {
+		return nil, errors.New("arbiter requires an API key group")
+	}
+	key := autoContinueGatewayKey(parent)
+	if key == nil {
 		return nil, errors.New("arbiter requires an API key group")
 	}
 	policy, err := s.settingService.GetModelFallbackPolicy(ctx)

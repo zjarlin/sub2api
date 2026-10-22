@@ -134,12 +134,13 @@ func (s *OpenAIGatewayService) forwardWithAutoContinue(ctx context.Context, c *g
 		}
 		var nextBody []byte
 		var decision *AutoContinueDecision
+		var planDecision *AutoContinueDecision
 		var decisionErr error
 		needsCompaction := !compacted && len(candidate.Questions) == 0 && autoContinueNeedsCompaction(candidate.Text)
 		if needsCompaction {
 			nextBody, decision, decisionErr = s.compactAutoContinue(ctx, c, account, body, candidate.Text, false)
 		} else {
-			decision, decisionErr = s.decideAutoContinue(ctx, c, account, body, candidate)
+			decision, planDecision, decisionErr = s.decideAutoContinue(ctx, c, account, body, candidate, rounds > 0)
 		}
 		if decisionErr != nil {
 			logger.FromContext(ctx).Warn("gateway.auto_continue_decision_failed", zap.Int64("account_id", account.ID), zap.Error(decisionErr))
@@ -155,8 +156,16 @@ func (s *OpenAIGatewayService) forwardWithAutoContinue(ctx context.Context, c *g
 			return result, writer.release()
 		}
 		if nextBody == nil {
+			// 续跑前把遗留工作整理成 TODO；清单失败只用正文编号兜底，不阻塞续跑。
+			// 判据通道不可用时，报告沿用推荐决定，规划改用最高档仲裁的方案。
+			planBasis := decision
+			if planDecision != nil {
+				planBasis = planDecision
+			}
+			todos := s.planAutoContinueTodos(ctx, c, account, body, candidate, planBasis)
+			decision.Todo = todos
 			var buildErr error
-			nextBody, buildErr = autoContinueBuildRequest(body, response, candidate, decision)
+			nextBody, buildErr = autoContinueBuildRequestWithTodos(body, response, candidate, decision, todos)
 			if buildErr != nil {
 				logger.FromContext(ctx).Warn("gateway.auto_continue_replay_failed", zap.Error(buildErr))
 				return result, writer.release()

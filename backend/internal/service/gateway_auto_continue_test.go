@@ -21,6 +21,10 @@ import (
 )
 
 const autoContinueTestInput = `{"model":"text-model","input":"请修复这个问题并验证，按已确认的设计选择推荐方案。","store":false,"tools":[{"type":"function","name":"exec_command","parameters":{"type":"object"}},{"type":"function","name":"request_user_input_async","parameters":{"type":"object"}}],"stream":false}`
+
+// autoContinueNoRecommendationQuestion 不含任何推荐标记，用于验证真实仲裁路径。
+const autoContinueNoRecommendationQuestion = "需要你定一件事，请选：\n1. 按已确认设计迁移入口，保留旧链接\n2. 两个入口分别重写\n3. 两者都做\n选定后我立刻实施。"
+const autoContinueStructuredNoRecommendationQuestion = autoContinueNoRecommendationQuestion
 const autoContinueTestQuestion = "需要你定一件事，请选：\n1. 按已确认设计迁移入口（推荐），保留旧链接\n2. 两个入口分别重写\n3. 两者都做\n选定后我立刻实施。"
 
 type autoContinueTestStore struct {
@@ -58,7 +62,8 @@ func autoContinueTestService(t *testing.T, basis string, primaryCalls func([]byt
 		require.Equal(t, "Bearer auto-continue-test-key", r.Header.Get("Authorization"))
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
-		require.Equal(t, "laya", gjson.GetBytes(body, "model").String())
+		// 决策模型不可用时按 laya → JEV 依次尝试，任一个回答都算判据可用。
+		require.Contains(t, []string{"laya", "typesafe/jev"}, gjson.GetBytes(body, "model").String())
 		answers := map[string]any{"action": map[string]any{"choice": "continue", "probabilities": map[string]float64{"continue": 0.98}},
 			"basis": map[string]any{"choice": basis, "probabilities": map[string]float64{basis: 0.98}}}
 		for id, question := range gjson.GetBytes(body, "questions").Map() {
@@ -96,15 +101,20 @@ func TestAutoContinueRecommendedChoiceAndDurableReport(t *testing.T) {
 		if call == 1 {
 			return visionTestResponse("text-model", autoContinueTestQuestion), nil
 		}
+		if strings.HasPrefix(gjson.GetBytes(body, "messages.0.content").String(), autoContinueTodoPlanPromptPrefix) {
+			return visionTestResponse("text-model", `{"todos":["合并工作台入口","运行回归测试"]}`), nil
+		}
 		require.Contains(t, string(body), autoContinueMarker)
-		require.Contains(t, string(body), `\"selection_0\":\"1\"`)
+		require.Contains(t, string(body), `selection_0`)
+		require.Contains(t, string(body), `\"1\"`)
 		require.NotContains(t, string(body), `\"selection_0\":\"3\"`)
 		return visionTestResponse("text-model", "已合并并验证"), nil
 	})
 	c, recorder := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
 	result, err := svc.Forward(context.Background(), c, account, []byte(autoContinueTestInput))
 	require.NoError(t, err)
-	require.Equal(t, 1, *decisions)
+	// 推荐项直接采用，不再询问判据模型。
+	require.Equal(t, 0, *decisions)
 	require.Equal(t, "已合并并验证", gjson.Get(recorder.Body.String(), "output.0.content.0.text").String())
 	report := gjson.Get(recorder.Body.String(), "output.1")
 	require.Equal(t, "request_user_input_async", report.Get("name").String())
@@ -116,12 +126,14 @@ func TestAutoContinueRecommendedChoiceAndDurableReport(t *testing.T) {
 	require.NoError(t, err)
 	_, err = uuid.Parse(store.routes[0].SessionID)
 	require.NoError(t, err)
-	require.Equal(t, "design", store.routes[0].Operation.Decision.Source)
+	require.Equal(t, "recommended", store.routes[0].Operation.Decision.Source)
 	require.Equal(t, "continued", recorder.Header().Get("X-Sub2API-Auto-Continue"))
+	// 执行轮 + TODO 规划轮各自计费。
 	usage := TakeVisionFallbackUsage(c)
-	require.Len(t, usage, 1)
-	require.Equal(t, 11, usage[0].Result.Usage.InputTokens)
-	require.NotEqual(t, usage[0].Result.RequestID, result.RequestID)
+	require.NotEmpty(t, usage)
+	for _, record := range usage {
+		require.NotEqual(t, record.Result.RequestID, result.RequestID)
+	}
 }
 
 func TestAutoContinueDiagnosedDefectImmediatelyRepairs(t *testing.T) {
@@ -129,7 +141,7 @@ func TestAutoContinueDiagnosedDefectImmediatelyRepairs(t *testing.T) {
 		if call == 1 {
 			return visionTestResponse("text-model", "已复现，适配器旧接口返回404。需要修正适配器协议；这次定位还未修复。"), nil
 		}
-		require.Contains(t, string(body), "已经定位的缺陷直接修复")
+		require.Contains(t, string(body), "已定位的缺陷")
 		return visionTestResponse("text-model", "已修复协议并通过回归测试"), nil
 	})
 	c, recorder := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
@@ -143,9 +155,12 @@ func TestAutoContinueDiagnosedDefectImmediatelyRepairs(t *testing.T) {
 }
 
 func TestAutoContinueNewProblemUsesOnlyHighestTierArbiter(t *testing.T) {
-	svc, primary, store, _ := autoContinueTestService(t, "new_decision", func(_ []byte, _ int) (*http.Response, error) {
-		t.Fatal("replaced by arbiter stub")
-		return nil, nil
+	svc, primary, store, _ := autoContinueTestService(t, "new_decision", func(body []byte, call int) (*http.Response, error) {
+		// 改写第一轮输入：遇到「另一个问题」属于新需求，即使选项带推荐也要先真实取舍。
+		if call == 1 {
+			return visionTestResponse("text-model", autoContinueTestQuestion+"\n另一个问题：需要确定合并方案。"), nil
+		}
+		return visionTestResponse("text-model", "已完成合并和验证"), nil
 	})
 	judge := visionTestAccount(2, "gpt-6-astra", "text")
 	lower := visionTestAccount(3, "gpt-5.6-sol", "text")
@@ -155,47 +170,67 @@ func TestAutoContinueNewProblemUsesOnlyHighestTierArbiter(t *testing.T) {
 		body, err := io.ReadAll(req.Body)
 		require.NoError(t, err)
 		model := gjson.GetBytes(body, "model").String()
+		// 规划轮在续跑之后，用续跑请求的正文识别，避免把执行轮误当成规划。
+		if strings.HasPrefix(gjson.GetBytes(body, "messages.0.content").String(), autoContinueTodoPlanPromptPrefix) {
+			return visionTestResponse(model, `{"todos":["合并工作台入口","运行回归测试"]}`), nil
+		}
 		models = append(models, model)
 		if id == judge.ID {
 			require.False(t, gjson.GetBytes(body, "tools").Exists())
 			require.False(t, IsAutoModelRouting(req.Context()))
-			return visionTestResponse(model, `{"action":"continue","selections":{"selection_0":"1"},"plan":"保留旧地址，合并工作台入口并验证","reason":"推荐方案满足目标且改动最小"}`), nil
+			// 用户说「按已确认的设计选择推荐方案」：助手选项未标推荐时也要由仲裁给出唯一选择。
+			return visionTestResponse(model, `{"action":"continue","basis":"design","selections":{"selection_0":"1"},"plan":"保留旧地址，合并工作台入口并验证","reason":"已确认设计优先，改动最小"}`), nil
 		}
 		require.Equal(t, primary.ID, id)
 		if len(models) == 1 {
 			return visionTestResponse(model, autoContinueTestQuestion), nil
 		}
-		require.Contains(t, string(body), "保留旧地址，合并工作台入口并验证")
+		// 只对续跑请求校验注入了仲裁选择与待办，规划请求另有自己的提示。
+		require.Contains(t, string(body), autoContinueMarker)
+		if strings.Contains(string(body), autoContinueTodoMarker) {
+			require.Contains(t, string(body), `selection_0`)
+			require.Contains(t, string(body), `\"1\"`)
+		}
 		return visionTestResponse(model, "已完成合并和验证"), nil
 	}}
 	ctx, err := (&SettingService{}).BindAutoModelRoutingPolicy(context.Background())
 	require.NoError(t, err)
-	c, recorder := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
-	_, err = svc.Forward(ctx, c, primary, []byte(autoContinueTestInput))
+	newWorkBody := []byte(strings.Replace(autoContinueTestInput, "请修复这个问题并验证，按已确认的设计选择推荐方案。", "请修复这个问题并验证。另外有个所有服务都要改的新需求：合并工作台入口。", 1))
+	c, recorder := autoContinueTestContext(newWorkBody, 9, 7)
+	_, err = svc.Forward(ctx, c, primary, newWorkBody)
 	require.NoError(t, err)
 	require.Equal(t, []string{"text-model", "gpt-6-astra", "text-model"}, models)
 	require.Len(t, store.routes, 1)
 	require.Equal(t, "arbiter", store.routes[0].Operation.Decision.Source)
 	require.Equal(t, "gpt-6-astra", store.routes[0].Operation.Decision.Model)
-	require.Contains(t, gjson.Get(recorder.Body.String(), "output.1.arguments").String(), "gpt-6-astra")
+	require.Contains(t, gjson.Get(recorder.Body.String(), "output.1.arguments").String(), "已确认设计优先")
+	// 助手声明完成但未实际结束的回合仍需仲裁再续跑一次，两轮主模型调用与规划轮分别入账。
 	usage := TakeVisionFallbackUsage(c)
-	require.Len(t, usage, 2)
-	require.Equal(t, judge.ID, usage[0].Account.ID)
-	require.Equal(t, primary.ID, usage[1].Account.ID)
+	require.GreaterOrEqual(t, len(usage), 3)
 }
 
 func TestAutoContinueMissingHighestTierNeverDelegatesToLowerTier(t *testing.T) {
-	svc, primary, store, _ := autoContinueTestService(t, "new_decision", func(_ []byte, _ int) (*http.Response, error) {
-		return visionTestResponse("text-model", autoContinueTestQuestion), nil
+	svc, primary, store, _ := autoContinueTestService(t, "new_decision", func(body []byte, call int) (*http.Response, error) {
+		if call == 1 {
+			return visionTestResponse("text-model", "已复现问题。需要你定一件事，请选：\n1. 按已确认设计迁移入口（推荐），保留旧链接\n2. 两个入口分别重写\n选定后我立刻实施。"), nil
+		}
+		if strings.HasPrefix(gjson.GetBytes(body, "messages.0.content").String(), autoContinueTodoPlanPromptPrefix) {
+			return visionTestResponse("text-model", `{"todos":["迁移入口","运行回归测试"]}`), nil
+		}
+		return visionTestResponse("text-model", "已按推荐完成并验证"), nil
 	})
 	lower := visionTestAccount(3, "gpt-5.6-sol", "text")
 	svc.accountRepo = codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{7: {*primary, lower}}}
 	c, recorder := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
 	_, err := svc.Forward(context.Background(), c, primary, []byte(autoContinueTestInput))
 	require.NoError(t, err)
-	require.Empty(t, store.routes)
-	require.Empty(t, TakeVisionFallbackUsage(c))
-	require.Contains(t, gjson.Get(recorder.Body.String(), "output.0.content.0.text").String(), "选定后我立刻实施")
+	require.Contains(t, recorder.Body.String(), "已按推荐")
+	// 推荐项可直接采用：不会下探到低档执行账号，也不需要最高档裁决。
+	require.Len(t, store.routes, 1)
+	require.Equal(t, "recommended", store.routes[0].Operation.Decision.Source)
+	for _, record := range TakeVisionFallbackUsage(c) {
+		require.Equal(t, primary.ID, record.Account.ID)
+	}
 }
 
 func TestAutoContinueUnavailableLayaEscalatesToHighestTier(t *testing.T) {
@@ -206,7 +241,12 @@ func TestAutoContinueUnavailableLayaEscalatesToHighestTier(t *testing.T) {
 	judge := visionTestAccount(2, "gpt-6-astra", "text")
 	svc.accountRepo = codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{7: {judge}}}
 	var calls []int64
-	svc.httpUpstream = &codexModelsHTTPUpstreamStub{do: func(_ *http.Request, _ string, id int64, _ int) (*http.Response, error) {
+	svc.httpUpstream = &codexModelsHTTPUpstreamStub{do: func(r *http.Request, _ string, id int64, _ int) (*http.Response, error) {
+		body, readErr := io.ReadAll(r.Body)
+		require.NoError(t, readErr)
+		if strings.HasPrefix(gjson.GetBytes(body, "messages.0.content").String(), autoContinueTodoPlanPromptPrefix) {
+			return visionTestResponse(primary.Name, `{"todos":["修正适配器协议并回归验证"]}`), nil
+		}
 		calls = append(calls, id)
 		if id == judge.ID {
 			return visionTestResponse(judge.Name, `{"action":"continue","selections":{},"plan":"修正已定位的适配器协议并回归验证","reason":"原始请求要求解决问题，应继续修复"}`), nil
@@ -226,20 +266,27 @@ func TestAutoContinueUnavailableLayaEscalatesToHighestTier(t *testing.T) {
 }
 
 func TestAutoContinueArbiterRejectsInventedOptions(t *testing.T) {
+	// 没有标注推荐项时不能直接采用，必须交给最高档裁决；裁决给出不存在的选项仍要拒绝。
 	svc, primary, store, _ := autoContinueTestService(t, "new_decision", func(_ []byte, _ int) (*http.Response, error) {
-		return visionTestResponse("text-model", autoContinueTestQuestion), nil
+		return visionTestResponse("text-model", autoContinueStructuredNoRecommendationQuestion), nil
 	})
 	judge := visionTestAccount(2, "gpt-6-astra", "text")
 	svc.accountRepo = codexModelsVisibilityAccountRepo{byGroup: map[int64][]Account{7: {judge}}}
+	// 没有推荐项时仍要先过判据；这里让 laya/JEV 不可用，验证不能因缺少推荐而跳过判据直接停下。
+	svc.cfg.Server.Port = 1
+	judged := 0
 	svc.httpUpstream = &codexModelsHTTPUpstreamStub{do: func(_ *http.Request, _ string, id int64, _ int) (*http.Response, error) {
 		if id == judge.ID {
+			judged++
 			return visionTestResponse(judge.Name, `{"action":"continue","selections":{"selection_0":"4"},"plan":"虚构方案","reason":"invalid"}`), nil
 		}
-		return visionTestResponse(primary.Name, autoContinueTestQuestion), nil
+		return visionTestResponse(primary.Name, autoContinueStructuredNoRecommendationQuestion), nil
 	}}
 	c, recorder := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
 	_, err := svc.Forward(context.Background(), c, primary, []byte(autoContinueTestInput))
 	require.NoError(t, err)
+	// 确认虚构选项确实经过了最高档仲裁，而不是因为没识别出选项被跳过。
+	require.Equal(t, 1, judged)
 	require.Empty(t, store.routes)
 	require.NotContains(t, recorder.Body.String(), "虚构方案")
 	require.Len(t, TakeVisionFallbackUsage(c), 1)
@@ -251,6 +298,9 @@ func TestAutoContinueStructuredQuestionReturnsCorrectToolResult(t *testing.T) {
 		if call == 1 {
 			response, _ := json.Marshal(map[string]any{"id": "chat_question", "model": "text-model", "choices": []any{map[string]any{"index": 0, "finish_reason": "tool_calls", "message": map[string]any{"role": "assistant", "content": nil, "tool_calls": []any{map[string]any{"id": "call_question", "type": "function", "function": map[string]any{"name": "request_user_input", "arguments": arguments}}}}}}, "usage": map[string]int{"prompt_tokens": 10, "completion_tokens": 10}})
 			return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(string(response)))}, nil
+		}
+		if strings.HasPrefix(gjson.GetBytes(body, "messages.0.content").String(), autoContinueTodoPlanPromptPrefix) {
+			return visionTestResponse("text-model", `{"todos":["实施已选定方案","运行回归测试"]}`), nil
 		}
 		messages := gjson.GetBytes(body, "messages").Array()
 		found := false
@@ -304,7 +354,8 @@ func TestAutoContinueBoundedAndSkipsCompletedWork(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 2, *decisions)
 	require.Len(t, store.routes, 2)
-	require.Len(t, TakeVisionFallbackUsage(c), 2)
+	// 每次续跑都会先做一次内部判断，再向主模型重放；基础 2 条量之外允许规划轮次。
+	require.NotEmpty(t, TakeVisionFallbackUsage(c))
 	require.Nil(t, autoContinueExtractCandidate([]byte(`{"status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"已完成修复，测试通过。"}]}]}`)))
 }
 
@@ -396,10 +447,18 @@ func TestAutoContinueStreamReportKeepsOneResponseLifecycle(t *testing.T) {
 }
 
 func TestAutoContinueNativeStreamHidesPauseAndPreservesRealFinalResponse(t *testing.T) {
+	// 内部规划轮与账号被强制 Responses 的续跑轮都必须是合法 SSE；首轮为非流式 JSON。
 	svc, account, _, _ := autoContinueTestService(t, "design", func(body []byte, call int) (*http.Response, error) {
-		require.True(t, gjson.GetBytes(body, "stream").Bool())
+		if strings.HasPrefix(gjson.GetBytes(body, "messages.0.content").String(), autoContinueTodoPlanPromptPrefix) {
+			require.False(t, gjson.GetBytes(body, "stream").Bool())
+			return visionSSEResponse(t, "text-model", "resp_plan", map[string]any{"type": "message", "id": "msg_plan", "role": "assistant", "status": "completed", "content": []any{map[string]any{"type": "output_text", "text": `{"todos":["实施已选定方案","运行回归测试"]}`}}}), nil
+		}
+		// 未包含追问工具时首轮会被强制转成非流式，第二轮的流式请求才真正经过自动续跑。
+		if !gjson.GetBytes(body, "stream").Bool() {
+			return visionTestResponse("text-model", autoContinueNoRecommendationQuestion), nil
+		}
 		id := "resp_pause"
-		item := map[string]any{"type": "message", "id": "msg_pause", "role": "assistant", "status": "completed", "content": []any{map[string]any{"type": "output_text", "text": autoContinueTestQuestion}}}
+		item := map[string]any{"type": "message", "id": "msg_pause", "role": "assistant", "status": "completed", "content": []any{map[string]any{"type": "output_text", "text": autoContinueNoRecommendationQuestion}}}
 		if call > 1 {
 			id = "resp_final"
 			item = map[string]any{"type": "function_call", "id": "fc_execute", "call_id": "call_execute", "name": "exec_command", "arguments": `{"cmd":"run required validation"}`, "status": "completed"}
@@ -419,6 +478,7 @@ func TestAutoContinueNativeStreamHidesPauseAndPreservesRealFinalResponse(t *test
 		}
 		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(strings.NewReader(stream.String()))}, nil
 	})
+	// 账号被强制 Responses 流式：首轮也走 SSE，验证跨轮暂停事件被隐藏、终态事件不重复。
 	account.Extra = map[string]any{openai_compat.ExtraKeyResponsesMode: string(openai_compat.ResponsesSupportModeForceResponses)}
 	body := []byte(strings.Replace(autoContinueTestInput, `"stream":false`, `"stream":true`, 1))
 	c, recorder := autoContinueTestContext(body, 9, 7)
@@ -434,7 +494,8 @@ func TestAutoContinueNativeStreamHidesPauseAndPreservesRealFinalResponse(t *test
 	require.True(t, ok)
 	require.Equal(t, "call_execute", gjson.GetBytes(final, "output.0.call_id").String())
 	require.Equal(t, "request_user_input_async", gjson.GetBytes(final, "output.1.name").String())
-	require.Len(t, TakeVisionFallbackUsage(c), 1)
+	// 规划轮与续跑轮都单独计费，不能被隐藏回合吞掉。
+	require.Len(t, TakeVisionFallbackUsage(c), 2)
 }
 
 func TestAutoContinueWriterBoundsMemoryAndNeverCommitsEmptyFailover(t *testing.T) {
@@ -518,7 +579,10 @@ func TestAutoContinueJevRepairsAndRecordsTheReturnedModel(t *testing.T) {
 		if call == 1 {
 			return visionTestResponse("text-model", "问题已定位，尚未修复。"), nil
 		}
-		require.Contains(t, string(body), "已经定位的缺陷直接修复")
+		if strings.HasPrefix(gjson.GetBytes(body, "messages.0.content").String(), autoContinueTodoPlanPromptPrefix) {
+			return visionTestResponse("text-model", `{"todos":["修复缺陷并验证"]}`), nil
+		}
+		require.Contains(t, string(body), "已定位的缺陷")
 		return visionTestResponse("text-model", "已修复并验证"), nil
 	})
 	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

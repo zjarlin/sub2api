@@ -242,7 +242,11 @@ func TestAutoContinueCompactionHandlesAssistantPause(t *testing.T) {
 func TestAutoContinueCompactionAfterDecisionKeepsEarlierUsage(t *testing.T) {
 	body := autoCompactTestInput(t)
 	calls := 0
+	// 规划轮也走转发路径，用提示前缀识别，避免把内部清单调用算进执行轮次。
 	svc, account, store, _ := autoContinueTestService(t, "repair", func(request []byte, _ int) (*http.Response, error) {
+		if strings.HasPrefix(gjson.GetBytes(request, "messages.0.content").String(), autoContinueTodoPlanPromptPrefix) {
+			return visionTestResponse("text-model", `{"todos":["检查修复并验证"]}`), nil
+		}
 		calls++
 		if calls == 1 {
 			return visionTestResponse("text-model", "已定位缺陷，尚未修复。"), nil
@@ -260,7 +264,8 @@ func TestAutoContinueCompactionAfterDecisionKeepsEarlierUsage(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 4, calls)
 	require.Len(t, store.routes, 2)
-	require.Len(t, TakeVisionFallbackUsage(c), 2)
+	// 两次执行 + 一次规划清单，规划使用同样入账，不应被静默丢弃。
+	require.Len(t, TakeVisionFallbackUsage(c), 3)
 	require.Contains(t, recorder.Body.String(), "已完成修复验证")
 }
 
