@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 type visionPolicyRepo struct {
@@ -131,20 +132,20 @@ func TestVisionFallbackConfiguredPolicyHotReloadAndManifest(t *testing.T) {
 	converted, err := svc.prepareVisionFallback(ctx, c, &primary, body)
 	require.NoError(t, err)
 	require.Contains(t, string(converted), "configured description")
+	// 目录不再随辅助策略变化：关闭辅助只影响请求侧图片转描述。
 	manifest := []byte(`{"models":[{"slug":"text-model","input_modalities":["text"]}]}`)
-	group := &Group{ID: 7, Platform: PlatformOpenAI}
-	assisted, err := applyConfiguredVisionFallbackManifest(ctx, settings, manifest, cfg, group, group.Platform, accounts, nil, true)
+	assisted, err := applyConfiguredVisionFallbackManifest(ctx, settings, cfg, manifest)
 	require.NoError(t, err)
-	require.Contains(t, string(assisted), `"image"`)
+	require.JSONEq(t, `["text","image"]`, gjson.GetBytes(assisted, "models.0.input_modalities").Raw)
 	p.Enabled = false
 	require.NoError(t, settings.SetVisionFallbackPolicy(ctx, p))
 	c, _ = visionTestContext(body, 9, 7)
 	converted, err = svc.prepareVisionFallback(ctx, c, &primary, body)
 	require.NoError(t, err)
 	require.Equal(t, body, converted)
-	plain, err := applyConfiguredVisionFallbackManifest(ctx, settings, manifest, cfg, group, group.Platform, accounts, nil, true)
+	plain, err := applyConfiguredVisionFallbackManifest(ctx, settings, cfg, manifest)
 	require.NoError(t, err)
-	require.JSONEq(t, string(manifest), string(plain))
+	require.JSONEq(t, string(assisted), string(plain))
 }
 
 func TestVisionFallbackOrderedRecoveryAcrossImagesAndPrimaryRetries(t *testing.T) {

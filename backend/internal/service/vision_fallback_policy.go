@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"slices"
@@ -195,80 +196,23 @@ func groupVisionAccounts(accounts []Account, platform, model string) []*Account 
 	return eligible
 }
 
-func groupModelHasNativeVision(accounts []Account, platform, model string) bool {
-	// 已验证的能力不随账号临时冷却或新账号缺少快照而消失。
-	// 证据来源包括目录快照与真实读图探测；两者都落在 upstream_model_metadata，
-	// 因此以“是否有显式 image 声明”为准，而不是只认某个特定 source 字符串。
-	verifiedModels := make(map[string]bool)
-	for i := range accounts {
-		account := &accounts[i]
-		if !openAIAccountMatchesPlatform(account, platform) || account.Status != StatusActive || !account.IsModelSupported(model) {
-			continue
-		}
-		if !accountHasNativeVision(account, model) {
-			continue
-		}
-		_, upstream := resolveOpenAIForwardMappedModels(account, model, false)
-		verifiedModels[upstream] = true
-	}
-	if len(verifiedModels) == 0 {
-		return false
-	}
-	eligible := groupVisionAccounts(accounts, platform, model)
-	if len(eligible) == 0 {
-		return false
-	}
-	for _, account := range eligible {
-		if accountHasNativeVision(account, model) {
-			continue
-		}
-		// 只让同一最终 GPT 型号继承已验证能力，明确的纯文本声明始终优先。
-		_, upstream := resolveOpenAIForwardMappedModels(account, model, false)
-		if accountHasKnownTextOnlyInput(account, model) || !isGPTSeriesModel(upstream) || !verifiedModels[upstream] {
-			return false
-		}
-	}
-	return true
-}
-
-// 目录与转发共用辅助策略，只有所有可选账号都能处理图片时才声明图像输入。
-func groupModelNeedsVisionFallback(accounts []Account, platform, model string) bool {
-	knownText := false
-	for _, account := range groupVisionAccounts(accounts, platform, model) {
-		if accountNeedsVisionFallback(account, model) {
-			knownText = true
-			continue
-		}
-		if !accountHasNativeVision(account, model) {
-			return false
-		}
-	}
-	return knownText
-}
-
-// 使用当前可调度账号的能力更新目录，避免暂不可用的旧账号隐藏原生视觉。
-func applyVisionFallbackManifest(body []byte, cfg *config.Config, group *Group, platform string, accounts []Account, routes []CompositeModelRoute, routesAvailable bool) ([]byte, error) {
-	return applyVisionFallbackManifestWithPolicy(body, DefaultVisionFallbackPolicy(cfg), group, platform, accounts, routes, routesAvailable, nil)
-}
-
-func applyConfiguredVisionFallbackManifest(ctx context.Context, settings *SettingService, body []byte, cfg *config.Config, group *Group, platform string, accounts []Account, routes []CompositeModelRoute, routesAvailable bool) ([]byte, error) {
-	policy, err := loadVisionFallbackPolicy(ctx, settings, cfg)
-	if err != nil {
+// 目录恒声明 text+image：视觉助手覆盖所有可路由模型，图片要么由上游原生处理，
+// 要么由视觉助手转成描述。上游透传目录里可能仍写着 text-only，这里统一补齐，
+// 客户端不应再因为上游能力快照而禁用发图。
+func applyConfiguredVisionFallbackManifest(ctx context.Context, settings *SettingService, cfg *config.Config, body []byte) ([]byte, error) {
+	// 保留策略与别名读取：配置损坏时目录端点仍应报错，而不是静默发出目录。
+	if _, err := loadVisionFallbackPolicy(ctx, settings, cfg); err != nil {
 		return nil, err
 	}
-	aliases, err := settings.GetModelAliasPolicy(ctx)
-	if err != nil {
+	if _, err := settings.GetModelAliasPolicy(ctx); err != nil {
 		return nil, err
 	}
-	accounts = accountsWithModelAliases(WithModelAliases(ctx, aliases), accounts)
-	return applyVisionFallbackManifestWithPolicy(body, policy, group, platform, accounts, routes, routesAvailable, aliases)
+	return declareCodexVisionInputModalities(body)
 }
 
-func applyVisionFallbackManifestWithPolicy(body []byte, policy *VisionFallbackPolicy, group *Group, platform string, accounts []Account, routes []CompositeModelRoute, routesAvailable bool, aliases *ModelAliasPolicy) ([]byte, error) {
-	if len(accounts) == 0 {
-		return body, nil
-	}
-	helperAvailable := len(visionFallbackCandidatesWithPolicy(accounts, policy, group, aliases)) > 0
+// declareCodexVisionInputModalities 把所有目录条目的 input_modalities 补成
+// text+image，保留其它已有模态（如 audio），并原样保留 original 细节声明。
+func declareCodexVisionInputModalities(body []byte) ([]byte, error) {
 	var envelope map[string]json.RawMessage
 	if err := json.Unmarshal(body, &envelope); err != nil {
 		return nil, err
@@ -279,50 +223,35 @@ func applyVisionFallbackManifestWithPolicy(body []byte, policy *VisionFallbackPo
 	}
 	changed := false
 	for _, model := range models {
-		var slug string
-		if err := json.Unmarshal(model["slug"], &slug); err != nil {
-			return nil, err
-		}
-		target := platform
-		targetModel := slug
-		if target == PlatformComposite {
-			var resolved bool
-			target, targetModel, resolved = resolveCodexCompositeModelTarget(slug, accounts, routes, routesAvailable)
-			if !resolved {
-				continue
-			}
-		}
-		if !visionFallbackPlatform(target) {
-			continue
-		}
-		nativeVision := groupModelHasNativeVision(accounts, target, targetModel)
-		assistedVision := helperAvailable && groupModelNeedsVisionFallback(accounts, target, targetModel)
-		if !nativeVision && !assistedVision {
-			continue
-		}
 		var modalities []string
 		if raw := model["input_modalities"]; len(raw) > 0 {
 			if err := json.Unmarshal(raw, &modalities); err != nil {
 				return nil, err
 			}
 		}
-		if stringSliceContains(modalities, "image") {
+		declared := []string{"text", "image"}
+		for _, modality := range modalities {
+			if modality != "text" && modality != "image" {
+				declared = append(declared, modality)
+			}
+		}
+		encoded, err := json.Marshal(declared)
+		if err != nil {
+			return nil, err
+		}
+		if bytes.Equal(bytes.TrimSpace(model["input_modalities"]), encoded) {
 			continue
 		}
-		model["input_modalities"] = json.RawMessage(`["text","image"]`)
-		if assistedVision {
-			// 辅助模型使用标准 high 细节，不宣称原模型支持 original 像素模式。
-			model["supports_image_detail_original"] = json.RawMessage(`false`)
-		}
+		model["input_modalities"] = encoded
 		changed = true
 	}
 	if !changed {
 		return body, nil
 	}
-	encoded, err := json.Marshal(models)
+	encodedModels, err := json.Marshal(models)
 	if err != nil {
 		return nil, err
 	}
-	envelope["models"] = encoded
+	envelope["models"] = encodedModels
 	return json.Marshal(envelope)
 }

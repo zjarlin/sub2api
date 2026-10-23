@@ -163,7 +163,7 @@ func (s *OpenAIGatewayService) BuildGroupConfiguredCodexModelsManifest(
 	if err != nil {
 		return nil, false, fmt.Errorf("build group configured Codex models: %w", err)
 	}
-	body, err = applyConfiguredVisionFallbackManifest(ctx, s.settingService, body, s.cfg, group, group.Platform, catalog, nil, true)
+	body, err = applyConfiguredVisionFallbackManifest(ctx, s.settingService, s.cfg, body)
 	if err != nil {
 		return nil, false, err
 	}
@@ -216,7 +216,7 @@ func (s *OpenAIGatewayService) MergeGroupConfiguredCodexModels(
 	if listErr != nil {
 		return listErr
 	}
-	body, err = applyConfiguredVisionFallbackManifest(ctx, s.settingService, body, s.cfg, group, group.Platform, accounts, nil, true)
+	body, err = applyConfiguredVisionFallbackManifest(ctx, s.settingService, s.cfg, body)
 	if err != nil {
 		return err
 	}
@@ -475,8 +475,7 @@ type configuredCodexModelDescriptor struct {
 
 type codexModelMetadataOverride struct {
 	UpstreamModelMetadata
-	reasoningConflict       bool
-	inputModalitiesConflict bool
+	reasoningConflict bool
 }
 
 func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescriptor {
@@ -507,16 +506,17 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 		MaxContextWindow:                  configuredCodexFallbackContext,
 		EffectiveContextWindowPercent:     95,
 		ExperimentalSupportedTools:        []string{},
-		InputModalities:                   []string{"text"},
-		MultiAgentVersion:                 "v2",
+		// 网关的视觉助手能为任何被路由的模型把图片转成描述，因此每个目录条目
+		// 都向客户端声明图片输入；客户端不应再因为上游能力快照而禁用发图。
+		InputModalities:   []string{"text", "image"},
+		MultiAgentVersion: "v2",
 	}
 
 	// Auto 是网关能力，图片会按原生视觉或已配置的视觉助手路由；
 	// 所有 Codex 目录模型默认启用客户端能力说明，让非 GPT 模型也能发现
-	// skills、plugins 和原生子 Agent；上游显式能力声明仍可覆盖这些默认值。
+	// skills、plugins 和原生子 Agent。
 	if modelID == "auto" {
 		descriptor.DisplayName = "Auto"
-		descriptor.InputModalities = []string{"text", "image"}
 	}
 
 	if isDeepSeekCodexModel(modelID) {
@@ -1006,7 +1006,7 @@ func claudeCodexDisplayName(modelID string) string {
 // routed through a custom provider. The response is also suitable for saving
 // as model_catalog_json in clients that do not refresh custom-provider catalogs.
 func BuildCodexModelsManifest(modelIDs []string) ([]byte, error) {
-	return buildCodexModelsManifest(modelIDs, nil, nil, nil, nil)
+	return buildCodexModelsManifest(modelIDs, nil, nil, nil)
 }
 
 // BuildCodexModelsManifestForGroup derives input capabilities from the
@@ -1060,7 +1060,7 @@ func (s *GatewayService) BuildCodexModelsManifestForGroup(
 	if err != nil {
 		return nil, err
 	}
-	return applyConfiguredVisionFallbackManifest(ctx, s.settingService, body, s.cfg, group, effectivePlatform, catalog, compositeRoutes, compositeRoutesAvailable)
+	return applyConfiguredVisionFallbackManifest(ctx, s.settingService, s.cfg, body)
 }
 
 func buildCodexModelsManifestForAccounts(
@@ -1084,7 +1084,6 @@ func buildCodexModelsManifestForAccounts(
 		}
 		modelIDs = filtered
 	}
-	imageInputModels := make(map[string]bool, len(modelIDs))
 	searchToolModels := make(map[string]bool, len(modelIDs))
 	metadataModels := codexCatalogMetadataModels(
 		effectivePlatform,
@@ -1096,15 +1095,6 @@ func buildCodexModelsManifestForAccounts(
 	modelMetadata := make(map[string]codexModelMetadataOverride, len(modelIDs))
 	for _, modelID := range modelIDs {
 		modelID = strings.TrimSpace(modelID)
-		if groupCodexModelSupportsImageInput(
-			effectivePlatform,
-			modelID,
-			accounts,
-			compositeRoutes,
-			compositeRoutesAvailable,
-		) {
-			imageInputModels[modelID] = true
-		}
 		if groupCodexModelSupportsSearchTool(
 			effectivePlatform,
 			modelID,
@@ -1125,12 +1115,11 @@ func buildCodexModelsManifestForAccounts(
 			modelMetadata[modelID] = metadata
 		}
 	}
-	return buildCodexModelsManifest(modelIDs, imageInputModels, searchToolModels, metadataModels, modelMetadata)
+	return buildCodexModelsManifest(modelIDs, searchToolModels, metadataModels, modelMetadata)
 }
 
 func buildCodexModelsManifest(
 	modelIDs []string,
-	imageInputModels map[string]bool,
 	searchToolModels map[string]bool,
 	metadataModels map[string]string,
 	modelMetadata map[string]codexModelMetadataOverride,
@@ -1159,10 +1148,8 @@ func buildCodexModelsManifest(
 		if metadata, ok := modelMetadata[modelID]; ok {
 			applyUpstreamModelMetadataToCodexDescriptor(&descriptor, metadata)
 		}
-		if imageInputModels[modelID] || modelID == "auto" {
-			// 原生能力与 Auto 的网关能力优先于可能过期的上游元数据。
-			descriptor.InputModalities = []string{"text", "image"}
-		}
+		// 视觉助手覆盖全部目录模型，客户端始终可以发图。
+		descriptor.InputModalities = []string{"text", "image"}
 		if metadataModelID != modelID {
 			descriptor.DisplayName = modelID
 			descriptor.Description = configuredCodexCustomDescription
@@ -1286,48 +1273,6 @@ func uniqueCodexMappedModel(accounts []Account, platform string, modelID string)
 		return target
 	}
 	return modelID
-}
-
-func groupCodexModelSupportsImageInput(
-	platform string,
-	modelID string,
-	accounts []Account,
-	compositeRoutes []CompositeModelRoute,
-	compositeRoutesAvailable bool,
-) bool {
-	modelID = strings.TrimSpace(modelID)
-	if modelID == "" {
-		return false
-	}
-	upstreamModel := modelID
-	if platform == PlatformComposite {
-		var resolved bool
-		platform, upstreamModel, resolved = resolveCodexCompositeModelTarget(
-			modelID,
-			accounts,
-			compositeRoutes,
-			compositeRoutesAvailable,
-		)
-		if !resolved {
-			return false
-		}
-	}
-	if platform != PlatformOpenAI && platform != PlatformGrok && platform != PlatformDeepseek && platform != PlatformOpenCodeGo {
-		return false
-	}
-
-	candidates := 0
-	for i := range accounts {
-		account := &accounts[i]
-		if account.Platform != platform || !accountClaimsCodexCatalogModel(account, upstreamModel) {
-			continue
-		}
-		candidates++
-		if !accountCodexModelSupportsImageInput(account, account.GetMappedModel(upstreamModel)) {
-			return false
-		}
-	}
-	return candidates > 0
 }
 
 // groupCodexModelSupportsSearchTool advertises client-side tool discovery only
@@ -2369,19 +2314,13 @@ func convertOpenAIModelListToCodexManifestForAccount(body []byte, account *Accou
 	if len(modelIDs) == 0 {
 		return body
 	}
-	imageInputModels := make(map[string]bool, len(modelIDs))
-	for _, modelID := range modelIDs {
-		if accountCodexModelSupportsImageInput(account, modelID) {
-			imageInputModels[modelID] = true
-		}
-	}
 	searchToolModels := make(map[string]bool, len(modelIDs))
 	if shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
 		for _, modelID := range modelIDs {
 			searchToolModels[modelID] = true
 		}
 	}
-	converted, err := buildCodexModelsManifest(modelIDs, imageInputModels, searchToolModels, metadataModels, modelMetadata)
+	converted, err := buildCodexModelsManifest(modelIDs, searchToolModels, metadataModels, modelMetadata)
 	if err != nil {
 		return body
 	}
@@ -2419,6 +2358,11 @@ func (s *OpenAIGatewayService) CompleteAPIKeyCodexModelsManifestForClient(manife
 		return err
 	}
 	body, err = adjustAPIKeyCodexModelsManifest(body, account)
+	if err != nil {
+		return err
+	}
+	// 上游透传目录可能仍写着 text-only；视觉助手覆盖所有可路由模型，这里统一补齐。
+	body, err = declareCodexVisionInputModalities(body)
 	if err != nil {
 		return err
 	}
@@ -2605,11 +2549,10 @@ func completeAPIKeyCodexModelsManifestMetadata(body []byte, completeAll bool, ac
 
 		descriptor := newConfiguredCodexModelDescriptor(slug)
 		descriptor.SupportsSearchTool = shouldForwardOpenAIResponsesViaRawChatCompletions(account)
-		if accountCodexModelSupportsImageInput(account, slug) {
-			descriptor.InputModalities = []string{"text", "image"}
-		}
+		// 视觉助手覆盖所有账号模型；纯文本声明只影响请求侧是否走辅助，
+		// 不再从客户端目录里撤掉图片输入。
+		descriptor.InputModalities = []string{"text", "image"}
 		if forceOfficialImage {
-			descriptor.InputModalities = []string{"text", "image"}
 			descriptor.SupportsImageDetailOriginal = true
 		}
 		defaultBody, err := json.Marshal(descriptor)
@@ -2684,6 +2627,20 @@ func mergeMissingCodexModelFields(current, defaults map[string]json.RawMessage) 
 	for key, defaultValue := range defaults {
 		currentValue, exists := current[key]
 		if exists && stringSliceContains(codexToolCapabilityFields, key) {
+			continue
+		}
+		// 图片输入由视觉助手兜底，上游快照写成 text-only 时也要补齐；其余字段
+		// 仍是“只补缺失”，不能覆盖上游显式值。
+		if key == "input_modalities" && exists {
+			var declared []string
+			if err := json.Unmarshal(currentValue, &declared); err != nil {
+				continue
+			}
+			if stringSliceContains(declared, "image") {
+				continue
+			}
+			current[key] = defaultValue
+			changed = true
 			continue
 		}
 		if !exists || (bytes.Equal(bytes.TrimSpace(currentValue), []byte("null")) &&

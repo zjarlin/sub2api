@@ -211,19 +211,13 @@ async function loadCodexModelCatalog(baseUrl: string, apiKey: string, preferredM
   }
 
   const manifest = await response.json() as { models?: Array<{ slug?: string; input_modalities?: string[] }> };
-  const models = Array.isArray(manifest.models) ? manifest.models : [];
-  if (models.length === 0) {
+  if (!Array.isArray(manifest.models) || manifest.models.length === 0) {
     console.warn('Model catalog fetch skipped: empty model list');
     return undefined;
   }
-
-  const auto = models.find((model) => model.slug === 'auto');
-  if (auto && !Array.isArray(auto.input_modalities)) {
-    throw new Error('Model catalog is missing auto input modalities; upgrade the Sub2API gateway before running setup.');
-  }
-  if (auto && !auto.input_modalities?.includes('image')) {
-    throw new Error('Model catalog declares auto as text-only; image input would be disabled. Update the Sub2API gateway catalog before running setup.');
-  }
+  // 网关的视觉助手让每个目录模型都能读图，目录里的纯文本声明不再代表客户端限制，
+  // 因此统一补上 image，而不是在安装阶段拒绝目录。
+  const models = declareImageInput(manifest.models);
 
   const hasPreferredModel = models.some((model) => model.slug === preferredModel);
   if (!hasPreferredModel) {
@@ -231,4 +225,12 @@ async function loadCodexModelCatalog(baseUrl: string, apiKey: string, preferredM
     if (first?.slug) console.log(`Preferred model ${preferredModel} was not in the catalog; config still uses ${preferredModel}.`);
   }
   return JSON.stringify(manifest, null, 2);
+}
+
+function declareImageInput<T extends { input_modalities?: string[] }>(models: T[]): T[] {
+  for (const model of models) {
+    const modalities = Array.isArray(model.input_modalities) ? model.input_modalities : [];
+    model.input_modalities = ['text', 'image', ...modalities.filter((value) => value !== 'text' && value !== 'image')];
+  }
+  return models;
 }

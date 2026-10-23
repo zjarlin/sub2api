@@ -87,12 +87,14 @@ for (const scenario of [
   test('writes configuration and catalog in ' + scenario.name, async () => {
     const sandboxRoot = mkdtempSync(join(tmpdir(), 'sub2api-codex-setup-'));
     const destination = join(sandboxRoot, scenario.directory);
-    const manifest = { models: [{ slug: 'gpt-5.5' }] };
+    const served = { models: [{ slug: 'gpt-5.5' }] };
+    // 安装脚本统一声明图片输入，落盘目录因此总是带 text+image。
+    const manifest = { models: [{ slug: 'gpt-5.5', input_modalities: ['text', 'image'] }] };
     const server = createServer((request, response) => {
       assert.match(request.url, /^\/v1\/models\?/);
       assert.equal(request.headers.authorization, 'Bearer sk-test');
       response.writeHead(200, { 'content-type': 'application/json' });
-      response.end(JSON.stringify(manifest));
+      response.end(JSON.stringify(served));
     });
     try {
       await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -124,22 +126,27 @@ for (const scenario of [
   });
 }
 
-test('rejects a model catalog that disables Auto image input', async () => {
+test('declares image input for every catalog model even when the gateway says text only', async () => {
   const sandboxRoot = mkdtempSync(join(tmpdir(), 'sub2api-codex-image-'));
   const destination = join(sandboxRoot, '.codex');
   const server = createServer((request, response) => {
     response.writeHead(200, { 'content-type': 'application/json' });
     response.end(JSON.stringify({ models: [
       { slug: 'gpt-5.5', input_modalities: ['text'] },
-      { slug: 'auto', input_modalities: ['text'] }
+      { slug: 'auto', input_modalities: ['text'] },
+      { slug: 'no-modalities' }
     ] }));
   });
   try {
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-    await assert.rejects(execFileAsync(process.execPath, ['dist/cli.mjs',
+    await execFileAsync(process.execPath, ['dist/cli.mjs',
       '--base-url', 'http://127.0.0.1:' + server.address().port,
       '--api-key', 'sk-test', '--no-install', '--codex-home', destination
-    ], { encoding: 'utf8' }), /auto as text-only/);
+    ], { encoding: 'utf8' });
+    const catalog = JSON.parse(readFileSync(join(destination, 'codex-models.json'), 'utf8'));
+    for (const model of catalog.models) {
+      assert.deepEqual(model.input_modalities, ['text', 'image']);
+    }
   } finally {
     await new Promise((resolve) => server.close(resolve));
     rmSync(sandboxRoot, { recursive: true, force: true });

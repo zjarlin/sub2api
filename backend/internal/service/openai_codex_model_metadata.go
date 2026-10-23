@@ -173,10 +173,9 @@ func groupCodexModelMetadata(
 		)
 		if !resolved {
 			if !routed && codexExplicitModelTargetsConflict(accounts, modelID) {
-				return codexModelMetadataOverride{
-					reasoningConflict:       true,
-					inputModalitiesConflict: true,
-				}, true
+				// 上游目标冲突只影响推理档位；图片输入由视觉助手兜底，
+				// 目录不该因此降级为纯文本。
+				return codexModelMetadataOverride{reasoningConflict: true}, true
 			}
 			return codexModelMetadataOverride{}, false
 		}
@@ -231,10 +230,7 @@ func groupCodexModelMetadata(
 		metadata, ok := account.GetUpstreamModelMetadata(lookupModel)
 		if !ok {
 			if explicitTargetsConflict {
-				return codexModelMetadataOverride{
-					reasoningConflict:       true,
-					inputModalitiesConflict: true,
-				}, true
+				return codexModelMetadataOverride{reasoningConflict: true}, true
 			}
 			missingMetadata = true
 		}
@@ -366,24 +362,9 @@ func intersectUpstreamModelMetadata(modelID string, candidates []UpstreamModelMe
 		}
 	}
 
-	modalitiesKnown := true
-	modalities := normalizeCodexInputModalities(candidates[0].InputModalities)
-	if len(modalities) == 0 {
-		modalitiesKnown = false
-	}
-	for _, candidate := range candidates[1:] {
-		candidateModalities := normalizeCodexInputModalities(candidate.InputModalities)
-		if len(candidateModalities) == 0 {
-			modalitiesKnown = false
-			break
-		}
-		modalities = intersectOrderedStrings(modalities, candidateModalities)
-	}
-	if modalitiesKnown && len(modalities) > 0 {
-		result.InputModalities = modalities
-	} else if modalitiesKnown {
-		result.inputModalitiesConflict = true
-	}
+	// 视觉助手让每个目录模型都能接收图片，上游模态快照不再决定客户端是否发图；
+	// 这里统一声明 text+image，原生视觉与辅助描述的分流仍在请求侧按证据决定。
+	result.InputModalities = []string{"text", "image"}
 
 	contextKnown := true
 	for i, candidate := range candidates {
@@ -459,11 +440,10 @@ func applyUpstreamModelMetadataToCodexDescriptor(
 			}
 		}
 	}
-	if metadata.inputModalitiesConflict {
-		descriptor.InputModalities = []string{"text"}
-	} else if modalities := normalizeCodexInputModalities(metadata.InputModalities); len(modalities) > 0 {
-		descriptor.InputModalities = modalities
-	}
+	// input_modalities 固定为 text+image：同步来的上游快照可能只写 text，
+	// 但图片会由原生视觉或视觉助手处理，客户端不应再被目录挡住。
+	descriptor.InputModalities = []string{"text", "image"}
+
 	if metadata.ContextWindow > 0 {
 		descriptor.ContextWindow = metadata.ContextWindow
 		descriptor.MaxContextWindow = metadata.ContextWindow

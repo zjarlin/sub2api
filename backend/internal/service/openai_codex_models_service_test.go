@@ -283,7 +283,8 @@ func TestNewConfiguredCodexModelDescriptorUsesProviderMetadataAndSafeFallback(t 
 		{Effort: "max", Description: "Maximum reasoning depth for complex tasks"},
 	}, deepSeek.SupportedReasoningLevels)
 	require.True(t, deepSeek.SupportsParallelToolCalls)
-	require.Equal(t, []string{"text"}, deepSeek.InputModalities)
+	// 视觉助手让目录里的每个模型都声明图片输入，纯文本上游也不例外。
+	require.Equal(t, []string{"text", "image"}, deepSeek.InputModalities)
 	require.True(t, deepSeek.IncludeSkillsUsageInstructions)
 	require.True(t, deepSeek.IncludePluginUsageInstructions)
 	require.True(t, deepSeek.IncludeAppsUsageInstructions)
@@ -297,7 +298,7 @@ func TestNewConfiguredCodexModelDescriptorUsesProviderMetadataAndSafeFallback(t 
 	require.Equal(t, "high", *grok.DefaultReasoningLevel)
 	require.Equal(t, []string{"low", "medium", "high", "xhigh"}, effortsFromConfiguredCodexLevels(grok.SupportedReasoningLevels))
 	require.True(t, grok.SupportsParallelToolCalls)
-	require.Equal(t, []string{"text"}, grok.InputModalities)
+	require.Equal(t, []string{"text", "image"}, grok.InputModalities)
 	require.NotContains(t, grok.SupportedReasoningLevels, configuredCodexReasoningLevel{Effort: "none"})
 	require.NotContains(t, grok.SupportedReasoningLevels, configuredCodexReasoningLevel{Effort: "max"})
 
@@ -367,7 +368,7 @@ func TestNewConfiguredCodexModelDescriptorUsesProviderMetadataAndSafeFallback(t 
 	require.True(t, gpt56.IncludePluginUsageInstructions)
 	require.True(t, gpt56.IncludeAppsUsageInstructions)
 	require.Equal(t, "v2", gpt56.MultiAgentVersion)
-	require.Equal(t, []string{"text"}, gpt56.InputModalities)
+	require.Equal(t, []string{"text", "image"}, gpt56.InputModalities)
 	require.Equal(t, int64(872_000), gpt56.MaxContextWindow)
 	require.Equal(t, configuredCodexTruncationPolicy{Mode: "tokens", Limit: 10_000}, gpt56.TruncationPolicy)
 	require.NotNil(t, gpt56.DefaultVerbosity)
@@ -525,7 +526,7 @@ func TestBuildCodexModelsManifestScopesDefaultInstructionsToGPT(t *testing.T) {
 	} {
 		t.Run(tt.model, func(t *testing.T) {
 			body, err := buildCodexModelsManifest(
-				[]string{tt.model}, nil, nil,
+				[]string{tt.model}, nil,
 				map[string]string{tt.model: tt.upstreamModel}, nil,
 			)
 			require.NoError(t, err)
@@ -837,7 +838,7 @@ func TestBuildCodexModelsManifestForGroupUsesProviderImageCapabilities(t *testin
 			accounts: []Account{{
 				ID: 24, Platform: PlatformGrok, Type: AccountTypeOAuth,
 			}},
-			modalities: []any{"text"},
+			modalities: []any{"text", "image"},
 		},
 		{
 			name:  "Grok Composer has only Chat image bridge",
@@ -845,7 +846,7 @@ func TestBuildCodexModelsManifestForGroupUsesProviderImageCapabilities(t *testin
 			accounts: []Account{{
 				ID: 12, Platform: PlatformGrok, Type: AccountTypeOAuth,
 			}},
-			modalities: []any{"text"},
+			modalities: []any{"text", "image"},
 		},
 		{
 			name:  "custom Grok host",
@@ -854,7 +855,7 @@ func TestBuildCodexModelsManifestForGroupUsesProviderImageCapabilities(t *testin
 				ID: 13, Platform: PlatformGrok, Type: AccountTypeAPIKey,
 				Credentials: map[string]any{"base_url": "https://relay.example.test/v1"},
 			}},
-			modalities: []any{"text"},
+			modalities: []any{"text", "image"},
 		},
 		{
 			name:  "malformed Grok host",
@@ -863,7 +864,7 @@ func TestBuildCodexModelsManifestForGroupUsesProviderImageCapabilities(t *testin
 				ID: 19, Platform: PlatformGrok, Type: AccountTypeAPIKey,
 				Credentials: map[string]any{"base_url": "::invalid::url"},
 			}},
-			modalities: []any{"text"},
+			modalities: []any{"text", "image"},
 		},
 		{
 			name:  "mixed official and custom Grok candidates",
@@ -875,7 +876,7 @@ func TestBuildCodexModelsManifestForGroupUsesProviderImageCapabilities(t *testin
 					Credentials: map[string]any{"base_url": "https://relay.example.test/v1"},
 				},
 			},
-			modalities: []any{"text"},
+			modalities: []any{"text", "image"},
 		},
 		{
 			name:  "DeepSeek V4",
@@ -883,7 +884,7 @@ func TestBuildCodexModelsManifestForGroupUsesProviderImageCapabilities(t *testin
 			accounts: []Account{{
 				ID: 16, Platform: PlatformDeepseek, Type: AccountTypeAPIKey,
 			}},
-			modalities: []any{"text"},
+			modalities: []any{"text", "image"},
 		},
 		{
 			name:  "official OpenAI API key",
@@ -901,7 +902,7 @@ func TestBuildCodexModelsManifestForGroupUsesProviderImageCapabilities(t *testin
 				ID: 20, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 				Credentials: map[string]any{"model_mapping": testModelMapping("gpt-3.5-turbo")},
 			}},
-			modalities: []any{"text"},
+			modalities: []any{"text", "image"},
 		},
 		{
 			name:  "custom OpenAI-compatible host without modality metadata",
@@ -910,7 +911,7 @@ func TestBuildCodexModelsManifestForGroupUsesProviderImageCapabilities(t *testin
 				ID: 18, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 				Credentials: map[string]any{"base_url": "https://openai-compatible.example.test/v1", "model_mapping": testModelMapping("gpt-5.6-sol")},
 			}},
-			modalities: []any{"text"},
+			modalities: []any{"text", "image"},
 		},
 		{
 			name:  "custom OpenAI-compatible host with unknown model",
@@ -919,7 +920,7 @@ func TestBuildCodexModelsManifestForGroupUsesProviderImageCapabilities(t *testin
 				ID: 29, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 				Credentials: map[string]any{"base_url": "https://openai-compatible.example.test/v1"},
 			}},
-			modalities: []any{"text"},
+			modalities: []any{"text", "image"},
 		},
 	}
 
@@ -986,12 +987,12 @@ func TestBuildCodexModelsManifestForGroupUsesDeepSeekVisionCapabilities(t *testi
 		{
 			name: "text-only DeepSeek Flash", platform: PlatformDeepseek,
 			accounts:   []Account{newAccount(1, PlatformDeepseek, "deepseek-v4-flash", nil)},
-			modalities: []any{"text"},
+			modalities: []any{"text", "image"},
 		},
 		{
 			name: "explicit text-only metadata", platform: PlatformDeepseek,
 			accounts:   []Account{newAccount(1, PlatformDeepseek, visionModel, []string{"text"})},
-			modalities: []any{"text"},
+			modalities: []any{"text", "image"},
 		},
 		{
 			name: "mixed vision and text-only alias", platform: PlatformDeepseek,
@@ -999,7 +1000,7 @@ func TestBuildCodexModelsManifestForGroupUsesDeepSeekVisionCapabilities(t *testi
 				newAccount(1, PlatformDeepseek, visionModel, nil),
 				newAccount(2, PlatformDeepseek, "deepseek-v4-flash", nil),
 			},
-			modalities: []any{"text"},
+			modalities: []any{"text", "image"},
 		},
 	}
 
@@ -1050,7 +1051,7 @@ func TestBuildCodexModelsManifestForGroupPrefersSyncedOpenAIImageCapabilities(t 
 				newAccount(30, []string{"text", "image"}),
 				newAccount(31, []string{"text"}),
 			},
-			modalities: []any{"text"},
+			modalities: []any{"text", "image"},
 		},
 		{
 			name: "unknown compatible capability narrows multimodal snapshot",
@@ -1058,7 +1059,7 @@ func TestBuildCodexModelsManifestForGroupPrefersSyncedOpenAIImageCapabilities(t 
 				newAccount(32, nil),
 				newAccount(33, []string{"text", "image"}),
 			},
-			modalities: []any{"text"},
+			modalities: []any{"text", "image"},
 		},
 		{
 			name: "all compatible accounts explicitly support images",
@@ -1351,7 +1352,7 @@ func TestBuildCodexModelsManifestForGroupUsesFallbackWhenTextOnlyPlatformHasNoSn
 
 	models := decodeCodexManifestModels(t, body)
 	require.Len(t, models, 1)
-	require.Equal(t, []any{"text"}, models[0]["input_modalities"])
+	require.Equal(t, []any{"text", "image"}, models[0]["input_modalities"])
 }
 
 func TestBuildCodexModelsManifestForGroupFallsBackWhenCapabilityLookupFails(t *testing.T) {
@@ -1370,8 +1371,8 @@ func TestBuildCodexModelsManifestForGroupFallsBackWhenCapabilityLookupFails(t *t
 
 	models := decodeCodexManifestModels(t, body)
 	require.Len(t, models, 2)
-	require.Equal(t, []any{"text"}, models[0]["input_modalities"])
-	require.Equal(t, []any{"text"}, models[1]["input_modalities"])
+	require.Equal(t, []any{"text", "image"}, models[0]["input_modalities"])
+	require.Equal(t, []any{"text", "image"}, models[1]["input_modalities"])
 }
 
 func TestMergeGroupConfiguredCodexModelsInjectsCurrentGroupAliases(t *testing.T) {
@@ -1476,7 +1477,7 @@ func TestBuildGroupConfiguredCodexModelsManifestUsesAdministratorConfiguration(t
 	require.Equal(t, "GLM 5.3", models[0]["display_name"])
 	require.Equal(t, []string{"low", "medium", "high"}, effortsFromManifestModel(t, models[0]))
 	require.Equal(t, "medium", models[0]["default_reasoning_level"])
-	require.Equal(t, []any{"text"}, models[0]["input_modalities"])
+	require.Equal(t, []any{"text", "image"}, models[0]["input_modalities"])
 	require.EqualValues(t, 1_000_000, models[0]["context_window"])
 	require.Equal(t, codexModelsManifestBodyETag(manifest.Body), manifest.ETag)
 
@@ -1713,7 +1714,7 @@ func TestBuildGroupConfiguredCodexModelsManifestIntersectsTransientlyUnschedulab
 	require.Equal(t, "my-coder", models[0]["slug"])
 	require.Equal(t, "my-coder", models[0]["display_name"])
 	require.Equal(t, []string{"low", "medium", "high"}, effortsFromManifestModel(t, models[0]))
-	require.Equal(t, []any{"text"}, models[0]["input_modalities"])
+	require.Equal(t, []any{"text", "image"}, models[0]["input_modalities"])
 	require.EqualValues(t, 272_000, models[0]["context_window"])
 }
 
@@ -2455,8 +2456,8 @@ func TestFetchCodexModelsManifestAPIKeyConvertsStandardOpenAIModelList(t *testin
 	require.Len(t, models, 2)
 	requireCompleteConfiguredCodexModel(t, models[0], "gpt-5.6")
 	requireCompleteConfiguredCodexModel(t, models[1], "gpt-5.6-codex")
-	require.Equal(t, []any{"text"}, models[0]["input_modalities"])
-	require.Equal(t, []any{"text"}, models[1]["input_modalities"])
+	require.Equal(t, []any{"text", "image"}, models[0]["input_modalities"])
+	require.Equal(t, []any{"text", "image"}, models[1]["input_modalities"])
 	require.Equal(t, codexModelsManifestBodyETag(manifest.Body), manifest.ETag)
 	require.Equal(t, `W/"openai-list"`, manifest.upstreamETag)
 }
@@ -2498,7 +2499,7 @@ func TestCompleteAPIKeyCodexModelsManifestForClientPreservesProviderMetadata(t *
 			"description": "Provider supplied tier.",
 		},
 	}, models[0]["service_tiers"])
-	require.Equal(t, []any{"text"}, models[0]["input_modalities"])
+	require.Equal(t, []any{"text", "image"}, models[0]["input_modalities"])
 	require.Equal(t, []string{"low", "medium", "high", "xhigh"}, effortsFromManifestModel(t, models[0]))
 	modelMessages, ok := models[0]["model_messages"].(map[string]any)
 	require.True(t, ok)
@@ -2521,7 +2522,7 @@ func TestCompleteAPIKeyCodexModelsManifestForClientRequiresTrustedGPTImageFallba
 		explicitImage bool
 		want          []any
 	}{
-		{"compatible IDs alone", "https://openai-compatible.example.test/v1", false, []any{"text"}},
+		{"compatible IDs alone", "https://openai-compatible.example.test/v1", false, []any{"text", "image"}},
 		{"compatible explicit image metadata", "https://openai-compatible.example.test/v1", true, []any{"text", "image"}},
 		{"official known GPT fallback", "https://api.openai.com/v1", false, []any{"text", "image"}},
 	} {
@@ -2561,8 +2562,8 @@ func TestCompleteAPIKeyCodexModelsManifestForClientRequiresTrustedGPTImageFallba
 				require.NotContains(t, bySlug, "company-coding-model")
 				require.Equal(t, []any{"text", "image"}, bySlug["gpt-4o"]["input_modalities"])
 			} else {
-				require.Equal(t, []any{"text"}, bySlug["company-coding-model"]["input_modalities"])
-				require.Equal(t, []any{"text"}, bySlug["gpt-4o"]["input_modalities"])
+				require.Equal(t, []any{"text", "image"}, bySlug["company-coding-model"]["input_modalities"])
+				require.Equal(t, []any{"text", "image"}, bySlug["gpt-4o"]["input_modalities"])
 			}
 		})
 	}
@@ -2742,7 +2743,8 @@ func TestCompleteAPIKeyCodexModelsManifestForClientMarksOnlyOfficialVisionGPTIma
 		require.Equal(t, true, bySlug[slug]["supports_image_detail_original"])
 	}
 	for _, slug := range []string{"gpt-3.5-turbo", "gpt-4"} {
-		require.Equal(t, []any{"text"}, bySlug[slug]["input_modalities"])
+		// 非视觉官方的模型同样声明图片输入，只是不宣称原图细节能力。
+		require.Equal(t, []any{"text", "image"}, bySlug[slug]["input_modalities"])
 		require.Equal(t, false, bySlug[slug]["supports_image_detail_original"])
 	}
 	require.Equal(t, codexModelsManifestBodyETag(manifest.Body), manifest.ETag)

@@ -514,7 +514,7 @@ func TestBuildCodexModelsManifestForGroupIntersectsSyncedAccountMetadata(t *test
 	require.Len(t, models, 1)
 	require.Equal(t, []string{"high"}, effortsFromManifestModel(t, models[0]))
 	require.Equal(t, "high", models[0]["default_reasoning_level"])
-	require.Equal(t, []any{"text"}, models[0]["input_modalities"])
+	require.Equal(t, []any{"text", "image"}, models[0]["input_modalities"])
 	require.EqualValues(t, 128_000, models[0]["context_window"])
 }
 
@@ -575,7 +575,7 @@ func TestBuildCodexModelsManifestForGroupIntersectsDifferentMappedTargetsWithout
 		require.Equal(t, "my-coder", models[0]["display_name"])
 		require.Equal(t, "Custom model routed through Sub2API.", models[0]["description"])
 		require.Equal(t, []string{"low", "medium", "high"}, effortsFromManifestModel(t, models[0]))
-		require.Equal(t, []any{"text"}, models[0]["input_modalities"])
+		require.Equal(t, []any{"text", "image"}, models[0]["input_modalities"])
 		require.EqualValues(t, 272_000, models[0]["context_window"])
 	}
 }
@@ -620,7 +620,7 @@ func TestBuildCodexModelsManifestForGroupIntersectsTransientlyUnschedulableMappe
 	require.Equal(t, "my-coder", models[0]["slug"])
 	require.Equal(t, "my-coder", models[0]["display_name"])
 	require.Equal(t, []string{"low", "medium", "high"}, effortsFromManifestModel(t, models[0]))
-	require.Equal(t, []any{"text"}, models[0]["input_modalities"])
+	require.Equal(t, []any{"text", "image"}, models[0]["input_modalities"])
 	require.EqualValues(t, 272_000, models[0]["context_window"])
 }
 
@@ -731,7 +731,7 @@ func TestBuildCodexModelsManifestForGroupKeepsCrossPlatformAliasAmbiguityClosed(
 	require.Len(t, models, 1)
 	require.Equal(t, "shared-alias", models[0]["display_name"])
 	require.Empty(t, effortsFromManifestModel(t, models[0]))
-	require.Equal(t, []any{"text"}, models[0]["input_modalities"])
+	require.Equal(t, []any{"text", "image"}, models[0]["input_modalities"])
 }
 
 func TestBuildCodexModelsManifestForGroupDoesNotAdvertiseNoneWhenAccountReasoningConflicts(t *testing.T) {

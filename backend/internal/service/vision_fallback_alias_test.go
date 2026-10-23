@@ -97,13 +97,14 @@ func TestVisionFallbackAliasesForwardRealProviderIDAndAdvertiseAssistance(t *tes
 	usage := TakeVisionFallbackUsage(c)
 	require.Len(t, usage, 1)
 	require.Equal(t, int64(850), usage[0].Account.ID)
+	// 目录恒声明图片输入，与辅助账号是否存在无关。
 	manifest := []byte(`{"models":[{"slug":"text-model","input_modalities":["text"]}]}`)
-	assisted, err := applyConfiguredVisionFallbackManifest(ctx, settings, manifest, cfg, nil, PlatformOpenAI, accounts, nil, true)
+	assisted, err := applyConfiguredVisionFallbackManifest(ctx, settings, cfg, manifest)
 	require.NoError(t, err)
-	require.Contains(t, string(assisted), `"image"`)
-	plain, err := applyConfiguredVisionFallbackManifest(ctx, settings, manifest, cfg, nil, PlatformOpenAI, []Account{primary}, nil, true)
+	require.JSONEq(t, `["text","image"]`, gjson.GetBytes(assisted, "models.0.input_modalities").Raw)
+	plain, err := applyConfiguredVisionFallbackManifest(ctx, settings, cfg, manifest)
 	require.NoError(t, err)
-	require.JSONEq(t, string(manifest), string(plain))
+	require.JSONEq(t, string(assisted), string(plain))
 }
 
 func TestVisionFallbackAliasSnapshotAndInvalidConfiguration(t *testing.T) {
@@ -130,7 +131,7 @@ func TestVisionFallbackAliasSnapshotAndInvalidConfiguration(t *testing.T) {
 	BeginOpsStreamTurn(c, 3)
 	_, err = svc.visionFallbackState(ctx, c)
 	require.Error(t, err)
-	_, err = applyConfiguredVisionFallbackManifest(ctx, settings, []byte(`{"models":[]}`), cfg, nil, PlatformOpenAI, nil, nil, true)
+	_, err = applyConfiguredVisionFallbackManifest(ctx, settings, cfg, []byte(`{"models":[]}`))
 	require.Error(t, err)
 	bound, err := svc.visionFallbackState(WithModelAliases(ctx, aliases), c)
 	require.NoError(t, err)

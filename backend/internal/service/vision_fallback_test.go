@@ -296,7 +296,7 @@ func TestVisionFallbackGroupIsolationAndDisabledHelper(t *testing.T) {
 	require.Len(t, visionFallbackCandidates([]Account{helper}, svc.cfg, nil), 1)
 }
 
-func TestVisionFallbackManifestETagChangesWithHelperAvailability(t *testing.T) {
+func TestVisionFallbackManifestAtHelperAvailability(t *testing.T) {
 	primary := visionTestAccount(1, "text-model", "text")
 	helper := visionTestAccount(2, "vision-model", "text", "image")
 	repo := &countingCodexModelsAccountRepo{accounts: []Account{primary, helper}}
@@ -316,14 +316,17 @@ func TestVisionFallbackManifestETagChangesWithHelperAvailability(t *testing.T) {
 	cached, _, err := svc.BuildGroupConfiguredCodexModelsManifest(context.Background(), group, manifest.ETag)
 	require.NoError(t, err)
 	require.True(t, cached.NotModified)
+	// 辅助模型暂时不可调度只影响请求侧是否转描述，目录保持声明图片输入。
 	repo.accounts[1].Schedulable = false
 	changed, _, err := svc.BuildGroupConfiguredCodexModelsManifest(context.Background(), group, manifest.ETag)
 	require.NoError(t, err)
-	require.False(t, changed.NotModified)
-	require.NotEqual(t, manifest.ETag, changed.ETag)
-	for _, model := range gjson.GetBytes(changed.Body, "models").Array() {
+	require.True(t, changed.NotModified)
+	require.Equal(t, manifest.ETag, changed.ETag)
+	unchanged, _, err := svc.BuildGroupConfiguredCodexModelsManifest(context.Background(), group, "")
+	require.NoError(t, err)
+	for _, model := range gjson.GetBytes(unchanged.Body, "models").Array() {
 		if model.Get("slug").String() == "text-model" {
-			require.JSONEq(t, `["text"]`, model.Get("input_modalities").Raw)
+			require.JSONEq(t, `["text","image"]`, model.Get("input_modalities").Raw)
 		}
 	}
 }
@@ -371,14 +374,15 @@ func TestVisionFallbackManifestUsesVerifiedNativeVisionDespiteInactiveCatalogAcc
 	require.True(t, configured)
 	require.JSONEq(t, `["text","image"]`, gjson.GetBytes(manifest.Body, "models.0.input_modalities").Raw)
 
-	// 明确的负面能力证据不能被其他账号的成功记录覆盖。
+	// 明确的负面能力证据只影响请求侧是否走辅助，目录仍然声明图片输入。
 	unknown = visionTestAccount(821, "gpt-6-astra", "text")
 	repo.schedulable[7] = []Account{unknown}
 	repo.catalog[7] = []Account{primary, inactive, unknown}
 	manifest, configured, err = svc.BuildGroupConfiguredCodexModelsManifest(context.Background(), &Group{ID: 7, Platform: PlatformOpenAI}, "")
 	require.NoError(t, err)
 	require.True(t, configured)
-	require.JSONEq(t, `["text"]`, gjson.GetBytes(manifest.Body, "models.0.input_modalities").Raw)
+	require.JSONEq(t, `["text","image"]`, gjson.GetBytes(manifest.Body, "models.0.input_modalities").Raw)
+	require.True(t, accountNeedsVisionFallback(&unknown, "gpt-6-astra"))
 }
 
 func TestVisionFallbackVerifiedCapabilityDoesNotCrossModelMappings(t *testing.T) {
@@ -389,20 +393,22 @@ func TestVisionFallbackVerifiedCapabilityDoesNotCrossModelMappings(t *testing.T)
 	unknown := visionTestAccount(2, "gpt-6-sol")
 	verified.Credentials["model_mapping"] = map[string]any{"coder": "gpt-6-astra"}
 	unknown.Credentials["model_mapping"] = map[string]any{"coder": "gpt-6-sol"}
-	require.False(t, groupModelHasNativeVision([]Account{verified, unknown}, PlatformOpenAI, "coder"))
-	require.False(t, groupModelHasNativeVision([]Account{unknown}, PlatformOpenAI, "coder"))
+	// 目录恒声明图片输入，跨映射的“已验证能力”不再是目录闸门；
+	// 仍需按各自上游型号判断是否走辅助。
+	require.False(t, accountHasNativeVision(&unknown, "coder"))
+	require.False(t, accountNeedsVisionFallback(&verified, "coder"))
 }
 
 func TestVisionFallbackManifestMixedScheduling(t *testing.T) {
 	for _, tc := range []struct {
-		name, platform                             string
-		native, catchAll, helperEnabled, wantImage bool
+		name, platform                  string
+		native, catchAll, helperEnabled bool
 	}{
-		{"workbuddy native", PlatformWorkbuddy, true, true, false, true},
-		{"workbuddy assisted", PlatformWorkbuddy, false, true, true, true},
-		{"traework assisted", PlatformTraework, false, true, true, true},
-		{"unrelated platform", PlatformAnthropic, true, false, true, false},
-		{"helper disabled", PlatformWorkbuddy, false, true, false, false},
+		{"workbuddy native", PlatformWorkbuddy, true, true, false},
+		{"workbuddy assisted", PlatformWorkbuddy, false, true, true},
+		{"traework assisted", PlatformTraework, false, true, true},
+		{"unrelated platform", PlatformAnthropic, true, false, true},
+		{"helper disabled", PlatformWorkbuddy, false, true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			primary := visionTestAccount(1, "mixed-model", "text")
@@ -424,14 +430,14 @@ func TestVisionFallbackManifestMixedScheduling(t *testing.T) {
 			}
 			cfg := visionTestConfig()
 			cfg.Gateway.VisionFallback.Enabled = tc.helperEnabled
-			body, err := applyVisionFallbackManifest(
+			settings := NewSettingService(nil, cfg)
+			body, err := applyConfiguredVisionFallbackManifest(
+				context.Background(), settings, cfg,
 				[]byte(`{"models":[{"slug":"mixed-model","input_modalities":["text"]}]}`),
-				cfg, &Group{ID: 7, Platform: PlatformOpenAI}, PlatformOpenAI, accounts, nil, false,
 			)
 			require.NoError(t, err)
-			var modalities []string
-			require.NoError(t, json.Unmarshal([]byte(gjson.GetBytes(body, "models.0.input_modalities").Raw), &modalities))
-			require.Equal(t, tc.wantImage, stringSliceContains(modalities, "image"))
+			// 任何平台、任何账号组合下目录都声明图片输入。
+			require.JSONEq(t, `["text","image"]`, gjson.GetBytes(body, "models.0.input_modalities").Raw)
 		})
 	}
 }
@@ -528,7 +534,7 @@ func TestVisionFallbackUnknownCapabilityWithoutHelperPreservesRequest(t *testing
 	require.Equal(t, body, got)
 	manifest, _, err := svc.BuildGroupConfiguredCodexModelsManifest(context.Background(), &Group{ID: 7, Platform: PlatformOpenAI}, "")
 	require.NoError(t, err)
-	require.JSONEq(t, `["text"]`, gjson.GetBytes(manifest.Body, "models.0.input_modalities").Raw)
+	require.JSONEq(t, `["text","image"]`, gjson.GetBytes(manifest.Body, "models.0.input_modalities").Raw)
 }
 
 func TestVisionFallbackUnknownModelsAdvertiseAndForwardImages(t *testing.T) {
@@ -608,12 +614,18 @@ func TestVisionFallbackCompositeAliasUsesResolvedModel(t *testing.T) {
 	routes := []CompositeModelRoute{{PublicModel: "my-coder", TargetPlatform: PlatformOpenAI,
 		UpstreamModel: "glm-5.3-flash", Endpoint: CompositeRouteEndpointResponses, Enabled: true}}
 	body := []byte(`{"models":[{"slug":"my-coder","input_modalities":["text"]}]}`)
-	got, err := applyVisionFallbackManifest(body, visionTestConfig(), &Group{ID: 7}, PlatformComposite, accounts, routes, true)
+	// 复合别名与普通目录一样恒声明图片输入；转发侧仍按解析出的上游模型决定是否走辅助。
+	require.True(t, accountNeedsVisionFallback(&primary, "glm-5.3-flash"))
+	settings := NewSettingService(nil, visionTestConfig())
+	got, err := applyConfiguredVisionFallbackManifest(context.Background(), settings, visionTestConfig(), body)
 	require.NoError(t, err)
 	require.JSONEq(t, `["text","image"]`, gjson.GetBytes(got, "models.0.input_modalities").Raw)
-	got, err = applyVisionFallbackManifest(body, visionTestConfig(), &Group{ID: 7}, PlatformComposite, accounts, routes, false)
-	require.NoError(t, err)
-	require.Equal(t, body, got)
+	targetPlatform, upstream, resolved := resolveCodexCompositeModelTarget("my-coder", accounts, routes, true)
+	require.True(t, resolved)
+	require.Equal(t, PlatformOpenAI, targetPlatform)
+	require.Equal(t, "glm-5.3-flash", upstream)
+	_, _, resolved = resolveCodexCompositeModelTarget("my-coder", accounts, routes, false)
+	require.False(t, resolved)
 }
 
 func TestVisionFallbackVerifiedGPTPreservesNativeImagesWithHelperAvailable(t *testing.T) {
@@ -627,7 +639,7 @@ func TestVisionFallbackVerifiedGPTPreservesNativeImagesWithHelperAvailable(t *te
 	require.NoError(t, err)
 	require.Equal(t, body, got)
 	require.Empty(t, TakeVisionFallbackUsage(c))
-	require.False(t, groupModelNeedsVisionFallback([]Account{primary, helper}, PlatformOpenAI, "gpt-6-astra"))
+	require.False(t, accountNeedsVisionFallback(&primary, "gpt-6-astra"))
 }
 
 func TestVisionFallbackPreferredHelperFailureUsesNextNativeCandidate(t *testing.T) {
