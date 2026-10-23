@@ -165,7 +165,7 @@ type httpUpstreamService struct {
 	cfg     *config.Config                  // 全局配置
 	mu      sync.RWMutex                    // 保护 clients map 的读写锁
 	clients map[string]*upstreamClientEntry // 客户端缓存池，key 由隔离策略决定
-	// OpenAI 走 HTTP/HTTPS 代理时的 H2->H1 回退状态（key=标准化 proxyKey）
+	// OpenAI 的 H2->H1 回退状态：代理按线路隔离，直连按账号隔离。
 	openAIHTTP2Fallbacks sync.Map
 }
 
@@ -219,15 +219,25 @@ func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID i
 	// 执行请求
 	client := s.httpClientForUpstreamRequest(entry.client, req)
 	client = httpClientWithGrokAccessDeniedFallback(client)
+	fallbackKey := openAIHTTP2FallbackKey(entry.proxyKey, accountID)
 	resp, err := doUpstreamRequest(client, req)
 	if err != nil {
-		s.recordOpenAIHTTP2Failure(profile, entry.protocolMode, entry.proxyKey, err)
+		s.recordOpenAIHTTP2Failure(profile, entry.protocolMode, fallbackKey, err)
 		// 请求失败，立即减少计数
 		atomic.AddInt64(&entry.inFlight, -1)
 		atomic.StoreInt64(&entry.lastUsed, time.Now().UnixNano())
 		return nil, err
 	}
-	s.recordOpenAIHTTP2Success(profile, entry.protocolMode, entry.proxyKey)
+	// 收到响应头不代表长流成功；读完整个响应后才能清除连续失败计数。
+	if profile == service.HTTPUpstreamProfileOpenAI && entry.protocolMode == upstreamProtocolModeOpenAIH2 && resp.Body != nil {
+		resp.Body = &openAIHTTP2ObservedBody{ReadCloser: resp.Body, observe: func(readErr error) {
+			if readErr == io.EOF {
+				s.recordOpenAIHTTP2Success(profile, entry.protocolMode, fallbackKey)
+				return
+			}
+			s.recordOpenAIHTTP2Failure(profile, entry.protocolMode, fallbackKey, readErr)
+		}}
+	}
 
 	// 包装响应体，在关闭时自动减少计数并更新时间戳
 	// 这确保了流式响应（如 SSE）在完全读取前不会被淘汰
@@ -722,6 +732,9 @@ func (s *httpUpstreamService) getClientEntry(proxyURL string, accountID int64, a
 	}
 	// 根据请求 profile（例如 OpenAI）选择协议模式
 	protocolMode := s.resolveProtocolMode(profile, proxyKey, parsedProxy)
+	if protocolMode == upstreamProtocolModeOpenAIH2 && parsedProxy == nil && s.resolveOpenAIHTTP2Settings().allowProxyFallbackToHTTP1 && s.isOpenAIHTTP2FallbackActive(openAIHTTP2FallbackKey(proxyKey, accountID)) {
+		protocolMode = upstreamProtocolModeOpenAIH1Fallback
+	}
 	settings := s.resolvePoolSettings(isolation, accountConcurrency)
 	settings = s.applyProfilePoolSettings(settings, profile)
 	// 构建缓存键（根据隔离策略不同）
@@ -1112,8 +1125,19 @@ func isHTTPProxyKey(proxyKey string) bool {
 	return strings.HasPrefix(proxyKey, "http://") || strings.HasPrefix(proxyKey, "https://")
 }
 
+// 直连失败只影响当前账号，不让共享连接池中的其他上游跟着降级。
+func openAIHTTP2FallbackKey(proxyKey string, accountID int64) string {
+	if proxyKey == directProxyKey {
+		return fmt.Sprintf("direct-account:%d", accountID)
+	}
+	return proxyKey
+}
+
 func isOpenAIHTTP2CompatibilityError(err error) bool {
 	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) {
 		return false
 	}
 	if isUpstreamTimeoutError(err) {
@@ -1124,6 +1148,7 @@ func isOpenAIHTTP2CompatibilityError(err error) bool {
 		return false
 	}
 	markers := []string{
+		"http2: client connection lost",
 		"alpn",
 		"no application protocol",
 		"protocol error",
@@ -1178,11 +1203,17 @@ func (s *httpUpstreamService) recordOpenAIHTTP2Failure(profile service.HTTPUpstr
 	if !settings.enabled || !settings.allowProxyFallbackToHTTP1 {
 		return
 	}
-	if !isHTTPProxyKey(proxyKey) || !isOpenAIHTTP2CompatibilityError(err) {
+	directAccount := strings.HasPrefix(proxyKey, "direct-account:")
+	if (!isHTTPProxyKey(proxyKey) && !directAccount) || !isOpenAIHTTP2CompatibilityError(err) {
 		return
 	}
+	// 直连的显式协议故障立即回退，避免慢速长流的重试间隔超过统计窗口。
+	threshold := settings.fallbackErrorThreshold
+	if directAccount {
+		threshold = 1
+	}
 	state := s.getOrCreateOpenAIHTTP2FallbackState(proxyKey)
-	activated, until := state.recordFailure(time.Now(), settings.fallbackErrorThreshold, settings.fallbackWindow, settings.fallbackTTL)
+	activated, until := state.recordFailure(time.Now(), threshold, settings.fallbackWindow, settings.fallbackTTL)
 	if activated {
 		slog.Warn("openai_http2_proxy_fallback_activated",
 			"proxy", proxyKey,
@@ -1194,7 +1225,7 @@ func (s *httpUpstreamService) recordOpenAIHTTP2Success(profile service.HTTPUpstr
 	if profile != service.HTTPUpstreamProfileOpenAI || protocolMode != upstreamProtocolModeOpenAIH2 {
 		return
 	}
-	if !isHTTPProxyKey(proxyKey) {
+	if !isHTTPProxyKey(proxyKey) && !strings.HasPrefix(proxyKey, "direct-account:") {
 		return
 	}
 	raw, ok := s.openAIHTTP2Fallbacks.Load(proxyKey)
@@ -1497,6 +1528,21 @@ type trackedBody struct {
 	io.ReadCloser // 原始响应体
 	once          sync.Once
 	onClose       func() // 关闭时的回调函数
+}
+
+// 只观察首次终止结果；保留原始字节、错误和 Close 语义，不重放已输出的流。
+type openAIHTTP2ObservedBody struct {
+	io.ReadCloser
+	once    sync.Once
+	observe func(error)
+}
+
+func (b *openAIHTTP2ObservedBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if err != nil {
+		b.once.Do(func() { b.observe(err) })
+	}
+	return n, err
 }
 
 // Close 关闭响应体并执行回调
