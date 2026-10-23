@@ -35,7 +35,7 @@ resolve_enabled_adapters "$ENV_FILE"
 PROFILES="$(adapter_profiles_csv)"
 echo "    profiles=${PROFILES:-<none>}"
 if [ "${#ADAPTER_URL_EXPORTS[@]}" -gt 0 ]; then
-  for kv in "${ADAPTER_URL_EXPORTS[@]}"; do [ -n "$kv" ] && echo "    $kv"; done
+  for kv in "${ADAPTER_URL_EXPORTS[@]}"; do [ -n "${kv%%=*}" ] && echo "    $kv"; done
 fi
 
 echo "==> 2/5 补齐共享密钥（首次部署自动生成）"
@@ -65,7 +65,7 @@ grep -nF -- "image: $SUB2API_IMAGE" "$STACK_COMPOSE"
 # 组装 compose 调用：基础栈 + 适配器叠加层；profile 决定适配器开关。
 export COMPOSE_PROFILES="$PROFILES"
 if [ "${#ADAPTER_URL_EXPORTS[@]}" -gt 0 ]; then
-  for kv in "${ADAPTER_URL_EXPORTS[@]}"; do [ -n "$kv" ] && export "$kv"; done
+  for kv in "${ADAPTER_URL_EXPORTS[@]}"; do export "$kv"; done
 fi
 COMPOSE=(docker compose --project-name sub2api --env-file "$ENV_FILE" -f "$STACK_COMPOSE" -f "$ADAPTER_COMPOSE")
 

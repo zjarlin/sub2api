@@ -16,6 +16,9 @@
 #   SUB2API_BUILD       1 = 先构建镜像（默认 1）
 #   SUB2API_GIT_SHA     构建版本（默认取 REPO_DIR 的 HEAD；镜像标签取前 12 位）
 #   CANARY_PORT         候选端口（默认自动挑空闲端口）
+#   CANARY_ONLY         1 = 只起候选做预检，验证后保留候选容器并打印端口，不切流
+#   ADAPTER_ENV_FILE    适配器开关与共享密钥（默认 $DEPLOY_DIR/adapters/.env）
+#   ADAPTER_COMPOSE_FILE 适配器叠加层（默认空 = 自动找 $REPO_DIR/deploy/docker-compose.adapters.yml）
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -31,11 +34,58 @@ CANARY_WAIT_SECONDS="${CANARY_WAIT_SECONDS:-240}"
 SHA="${SUB2API_GIT_SHA:-$(git -C "$REPO_DIR" rev-parse HEAD)}"
 SHORT_SHA="${SHA:0:12}"
 IMAGE="${SUB2API_IMAGE:-${IMAGE_REPOSITORY}:${SHORT_SHA}}"
+ADAPTER_ENV_FILE="${ADAPTER_ENV_FILE:-$DEPLOY_DIR/adapters/.env}"
+ADAPTER_COMPOSE_FILE="${ADAPTER_COMPOSE_FILE-$REPO_DIR/deploy/docker-compose.adapters.yml}"
 
 log() { printf '[deploy-gateway] %s\n' "$*"; }
 
 COMPOSE_FILE="$DEPLOY_DIR/docker-compose.yml"
 test -f "$COMPOSE_FILE" || { log "missing compose file: $COMPOSE_FILE"; exit 1; }
+
+# ---------------------------------------------------------------------------
+# 内置适配器：开关与共享密钥只在 $ADAPTER_ENV_FILE 里，主服务要「感知」某平台
+# 可用，靠 BUILTIN_ADAPTER_<X>_URL/_KEY 同时非空且 BUILTIN_ADAPTER_ENABLED=true。
+# 这些只在进程启动时读一次（config.LoadForBootstrap），所以换 env 必须重建容器，
+# 这里把同一份计算结果同时喂给候选 docker run 和 compose 切换，避免两边不一致。
+# ---------------------------------------------------------------------------
+ADAPTER_COMPOSE_FILES=()
+ADAPTER_COMPOSE_ENV_ARGS=()
+adapter_env_args=()
+adapter_up_env=()
+if [ -n "$ADAPTER_COMPOSE_FILE" ]; then
+  test -f "$ADAPTER_COMPOSE_FILE" || { log "missing adapter compose file: $ADAPTER_COMPOSE_FILE"; exit 1; }
+  test -f "$ADAPTER_ENV_FILE" || { log "missing adapter env file: $ADAPTER_ENV_FILE"; exit 1; }
+  # shellcheck source=../cluster/adapters.env.sh
+  source "$REPO_DIR/deploy/cluster/adapters.env.sh"
+  resolve_enabled_adapters "$ADAPTER_ENV_FILE"
+  ADAPTER_COMPOSE_FILES=(-f "$ADAPTER_COMPOSE_FILE")
+  # 共享密钥随 --env-file 进入 compose 的变量替换；进程环境里的 SOURCE 变量优先，
+  # 所以未启用平台仍然是显式空串，不会被 .env 残留值污染。
+  ADAPTER_COMPOSE_ENV_ARGS=(--env-file "$ADAPTER_ENV_FILE")
+  adapter_env_args+=(--env "BUILTIN_ADAPTER_ENABLED=true")
+  for _uv in ${ADAPTER_URLVARS[@]+"${ADAPTER_URLVARS[@]}"}; do
+    adapter_env_args+=(--env "$_uv")
+    adapter_up_env+=("$_uv")
+  done
+  # 候选容器是 docker run，不经过 compose 的 env 替换，共享密钥必须显式传入，
+  # 否则候选能连上适配器却会被适配器 401 拒绝，预检形同虚设。
+  # 密钥按平台映射：BUILTIN_ADAPTER_WORKBUDDY_URL -> BUILTIN_ADAPTER_WORKBUDDY_KEY，
+  # 值来自 .env 里注册表登记的 <PLATFORM>_ADAPTER_KEY。
+  for _uv in ${ADAPTER_URLVARS[@]+"${ADAPTER_URLVARS[@]}"}; do
+    _url_var="${_uv%%=*}"
+    _key_var="$(adapter_key_var_for_url_var "$_url_var")" || { log "no key var for $_url_var"; exit 1; }
+    _value="$(read_env_value "$_key_var" "$ADAPTER_ENV_FILE")"
+    [ -n "$_value" ] || { log "missing adapter key $_key_var in $ADAPTER_ENV_FILE"; exit 1; }
+    adapter_env_args+=(--env "${_url_var%_URL}_KEY=$_value")
+  done
+  for _kv in ${ADAPTER_URL_EXPORTS[@]+"${ADAPTER_URL_EXPORTS[@]}"}; do
+    adapter_up_env+=("$_kv")
+  done
+  [ -n "$(adapter_profiles_csv)" ] || { log "adapter env enables no platform: $ADAPTER_ENV_FILE"; exit 1; }
+  log "adapters enabled: $(adapter_profiles_csv)"
+else
+  log "no adapter overlay; live container env is reused as-is"
+fi
 
 if [ "$BUILD" = "1" ]; then
   log "building $IMAGE from $REPO_DIR @ $SHORT_SHA"
@@ -61,16 +111,6 @@ CANARY_NAME="${CONTAINER}-canary-$$"
 
 cleanup() { docker rm -f "$CANARY_NAME" >/dev/null 2>&1 || true; }
 trap cleanup EXIT
-
-rollback() {
-  log "rolling back to $PREV_IMAGE_TAG ($PREV_IMAGE_ID)"
-  SUB2API_IMAGE="$PREV_IMAGE_ID" docker compose \
-    --project-directory "$DEPLOY_DIR" --project-name "$CONTAINER" \
-    -f "$COMPOSE_FILE" up -d --no-deps "$CONTAINER" || true
-  sleep 5
-  docker ps --filter "name=^${CONTAINER}$" --format '{{.Names}} {{.Image}} {{.Status}}' || true
-  exit 1
-}
 
 NETWORK="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' "$CONTAINER")"
 
@@ -98,6 +138,7 @@ docker run -d --name "$CANARY_NAME" \
   --network "$NETWORK" \
   -p "127.0.0.1:${CANARY_PORT}:8080" \
   "${env_args[@]}" \
+  ${adapter_env_args[@]+"${adapter_env_args[@]}"} \
   "${mount_flags[@]}" \
   "$IMAGE" >/dev/null
 
@@ -115,12 +156,43 @@ until curl --fail --silent --max-time 5 "http://127.0.0.1:${CANARY_PORT}/health"
   fi
   sleep 2
 done
-log "candidate healthy; switching live container"
+log "candidate healthy"
+if [ "${CANARY_ONLY:-0}" = "1" ]; then
+  # 预检模式：保留候选容器供人工验证（env / 接口），不切流。用完由调用方删除。
+  trap - EXIT
+  log "candidate-only mode: $CANARY_NAME listening on 127.0.0.1:$CANARY_PORT (live traffic untouched)"
+  log "remove it with: docker rm -f $CANARY_NAME"
+  exit 0
+fi
+log "switching live container"
 cleanup; trap - EXIT
 
-SUB2API_IMAGE="$IMAGE" docker compose \
-  --project-directory "$DEPLOY_DIR" --project-name "$CONTAINER" \
-  -f "$COMPOSE_FILE" up -d --no-deps "$CONTAINER"
+compose_up() {
+  env ${adapter_up_env[@]+"${adapter_up_env[@]}"} SUB2API_IMAGE="$1" docker compose \
+    --project-directory "$DEPLOY_DIR" --project-name "$CONTAINER" \
+    -f "$COMPOSE_FILE" ${ADAPTER_COMPOSE_FILES[@]+"${ADAPTER_COMPOSE_FILES[@]}"} \
+    ${ADAPTER_COMPOSE_ENV_ARGS[@]+"${ADAPTER_COMPOSE_ENV_ARGS[@]}"} \
+    up -d --no-deps "$CONTAINER"
+}
+
+# 失败回滚要覆盖「切换前/切换后」两种情况：前者 18080 仍是旧容器，compose up
+# 就是原地恢复；后者已被新容器占住，必须等新容器退出后再起（配置没变所以不会
+# 被重新创建），否则容器名冲突，回滚本身也会失败。
+# 用 `docker rm -f` 而不是 stop：安全开关会把 SIGTERM 拖满 120s，而 compose 的
+# 18080 端口绑定在创建时就已经释放。
+rollback() {
+  log "rolling back to $PREV_IMAGE_TAG ($PREV_IMAGE_ID)"
+  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+  compose_up "$PREV_IMAGE_ID" || true
+  sleep 5
+  docker ps --filter "name=^${CONTAINER}$" --format '{{.Names}} {{.Image}} {{.Status}}' || true
+  curl --fail --silent --max-time 10 "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1 \
+    && log "rollback healthy" \
+    || log "WARNING: rollback container is not healthy, inspect docker logs $CONTAINER"
+  exit 1
+}
+
+compose_up "$IMAGE"
 
 deadline=$(( $(date +%s) + 120 ))
 until curl --fail --silent --max-time 5 "http://127.0.0.1:${PORT}/health" >/dev/null 2>&1; do

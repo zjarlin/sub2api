@@ -8,7 +8,10 @@
 #   1) PROFILE       compose profile 名（= 开关变量后缀小写）
 #   2) SWITCH        .env 中的开关变量名（=1 启用）
 #   3) ADAPTER_KEY   共享密钥变量名（首次部署自动生成并回写 .env）
-#   4) URL_VAR       注入主服务的 BUILTIN_ADAPTER_<X>_URL 变量名
+#   4) URL_VAR       平台地址变量的基准名（BUILTIN_ADAPTER_<X>_URL）。
+#                    启用时导出 BUILTIN_ADAPTER_<X>_URL=<CONTAINER_URL>；
+#                    无论是否启用，都导出 ADAPTER_<X>_API_SOURCE（启用=地址，未启用=空串），
+#                    由 compose 直接读 SOURCE，避免 ${VAR:-} 从 .env 继承残留值。
 #   5) CONTAINER_URL 适配器在容器网络内的地址
 #   6) SERVICE       compose 服务名（用于 up/depends 校验），"-" 表示无本地容器
 # =============================================================================
@@ -25,6 +28,9 @@ ADAPTER_REGISTRY=(
   "windsurf|SUB2API_WINDSURF|WINDSURF_ADAPTER_KEY|BUILTIN_ADAPTER_WINDSURF_URL|http://sub2api-windsurf:7869|sub2api-windsurf"
   "teleagent|SUB2API_TELEAGENT|TELEAGENT_ADAPTER_KEY|BUILTIN_ADAPTER_TELEAGENT_URL|http://sub2api-teleagent:7872|sub2api-teleagent"
   "arena|SUB2API_ARENA|ARENA_AGENT_BRIDGE_KEY|BUILTIN_ADAPTER_ARENA_URL|http://sub2api-arena:7867|sub2api-arena"
+  # ChatGPT 网页版：不是后端内置平台，账号是普通 OpenAI API Key（base_url 指向适配器），
+  # 因此不注入 BUILTIN_ADAPTER_*，只需容器在网内且密钥与账号一致。
+  "chatgptweb|SUB2API_CHATGPTWEB|CHATGPT_WEB_ADAPTER_KEY|-|http://sub2api-chatgptweb:7881|sub2api-chatgptweb"
   # 纯外部服务：没有本地容器，只注入地址；地址写在 .env（未配置则视为关闭）。
   "laya|SUB2API_LAYA|LAYA_API_KEY|BUILTIN_ADAPTER_LAYA_URL|http://edge-laya:18082|-"
   "jev|SUB2API_JEV|JEV_ADAPTER_KEY|BUILTIN_ADAPTER_JEV_URL|https://api.commandcode.ai/provider/v1|-"
@@ -73,17 +79,49 @@ ensure_env_key() {
   unset "$name"
 }
 
+# adapter_source_var <URL_VAR>
+# BUILTIN_ADAPTER_TRAEWORK_URL -> ADAPTER_TRAEWORK_API_SOURCE
+# 未启用的平台也必须导出（空串），否则 compose 里 ${ADAPTER_X_API_SOURCE:-}
+# 会退回从 .env / 宿主环境继承，残留值会让主服务误以为平台可用。
+adapter_source_var() {
+  local name="${1#BUILTIN_ADAPTER_}"
+  name="${name%_URL}"
+  printf 'ADAPTER_%s_API_SOURCE' "$name"
+}
+
+# adapter_key_var_for_url_var <BUILTIN_ADAPTER_X_URL>
+# 返回该平台共享密钥在 .env 里的变量名（如 WORKBUDDY_ADAPTER_KEY）。
+# 候选容器用 docker run 起，不经过 compose 的 ${VAR} 替换，需要按平台把
+# 密钥映射成 BUILTIN_ADAPTER_X_KEY 显式传入，这里提供唯一的对应关系。
+adapter_key_var_for_url_var() {
+  local target="$1" entry profile switch key_var url_var url service
+  for entry in "${ADAPTER_REGISTRY[@]}"; do
+    IFS='|' read -r profile switch key_var url_var url service <<< "$entry"
+    if [ "$url_var" = "$target" ]; then
+      printf '%s' "$key_var"
+      return 0
+    fi
+  done
+  return 1
+}
+
 # resolve_enabled_adapters <env_file>
-# 计算：本次要启动的 profile 列表、要注入的 URL 变量、要生成的密钥变量。
-# 结果通过全局变量返回：ADAPTER_PROFILES / ADAPTER_URL_EXPORTS / ADAPTER_KEY_VARS
+# 计算：本次要启动的 profile 列表、要注入的地址变量、要生成的密钥变量。
+# 结果通过全局变量返回：
+#   ADAPTER_PROFILES    启用的 profile 名
+#   ADAPTER_URL_EXPORTS 每个平台的 `ADAPTER_<X>_API_SOURCE=<地址或空>`（全部平台）
+#   ADAPTER_URLVARS     启用的平台对应的 `BUILTIN_ADAPTER_<X>_URL=<地址>`
+#   ADAPTER_KEY_VARS    启用平台的共享密钥变量名
+#   ADAPTER_SERVICES    启用平台在目标机上的 compose 服务名
 ADAPTER_PROFILES=()
 ADAPTER_URL_EXPORTS=()
+ADAPTER_URLVARS=()
 ADAPTER_KEY_VARS=()
 # 仅在目标机有本地容器时才收集的服务名（用于精确 up，不连带 postgres/redis）。
 ADAPTER_SERVICES=()
 resolve_enabled_adapters() {
-  local file="$1" entry profile switch key_var url_var url service
-  ADAPTER_PROFILES=(); ADAPTER_URL_EXPORTS=(); ADAPTER_KEY_VARS=(); ADAPTER_SERVICES=()
+  local file="$1" entry profile switch key_var url_var url service source_var enabled
+  ADAPTER_PROFILES=(); ADAPTER_URL_EXPORTS=(); ADAPTER_URLVARS=(); ADAPTER_KEY_VARS=(); ADAPTER_SERVICES=()
   local legacy=""
   legacy="${SUB2API_BUILTIN_ADAPTERS:-}"
   [ -z "$legacy" ] && legacy="$(read_env_flag SUB2API_BUILTIN_ADAPTERS "$file")"
@@ -98,16 +136,29 @@ resolve_enabled_adapters() {
         SUB2API_DESKTOP|SUB2API_TRAEWORK|SUB2API_WORKBUDDY|SUB2API_VIBEX|SUB2API_ZCODE) on="1" ;;
       esac
     fi
+    enabled=0
     if [ "$on" = "1" ]; then
       # 外部服务（service = -）用 .env 里配置的地址；其余用容器内固定地址。
-      if [ "$service" = "-" ]; then
+      if [ "$service" = "-" ] && [ "$url_var" != "-" ]; then
         url="$(read_env_value "$url_var" "$file")"
-        [ -z "$url" ] && continue   # 未配置地址 => 视为关闭
+        [ -z "$url" ] && on="0"   # 未配置地址 => 视为关闭
       fi
+      [ "$on" = "1" ] && enabled=1
+    fi
+    if [ "$enabled" = 1 ]; then
       ADAPTER_PROFILES+=("$profile")
-      ADAPTER_URL_EXPORTS+=("$url_var=$url")
       ADAPTER_KEY_VARS+=("$key_var")
+      [ "$url_var" != "-" ] && ADAPTER_URLVARS+=("$url_var=$url")
       [ "$service" != "-" ] && ADAPTER_SERVICES+=("$service")
+    fi
+    # 逐平台导出 SOURCE：启用给地址，未启用给空串（覆盖 .env 残留）。
+    if [ "$url_var" != "-" ]; then
+      source_var="$(adapter_source_var "$url_var")"
+      if [ "$enabled" = 1 ]; then
+        ADAPTER_URL_EXPORTS+=("$source_var=$url")
+      else
+        ADAPTER_URL_EXPORTS+=("$source_var=")
+      fi
     fi
   done
 }

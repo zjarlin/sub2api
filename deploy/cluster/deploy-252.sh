@@ -266,11 +266,19 @@ start_canary() {
   fi
   # 适配器地址以显式 --env 传入：首次部署（无既有容器可 inspect）时 .env 里
   # 没有 BUILTIN_ADAPTER_*_URL，docker run 也不会自动继承宿主环境变量。
+  # 未启用的平台也显式传空值，覆盖 env-file 里可能残留的旧地址。
   local -a ADAPTER_ENV_ARGS=()
   if [ "${#ADAPTER_URL_EXPORTS[@]}" -gt 0 ]; then
     local _kv
     for _kv in "${ADAPTER_URL_EXPORTS[@]}"; do
-      [ -n "$_kv" ] && ADAPTER_ENV_ARGS+=(--env "$_kv")
+      ADAPTER_ENV_ARGS+=(--env "$_kv")
+    done
+  fi
+  # 显式地址变量：蓝绿候选容器直接用 docker run，不经过 compose 的 SOURCE 映射。
+  if [ "${#ADAPTER_URLVARS[@]}" -gt 0 ]; then
+    local _uv
+    for _uv in "${ADAPTER_URLVARS[@]}"; do
+      ADAPTER_ENV_ARGS+=(--env "$_uv")
     done
   fi
   echo "Starting isolated candidate $CANARY_CONTAINER behind $publish"
@@ -339,10 +347,10 @@ if [ "$EGRESS_ENABLED" = "1" ]; then
   ADAPTER_PROFILES_CSV="${ADAPTER_PROFILES_CSV:+$ADAPTER_PROFILES_CSV,}openai-egress"
 fi
 export COMPOSE_PROFILES="$ADAPTER_PROFILES_CSV"
-# 空数组在 set -u 下展开会报错，先判断长度。
+# 每平台一条 SOURCE（启用=地址、未启用=空），compose 只认这个，不继承 .env 残留。
 if [ "${#ADAPTER_URL_EXPORTS[@]}" -gt 0 ]; then
   for _kv in "${ADAPTER_URL_EXPORTS[@]}"; do
-    [ -n "$_kv" ] && export "$_kv"
+    export "$_kv"
   done
 fi
 

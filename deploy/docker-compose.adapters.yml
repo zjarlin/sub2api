@@ -35,57 +35,69 @@
 #   TeleAgent  sub2api-teleagent    :7872
 #   Arena      sub2api-arena        :7867
 #   Laya / JEV 由 edge-laya / 远端 System One 承担，这里只注入地址与密钥。
+#   ChatGPT 网页版 sub2api-chatgptweb :7881（普通 OpenAI API Key 账号接入，
+#   不是后端内置平台，不注入 BUILTIN_ADAPTER_*，账号 base_url 指向容器名）。
+#
+# 变量：
+#   ADAPTER_TOOLS_DIR        适配器源码根目录（默认 ./tools，相对 compose 项目目录）
+#   ADAPTER_NETWORK_NAME     适配器接入的既有 Docker 网络名（默认本编排自建）
+#   SUB2API_OPENAI_EGRESS=1  需要 chatgpt.com 出网时一并启用美国出口代理
 # =============================================================================
 services:
 
   # ---------------------------------------------------------------------------
-  # Sub2API 主服务：一次性注入全部平台的地址与密钥。
-  # 动态取值而非写死 URL，是为了让「未启用」明确落成空串。
+  # Sub2API 主服务：注入各平台地址与密钥。
+  #
+  # 地址按开关逐平台计算，未启用的平台显式写成空串：后端对空 URL 会回退到
+  # 编排默认服务名（config.BuiltinAdapterConfig.*BaseURL），所以这里绝不能
+  # 用 `${VAR:-}` 交给 compose 从 .env 或宿主环境继承——那样一个残留值就能
+  # 让未启用的平台在账号页显示为可用。SOURCE 由
+  # deploy/cluster/adapters.env.sh 的 resolve_enabled_adapters 导出：
+  #   启用 -> 容器内服务地址；外部服务 -> .env 里配置的地址；未启用 -> 空。
   # ---------------------------------------------------------------------------
   sub2api:
     environment:
       - BUILTIN_ADAPTER_ENABLED=${BUILTIN_ADAPTER_ENABLED:-true}
       # 豆包（桌面会话）
-      - BUILTIN_ADAPTER_DESKTOP_URL=${BUILTIN_ADAPTER_DESKTOP_URL:-}
+      - BUILTIN_ADAPTER_DESKTOP_URL=${ADAPTER_DESKTOP_API_SOURCE:-}
       - BUILTIN_ADAPTER_DESKTOP_KEY=${DESKTOP_ADAPTER_KEY:-}
       # TRAE Work
-      - BUILTIN_ADAPTER_TRAEWORK_URL=${BUILTIN_ADAPTER_TRAEWORK_URL:-}
+      - BUILTIN_ADAPTER_TRAEWORK_URL=${ADAPTER_TRAEWORK_API_SOURCE:-}
       - BUILTIN_ADAPTER_TRAEWORK_KEY=${TRAEWORK_ADAPTER_KEY:-}
       # WorkBuddy
-      - BUILTIN_ADAPTER_WORKBUDDY_URL=${BUILTIN_ADAPTER_WORKBUDDY_URL:-}
+      - BUILTIN_ADAPTER_WORKBUDDY_URL=${ADAPTER_WORKBUDDY_API_SOURCE:-}
       - BUILTIN_ADAPTER_WORKBUDDY_KEY=${WORKBUDDY_ADAPTER_KEY:-}
       # VibeX
-      - BUILTIN_ADAPTER_VIBEX_URL=${BUILTIN_ADAPTER_VIBEX_URL:-}
+      - BUILTIN_ADAPTER_VIBEX_URL=${ADAPTER_VIBEX_API_SOURCE:-}
       - BUILTIN_ADAPTER_VIBEX_KEY=${VIBEX_ADAPTER_KEY:-}
       # ZCode
-      - BUILTIN_ADAPTER_ZCODE_URL=${BUILTIN_ADAPTER_ZCODE_URL:-}
+      - BUILTIN_ADAPTER_ZCODE_URL=${ADAPTER_ZCODE_API_SOURCE:-}
       - BUILTIN_ADAPTER_ZCODE_KEY=${ZCODE_ADAPTER_KEY:-}
       # DeepSeek 网页版
-      - BUILTIN_ADAPTER_DEEPSEEK_WEB_URL=${BUILTIN_ADAPTER_DEEPSEEK_WEB_URL:-}
+      - BUILTIN_ADAPTER_DEEPSEEK_WEB_URL=${ADAPTER_DEEPSEEK_WEB_API_SOURCE:-}
       - BUILTIN_ADAPTER_DEEPSEEK_WEB_KEY=${DEEPSEEK_WEB_ADAPTER_KEY:-}
       # 码道 CodeArts
-      - BUILTIN_ADAPTER_MADAO_URL=${BUILTIN_ADAPTER_MADAO_URL:-}
+      - BUILTIN_ADAPTER_MADAO_URL=${ADAPTER_MADAO_API_SOURCE:-}
       - BUILTIN_ADAPTER_MADAO_KEY=${MADAO_ADAPTER_KEY:-}
       # Gemini
-      - BUILTIN_ADAPTER_GEMINI_URL=${BUILTIN_ADAPTER_GEMINI_URL:-}
+      - BUILTIN_ADAPTER_GEMINI_URL=${ADAPTER_GEMINI_API_SOURCE:-}
       - BUILTIN_ADAPTER_GEMINI_KEY=${GEMINI_ADAPTER_KEY:-}
       # Cursor
-      - BUILTIN_ADAPTER_CURSOR_URL=${BUILTIN_ADAPTER_CURSOR_URL:-}
+      - BUILTIN_ADAPTER_CURSOR_URL=${ADAPTER_CURSOR_API_SOURCE:-}
       - BUILTIN_ADAPTER_CURSOR_KEY=${CURSOR_ADAPTER_KEY:-}
       # Windsurf
-      - BUILTIN_ADAPTER_WINDSURF_URL=${BUILTIN_ADAPTER_WINDSURF_URL:-}
+      - BUILTIN_ADAPTER_WINDSURF_URL=${ADAPTER_WINDSURF_API_SOURCE:-}
       - BUILTIN_ADAPTER_WINDSURF_KEY=${WINDSURF_ADAPTER_KEY:-}
       # TeleAgent
-      - BUILTIN_ADAPTER_TELEAGENT_URL=${BUILTIN_ADAPTER_TELEAGENT_URL:-}
+      - BUILTIN_ADAPTER_TELEAGENT_URL=${ADAPTER_TELEAGENT_API_SOURCE:-}
       - BUILTIN_ADAPTER_TELEAGENT_KEY=${TELEAGENT_ADAPTER_KEY:-}
       # Arena
-      - BUILTIN_ADAPTER_ARENA_URL=${BUILTIN_ADAPTER_ARENA_URL:-}
+      - BUILTIN_ADAPTER_ARENA_URL=${ADAPTER_ARENA_API_SOURCE:-}
       - BUILTIN_ADAPTER_ARENA_KEY=${ARENA_AGENT_BRIDGE_KEY:-}
-      # Laya（本地/远端 System One）：地址与密钥独立配置。
-      - BUILTIN_ADAPTER_LAYA_URL=${BUILTIN_ADAPTER_LAYA_URL:-}
+      # Laya / JEV（System One）：外部服务，地址来自 .env，未启用即为空。
+      - BUILTIN_ADAPTER_LAYA_URL=${ADAPTER_LAYA_API_SOURCE:-}
       - BUILTIN_ADAPTER_LAYA_KEY=${LAYA_API_KEY:-}
-      # JEV（TypeSafe / CommandCode System One）。
-      - BUILTIN_ADAPTER_JEV_URL=${BUILTIN_ADAPTER_JEV_URL:-}
+      - BUILTIN_ADAPTER_JEV_URL=${ADAPTER_JEV_API_SOURCE:-}
       - BUILTIN_ADAPTER_JEV_KEY=${JEV_ADAPTER_KEY:-}
 
   # ===========================================================================
@@ -97,7 +109,7 @@ services:
   sub2api-desktop:
     profiles: [desktop]
     build:
-      context: ./tools/desktop_session
+      context: ${ADAPTER_TOOLS_DIR:-./tools}/desktop_session
       dockerfile: Dockerfile
     image: ${DESKTOP_IMAGE:-sub2api-desktop:local}
     container_name: sub2api-desktop
@@ -133,7 +145,7 @@ services:
   sub2api-traework:
     profiles: [traework]
     build:
-      context: ./tools
+      context: ${ADAPTER_TOOLS_DIR:-./tools}
       dockerfile: traework2api/Dockerfile.sub2api
       args:
         # 国内网络下加速 apk 包下载；留空则用官方 CDN。
@@ -168,7 +180,7 @@ services:
   sub2api-workbuddy:
     profiles: [workbuddy]
     build:
-      context: ./tools
+      context: ${ADAPTER_TOOLS_DIR:-./tools}
       dockerfile: workbuddy2api/Dockerfile.sub2api
       args:
         # 国内网络下加速 apk 包下载；留空则用官方 CDN。
@@ -203,7 +215,7 @@ services:
   sub2api-vibex:
     profiles: [vibex]
     build:
-      context: ./tools
+      context: ${ADAPTER_TOOLS_DIR:-./tools}
       dockerfile: vibex2api/Dockerfile
       args:
         # 国内网络下加速 apk 包下载；留空则用官方 CDN。
@@ -236,7 +248,7 @@ services:
   sub2api-zcode:
     profiles: [zcode]
     build:
-      context: ./tools
+      context: ${ADAPTER_TOOLS_DIR:-./tools}
       dockerfile: zcode2api/Dockerfile.sub2api
       args:
         # 国内网络下加速 apk 包下载；留空则用官方 CDN。
@@ -278,7 +290,7 @@ services:
   sub2api-deepseek-web:
     profiles: [deepseek-web]
     build:
-      context: ./tools
+      context: ${ADAPTER_TOOLS_DIR:-./tools}
       dockerfile: deepseek2api/Dockerfile.sub2api
       args:
         # 国内网络下加速 apk 包下载；留空则用官方 CDN。
@@ -320,7 +332,7 @@ services:
   sub2api-madao:
     profiles: [madao]
     build:
-      context: ./tools
+      context: ${ADAPTER_TOOLS_DIR:-./tools}
       dockerfile: madao2api/Dockerfile.sub2api
       args:
         # 国内网络下加速 apk 包下载；留空则用官方 CDN。
@@ -362,7 +374,7 @@ services:
   sub2api-gemini:
     profiles: [gemini]
     build:
-      context: ./tools
+      context: ${ADAPTER_TOOLS_DIR:-./tools}
       dockerfile: gemini2api/Dockerfile.sub2api
     image: ${GEMINI_IMAGE:-sub2api-gemini:local}
     container_name: sub2api-gemini
@@ -570,6 +582,46 @@ services:
       retries: 3
       start_period: 10s
 
+  # ChatGPT 网页版（匿名网页自动化，经出口代理访问 chatgpt.com）。
+  # 上游是 chatgpt.com，国内直连不通，必须配 CGW_UPSTREAM_PROXY 指向代理；
+  # 默认复用同编排内的 sub2api-openai-egress。
+  sub2api-chatgptweb:
+    profiles: [chatgptweb]
+    build:
+      context: ${CHATGPTWEB_BUILD_CONTEXT:-${ADAPTER_TOOLS_DIR:-./tools}/chatgptweb2api}
+      dockerfile: Dockerfile
+    image: ${CHATGPTWEB_IMAGE:-sub2api-chatgptweb:local}
+    container_name: sub2api-chatgptweb
+    restart: unless-stopped
+    depends_on:
+      sub2api:
+        condition: service_healthy
+        required: false
+    init: true
+    shm_size: 512m
+    # Chromium 不允许把宿主 swap 吃满：内存与 swap 上限相同 = 禁用该容器的 swap。
+    mem_limit: 1536m
+    memswap_limit: 1536m
+    mem_swappiness: 0
+    pids_limit: 256
+    # 宿主内存告急时优先杀浏览器适配器，保住 sshd / gateway / sub2api。
+    oom_score_adj: 500
+    environment:
+      CGW_API_KEY: "${CHATGPT_WEB_ADAPTER_KEY:-}"
+      CGW_MODELS: "${CHATGPTWEB_MODELS:-gpt-web}"
+      CGW_LISTEN: 0.0.0.0:7881
+      CGW_UPSTREAM_PROXY: "${CGW_UPSTREAM_PROXY:-http://sub2api-openai-egress:7890}"
+      CGW_ANSWER_TIMEOUT: "${CHATGPTWEB_ANSWER_TIMEOUT:-180}"
+    networks: [sub2api-network]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    healthcheck:
+      test: [CMD, wget, -qO-, "http://127.0.0.1:7881/livez"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
   # OpenAI OAuth 专用美国出口；独立开关。
   sub2api-openai-egress:
     profiles: [openai-egress]
@@ -604,6 +656,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
+
+# 网络默认留空 = 沿用基础编排（deploy/docker-compose.yml）自建的 sub2api-network。
+# 182 单容器拓扑没有这个网络，只有既有外部网络 opt_default，此时配置
+#   ADAPTER_NETWORK_NAME=opt_default
+# 让适配器与主服务同网：服务名（sub2api-vibex 等）才能被主服务解析。
+networks:
+  sub2api-network:
+    name: ${ADAPTER_NETWORK_NAME:-sub2api_sub2api-network}
+    external: ${ADAPTER_NETWORK_EXTERNAL:-false}
 
 volumes:
   traework-auths:
