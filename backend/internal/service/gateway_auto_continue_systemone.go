@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/jev_api"
@@ -21,9 +22,15 @@ import (
 
 const autoContinueTodoMarker = "[sub2api:todo]"
 
-// autoContinueSystemOneAttemptTimeout 限制单个 System One 模型回合，
-// 判据不可用时能及时回退到最高档裁决，而不是让客户端等待中继超时。
+// autoContinueSystemOneAttemptTimeout 是 System One 判据阶段的总预算上限。
+// 判据模型并行提问，整体超时不能再按模型数累加：串行 2 个模型 × 20s 会让
+// 已完成的助手回复在客户端表现为「Thinking 长时间不动」。
 const autoContinueSystemOneAttemptTimeout = 20 * time.Second
+
+// autoContinueSystemOnePriorityGrace 是低优先级判据已就绪后等待高优先级判据的宽限期。
+// 显式配置的判据模型（例如 JEV）不能被更快的 laya 抢答；但高优先级长时间无响应时，
+// 也不能让已经可用的答案继续等待，否则又会回到客户端「Thinking 不动」。
+const autoContinueSystemOnePriorityGrace = 2 * time.Second
 
 // autoContinueRecommendation 识别助手标注的方案推荐（推荐/最佳/首选…）。
 // 只有用户允许直接采用推荐时才会据此续跑；纯备选说明不会被当成授权。
@@ -219,51 +226,35 @@ func autoContinueGatewayKey(c *gin.Context) *APIKey {
 	return key
 }
 
-// autoContinueShouldVerifyRecommendation 标记必须由判据确认执行状态的情形：
-// 助手声明了「尚未修复/未实施」等未完成事实，或要求用户点选「是否继续」。
-// 这类停顿单纯采用推荐方案可能重做已完成的工作，或把明确未完成的任务当成结束。
-func (s *OpenAIGatewayService) autoContinueShouldVerifyRecommendation(candidate *autoContinueCandidate) bool {
-	if candidate == nil {
-		return true
-	}
-	text := strings.ToLower(candidate.Text)
-	return containsAny(text, autoContinuePendingFactPhrases...) || containsAny(text, autoContinueContinuePromptPhrases...)
-}
-
-var autoContinuePendingFactPhrases = []string{
-	"尚未修复", "未修复", "尚未实施", "尚未修改", "尚未完成", "还没修复", "还没改", "尚未验证", "未验证",
-	"not yet fixed", "not fixed", "not yet implemented", "not yet modified", "unverified", "not verified",
-}
-
-var autoContinueContinuePromptPhrases = []string{
-	"是否继续", "要我继续", "回复继续", "确认继续", "shall i continue", "should i continue", "continue?",
-}
-
-// autoContinuePreferRecommendedPlan 判据确认要继续时，若用户允许且助手标了唯一推荐，
-// 仍按推荐方案说明，避免判据选了较激进的全量方案。
-func autoContinuePreferRecommendedPlan(body []byte, candidate *autoContinueCandidate, decision, recommended *AutoContinueDecision) *AutoContinueDecision {
-	if decision == nil || recommended == nil || len(candidate.Questions) == 0 {
-		return decision
-	}
-	state, ok := autoContinueDecisionState(body, candidate)
-	if !ok || !autoContinueAllowsRecommendation(state, body) {
-		return decision
-	}
-	decision.Selections = recommended.Selections
-	decision.Plan = recommended.Plan
-	decision.Source = recommended.Source
-	decision.Model = recommended.Model
-	decision.Reason += "；用户允许直接采用助手标注的推荐项"
-	return decision
-}
-
 // askAutoContinueSystemOne 用 laya / JEV 判断执行是否真的结束。
 // answered=false 表示判据不可用（调用方应回退到最高档裁决），true+nil 表示判定停下。
+//
+// 所有判据并行提问，但采用优先级感知的结果选择：
+//   - 高优先级判据（显式 DecisionModel → laya → JEV）返回后立即采用；
+//   - 低优先级先返回时先暂存，最多等高优先级一个短宽限期；
+//   - 高优先级明确失败/无答案时，立即下降到下一个已就绪结果；
+//   - 整体最多等待 SystemOneTimeoutSeconds，默认 8 秒。
 func (s *OpenAIGatewayService) askAutoContinueSystemOne(ctx context.Context, parent *gin.Context, body []byte, candidate *autoContinueCandidate) (*AutoContinueDecision, bool) {
 	p := s.autoContinuePolicy()
 	candidateModels := []string{p.DecisionModel, jev_api.LayaModelID, jev_api.ModelID}
-	// 显式配置可能已经指到 laya/JEV，去重后避免同一个模型白试两遍。
 	seenModels := make(map[string]bool, len(candidateModels))
+	models := make([]string, 0, len(candidateModels))
+	for _, model := range candidateModels {
+		if !jev_api.IsKnownSystemOneModel(model) || seenModels[model] {
+			continue
+		}
+		seenModels[model] = true
+		models = append(models, model)
+	}
+	if len(models) == 0 {
+		return nil, false
+	}
+	// 在启动任何 goroutine 之前读取并固定鉴权信息：gin.Context 不保证并发安全，
+	// 也不能在请求返回后再被后台协程读取。
+	key := autoContinueGatewayKey(parent)
+	if key == nil || key.GroupID == nil || strings.TrimSpace(key.Key) == "" {
+		return nil, false
+	}
 	state, ok := autoContinueDecisionState(body, candidate)
 	if !ok {
 		return nil, false
@@ -272,33 +263,133 @@ func (s *OpenAIGatewayService) askAutoContinueSystemOne(ctx context.Context, par
 	if err != nil {
 		return nil, false
 	}
-	for _, model := range candidateModels {
-		if !jev_api.IsKnownSystemOneModel(model) || seenModels[model] {
-			continue
-		}
-		seenModels[model] = true
-		request, err := json.Marshal(map[string]any{"model": model, "state": state, "questions": questions})
-		if err != nil {
-			return nil, false
-		}
-		callCtx, cancel := context.WithTimeout(ctx, autoContinueSystemOneAttemptTimeout)
-		status, response, relayErr := s.relayAutoContinueSystemOne(callCtx, parent, request)
-		cancel()
-		if ctx.Err() != nil {
-			return nil, false
-		}
-		if relayErr != nil || status != http.StatusOK || !gjson.ValidBytes(response) || gjson.GetBytes(response, "error").Exists() {
-			logger.FromContext(ctx).Warn("gateway.auto_continue_systemone_unavailable",
-				zap.String("model", model), zap.Int("status", status), zap.Error(relayErr))
-			continue
-		}
-		decision, answered := parseAutoContinueSystemOneDecision(response, model, candidate)
-		if answered {
-			return decision, true
-		}
-		logger.FromContext(ctx).Warn("gateway.auto_continue_systemone_unparsed", zap.String("model", model))
+	budget := time.Duration(p.SystemOneTimeoutSeconds) * time.Second
+	if budget <= 0 || budget > autoContinueSystemOneAttemptTimeout {
+		budget = autoContinueSystemOneAttemptTimeout
 	}
-	return nil, false
+	budgetCtx, cancelBudget := context.WithTimeout(ctx, budget)
+	defer cancelBudget()
+	runCtx, cancelRun := context.WithCancel(budgetCtx)
+	var wait sync.WaitGroup
+	// 返回前先取消全部在途请求并等协程退出，避免请求结束后仍有协程引用上下文。
+	defer func() {
+		cancelRun()
+		wait.Wait()
+	}()
+
+	type systemOneResult struct {
+		decision *AutoContinueDecision
+		answered bool
+		err      error
+		status   int
+		model    string
+		index    int
+	}
+	results := make(chan systemOneResult, len(models))
+	for index, model := range models {
+		request, marshalErr := json.Marshal(map[string]any{"model": model, "state": state, "questions": questions})
+		if marshalErr != nil {
+			results <- systemOneResult{index: index, model: model, err: marshalErr}
+			continue
+		}
+		wait.Add(1)
+		go func(index int, model string, request []byte) {
+			defer wait.Done()
+			status, response, relayErr := s.relayAutoContinueSystemOneForKey(runCtx, key, request)
+			if relayErr != nil || status != http.StatusOK || !gjson.ValidBytes(response) || gjson.GetBytes(response, "error").Exists() {
+				results <- systemOneResult{index: index, model: model, status: status, err: relayErr}
+				return
+			}
+			decision, answered := parseAutoContinueSystemOneDecision(response, model, candidate)
+			results <- systemOneResult{index: index, model: model, decision: decision, answered: answered}
+		}(index, model, request)
+	}
+
+	pending := make([]bool, len(models))
+	answered := make([]bool, len(models))
+	decisions := make([]*AutoContinueDecision, len(models))
+	for i := range pending {
+		pending[i] = true
+	}
+	next := 0
+	var graceTimer *time.Timer
+	var graceC <-chan time.Time
+	stopGrace := func() {
+		if graceTimer != nil {
+			graceTimer.Stop()
+			graceTimer = nil
+			graceC = nil
+		}
+	}
+	defer stopGrace()
+	armGrace := func() {
+		if graceTimer != nil {
+			return
+		}
+		graceTimer = time.NewTimer(autoContinueSystemOnePriorityGrace)
+		graceC = graceTimer.C
+	}
+
+	for {
+		// 只跳过「已经结束」的更高优先级判据：已给结论就直接采用，
+		// 失败/无答案则下降一位；仍在途的高优先级必须继续等待，不能被低优先级抢占。
+		for next < len(models) && !pending[next] {
+			if answered[next] {
+				return decisions[next], true
+			}
+			next++
+		}
+		if next >= len(models) {
+			return nil, false
+		}
+		// 低优先级答案先到时，高优先级仍可能有更权威的结论；只有在低优先级结果
+		// 已经就绪后才启动宽限期，避免宽限期被更早的失败结果提前消耗。
+		bestReady := false
+		for i := next + 1; i < len(models); i++ {
+			if answered[i] {
+				bestReady = true
+				break
+			}
+		}
+		if bestReady {
+			armGrace()
+		} else {
+			stopGrace()
+		}
+		select {
+		case result := <-results:
+			if !pending[result.index] {
+				continue
+			}
+			pending[result.index] = false
+			answered[result.index] = result.answered
+			decisions[result.index] = result.decision
+			if result.answered {
+				// 高优先级结论直接采用；低优先级结论先暂存，由宽限期或
+				// 高优先级失败决定是否采用。
+				continue
+			}
+			if result.err != nil || result.status != http.StatusOK {
+				logger.FromContext(ctx).Warn("gateway.auto_continue_systemone_unavailable",
+					zap.String("model", result.model), zap.Int("status", result.status), zap.Error(result.err))
+			} else {
+				logger.FromContext(ctx).Warn("gateway.auto_continue_systemone_unparsed", zap.String("model", result.model))
+			}
+		case <-graceC:
+			stopGrace()
+			// 宽限期满：采用已就绪答案中优先级最高的一项。
+			for i := next; i < len(models); i++ {
+				if answered[i] {
+					return decisions[i], true
+				}
+			}
+		case <-budgetCtx.Done():
+			if ctx.Err() == nil {
+				logger.FromContext(ctx).Warn("gateway.auto_continue_systemone_timeout", zap.Int("models", len(models)))
+			}
+			return nil, false
+		}
+	}
 }
 
 // parseAutoContinueSystemOneDecision 把判据回答转成续跑决定。

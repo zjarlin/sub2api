@@ -9,9 +9,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/jev_api"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
@@ -19,17 +23,37 @@ import (
 const autoContinueRecommendedInput = `{"model":"text-model","input":"请修复这个问题并验证，遇到选择直接按推荐来做，无需询问。","store":false,"tools":[{"type":"function","name":"exec_command","parameters":{"type":"object"}},{"type":"function","name":"request_user_input_async","parameters":{"type":"object"}}],"stream":false}`
 const autoContinueNextStepStall = "已完成第一步改动。下一步可以按推荐继续：\n1. 补充回归测试并运行（推荐）\n2. 先重写整个模块\n请确认是否继续。"
 
-// autoContinueSystemOneStub 模拟本机 System One 判据入口：按顺序验证 laya 与 JEV 的尝试。
-func autoContinueSystemOneStub(t *testing.T, handler func(model string, body []byte) (int, string)) (*OpenAIGatewayService, *Account, *int) {
+// autoContinueSystemOneStub 模拟本机 System One 判据入口。
+// 判据模型现在是并行提问，所以这里按实际返回的模型记录（并发安全），
+// 断言要看「问到了哪些模型」而不是串行顺序。
+type autoContinueSystemOneCalls struct {
+	mu     sync.Mutex
+	models []string
+}
+
+func (c *autoContinueSystemOneCalls) add(model string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.models = append(c.models, model)
+}
+
+func (c *autoContinueSystemOneCalls) load() []string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.models...)
+}
+
+func autoContinueSystemOneStub(t *testing.T, handler func(model string, body []byte) (int, string)) (*OpenAIGatewayService, *Account, *autoContinueSystemOneCalls) {
 	t.Helper()
-	attempts := new(int)
+	calls := &autoContinueSystemOneCalls{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		*attempts = *attempts + 1
 		require.Equal(t, "/v1/systemone", r.URL.Path)
 		require.Equal(t, "Bearer auto-continue-test-key", r.Header.Get("Authorization"))
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
-		status, payload := handler(gjson.GetBytes(body, "model").String(), body)
+		model := gjson.GetBytes(body, "model").String()
+		calls.add(model)
+		status, payload := handler(model, body)
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte(payload))
 	}))
@@ -41,7 +65,7 @@ func autoContinueSystemOneStub(t *testing.T, handler func(model string, body []b
 	primary := visionTestAccount(1, "text-model", "text")
 	// 决策记录是续跑的前提：没有存储时网关会保留原停顿，不再静默续跑。
 	svc := &OpenAIGatewayService{cfg: cfg, usageLogRepo: &autoContinueTestStore{}}
-	return svc, &primary, attempts
+	return svc, &primary, calls
 }
 
 // visionSSEResponse 构造一条完整的 Responses 流，用于验证流式回合中的内部规划调用。
@@ -67,21 +91,23 @@ func autoContinueAnswers(action, basis string) string {
 	answers := map[string]any{
 		"action": map[string]any{"type": "choice", "choice": action, "probabilities": map[string]float64{action: 0.97}},
 		"basis":  map[string]any{"type": "choice", "choice": basis, "probabilities": map[string]float64{basis: 0.97}},
+		// 带选择题时必须同时给出选项，否则判据按「回答不完整」处理。
+		"selection_0": map[string]any{"type": "choice", "choice": "1", "probabilities": map[string]float64{"1": 0.97}},
 	}
 	encoded, _ := json.Marshal(map[string]any{"model": "laya", "answers": answers})
 	return string(encoded)
 }
 
 func TestAutoContinueUsesRecommendedOptionWithoutAsking(t *testing.T) {
-	svc, account, attempts := autoContinueSystemOneStub(t, func(string, []byte) (int, string) {
+	svc, account, calls := autoContinueSystemOneStub(t, func(string, []byte) (int, string) {
 		return 500, `{"error":{"message":"explicit recommendation must not call the decision model"}}`
 	})
-	calls := 0
+	upstreamCalls := 0
 	svc.httpUpstream = &codexModelsHTTPUpstreamStub{do: func(r *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
-		calls++
+		upstreamCalls++
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
-		if calls == 1 {
+		if upstreamCalls == 1 {
 			return visionTestResponse("text-model", "已复现适配器问题。需要你定一件事，请选：\n1. 按已确认设计迁移入口（推荐），保留旧链接\n2. 两个入口分别重写\n3. 两者都做\n选定后我立刻实施。"), nil
 		}
 		if strings.HasPrefix(gjson.GetBytes(body, "messages.0.content").String(), autoContinueTodoPlanPromptPrefix) {
@@ -94,7 +120,7 @@ func TestAutoContinueUsesRecommendedOptionWithoutAsking(t *testing.T) {
 	c, recorder := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
 	_, err := svc.Forward(context.Background(), c, account, []byte(autoContinueTestInput))
 	require.NoError(t, err)
-	require.Equal(t, 0, *attempts)
+	require.Empty(t, calls.load())
 	require.Contains(t, recorder.Body.String(), "已按推荐完成并验证")
 	require.NotContains(t, recorder.Body.String(), "选定后我立刻实施")
 }
@@ -124,36 +150,38 @@ func TestAutoContinueNewProblemRequiresArbitrationUnlessRecommendationExplicit(t
 }
 
 func TestAutoContinueSystemOneDecisionStopsOnDone(t *testing.T) {
-	svc, account, attempts := autoContinueSystemOneStub(t, func(string, []byte) (int, string) {
+	svc, account, calls := autoContinueSystemOneStub(t, func(string, []byte) (int, string) {
 		encoded, _ := json.Marshal(map[string]any{"model": "laya", "answers": map[string]any{
 			"action": map[string]any{"type": "choice", "choice": "done", "probabilities": map[string]float64{"done": 0.99}},
 		}})
 		return http.StatusOK, string(encoded)
 	})
-	calls := 0
+	upstreamCalls := 0
 	svc.httpUpstream = &codexModelsHTTPUpstreamStub{do: func(_ *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
-		calls++
+		upstreamCalls++
 		return visionTestResponse("text-model", "已复现，适配器旧接口返回404，尚未修复，需要修正协议。"), nil
 	}}
 	c, recorder := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
 	_, err := svc.Forward(context.Background(), c, account, []byte(autoContinueTestInput))
 	require.NoError(t, err)
-	require.Equal(t, 1, *attempts)
-	require.Equal(t, 1, calls)
+	// DecisionModel 是 laya：并行提问后 laya 判定 done 即停止续跑。
+	// JEV 可能还没来得及记录请求就被取消，这里只断言高优先级判据确实被问到。
+	require.Contains(t, calls.load(), "laya")
+	require.Equal(t, 1, upstreamCalls)
 	require.Contains(t, recorder.Body.String(), "适配器旧接口返回404")
 }
 
 func TestAutoContinueSystemOneContinuesAndRecordsTodos(t *testing.T) {
-	svc, account, attempts := autoContinueSystemOneStub(t, func(string, []byte) (int, string) {
+	svc, account, calls := autoContinueSystemOneStub(t, func(string, []byte) (int, string) {
 		return http.StatusOK, autoContinueAnswers("continue", "repair")
 	})
 	plans := 0
-	calls := 0
+	continued := 0
 	svc.httpUpstream = &codexModelsHTTPUpstreamStub{do: func(r *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
 		if strings.Contains(string(body), autoContinueTodoMarker) {
-			calls++
+			continued++
 			return visionTestResponse("text-model", "已修复并验证"), nil
 		}
 		plans++
@@ -167,19 +195,19 @@ func TestAutoContinueSystemOneContinuesAndRecordsTodos(t *testing.T) {
 	c, recorder := autoContinueTestContext([]byte(autoContinueRecommendedInput), 9, 7)
 	_, err := svc.Forward(context.Background(), c, account, []byte(autoContinueRecommendedInput))
 	require.NoError(t, err)
-	require.Equal(t, 1, *attempts)
-	require.Equal(t, 1, calls)
+	// laya 是最高优先级：它给出结论后不再等待 JEV，JEV 的请求可能被提前取消。
+	require.Contains(t, calls.load(), "laya")
+	require.Equal(t, 1, continued)
 	require.Contains(t, recorder.Body.String(), "已修复并验证")
 	require.Len(t, store.routes, 1)
 	require.Equal(t, "repair", store.routes[0].Operation.Decision.Source)
 	require.Equal(t, []string{"修正适配器协议返回码", "运行 go test ./internal/service/ 验证回归"}, store.routes[0].Operation.Decision.Todo)
-	// TODO 清单回合也要计费，不能当作免费内部调用。
 	// 执行轮 + TODO 规划轮都要计费，不能当作免费内部调用。
 	require.NotEmpty(t, TakeVisionFallbackUsage(c))
 }
 
 func TestAutoContinueSystemOneUnavailableFallsBackToHighestTier(t *testing.T) {
-	svc, account, attempts := autoContinueSystemOneStub(t, func(model string, _ []byte) (int, string) {
+	svc, account, calls := autoContinueSystemOneStub(t, func(model string, _ []byte) (int, string) {
 		return http.StatusServiceUnavailable, fmt.Sprintf(`{"error":{"message":"No available laya account for %s"}}`, model)
 	})
 	judge := visionTestAccount(2, "gpt-6-astra", "text")
@@ -194,25 +222,96 @@ func TestAutoContinueSystemOneUnavailableFallsBackToHighestTier(t *testing.T) {
 		}
 		ids = append(ids, id)
 		if id == judge.ID {
-			return visionTestResponse(judge.Name, `{"action":"continue","selections":{},"plan":"修正适配器协议并回归验证","reason":"原始请求要求修复"}`), nil
+			return visionTestResponse(judge.Name, `{"action":"continue","selections":{"selection_0":"1"},"plan":"按已确认设计迁移入口并验证","reason":"原始请求要求修复"}`), nil
 		}
 		if len(ids) == 1 {
-			// 有推荐但用户未授权直采，判据不可用后由仲裁确认继续；续跑轮给出带待办要求的回复。
-			return visionTestResponse(account.Name, autoContinueNextStepStall), nil
+			// 没有唯一推荐的停顿：判据都不可用后由最高档仲裁确认继续。
+			return visionTestResponse(account.Name, autoContinueNoRecommendationQuestion), nil
 		}
 		require.Contains(t, string(body), autoContinueMarker)
 		return visionTestResponse(account.Name, "已修复并验证"), nil
 	}}
-	ctx, err := (&SettingService{}).BindAutoModelRoutingPolicy(context.Background())
+	c, recorder := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
+	_, err := svc.Forward(context.Background(), c, account, []byte(autoContinueTestInput))
 	require.NoError(t, err)
-	c, recorder := autoContinueTestContext([]byte(autoContinueRecommendedInput), 9, 7)
-	_, err = svc.Forward(ctx, c, account, []byte(autoContinueRecommendedInput))
-	require.NoError(t, err)
-	// DecisionModel 已是 laya，去重后只在 laya 与 JEV 各试一次，都不可用才走最高档仲裁。
-	require.Equal(t, 2, *attempts)
-	// 判据全部不可用时仲裁一次即给出继续结论，续跑后模型已声明完成，不再进入第二轮。
-	require.Equal(t, []int64{account.ID, judge.ID}, ids)
-	require.Contains(t, recorder.Body.String(), "已完成第一步改动")
+	// DecisionModel 已是 laya，去重后只在 laya 与 JEV 各试一次（并行），都不可用才走最高档仲裁。
+	require.ElementsMatch(t, []string{"laya", "typesafe/jev"}, calls.load())
+	require.Equal(t, []int64{account.ID, judge.ID, account.ID}, ids)
+	require.Contains(t, recorder.Body.String(), "已修复并验证")
+}
+
+// autoContinuePriorityStub 构造一个可按模型延迟/失败的 System One 判据入口。
+func autoContinuePriorityStub(t *testing.T, handler func(model string) (int, string)) (*OpenAIGatewayService, *autoContinueCandidate, *gin.Context) {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		status, payload := handler(gjson.GetBytes(body, "model").String())
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(payload))
+	}))
+	t.Cleanup(server.Close)
+	cfg := visionTestConfig()
+	cfg.Gateway.AutoContinue = config.GatewayAutoContinueConfig{Enabled: true, DecisionModel: "typesafe/jev", MaxRounds: 2, TimeoutSeconds: 1, SystemOneTimeoutSeconds: 8}
+	// 统一判据选择：无推荐时由判据给出唯一选项，避免回答不完整。
+
+	cfg.Server.Port = server.Listener.Addr().(*net.TCPAddr).Port
+	cfg.JWT.Secret = "auto-continue-test-secret"
+	svc := &OpenAIGatewayService{cfg: cfg, usageLogRepo: &autoContinueTestStore{}}
+	// 只有唯一推荐缺失时才会询问判据，这里用不含推荐的停顿制造该路径。
+	candidate := &autoContinueCandidate{Text: autoContinueNoRecommendationQuestion, Questions: []autoContinueQuestion{{
+		ID: "selection_0", Prompt: "怎么做", Options: map[string]string{"1": "方案一", "2": "方案二"}}}}
+	c, _ := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
+	return svc, candidate, c
+}
+
+func TestAutoContinueSystemOnePrefersConfiguredModelOverFasterFallback(t *testing.T) {
+	svc, candidate, c := autoContinuePriorityStub(t, func(model string) (int, string) {
+		if model == jev_api.ModelID {
+			time.Sleep(300 * time.Millisecond)
+			return http.StatusOK, autoContinueAnswers("continue", "design")
+		}
+		// 低优先级 laya 极快返回，但不能覆盖显式配置的 JEV。
+		return http.StatusOK, autoContinueAnswers("continue", "repair")
+	})
+	// 用不含推荐标记的停顿走到判据路径。
+	decision, answered := svc.askAutoContinueSystemOne(context.Background(), c, []byte(autoContinueTestInput), candidate)
+	require.True(t, answered)
+	require.NotNil(t, decision)
+	require.Equal(t, "design", decision.Source)
+}
+
+func TestAutoContinueSystemOneFallsBackAfterPriorityGrace(t *testing.T) {
+	svc, candidate, c := autoContinuePriorityStub(t, func(model string) (int, string) {
+		if model == jev_api.ModelID {
+			// 显式配置的 JEV 卡住超过宽限期但仍在总预算内。
+			time.Sleep(autoContinueSystemOnePriorityGrace + 800*time.Millisecond)
+			return http.StatusOK, autoContinueAnswers("done", "design")
+		}
+		return http.StatusOK, autoContinueAnswers("continue", "repair")
+	})
+	started := time.Now()
+	decision, answered := svc.askAutoContinueSystemOne(context.Background(), c, []byte(autoContinueTestInput), candidate)
+	elapsed := time.Since(started)
+	require.True(t, answered)
+	require.NotNil(t, decision)
+	require.Equal(t, "repair", decision.Source)
+	require.Equal(t, jev_api.LayaModelID, decision.Model)
+	// 宽限期后即采用低优先级答案，不等到 JEV 完成，更不能等到总预算。
+	require.Less(t, elapsed, autoContinueSystemOnePriorityGrace+700*time.Millisecond)
+}
+
+func TestAutoContinueSystemOneRespectsTotalBudgetWhenAllUnavailable(t *testing.T) {
+	svc, candidate, c := autoContinuePriorityStub(t, func(string) (int, string) {
+		time.Sleep(5 * time.Second)
+		return http.StatusServiceUnavailable, `{"error":{"message":"unavailable"}}`
+	})
+	svc.cfg.Gateway.AutoContinue.SystemOneTimeoutSeconds = 1
+	started := time.Now()
+	_, answered := svc.askAutoContinueSystemOne(context.Background(), c, []byte(autoContinueTestInput), candidate)
+	elapsed := time.Since(started)
+	require.False(t, answered)
+	require.Less(t, elapsed, 3*time.Second, "判据不可用时必须按总预算返回，不能串行等待")
 }
 
 func TestAutoContinueFallbackTodosSkipRecommendedOptions(t *testing.T) {

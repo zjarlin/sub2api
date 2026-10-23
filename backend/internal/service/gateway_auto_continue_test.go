@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -53,16 +54,17 @@ func autoContinueTestContext(body []byte, keyID, groupID int64) (*gin.Context, *
 	return c, recorder
 }
 
-func autoContinueTestService(t *testing.T, basis string, primaryCalls func([]byte, int) (*http.Response, error)) (*OpenAIGatewayService, *Account, *autoContinueTestStore, *int) {
+func autoContinueTestService(t *testing.T, basis string, primaryCalls func([]byte, int) (*http.Response, error)) (*OpenAIGatewayService, *Account, *autoContinueTestStore, *int32) {
 	t.Helper()
-	decisions := new(int)
+	decisions := new(int32)
 	laya := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		*decisions = *decisions + 1
+		// 判据模型并行提问，计数必须是原子操作。
+		atomic.AddInt32(decisions, 1)
 		require.Equal(t, "/v1/systemone", r.URL.Path)
 		require.Equal(t, "Bearer auto-continue-test-key", r.Header.Get("Authorization"))
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
-		// 决策模型不可用时按 laya → JEV 依次尝试，任一个回答都算判据可用。
+		// 判据模型并行提问，配置模型不可用时 laya / JEV 任一个回答都算判据可用。
 		require.Contains(t, []string{"laya", "typesafe/jev"}, gjson.GetBytes(body, "model").String())
 		answers := map[string]any{"action": map[string]any{"choice": "continue", "probabilities": map[string]float64{"continue": 0.98}},
 			"basis": map[string]any{"choice": basis, "probabilities": map[string]float64{basis: 0.98}}}
@@ -75,7 +77,7 @@ func autoContinueTestService(t *testing.T, basis string, primaryCalls func([]byt
 				answers[id] = map[string]any{"choice": choice, "probabilities": map[string]float64{choice: 0.98}}
 			}
 		}
-		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"answers": answers}))
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{"model": gjson.GetBytes(body, "model").String(), "answers": answers}))
 	}))
 	t.Cleanup(laya.Close)
 	cfg := visionTestConfig()
@@ -114,7 +116,7 @@ func TestAutoContinueRecommendedChoiceAndDurableReport(t *testing.T) {
 	result, err := svc.Forward(context.Background(), c, account, []byte(autoContinueTestInput))
 	require.NoError(t, err)
 	// 推荐项直接采用，不再询问判据模型。
-	require.Equal(t, 0, *decisions)
+	require.Zero(t, atomic.LoadInt32(decisions))
 	require.Equal(t, "已合并并验证", gjson.Get(recorder.Body.String(), "output.0.content.0.text").String())
 	report := gjson.Get(recorder.Body.String(), "output.1")
 	require.Equal(t, "request_user_input_async", report.Get("name").String())
@@ -352,7 +354,8 @@ func TestAutoContinueBoundedAndSkipsCompletedWork(t *testing.T) {
 	c, _ := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
 	_, err := svc.Forward(context.Background(), c, account, []byte(autoContinueTestInput))
 	require.NoError(t, err)
-	require.Equal(t, 2, *decisions)
+	// 每轮续跑判定都会并行询问 laya 与 JEV 两个判据模型；两轮共 4 次。
+	require.EqualValues(t, 4, atomic.LoadInt32(decisions))
 	require.Len(t, store.routes, 2)
 	// 每次续跑都会先做一次内部判断，再向主模型重放；基础 2 条量之外允许规划轮次。
 	require.NotEmpty(t, TakeVisionFallbackUsage(c))
@@ -588,8 +591,13 @@ func TestAutoContinueJevRepairsAndRecordsTheReturnedModel(t *testing.T) {
 	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, err := io.ReadAll(r.Body)
 		require.NoError(t, err)
-		require.Equal(t, "typesafe/jev", gjson.GetBytes(body, "model").String())
 		require.Equal(t, "Bearer auto-continue-test-key", r.Header.Get("Authorization"))
+		// 判据并行提问：显式配置的 JEV 优先；laya 竞速请求不提供结论，模拟其不可用。
+		if gjson.GetBytes(body, "model").String() != "typesafe/jev" {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, _ = w.Write([]byte(`{"error":{"message":"laya unavailable"}}`))
+			return
+		}
 		_, _ = w.Write([]byte(`{"model":"jev-test-version","answers":{"action":{"choice":"continue","probabilities":{"continue":0.99},"confidence":0.98},"basis":{"choice":"repair","probabilities":{"repair":0.91},"confidence":0.86}}}`))
 	}))
 	defer gateway.Close()

@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -103,7 +104,7 @@ func TestAutoContinueCompactionRecoversOverflowAndKeepsAuthorization(t *testing.
 			require.Equal(t, http.StatusOK, recorder.Code)
 			require.Greater(t, summaries, 1)
 			require.Equal(t, summaries+2, calls)
-			require.Zero(t, *decisions, "known context recovery does not need a business decision")
+			require.Zero(t, atomic.LoadInt32(decisions), "known context recovery does not need a business decision")
 			require.Len(t, store.routes, 1)
 			require.Equal(t, "compaction", store.routes[0].Operation.Decision.Source)
 			require.Equal(t, "text-model", store.routes[0].Operation.Decision.Model)
@@ -233,7 +234,7 @@ func TestAutoContinueCompactionHandlesAssistantPause(t *testing.T) {
 	_, err := svc.Forward(context.Background(), c, account, body)
 	require.NoError(t, err)
 	require.Equal(t, "compacted", recorder.Header().Get("X-Sub2API-Auto-Compaction"))
-	require.Zero(t, *decisions)
+	require.Zero(t, atomic.LoadInt32(decisions))
 	require.Len(t, store.routes, 1)
 	require.Len(t, TakeVisionFallbackUsage(c), summaries+1)
 	require.Contains(t, recorder.Body.String(), "已完成验证")

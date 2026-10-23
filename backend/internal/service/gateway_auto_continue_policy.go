@@ -50,6 +50,9 @@ func (s *OpenAIGatewayService) autoContinuePolicy() config.GatewayAutoContinueCo
 	if p.JudgeTimeoutSeconds <= 0 || p.JudgeTimeoutSeconds > 120 {
 		p.JudgeTimeoutSeconds = 60
 	}
+	if p.SystemOneTimeoutSeconds <= 0 || p.SystemOneTimeoutSeconds > 20 {
+		p.SystemOneTimeoutSeconds = 8
+	}
 	if p.CompactionChunkBytes < 4<<10 || p.CompactionChunkBytes > 512<<10 {
 		p.CompactionChunkBytes = 256 << 10
 	}
@@ -258,57 +261,51 @@ func autoContinueDecisionState(body []byte, candidate *autoContinueCandidate) (m
 	return state, true
 }
 
-// decideAutoContinue 返回写入报告的决定，以及仅供内部规划使用的决定（两者在判据不可用而回退仲裁时不同）。
-// forceReported 为 true 时即使判据裁定完成也保留报告，仅用于推荐已确认、需要补充执行证据的回合。
-func (s *OpenAIGatewayService) decideAutoContinue(ctx context.Context, parent *gin.Context, primary *Account, body []byte, candidate *autoContinueCandidate, forceReported bool) (*AutoContinueDecision, *AutoContinueDecision, error) {
+// decideAutoContinue 返回续跑决定；nil 决定表示本轮应保留原停顿。
+func (s *OpenAIGatewayService) decideAutoContinue(ctx context.Context, parent *gin.Context, primary *Account, body []byte, candidate *autoContinueCandidate) (*AutoContinueDecision, error) {
 	state, ok := autoContinueDecisionState(body, candidate)
 	if !ok {
-		return nil, nil, errors.New("auto continuation requires bounded visible context")
+		return nil, errors.New("auto continuation requires bounded visible context")
 	}
-	// 助手标有唯一推荐且用户允许直接采纳时，优先按推荐继续；只有声明了未完成事实
-	// 或「是否继续」的停顿才需要用 laya/JEV 确认执行状态。
-	recommended := autoContinueAdoptRecommendation(state, body, candidate)
+	// 助手标有唯一推荐且用户允许直接采纳时立即按推荐继续。
+	// 「下一步/是否继续/尚未修复」本身就是执行未完成的证据，再问一遍判据模型
+	// 只会让已完成的回复在客户端一直停在 Thinking；用户也明确要求遇到推荐直接做。
+	if recommended := autoContinueAdoptRecommendation(state, body, candidate); recommended != nil {
+		return recommended, nil
+	}
 	// 没有唯一推荐时不能直接停在询问上：助手可能只是给了选项却没标推荐，
 	// 需要 laya/JEV 判断是否真的该结束；判据不可用再由最高档仲裁兜底。
-	if recommended != nil && !s.autoContinueShouldVerifyRecommendation(candidate) {
-		return recommended, recommended, nil
-	}
 	carrier, answered := s.askAutoContinueSystemOne(ctx, parent, body, candidate)
 	if answered {
 		if carrier == nil || carrier.Source == "done" {
-			if forceReported && recommended != nil {
-				return recommended, recommended, nil
-			}
-			return nil, nil, nil
+			return nil, nil
 		}
-		decided := autoContinuePreferRecommendedPlan(body, candidate, carrier, recommended)
-		return decided, decided, nil
+		return carrier, nil
 	}
-	decided, err := s.judgeAutoContinue(ctx, parent, primary, body, candidate, state)
-	if decided == nil && err == nil && recommended != nil {
-		decided = recommended
-	}
-	if decided != nil && recommended != nil {
-		decided = autoContinuePreferRecommendedPlan(body, candidate, decided, recommended)
-	}
-	return decided, decided, err
+	return s.judgeAutoContinue(ctx, parent, primary, body, candidate, state)
 }
 
 // 复用本进程的原生 System One 入口，沿用分组账号选择、共享密钥、并发限制和调用记录。
 // 目的地址固定为本机监听端口，绝不根据客户端 Host 将 API Key 转发到外部地址。
+// 该函数只在当前 goroutine 内读取 gin.Context，实际请求由 relayAutoContinueSystemOneForKey 发出。
 func (s *OpenAIGatewayService) relayAutoContinueSystemOne(ctx context.Context, parent *gin.Context, request []byte) (int, []byte, error) {
-	if _, err := jev_api.ReadModel(request); err != nil {
-		return 0, nil, err
-	}
-	if parent == nil {
-		return 0, nil, errors.New("System One requires the original request context")
-	}
-	value, _ := parent.Get("api_key")
-	key, _ := value.(*APIKey)
+	key := autoContinueGatewayKey(parent)
 	if key == nil || key.GroupID == nil || strings.TrimSpace(key.Key) == "" {
 		return 0, nil, errors.New("System One requires the original authenticated group key")
 	}
-	if s.cfg.Server.Port < 1 || s.cfg.Server.Port > 65535 {
+	return s.relayAutoContinueSystemOneForKey(ctx, key, request)
+}
+
+// relayAutoContinueSystemOneForKey 是并发安全的判据转发路径：
+// 只使用调用前固定下来的 API Key 与服务端口，不再触碰 gin.Context 或其请求对象。
+func (s *OpenAIGatewayService) relayAutoContinueSystemOneForKey(ctx context.Context, key *APIKey, request []byte) (int, []byte, error) {
+	if _, err := jev_api.ReadModel(request); err != nil {
+		return 0, nil, err
+	}
+	if key == nil || key.GroupID == nil || strings.TrimSpace(key.Key) == "" {
+		return 0, nil, errors.New("System One requires the original authenticated group key")
+	}
+	if s.cfg == nil || s.cfg.Server.Port < 1 || s.cfg.Server.Port > 65535 {
 		return 0, nil, errors.New("System One requires a valid local gateway port")
 	}
 	baseURL := "http://127.0.0.1:" + strconv.Itoa(s.cfg.Server.Port)

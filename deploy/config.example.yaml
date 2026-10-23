@@ -247,6 +247,9 @@ gateway:
     timeout_seconds: 5
     min_confidence: 0.85
     judge_timeout_seconds: 60
+    # laya/JEV 判据阶段的总预算（秒）。判据并行提问，超时后直接回退仲裁，
+    # 避免上游不可用时把已完成的回复一直挂在 Thinking。
+    systemone_timeout_seconds: 8
     # 上下文超限时分块生成历史摘要，当前 HTTP 请求最多压缩恢复一次。
     compaction_chunk_bytes: 262144
     compaction_max_chunks: 32

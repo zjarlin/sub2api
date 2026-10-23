@@ -1377,6 +1377,9 @@ type GatewayAutoContinueConfig struct {
 	TimeoutSeconds      int     `mapstructure:"timeout_seconds"`
 	MinConfidence       float64 `mapstructure:"min_confidence"`
 	JudgeTimeoutSeconds int     `mapstructure:"judge_timeout_seconds"`
+	// SystemOneTimeoutSeconds 是 laya/JEV 判据阶段的总预算；判据模型并行提问，
+	// 这里限制整段等待，避免上游不可用时把客户端首字节推迟数十秒。
+	SystemOneTimeoutSeconds int `mapstructure:"systemone_timeout_seconds"`
 	// PlanModel 用低档模型把助手遗留的下一步写成结构化 TODO；空值沿用决策模型。
 	PlanModel string `mapstructure:"plan_model"`
 	// PlanTimeoutSeconds 是 TODO 清单回合的超时，过小会频繁退回默认清单。
@@ -2883,6 +2886,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.auto_continue.timeout_seconds", 5)
 	viper.SetDefault("gateway.auto_continue.min_confidence", 0.85)
 	viper.SetDefault("gateway.auto_continue.judge_timeout_seconds", 60)
+	viper.SetDefault("gateway.auto_continue.systemone_timeout_seconds", 8)
 	viper.SetDefault("gateway.auto_continue.plan_model", "")
 	viper.SetDefault("gateway.auto_continue.plan_timeout_seconds", 30)
 	viper.SetDefault("gateway.auto_continue.plan_max_steps", 8)
