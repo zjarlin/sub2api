@@ -378,11 +378,11 @@ func TestGatewayCodexModels_NonOpenAIGroupsUseMappedModels(t *testing.T) {
 			modalities: []string{"text", "image"},
 		},
 		{
+			// 视觉助手覆盖所有可路由模型，目录恒声明图片输入。
 			name:       "DeepSeek",
 			platform:   service.PlatformDeepseek,
 			model:      "deepseek-v4-pro",
 			efforts:    []string{"low", "high", "max"},
-			// 视觉助手覆盖所有可路由模型，目录恒声明图片输入。
 			modalities: []string{"text", "image"},
 		},
 		{
