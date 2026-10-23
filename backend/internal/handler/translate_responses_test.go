@@ -45,7 +45,7 @@ func TestTranslateResponsesOffline(t *testing.T) {
 }
 
 func TestTranslateResponsesInput(t *testing.T) {
-	req, err := parseTranslateResponseInput([]byte(`{"input":[{"role":"user","content":[{"type":"input_text","text":"你好"}]}],"metadata":{"target_language":"en"}}`))
+	req, err := parseTranslateResponseInput([]byte(`{"input":[{"role":"user","content":[{"type":"input_text","text":"你好"}]}],"metadata":{"target_language":"en"}}`), "zh")
 	require.NoError(t, err)
 	require.Equal(t, "en", req.TargetLang)
 	require.Equal(t, []string{"你好"}, req.Text)
@@ -67,7 +67,7 @@ func TestTranslateResponsesInput(t *testing.T) {
 		"prompt_cache_key": "thread-1",
 		"client_metadata": {"thread_id":"thread-1"},
 		"store": false
-	}`))
+	}`), "zh")
 	require.NoError(t, err)
 	require.Equal(t, []string{"Hello"}, req.Text)
 
@@ -80,9 +80,29 @@ func TestTranslateResponsesInput(t *testing.T) {
 		`{"input":[{"role":"user","content":[{"type":"input_image"}]}]}`,
 		`{"input":[{"type":"message","role":"developer","content":[{"type":"input_text","text":"Translate"}]}]}`,
 	} {
-		_, err := parseTranslateResponseInput([]byte(body))
+		_, err := parseTranslateResponseInput([]byte(body), "zh")
 		require.Error(t, err, body)
 	}
+}
+
+// Codex 的翻译请求不会带 metadata：英文输入应译成中文，中文输入不该原样返回。
+func TestTranslateResponsesInfersTargetLang(t *testing.T) {
+	req, err := parseTranslateResponseInput([]byte(`{"input":"Hello world"}`), "zh")
+	require.NoError(t, err)
+	require.Equal(t, "zh", req.TargetLang)
+
+	req, err = parseTranslateResponseInput([]byte(`{"input":"今天天气不错，我们去散步吧。"}`), "zh")
+	require.NoError(t, err)
+	require.Equal(t, "en", req.TargetLang)
+
+	// 显式目标语言优先于推断。
+	req, err = parseTranslateResponseInput([]byte(`{"input":"你好","metadata":{"target_language":"ja"}}`), "zh")
+	require.NoError(t, err)
+	require.Equal(t, "ja", req.TargetLang)
+
+	// 中英混排但以中文为主时按中文处理。
+	require.Equal(t, "en", pickTargetLang([]string{"这个 README 里的 example 需要更新"}, "zh"))
+	require.Equal(t, "zh", pickTargetLang([]string{"Update the README example please"}, "zh"))
 }
 
 func TestTranslateResponsesPassesOtherModels(t *testing.T) {

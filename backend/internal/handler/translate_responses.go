@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"unicode"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
@@ -37,7 +38,7 @@ func (h *TranslateHandler) TranslateModelMiddleware() gin.HandlerFunc {
 			translateModelError(c, 400, "invalid_request_error", "model must have one unambiguous value", nil)
 			return
 		}
-		req, err := parseTranslateResponseInput(body)
+		req, err := parseTranslateResponseInput(body, "zh")
 		if err != nil {
 			translateModelError(c, 400, "invalid_request_error", err.Error(), nil)
 			return
@@ -87,7 +88,7 @@ func translateModelError(c *gin.Context, status int, code, message string, attem
 // Codex 会在 input 前注入 developer/system 消息和 environment_context，并附带 tools、
 // tool_choice、reasoning 等客户端字段；这些字段对翻译没有意义，直接忽略。
 // 只翻译最后一条 user 消息，避免把环境上下文或历史对话一起送去翻译。
-func parseTranslateResponseInput(body []byte) (*translate.TranslateRequest, error) {
+func parseTranslateResponseInput(body []byte, fallbackTarget string) (*translate.TranslateRequest, error) {
 	var wire struct {
 		Input    json.RawMessage   `json:"input"`
 		Metadata map[string]string `json:"metadata"`
@@ -109,9 +110,6 @@ func parseTranslateResponseInput(body []byte) (*translate.TranslateRequest, erro
 	}
 
 	req := &translate.TranslateRequest{SourceLang: wire.Metadata["source_language"], TargetLang: wire.Metadata["target_language"], Format: "text"}
-	if req.TargetLang == "" {
-		req.TargetLang = "zh"
-	}
 
 	var text string
 	if json.Unmarshal(wire.Input, &text) == nil {
@@ -169,7 +167,39 @@ func parseTranslateResponseInput(body []byte) (*translate.TranslateRequest, erro
 			return nil, errors.New("Each text item must contain 1 to 4096 UTF-8 bytes")
 		}
 	}
+	// 调用方没显式给出目标语言时按输入语种推断，避免中文输入被原样返回。
+	if req.TargetLang == "" {
+		req.TargetLang = pickTargetLang(req.Text, fallbackTarget)
+	}
 	return req, nil
+}
+
+// pickTargetLang 在请求未声明目标语言时决定目标语种：以中文为主的输入译成英文，
+// 其余输入译成 prefer 指定的语种；prefer 为空时用中文。
+func pickTargetLang(texts []string, prefer string) string {
+	if prefer == "" {
+		prefer = "zh"
+	}
+	if prefer != "zh" {
+		return prefer
+	}
+	for _, text := range texts {
+		if mostlyCJK(text) {
+			return "en"
+		}
+	}
+	return prefer
+}
+
+// mostlyCJK 判断文本里是否带中日韩文字（含中英混排，例如"这个 README 需要更新"）。
+// 不比较字符占比：正常中文句子里夹杂英文术语时，汉字占比常常并不过半。
+func mostlyCJK(text string) bool {
+	for _, r := range text {
+		if unicode.Is(unicode.Han, r) || unicode.Is(unicode.Hiragana, r) || unicode.Is(unicode.Katakana, r) || unicode.Is(unicode.Hangul, r) {
+			return true
+		}
+	}
+	return false
 }
 
 // 翻译目录只在离线出口已配置且分组白名单允许时发布。
