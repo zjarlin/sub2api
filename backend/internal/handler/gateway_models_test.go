@@ -382,14 +382,15 @@ func TestGatewayCodexModels_NonOpenAIGroupsUseMappedModels(t *testing.T) {
 			platform:   service.PlatformDeepseek,
 			model:      "deepseek-v4-pro",
 			efforts:    []string{"low", "high", "max"},
-			modalities: []string{"text"},
+			// 视觉助手覆盖所有可路由模型，目录恒声明图片输入。
+			modalities: []string{"text", "image"},
 		},
 		{
 			name:       "provider-qualified Claude",
 			platform:   service.PlatformAnthropic,
 			model:      "anthropic/claude-sonnet-4-6",
 			efforts:    []string{"low", "medium", "high", "max"},
-			modalities: []string{"text"},
+			modalities: []string{"text", "image"},
 		},
 	}
 
