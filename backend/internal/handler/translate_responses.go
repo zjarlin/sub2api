@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"net/http"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
 	"github.com/Wei-Shaw/sub2api/internal/platform/translate"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
@@ -84,6 +84,9 @@ func translateModelError(c *gin.Context, status int, code, message string, attem
 }
 
 // 使用标准 metadata 携带目标语言，避免猜测原文中的翻译指令。
+// Codex 会在 input 前注入 developer/system 消息和 environment_context，并附带 tools、
+// tool_choice、reasoning 等客户端字段；这些字段对翻译没有意义，直接忽略。
+// 只翻译最后一条 user 消息，避免把环境上下文或历史对话一起送去翻译。
 func parseTranslateResponseInput(body []byte) (*translate.TranslateRequest, error) {
 	var wire struct {
 		Input    json.RawMessage   `json:"input"`
@@ -93,9 +96,10 @@ func parseTranslateResponseInput(body []byte) (*translate.TranslateRequest, erro
 		return nil, errors.New("Invalid JSON request")
 	}
 
-	for _, field := range []string{"previous_response_id", "conversation", "instructions", "tools", "background", "store"} {
+	// 仍拒绝依赖服务端会话状态或服务端存储的字段；客户端能力字段直接忽略。
+	for _, field := range []string{"previous_response_id", "conversation", "background", "store"} {
 		value := gjson.GetBytes(body, field)
-		if !value.Exists() || value.Type == gjson.Null || value.Raw == "false" || value.Raw == "[]" || (value.Type == gjson.String && value.Str == "") {
+		if !value.Exists() || value.Type == gjson.Null || value.Raw == "false" || value.Raw == "[]" || value.Raw == "{}" || (value.Type == gjson.String && value.Str == "") {
 			continue
 		}
 		return nil, errors.New(field + " is not supported by translate")
@@ -103,42 +107,57 @@ func parseTranslateResponseInput(body []byte) (*translate.TranslateRequest, erro
 	if value := gjson.GetBytes(body, "stream"); value.Exists() && value.Type != gjson.True && value.Type != gjson.False {
 		return nil, errors.New("stream must be a boolean")
 	}
+
 	req := &translate.TranslateRequest{SourceLang: wire.Metadata["source_language"], TargetLang: wire.Metadata["target_language"], Format: "text"}
 	if req.TargetLang == "" {
 		req.TargetLang = "zh"
 	}
+
 	var text string
 	if json.Unmarshal(wire.Input, &text) == nil {
 		req.Text = []string{text}
 	} else {
-		var messages []struct {
+		type inputItem struct {
 			Type    string          `json:"type"`
 			Role    string          `json:"role"`
 			Content json.RawMessage `json:"content"`
 		}
-		if json.Unmarshal(wire.Input, &messages) != nil {
-			return nil, errors.New("input must be text or user messages")
+		var items []inputItem
+		if json.Unmarshal(wire.Input, &items) != nil {
+			return nil, errors.New("input must be text or messages")
 		}
-		for _, message := range messages {
-			if (message.Type != "" && message.Type != "message") || message.Role != "user" {
-				return nil, errors.New("translate accepts only user text messages")
-			}
-			if json.Unmarshal(message.Content, &text) == nil {
-				req.Text = append(req.Text, text)
+		// 取最后一条 user 消息：Codex 会把 environment_context 也作为 user 消息注入，
+		// 当前轮的用户输入始终是最后一条。
+		var user *inputItem
+		for i := len(items) - 1; i >= 0; i-- {
+			item := &items[i]
+			if item.Type != "" && item.Type != "message" {
 				continue
 			}
+			if item.Role != "user" {
+				continue
+			}
+			user = item
+			break
+		}
+		if user == nil {
+			return nil, errors.New("translate requires a user message")
+		}
+		if json.Unmarshal(user.Content, &text) == nil {
+			req.Text = []string{text}
+		} else {
 			var parts []struct {
 				Type string `json:"type"`
 				Text string `json:"text"`
 			}
-			if json.Unmarshal(message.Content, &parts) != nil {
+			if json.Unmarshal(user.Content, &parts) != nil {
 				return nil, errors.New("Invalid message content")
 			}
 			for _, part := range parts {
-				if part.Type != "input_text" {
-					return nil, errors.New("translate accepts only input_text content")
+				// 图片等非文本内容不参与翻译；全部为图片时会在下面报缺少文本。
+				if part.Type == "input_text" {
+					req.Text = append(req.Text, part.Text)
 				}
-				req.Text = append(req.Text, part.Text)
 			}
 		}
 	}

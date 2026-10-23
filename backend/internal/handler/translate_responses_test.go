@@ -49,13 +49,36 @@ func TestTranslateResponsesInput(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "en", req.TargetLang)
 	require.Equal(t, []string{"你好"}, req.Text)
+
+	// Codex 会带上客户端能力字段，并把 environment_context 作为 user 消息注入。
+	// 只应翻译最后一条 user 消息，客户端字段不应导致 400。
+	req, err = parseTranslateResponseInput([]byte(`{
+		"input": [
+			{"type":"message","role":"developer","content":[{"type":"input_text","text":"You are Codex"}]},
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>...</environment_context>"}]},
+			{"type":"reasoning","summary":[]},
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"Hello"}]}
+		],
+		"tools": [{"type":"function","name":"exec_command"}],
+		"tool_choice": "auto",
+		"parallel_tool_calls": true,
+		"reasoning": {"effort":"none"},
+		"include": ["reasoning.encrypted_content"],
+		"prompt_cache_key": "thread-1",
+		"client_metadata": {"thread_id":"thread-1"},
+		"store": false
+	}`))
+	require.NoError(t, err)
+	require.Equal(t, []string{"Hello"}, req.Text)
+
 	for _, body := range []string{
 		`{"input":""}`, `{"input":null}`, `{"input":42}`,
-		`{"input":"Hi","tools":[{"type":"function"}]}`,
 		`{"input":"Hi","previous_response_id":"resp_old"}`,
+		`{"input":"Hi","conversation":{"id":"conv_old"}}`,
+		`{"input":"Hi","background":true}`,
 		`{"input":"Hi","store":true}`,
 		`{"input":[{"role":"user","content":[{"type":"input_image"}]}]}`,
-		`{"input":[{"role":"system","content":"Translate"}]}`,
+		`{"input":[{"type":"message","role":"developer","content":[{"type":"input_text","text":"Translate"}]}]}`,
 	} {
 		_, err := parseTranslateResponseInput([]byte(body))
 		require.Error(t, err, body)
@@ -84,4 +107,46 @@ func TestTranslateResponsesNoPublicFallback(t *testing.T) {
 	router.ServeHTTP(recorder, httptest.NewRequest("POST", "/v1/responses", strings.NewReader(`{"model":"translate","input":"Hello"}`)))
 	require.Equal(t, 502, recorder.Code)
 	require.Contains(t, recorder.Body.String(), "translation_providers_failed")
+}
+
+func TestTranslateResponsesAcceptsCodexRequest(t *testing.T) {
+	var translated []string
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload map[string]string
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&payload))
+		translated = append(translated, payload["q"])
+		require.Equal(t, "zh", payload["target"])
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"translatedText":"你好"}`))
+	}))
+	defer upstream.Close()
+
+	h := NewTranslateHandler(translate.NewAggregator(&translate.Config{LibreTranslate: &translate.LibreTranslateConfig{BaseURL: upstream.URL}}), nil)
+	router := gin.New()
+	router.POST("/v1/responses", h.TranslateModelMiddleware(), func(c *gin.Context) { t.Error("translate reached normal scheduler") })
+
+	body := `{
+		"model": "translate",
+		"stream": true,
+		"input": [
+			{"type":"message","role":"developer","content":[{"type":"input_text","text":"You are Codex"}]},
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>...</environment_context>"}]},
+			{"type":"message","role":"user","content":[{"type":"input_text","text":"Hello"}]}
+		],
+		"tools": [{"type":"function","name":"exec_command","parameters":{"type":"object"}}],
+		"tool_choice": "auto",
+		"parallel_tool_calls": true,
+		"reasoning": {"effort":"none","summary":"auto"},
+		"store": false,
+		"include": ["reasoning.encrypted_content"],
+		"prompt_cache_key": "thread-1",
+		"client_metadata": {"thread_id":"thread-1"}
+	}`
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest("POST", "/v1/responses", strings.NewReader(body)))
+
+	require.Equal(t, 200, recorder.Code)
+	require.Equal(t, []string{"Hello"}, translated)
+	require.Contains(t, recorder.Body.String(), "event: response.output_text.delta")
+	require.Contains(t, recorder.Body.String(), "你好")
 }
