@@ -36,7 +36,9 @@ func TestStatusRefreshCreditsUsesOfficialBalance(t *testing.T) {
 	}
 }
 
-func TestStatusRefreshCreditsDoesNotFallBackToEstimate(t *testing.T) {
+// 单号余额查询失败不得拖垮整批：仍返回 200 与账号行，但必须带 balance_error，
+// 且不能把调度池估算值伪造成官方余额（"credits":46 不得出现）。
+func TestStatusRefreshCreditsMarksBalanceErrorWithoutEstimate(t *testing.T) {
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	}))
@@ -48,8 +50,34 @@ func TestStatusRefreshCreditsDoesNotFallBackToEstimate(t *testing.T) {
 	h := NewHandler(Config{Pool: p, Upstream: c})
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/status?refresh_credits=true", nil))
-	if w.Code != 502 || strings.Contains(w.Body.String(), `"credits":46`) {
-		t.Fatalf("status=%d body=%s", w.Code, w.Body.String())
+	body := w.Body.String()
+	if w.Code != 200 || !strings.Contains(body, `"balance_error"`) || strings.Contains(body, `"credits":46`) || strings.Contains(body, `"credits":`) {
+		t.Fatalf("status=%d body=%s", w.Code, body)
+	}
+	if !strings.Contains(body, `"balance_errors":1`) {
+		t.Fatalf("应统计失败账号数: %s", body)
+	}
+}
+
+// 一个号坏、一个号好：好的照常返回官方余额，坏的单独标记，互不影响。
+func TestStatusRefreshCreditsIsolatesPerAccountFailure(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "Bearer good-token" {
+			_, _ = w.Write([]byte(`{"code":0,"data":{"Response":{"Data":{"Accounts":[{"CycleCapacitySize":100,"CycleCapacityRemain":79,"CycleCapacityRemainPrecise":"79.75"}]}}}}`))
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer up.Close()
+	p := testPoolWith(&auth.Auth{UID: "good", AccessToken: "good-token"}, &auth.Auth{UID: "bad", AccessToken: "bad-token"})
+	c := upstream.New()
+	c.BillingBaseCN = up.URL
+	h := NewHandler(Config{Pool: p, Upstream: c})
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/status?refresh_credits=true", nil))
+	body := w.Body.String()
+	if w.Code != 200 || !strings.Contains(body, `"credits":79.75`) || !strings.Contains(body, `"balance_errors":1`) {
+		t.Fatalf("status=%d body=%s", w.Code, body)
 	}
 }
 

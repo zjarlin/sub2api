@@ -94,7 +94,10 @@
                   <div class="font-medium text-gray-900 dark:text-gray-100">{{ acc.nickname || shortUid(acc.uid) }}</div>
                   <div v-if="acc.nickname" class="text-[10px] text-gray-400">{{ shortUid(acc.uid) }}</div>
                 </td>
-                <td class="px-3 py-2 text-right tabular-nums text-gray-900 dark:text-gray-100">{{ formatCredits(acc.credits) }}</td>
+                <td class="px-3 py-2 text-right tabular-nums text-gray-900 dark:text-gray-100">
+                  <span :class="{ 'text-[10px] text-amber-600 dark:text-amber-400': acc.credits == null }" :title="acc.balance_error || ''">{{ formatCredits(acc.credits) }}</span>
+                  <div v-if="acc.balance_error" class="text-[10px] font-normal text-amber-600 dark:text-amber-400">{{ acc.balance_error }}</div>
+                </td>
                 <td class="px-3 py-2">
                   <span v-if="acc.checkin" :class="['inline-flex rounded px-1.5 py-0.5 text-[10px] font-medium', statusClass(acc.checkin.status)]">
                     {{ statusLabel(acc.checkin.status) }}
@@ -251,7 +254,7 @@ const allCheckedInToday = computed(() =>
 )
 
 const shortUid = (uid: string) => (uid.length > 10 ? `${uid.slice(0, 10)}…` : uid)
-const formatCredits = (v: number) => new Intl.NumberFormat().format(v)
+const formatCredits = (v: number | null) => (v == null ? '-' : new Intl.NumberFormat().format(v))
 const formatTime = (iso: string) => {
   if (!iso) return '-'
   const d = new Date(iso)

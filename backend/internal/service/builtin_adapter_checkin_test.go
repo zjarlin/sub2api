@@ -60,7 +60,8 @@ func TestBuiltinAdapterCheckinOverviewMergesStatusAndHistory(t *testing.T) {
 	require.Equal(t, 879.75, overview.TotalCredits)
 	require.Len(t, overview.Accounts, 2)
 	require.Equal(t, "u1", overview.Accounts[0].UID)
-	require.Equal(t, 79.75, overview.Accounts[0].Credits)
+	require.NotNil(t, overview.Accounts[0].Credits)
+	require.Equal(t, 79.75, *overview.Accounts[0].Credits)
 	require.NotNil(t, overview.Accounts[0].Checkin)
 	require.Equal(t, int64(100), overview.Accounts[0].Checkin.Delta)
 	require.Len(t, overview.Accounts[0].Checkins, 2)
@@ -258,4 +259,28 @@ func TestBuiltinAdapterCheckinAdminCanReuseExistingLogins(t *testing.T) {
 	require.False(t, overview.BindingRequired)
 	require.Len(t, overview.Accounts, 1)
 	require.Equal(t, 79.75, overview.TotalCredits)
+}
+
+// 单号余额取不到（登录态失效/上游抖动）不能把整页打成 502：
+// 该号仍返回签到历史与冷却原因，credits 为 null + balance_error 说明原因。
+func TestBuiltinAdapterCheckinOverviewToleratesSingleBalanceFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/status" {
+			_, _ = w.Write([]byte(`{"balance_errors":1,"accounts":[{"uid":"dead","nickname":"d","balance_error":"登录态已失效，需要重新登录","cooling":true,"reason":"consecutive failures"},{"uid":"ok","credits":26}]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"checkins":{"dead":[{"at":"2026-10-20T01:00:00Z","status":"failed","credits":0,"delta":0}]}}`))
+	}))
+	defer server.Close()
+	SetBuiltinAdapterConfig(&config.BuiltinAdapterConfig{Enabled: true, WorkbuddyURL: server.URL, WorkbuddyKey: "key"})
+	t.Cleanup(func() { SetBuiltinAdapterConfig(nil) })
+
+	account := &Account{Platform: PlatformWorkbuddy, Extra: map[string]any{"builtin_adapter_uid": "dead"}}
+	overview, err := BuiltinAdapterCheckinOverviewForAccount(context.Background(), account)
+	require.NoError(t, err)
+	require.Len(t, overview.Accounts, 1)
+	require.Nil(t, overview.Accounts[0].Credits)
+	require.Equal(t, "登录态已失效，需要重新登录", overview.Accounts[0].BalanceError)
+	require.Len(t, overview.Accounts[0].Checkins, 1)
+	require.Zero(t, overview.TotalCredits)
 }

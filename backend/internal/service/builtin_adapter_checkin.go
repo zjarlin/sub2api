@@ -26,12 +26,15 @@ type BuiltinAdapterCheckinRecord struct {
 }
 
 // BuiltinAdapterCheckinAccount 是内置适配器池中的单个上游账号。
+// Credits 为 nil 表示本次没能从上游取到精确余额（此时 BalanceError 说明原因），
+// 绝不回退成账号池估算值冒充官方余额。
 type BuiltinAdapterCheckinAccount struct {
-	UID      string                        `json:"uid"`
-	Nickname string                        `json:"nickname,omitempty"`
-	Credits  float64                       `json:"credits"`
-	Checkin  *BuiltinAdapterCheckinRecord  `json:"checkin,omitempty"`
-	Checkins []BuiltinAdapterCheckinRecord `json:"checkins"`
+	UID          string                        `json:"uid"`
+	Nickname     string                        `json:"nickname,omitempty"`
+	Credits      *float64                      `json:"credits"`
+	BalanceError string                        `json:"balance_error,omitempty"`
+	Checkin      *BuiltinAdapterCheckinRecord  `json:"checkin,omitempty"`
+	Checkins     []BuiltinAdapterCheckinRecord `json:"checkins"`
 }
 
 // BuiltinAdapterCheckinOverview 是管理端账号页消费的积分与签到汇总。
@@ -45,10 +48,11 @@ type BuiltinAdapterCheckinOverview struct {
 
 type builtinAdapterStatusResponse struct {
 	Accounts []struct {
-		UID      string                       `json:"uid"`
-		Nickname string                       `json:"nickname"`
-		Credits  float64                      `json:"credits"`
-		Checkin  *BuiltinAdapterCheckinRecord `json:"checkin"`
+		UID          string                       `json:"uid"`
+		Nickname     string                       `json:"nickname"`
+		Credits      *float64                     `json:"credits"`
+		BalanceError string                       `json:"balance_error"`
+		Checkin      *BuiltinAdapterCheckinRecord `json:"checkin"`
 	} `json:"accounts"`
 }
 
@@ -174,14 +178,18 @@ func builtinAdapterCheckinOverview(ctx context.Context, platform, uid string) (*
 		if uid != "" && item.UID != uid {
 			continue
 		}
-		out.TotalCredits += item.Credits
+		// 单号余额取不到只影响该号的数字，签到历史与冷却原因照常展示。
+		if item.Credits != nil {
+			out.TotalCredits += *item.Credits
+		}
 		checkins := history.Checkins[item.UID]
 		if checkins == nil {
 			checkins = []BuiltinAdapterCheckinRecord{}
 		}
 		out.Accounts = append(out.Accounts, BuiltinAdapterCheckinAccount{
 			UID: item.UID, Nickname: item.Nickname, Credits: item.Credits,
-			Checkin: item.Checkin, Checkins: checkins,
+			BalanceError: item.BalanceError,
+			Checkin:      item.Checkin, Checkins: checkins,
 		})
 	}
 	if uid != "" && len(out.Accounts) == 0 {

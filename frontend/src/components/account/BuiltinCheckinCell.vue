@@ -4,7 +4,7 @@
       <span
         class="text-[10px] font-medium leading-4"
         :class="platformTextClass(account.platform)"
-        :title="t('admin.accounts.builtinCheckin.remaining')"
+        :title="balanceError || t('admin.accounts.builtinCheckin.remaining')"
       >
         {{ summaryLabel }}
       </span>
@@ -60,9 +60,13 @@ const error = ref<string | null>(null)
 const totalCredits = ref<number | null>(null)
 const accountCount = ref(0)
 const bindingRequired = ref(false)
+// 余额取不到（登录态失效/上游抖动）时后端返回 null + balance_error：
+// 保留签到与冷却信息，只把这一处数字标成不可用。
+const balanceError = ref<string | null>(null)
 
 const summaryLabel = computed(() => {
   if (bindingRequired.value) return t('admin.accounts.builtinCheckin.bindingRequired')
+  if (balanceError.value) return `${t('admin.accounts.builtinCheckin.remaining')} -`
   if (error.value) return t('admin.accounts.builtinCheckin.remaining')
   if (totalCredits.value == null) return t('admin.accounts.builtinCheckin.remaining')
   return `${t('admin.accounts.builtinCheckin.remaining')} ${new Intl.NumberFormat().format(totalCredits.value)}`
@@ -93,9 +97,11 @@ const load = async () => {
     totalCredits.value = overview.total_credits
     accountCount.value = overview.accounts.length
     bindingRequired.value = overview.binding_required === true
+    balanceError.value = overview.accounts.find((acc) => acc.balance_error)?.balance_error || null
   } catch (e) {
     totalCredits.value = null
     bindingRequired.value = false
+    balanceError.value = null
     error.value = extractErrorMessage(e)
   } finally {
     loading.value = false
@@ -111,6 +117,7 @@ watch(
   () => {
     totalCredits.value = null
     bindingRequired.value = false
+    balanceError.value = null
     accountCount.value = 0
     error.value = null
     if (visible.value) void load()

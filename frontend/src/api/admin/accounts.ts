@@ -1135,7 +1135,9 @@ export interface BuiltinAdapterCheckinRecord {
 export interface BuiltinAdapterCheckinAccount {
   uid: string
   nickname?: string
-  credits: number
+  /** null = 本次没取到上游精确余额（见 balance_error），不拿估算值顶替。 */
+  credits: number | null
+  balance_error?: string
   checkin?: BuiltinAdapterCheckinRecord
   checkins: BuiltinAdapterCheckinRecord[]
 }

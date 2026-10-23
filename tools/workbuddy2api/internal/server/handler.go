@@ -199,27 +199,37 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 		}
 		snapshot = selected
 	}
+	// 单号余额查询失败只标记该号，不拖垮整批：历史/冷却信息仍要能看；
+	// Credits 用指针，失败时字段缺省（绝不拿调度池估算冒充官方余额）。
 	var accounts any = snapshot
+	balanceErrors := 0
 	if r.URL.Query().Get("refresh_credits") == "true" {
 		ctx, cancel := context.WithTimeout(r.Context(), 12*time.Second)
 		defer cancel()
 		type balanceStatus struct {
 			pool.Status
-			Credits float64 `json:"credits"`
+			Credits      *float64 `json:"credits,omitempty"`
+			BalanceError string   `json:"balance_error,omitempty"`
 		}
 		refreshed := make([]balanceStatus, 0, len(snapshot))
 		for _, status := range snapshot {
+			row := balanceStatus{Status: status}
 			a := h.cfg.Pool.AuthByUID(status.UID)
 			if a == nil || h.cfg.Upstream == nil {
-				writeOpenAIError(w, http.StatusBadGateway, "balance_unavailable", "unable to query upstream balance")
-				return
+				row.BalanceError = "账号凭据缺失"
+				balanceErrors++
+				refreshed = append(refreshed, row)
+				continue
 			}
 			balance, err := h.cfg.Upstream.UserResourceBalance(ctx, a)
 			if err != nil {
-				writeOpenAIError(w, http.StatusBadGateway, "balance_unavailable", "unable to query upstream balance")
-				return
+				row.BalanceError = balanceErrorText(err)
+				balanceErrors++
+				refreshed = append(refreshed, row)
+				continue
 			}
-			refreshed = append(refreshed, balanceStatus{status, balance})
+			row.Credits = &balance
+			refreshed = append(refreshed, row)
 		}
 		accounts = refreshed
 	}
@@ -241,6 +251,7 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 	// 只新增字段，既有 total/healthy/cooling/disabled/in_flight_full 汇总键不变（零回归）。
 	writeJSON(w, http.StatusOK, map[string]any{
 		"credits_refreshed": r.URL.Query().Get("refresh_credits") == "true",
+		"balance_errors":    balanceErrors,
 		"accounts":          accounts,
 		"total":             total,
 		"healthy":           healthy,
@@ -259,6 +270,25 @@ func (h *Handler) status(w http.ResponseWriter, r *http.Request) {
 			"per_model":    exploreLast,
 		},
 	})
+}
+
+// balanceErrorText 把余额查询失败压成一句短原因，供面板区分「凭据失效」与「上游抖动」。
+func balanceErrorText(err error) string {
+	var ue *upstream.Error
+	if errors.As(err, &ue) {
+		switch ue.Kind {
+		case upstream.ErrSessionDead, upstream.ErrAccountFault:
+			return "登录态已失效，需要重新登录"
+		}
+		if ue.Status == http.StatusUnauthorized {
+			return "登录态已失效，需要重新登录"
+		}
+		return "上游余额查询失败: " + ue.Kind.String()
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "上游余额查询超时"
+	}
+	return "上游余额查询失败"
 }
 
 // checkins 返回签到历史。无 uid 查询参数时返回全池（uid → 历史），
