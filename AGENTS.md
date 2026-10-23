@@ -15,6 +15,8 @@
   只有历史事故记录/历史验证快照（`docs/incidents/*`、`docs/verification/*`）允许保留。
 - 引用旧文档/旧流水线前先核实现役拓扑（`docker ps`、`/health`、TeamCity agent 列表、
   实际部署目录）；发现部署目录、agent 名、数据目录与文档不一致时先确认再改。
+- 新脚本接入清单：唯一默认值来源 + 开头变量校验 + 只引用变量 +
+  提交前 `git grep -nE '192\.168\.|10\.126\.' -- ':!docs/incidents' ':!docs/verification'` 必须为空。
 
 ## 硬性禁令
 **禁止**用 `docker compose up/down/restart/recreate` 操作 `sub2api` 容器
@@ -25,10 +27,15 @@ compose 先删健康容器 → 502）。182 是**单容器直发端口**的拓�
 
 ## 正确做法
 - 部署/重启/换镜像：走 TeamCity 流水线 `sub2api / Deploy 182 Gateway`，
-  或本机 `bash deploy/gateway/deploy-gateway.sh`。
+  或本机 `bash deploy/gateway/deploy-gateway.sh`（两者都调用同一份脚本）。
   该脚本是「构建 → 候选端口预检 → 就地替换 → 健康复检 → 失败自动回滚」，
   变量：`APP_HOST`、`DEPLOY_DIR`（默认 `/root/DockerCompose/sub2api`）、
   `SUB2API_IMAGE`、`SUB2API_CONTAINER`、`SUB2API_PORT`、`CANARY_PORT`。
+  流水线经 `/usr/local/sbin/sub2api-deploy-182` 受控入口执行，仓库内脚本必须已提交，
+  否则干净 checkout 的构建会以 `missing deploy/gateway/deploy-gateway.sh` 失败。
+- 新镜像已部署后，受保护订阅 `okm182` 下的旧本地固定会话仍钉在**已删除的旧镜像**上，
+  重建容器后这些会话会失败（表现为 Thinking 无响应、无任何请求日志）。
+  处理：换成订阅里的新会话/新会话 ID，旧会话不自动跟随。
 - 部署标记写在 `$DEPLOY_DIR/DEPLOYED_IMAGE` 与 `$DEPLOY_DIR/DEPLOYED_RELEASE`；
   判断线上版本**以 `docker inspect` 的实际镜像为准**，标记文件可能过期。
 - 数据/配置统一收敛在 `/root/DockerCompose/<服务名>/`，compose 文件与数据卷同目录。
@@ -38,16 +45,10 @@ compose 先删健康容器 → 502）。182 是**单容器直发端口**的拓�
 **不要**因为容器 `unhealthy` 就顺手重启：先查健康检查本身为何失败。
 
 ## 服务保护（最高优先级）
-`sub2api` 是全公司 AI 网关，任何操作都不得中断它：
-- 不得 `docker stop/kill/restart/rm` 该容器；
-- 不得 `docker compose down` 波及它所在项目/网络；
-- 不得在不评估的情况下重启/重建 `postgres` / `redis` / Docker 网络等它的依赖；
-- 不得让迁移、镜像清理、磁盘清理脚本把它当清理目标。
-动完共享资源（网络 / iptables / 磁盘 / 端口）后立即确认
-`curl -fsS http://127.0.0.1:18080/health` 返回 200 且容器仍 `running`。
+不得停止/重启/删除 `sub2api` 容器；不得让构建、迁移、清理、Docker 网络维护波及它。
+任何涉及共享资源（网络、iptables、磁盘、端口、内存）的操作完成后，
+必须确认 `curl -fsS 127.0.0.1:18080/health` 为 200 且容器 `running`，再做别的事。
 
-## 工作区并发约定
-本工作区常有多个 Codex 会话同时改动，`git status` 里出现与本任务无关的修改是常态：
-- **禁止** `git add -A` / `git add .` / `git stash` / `git reset --hard` / `git clean`；
-- 只提交本任务明确拥有的路径：`git commit --only <paths>`；
-- 删除/覆盖别人正在改的文件前先确认归属，拿不准就停下来报告。
+## 并发会话
+本工作区常有多个 Codex/TeamCity 会话同时改动：**禁止** `git add -A` / `git stash` /
+`git reset --hard` / `git clean`；提交只用 `git commit --only <本任务路径>`。
