@@ -1,0 +1,48 @@
+# hymt-relay —— 网关容器网络 → EasyTier → 天津 Hy-MT2
+#
+# 链路：sub2api 容器 --(opt_default)--> hymt-relay:18086 --(EasyTier tun)--> 天津 18086
+# 天津侧 et-tianjin-ai 用 --port-forward 把 10.144.144.97:18086 映射到本机 127.0.0.1:18086
+# （见 deploy/hymt-relay/README.md）。此处只做 TCP 透传，不解析/不缓存；鉴权仍由 vLLM 的
+# HYMT_DCU_API_KEY 负责。
+#
+# 部署位置：/root/DockerCompose/hymt-relay/（唯一配置源为同目录 .env）
+services:
+  hymt-relay:
+    image: ${HYMT_RELAY_IMAGE:-nginx:1.27-alpine}
+    container_name: hymt-relay
+    restart: unless-stopped
+    mem_limit: 64m
+    cpus: 0.25
+    pids_limit: 128
+    user: "0:0"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+      - SETUID
+      - SETGID
+      - CHOWN
+    tmpfs:
+      - /tmp:size=8m
+      - /var/cache/nginx:size=8m
+      - /var/run:size=4m
+    env_file:
+      - ./.env
+    volumes:
+      - ./hymt-stream.conf.template:/etc/nginx/hymt-stream.conf.template:ro
+      - ./entrypoint.sh:/usr/local/bin/hymt-relay-entrypoint.sh:ro
+    entrypoint: ["/bin/sh","/usr/local/bin/hymt-relay-entrypoint.sh"]
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 18086"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - opt_default
+
+networks:
+  opt_default:
+    external: true

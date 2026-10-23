@@ -2,16 +2,7 @@
 set -eu
 repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 cd "$repo_root"
-node -e '
-  const fs = require("fs");
-  for (const file of ["deploy/hymt-frpc.toml", "deploy/hymt-frp-visitor.toml"]) {
-    const config = fs.readFileSync(file, "utf8");
-    for (const setting of ["transport.tcpMux = true", "transport.heartbeatInterval = 20", "transport.heartbeatTimeout = 90"]) {
-      if (!config.includes(setting)) throw new Error(file + ": missing explicit FRP heartbeat configuration");
-    }
-  }
-'
-HYMT_DCU_API_KEY=test-key FRP_SERVER_ADDR=127.0.0.1 FRP_AUTH_TOKEN=test-token HYMT_STCP_KEY=test-stcp \
+HYMT_DCU_API_KEY=test-key \
   docker compose -f deploy/docker-compose.hymt-tianjin.yml config --format json |
   node -e '
     let data = "";
@@ -27,6 +18,7 @@ HYMT_DCU_API_KEY=test-key FRP_SERVER_ADDR=127.0.0.1 FRP_AUTH_TOKEN=test-token HY
       check(s.command[s.command.indexOf("--gpu-memory-utilization") + 1] === "0.12", "bounded memory budget required");
       check(s.command.includes("--enforce-eager"), "avoid graph memory overhead");
       check(s.command[s.command.indexOf("--served-model-name") + 1] === "hy-mt2", "model alias must match adapter");
-      check(!services["hymt-tunnel"].ports?.length, "STCP tunnel must not publish ports");
+      // 公网 FRP 隧道已退役；模型经 EasyTier + hymt-relay 访问，天津侧不得再暴露端口。
+      check(!services["hymt-tunnel"], "hymt-dcu must not ship a public FRP tunnel service");
       console.log("Hy-MT2 DCU compose test passed");
     });'

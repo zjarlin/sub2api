@@ -1,0 +1,15 @@
+events {
+    worker_connections 1024;
+}
+stream {
+    upstream hymt_upstream {
+        server ${HYMT_MODEL_UPSTREAM_HOST}:${HYMT_MODEL_UPSTREAM_PORT};
+    }
+    server {
+        listen ${HYMT_MODEL_BIND_HOST}:${HYMT_MODEL_BIND_PORT};
+        proxy_pass hymt_upstream;
+        proxy_connect_timeout 10s;
+        proxy_timeout 600s;
+        proxy_socket_keepalive on;
+    }
+}

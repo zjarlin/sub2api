@@ -141,15 +141,21 @@ TRANSLATE_HYMT_LIVE_TEST=1 TRANSLATE_HYMT_URL=http://127.0.0.1:18085 \
 并发最多 2，关闭 CUDA graph 捕获。不得为了新服务停止现有模型或改变主机驱动。
 设置独立的 `HYMT_DCU_API_KEY`，服务仅绑定 `127.0.0.1:18086`，不要直接暴露公网。
 
-天津侧 `hymt-tunnel` 与网关侧 `docker-compose.hymt-visitor.yml` 使用独立 FRP STCP 通道，
-不新增公网推理监听端口，也不修改现有媒体代理。两端须使用匹配的 FRP 0.70.1，
-密钥通过私有环境文件注入；`Dockerfile.hymt-frpc` 使用已校验的静态 `frpc` 二进制构建。
-两端显式设置 20 秒心跳及 90 秒超时，防止服务端 180 秒心跳超时导致活跃请求中断。
-visitor 只加入网关私网，无宿主机端口映射。配置网关：
+模型只在天津机 `127.0.0.1:18086` 提供，网关容器经 EasyTier 组网访问，链路两端配置见
+`deploy/hymt-relay/README.md`：
+
+```
+sub2api 容器 ──opt_default──▶ hymt-relay:18086 ──EasyTier──▶ <天津 ET 节点>:18086 ──▶ 127.0.0.1:18086
+```
+
+天津侧由 `et-tianjin-ai` 的 `--port-forward` 把模型只映射到 EasyTier 地址（不发布宿主公网
+端口）；网关侧 `hymt-relay` 只做 TCP 透传，加入网关私网。旧的公网 FRP STCP 通道
+（`hymt-tunnel` + `hymt-visitor`）随 FRP 服务端退役，已不可用，不要再按它配置 `base_url`。
+配置网关（后台「设置 → 翻译服务商」，或 `settings.translate_providers`）：
 
 ```dotenv
-TRANSLATE_HYMT_URL=http://hymt-visitor:18086
-TRANSLATE_HYMT_API_KEY=<private-instance-key>
+base_url=http://hymt-relay:18086
+TRANSLATE_HYMT_API_KEY=<private-instance-key>   # 与天津 HYMT_DCU_API_KEY 一致
 ```
 
 采样参数同时包含 llama.cpp 的 `repeat_penalty` 和 vLLM 的 `repetition_penalty`，

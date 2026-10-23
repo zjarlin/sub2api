@@ -167,4 +167,4 @@
 - 调用方 Key 申请与调用指引：`docs/translate-edge-key-guide.md`
 - 服务实现与上游回退细节：`backend/internal/platform/translate/README.md`
 - LibreTranslate 自建：`deploy/docker-compose.libretranslate.yml`
-- Hy-MT2 部署：`deploy/docker-compose.hymt.yml`、`deploy/docker-compose.hymt-tianjin.yml`
+- Hy-MT2 部署：`deploy/docker-compose.hymt.yml`、`deploy/docker-compose.hymt-tianjin.yml`；网关侧接入链路见 `deploy/hymt-relay/README.md`

@@ -232,5 +232,6 @@ Sub2API API Key 是自助创建的，创建即生效；需要人工审批的是�
 
 - 服务实现与上游回退细节：`backend/internal/platform/translate/README.md`
 - LibreTranslate 自建：`deploy/docker-compose.libretranslate.yml`
-- Hy-MT2 相关部署：`deploy/docker-compose.hymt.yml`、`deploy/docker-compose.hymt-tianjin.yml`
+- Hy-MT2 相关部署：`deploy/docker-compose.hymt.yml`、`deploy/docker-compose.hymt-tianjin.yml`（天津 GPU 机），
+  网关侧接入链路见 `deploy/hymt-relay/README.md`
 - 边缘服务控制台（管理员）：`/admin/vision` → 翻译 → 文档 / 上下文

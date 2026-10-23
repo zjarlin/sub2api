@@ -54,24 +54,5 @@ services:
       timeout: 5s
       retries: 8
       start_period: 180s
-  hymt-tunnel:
-    image: ${HYMT_DCU_IMAGE:-hy-vllm:hymt-20261007}
-    container_name: hymt-dcu-tunnel
-    restart: unless-stopped
-    network_mode: host
-    mem_limit: 128m
-    cpus: 0.25
-    pids_limit: 64
-    read_only: true
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    environment:
-      - FRP_SERVER_ADDR=${FRP_SERVER_ADDR:?FRP_SERVER_ADDR is required}
-      - FRP_AUTH_TOKEN=${FRP_AUTH_TOKEN:?FRP_AUTH_TOKEN is required}
-      - HYMT_STCP_KEY=${HYMT_STCP_KEY:?HYMT_STCP_KEY is required}
-    volumes:
-      - /usr/local/bin/frpc:/usr/local/bin/frpc:ro
-      - ./hymt-frpc.toml:/etc/frp/hymt.toml:ro
-    entrypoint: ["/usr/local/bin/frpc", "-c", "/etc/frp/hymt.toml"]
+# 模型只绑定天津机 127.0.0.1:18086；网关侧经 EasyTier + hymt-relay 访问
+# （见 deploy/hymt-relay/README.md）。公网 FRP STCP 隧道随 FRP 服务端退役，已移除。
