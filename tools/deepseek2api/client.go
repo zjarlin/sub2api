@@ -8,13 +8,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 )
 
 const (
-	defaultAPIBase = "https://chat.deepseek.com/api/v0"
-	defaultWasmURL = "https://fe-static.deepseek.com/chat/static/sha3_wasm_bg.7b9ca65ddd.wasm"
-	completionPath = "/api/v0/chat/completion"
+	defaultAPIBase   = "https://chat.deepseek.com/api/v0"
+	defaultWasmURL   = "https://fe-static.deepseek.com/chat/static/sha3_wasm_bg.7b9ca65ddd.wasm"
+	completionPath   = "/api/v0/chat/completion"
+	defaultUserAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 )
 
 type upstreamClient struct {
@@ -37,12 +39,17 @@ type webCredential struct {
 	DeviceID           string `json:"device_id"`
 	UID                string `json:"uid"`
 	Email              string `json:"email,omitempty"`
+	UserAgent          string `json:"user_agent,omitempty"`
 	ReloginCredentials string `json:"relogin_credentials,omitempty"`
 }
 
 var errDeepSeekUnauthorized = errors.New("DeepSeek browser session is no longer authorized")
+var errDeepSeekPowRejected = errors.New("DeepSeek rejected the proof of work")
 
 func (e upstreamEnvelope) responseError() error {
+	if e.Code == 40301 || (e.Data != nil && e.Data.BizCode == 40301) {
+		return errDeepSeekPowRejected
+	}
 	if e.Code == 40003 || (e.Data != nil && e.Data.BizCode == 40003) {
 		return errDeepSeekUnauthorized
 	}
@@ -83,9 +90,22 @@ func (u *upstreamClient) request(ctx context.Context, credential webCredential, 
 		return nil, err
 	}
 	req.Header.Set("Authorization", "Bearer "+credential.Token)
-	req.Header.Set("User-Agent", "DeepSeek/2.5.0 Android/35")
+	userAgent := credential.UserAgent
+	if userAgent == "" {
+		userAgent = defaultUserAgent
+	}
+	req.Header.Set("User-Agent", userAgent)
+	origin := req.URL.Scheme + "://" + req.URL.Host
+	req.Header.Set("Origin", origin)
+	req.Header.Set("Referer", origin+"/")
+	req.Header.Set("Accept", "application/json, text/plain, */*")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	req.Header.Set("Sec-Fetch-Site", "same-origin")
+	req.Header.Set("Sec-Fetch-Mode", "cors")
+	req.Header.Set("Sec-Fetch-Dest", "empty")
+	setClientHints(req.Header, userAgent)
 	req.Header.Set("X-Client-Version", "2.5.0")
-	req.Header.Set("X-Client-Platform", "android")
+	req.Header.Set("X-Client-Platform", "web")
 	req.Header.Set("X-Client-Locale", "zh_CN")
 	req.Header.Set("X-Client-Bundle-Id", "com.deepseek.chat")
 	req.Header.Set("X-Device-Id", credential.DeviceID)
@@ -96,19 +116,52 @@ func (u *upstreamClient) request(ctx context.Context, credential webCredential, 
 	}
 	if pow != "" {
 		req.Header.Set("X-Ds-Pow-Response", pow)
+		req.Header.Set("Accept", "text/event-stream")
 	}
 	resp, err := u.http.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		resp.Body.Close()
+		defer resp.Body.Close()
 		if resp.StatusCode == http.StatusUnauthorized {
 			return nil, errDeepSeekUnauthorized
+		}
+		if resp.StatusCode == http.StatusTooManyRequests {
+			return nil, apiError{429, "deepseek_rate_limited", "DeepSeek web is rate limited; retry later"}
+		}
+		var envelope upstreamEnvelope
+		if json.NewDecoder(io.LimitReader(resp.Body, 2<<20)).Decode(&envelope) == nil {
+			if err := envelope.responseError(); err != nil {
+				return nil, err
+			}
 		}
 		return nil, fmt.Errorf("DeepSeek returned HTTP %d", resp.StatusCode)
 	}
 	return resp, nil
+}
+
+var chromeVersion = regexp.MustCompile(`(?:Chrome|Chromium)/(\d+)`)
+
+// 使用登录浏览器的身份生成一致的提示头，避免网页会话混用 Android 指纹。
+func setClientHints(headers http.Header, userAgent string) {
+	version := chromeVersion.FindStringSubmatch(userAgent)
+	if len(version) != 2 {
+		return
+	}
+	headers.Set("Sec-Ch-Ua", `"Chromium";v="`+version[1]+`", "Not_A Brand";v="24"`)
+	headers.Set("Sec-Ch-Ua-Mobile", "?0")
+	platform := "Linux"
+	switch {
+	case strings.Contains(userAgent, "Android"):
+		platform = "Android"
+		headers.Set("Sec-Ch-Ua-Mobile", "?1")
+	case strings.Contains(userAgent, "Windows"):
+		platform = "Windows"
+	case strings.Contains(userAgent, "Mac OS X"):
+		platform = "macOS"
+	}
+	headers.Set("Sec-Ch-Ua-Platform", `"`+platform+`"`)
 }
 
 func (u *upstreamClient) call(ctx context.Context, credential webCredential, method, path string, body any, out any) error {
@@ -206,7 +259,7 @@ func (u *upstreamClient) challenge(ctx context.Context, c webCredential) (challe
 	return data.Challenge, nil
 }
 
-func (u *upstreamClient) completion(ctx context.Context, c webCredential, sessionID, prompt, model string, thinking bool, pow string) (*http.Response, error) {
+func (u *upstreamClient) completion(ctx context.Context, c webCredential, sessionID, prompt, model string, thinking, search bool, pow string) (*http.Response, error) {
 	body := map[string]any{
 		"chat_session_id":   sessionID,
 		"parent_message_id": nil,
@@ -214,7 +267,9 @@ func (u *upstreamClient) completion(ctx context.Context, c webCredential, sessio
 		"prompt":            prompt,
 		"ref_file_ids":      []string{},
 		"thinking_enabled":  thinking,
-		"search_enabled":    false,
+		"search_enabled":    search,
+		"stream":            true,
+		"action":            nil,
 		"preempt":           false,
 	}
 	return u.request(ctx, c, http.MethodPost, "/chat/completion", body, pow)

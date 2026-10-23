@@ -190,11 +190,11 @@ func TestBrowserSessionImportAndChat(t *testing.T) {
 	}
 }
 
-func TestTextOnlyRequestRejectsTools(t *testing.T) {
+func TestChatRejectsInvalidToolDeclaration(t *testing.T) {
 	req := httptest.NewRequest("POST", "/v1/chat/completions", strings.NewReader(`{"model":"deepseek-web-chat","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function"}]}`))
 	_, _, _, err := parseChat(httptest.NewRecorder(), req)
 	if err == nil {
-		t.Fatal("tool request should be rejected")
+		t.Fatal("tool declaration without a function should be rejected")
 	}
 }
 

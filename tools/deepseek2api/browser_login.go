@@ -222,7 +222,7 @@ func (s *chromiumLoginSession) Credential(ctx context.Context) (webCredential, b
 		try { stored = JSON.parse(raw || 'null'); } catch { stored = raw; }
 		const token = typeof stored === 'string' ? stored : stored?.value || stored?.token || '';
 		const device_id = localStorage.getItem('deepseek-device-id:chat') || '';
-		return { token, device_id };
+		return { token, device_id, user_agent: navigator.userAgent };
 	})()`
 	if err := chromedp.Run(evaluateContext, chromedp.Evaluate(expression, &credential)); err != nil {
 		return webCredential{}, false, err

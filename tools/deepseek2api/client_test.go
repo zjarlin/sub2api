@@ -65,3 +65,20 @@ func TestVerifyAccountMutedFlag(t *testing.T) {
 		})
 	}
 }
+
+func TestBrowserIdentityAndRateLimit(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Client-Platform") != "web" || r.Header.Get("User-Agent") != "Mozilla/5.0 (X11; Linux x86_64) Chrome/140.0.0.0" || !strings.Contains(r.Header.Get("Sec-Ch-Ua"), `v="140"`) {
+			t.Error("browser identity is inconsistent")
+		}
+		w.WriteHeader(http.StatusTooManyRequests)
+		_, _ = fmt.Fprint(w, `{"code":40003,"msg":"private diagnostic"}`)
+	}))
+	defer upstream.Close()
+	client := &upstreamClient{http: upstream.Client(), baseURL: upstream.URL}
+	_, err := client.request(context.Background(), webCredential{Token: "test", UserAgent: "Mozilla/5.0 (X11; Linux x86_64) Chrome/140.0.0.0"}, http.MethodGet, "/test", nil, "")
+	api, ok := err.(apiError)
+	if !ok || api.status != 429 || api.code != "deepseek_rate_limited" {
+		t.Fatalf("rate limit was not preserved: %v", err)
+	}
+}

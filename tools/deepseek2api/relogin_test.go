@@ -402,12 +402,12 @@ func TestRefreshedSessionRejectedOnlyRetriesOnce(t *testing.T) {
 		}
 	})
 	stale := a.accounts[0]
-	_, err := a.chatWithRelogin(context.Background(), stale, "hi", false)
+	_, err := a.chatWithRelogin(context.Background(), stale, "hi", chatOptions{})
 	if err == nil || browser.starts.Load() != 1 || attempts.Load() != 2 {
 		t.Fatal("chat did not stop after a single refresh retry")
 	}
 	current, _ := a.currentCredential(stale.UID)
-	_, err = a.chatWithRelogin(context.Background(), current, "hi", false)
+	_, err = a.chatWithRelogin(context.Background(), current, "hi", chatOptions{})
 	if err == nil || browser.starts.Load() != 1 || attempts.Load() != 3 {
 		t.Fatal("invalid refreshed session bypassed failure cooldown")
 	}
