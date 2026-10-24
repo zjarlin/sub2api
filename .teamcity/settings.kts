@@ -43,7 +43,12 @@ object Deploy182Gateway : BuildType({
             param("branchFilter", "+:<default>")
             // 只改 TeamCity 配置本身（.teamcity/**）时不重跑部署，
             // 避免因为改流水线文案把线上网关/天津服务重启一遍。
-            param("triggerRules", "+:.:-:.teamcity/**")
+            // Mac mini 由 GitHub Actions 自托管 runner 部署（.github/workflows/macmini-deploy.yml），
+            // 其部署脚本/测试/文档的改动不得触发 182 网关或天津媒体重建。
+            param(
+                "triggerRules",
+                "+:.:-:.teamcity/**:-:deploy/macmini/**:-:deploy/tests/macmini-deploy-test.sh:-:.github/workflows/macmini-deploy.yml"
+            )
         }
     }
 
@@ -122,7 +127,12 @@ object DeployTianjinMedia : BuildType({
             param("branchFilter", "+:<default>")
             // 只改 TeamCity 配置本身（.teamcity/**）时不重跑部署，
             // 避免因为改流水线文案把线上网关/天津服务重启一遍。
-            param("triggerRules", "+:.:-:.teamcity/**")
+            // Mac mini 由 GitHub Actions 自托管 runner 部署（.github/workflows/macmini-deploy.yml），
+            // 其部署脚本/测试/文档的改动不得触发 182 网关或天津媒体重建。
+            param(
+                "triggerRules",
+                "+:.:-:.teamcity/**:-:deploy/macmini/**:-:deploy/tests/macmini-deploy-test.sh:-:.github/workflows/macmini-deploy.yml"
+            )
         }
     }
 
