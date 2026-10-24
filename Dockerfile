@@ -163,8 +163,11 @@ COPY --from=backend-builder --chown=sub2api:sub2api /app/backend/resources /app/
 RUN mkdir -p /app/data && chown sub2api:sub2api /app/data
 
 # Copy entrypoint script (fixes volume permissions then drops to sub2api)
+# 显式 0755：git 只记录可执行位，受 umask 077 约束的 checkout（CI/受限 shell）
+# 会把文件检出为 0600，`chmod +x` 只得到 0711，非 root 的 sub2api 用户读不到脚本，
+# 容器会以 “can't open ... Permission denied” 立即退出。
 COPY deploy/docker-entrypoint.sh /app/docker-entrypoint.sh
-RUN chmod +x /app/docker-entrypoint.sh
+RUN chmod 0755 /app/docker-entrypoint.sh
 
 # Expose port (can be overridden by SERVER_PORT env var)
 EXPOSE 8080
