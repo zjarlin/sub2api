@@ -39,6 +39,7 @@ var packagedDirectModelIDs = []string{
 }
 
 type autoModelRouteCandidate struct {
+	accountID      int64
 	model          string
 	targetPlatform string
 	upstreamModel  string
@@ -473,8 +474,16 @@ func (h *GatewayHandler) AutoModelMiddleware(resolver *service.CompositeRouteRes
 				return
 			}
 		}
+		if virtualModel == autoModelID {
+			routes = prependAccountExhaustionRoutes(ctx, apiKey.Group.ID, body, routes)
+			plan = accountExhaustionRoutePlan(routes, plan)
+		}
 		selected := routes[0]
 		model := selected.model
+		if selected.accountID > 0 {
+			ctx = service.WithAccountExhaustionRoute(ctx, selected.accountID, selected.upstreamModel)
+		}
+
 		c.Set(autoModelPlanKey, plan)
 		c.Request = c.Request.WithContext(service.WithCompositeRouteDecision(ctx, service.CompositeRouteDecision{
 			Matched: true, GroupID: apiKey.Group.ID, PublicModel: model,

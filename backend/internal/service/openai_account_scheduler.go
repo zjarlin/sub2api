@@ -1443,6 +1443,9 @@ func (s *defaultOpenAIAccountScheduler) tryAcquireOpenAIAccountSlot(
 		return nil, false, nil
 	}
 	result, err := s.service.tryAcquireAccountSlot(ctx, accountID, maxConcurrency)
+	if err == nil && result != nil && !result.Acquired {
+		markExhaustionAccountBusy(ctx, accountID)
+	}
 	return result, true, err
 }
 
@@ -2438,7 +2441,14 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	previousResponseCanMove bool,
 	useUpstreamTokenCost bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	if _, ok := ctx.Value(exhaustionRouteKey{}).(exhaustionRoute); !ok {
+		ctx = WithAccountExhaustionRoute(ctx, 0, requestedModel)
+	}
+	excludedIDs = exhaustionExcludedAccounts(ctx, requestedModel, excludedIDs)
 	selection, decision, err := s.selectAccountWithSchedulerOnce(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
+	if AccountExhaustionTarget(ctx) > 0 {
+		return selection, decision, err
+	}
 	if err == nil {
 		return selection, decision, err
 	}
@@ -2612,6 +2622,18 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 	if strings.TrimSpace(previousResponseID) == "" {
 		guardianParentAccountID = s.resolveOpenAIGuardianParentAccountID(ctx, groupID)
 	}
+	if selected, exhaustionDecision, handled, err := s.selectExhaustionAccount(ctx, OpenAIAccountScheduleRequest{
+		GroupID: groupID, Platform: platform, SessionHash: sessionHash,
+		PreviousResponseID: previousResponseID, GuardianParentAccountID: guardianParentAccountID,
+		RequestedModel: requestedModel, ExcludedIDs: excludedIDs,
+		RequiredTransport: requiredTransport, RequiredCapability: requiredCapability,
+		RequiredImageCapability: requiredImageCapability, RequireCompact: requireCompact,
+		RequirePrivacySet:     s.openAIGroupRequiresPrivacySet(ctx, groupID),
+		PreserveStickyBinding: preserveGuardianParentBinding,
+	}); handled {
+		return selected, exhaustionDecision, err
+	}
+	excludedIDs = exhaustionExcludedAccounts(ctx, requestedModel, excludedIDs)
 	scheduler := s.getOpenAIAccountScheduler(ctx)
 	if scheduler == nil {
 		decision.Layer = openAIAccountScheduleLayerLoadBalance

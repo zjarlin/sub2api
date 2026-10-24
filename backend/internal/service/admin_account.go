@@ -582,6 +582,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if err := s.ValidateAccountGroupBindings(ctx, groupIDs); err != nil {
 		return nil, err
 	}
+	if err := ValidateAccountExhaustionPolicy(account, groupIDs); err != nil {
+		return nil, err
+	}
 	if err := s.accountRepo.Create(ctx, account); err != nil {
 		return nil, err
 	}
@@ -971,6 +974,14 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 	}
 
+	exhaustionGroups := account.GroupIDs
+	if input.GroupIDs != nil {
+		exhaustionGroups = *input.GroupIDs
+	}
+	if err := ValidateAccountExhaustionPolicy(account, exhaustionGroups); err != nil {
+		return nil, err
+	}
+
 	billingSettingsAppliedAtomically := false
 	updater := s.accountBillingRepo
 	if updater == nil {
@@ -1036,6 +1047,21 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
 // （如 model_rate_limits / passive_usage_* 等）。
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
+	if raw, ok := updates[AccountExhaustionExtraKey]; ok {
+		account, err := s.accountRepo.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		candidate := *account
+		candidate.Extra = maps.Clone(account.Extra)
+		if candidate.Extra == nil {
+			candidate.Extra = map[string]any{}
+		}
+		candidate.Extra[AccountExhaustionExtraKey] = raw
+		if err := ValidateAccountExhaustionPolicy(&candidate, account.GroupIDs); err != nil {
+			return err
+		}
+	}
 	updates = sanitizedCodexFingerprintExtraUpdates(updates)
 	updates = stripOpenAIAutoResetCreditManagedExtra(updates, true)
 	delete(updates, UpstreamBillingProbeEnabledExtraKey)
@@ -1065,6 +1091,9 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 // It merges credentials/extra keys instead of overwriting the whole object.
 func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error) {
 	// Managed probe/session state may only enter through dedicated typed endpoints.
+	if _, ok := input.Extra[AccountExhaustionExtraKey]; ok {
+		return nil, infraerrors.BadRequest("INVALID_EXHAUSTION_POLICY", "configure exhaustion mode on individual accounts")
+	}
 	input.Extra = sanitizedCodexFingerprintExtraUpdates(input.Extra)
 	input.Extra = stripOpenAIAutoResetCreditManagedExtra(input.Extra, true)
 	delete(input.Extra, UpstreamBillingProbeEnabledExtraKey)

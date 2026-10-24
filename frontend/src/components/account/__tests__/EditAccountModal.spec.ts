@@ -2322,3 +2322,45 @@ describe('EditAccountModal temp-unschedulable rule scope', () => {
     wrapper.unmount()
   })
 })
+
+
+describe('EditAccountModal exhaustion policy', () => {
+  it('saves ordered models and reloads the switch', async () => {
+    const account = buildAccount()
+    account.credentials.model_mapping = { 'glm-5.3': 'glm-5.3', 'qwen3.8-max': 'qwen3.8-max' }
+    account.extra = { keep_this: 'existing' }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    const field = wrapper.get('[data-testid="exhaustion-policy"]')
+    await field.get('input[type="checkbox"]').setValue(true)
+    for (const model of ['glm-5.3', 'qwen3.8-max']) {
+      await field.get('select').setValue(model)
+      await field.get('select + button').trigger('click')
+    }
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.lastCall?.[1]?.extra).toMatchObject({
+      keep_this: 'existing', exhaustion_policy: { enabled: true, models: ['glm-5.3', 'qwen3.8-max'], group_ids: [] }
+    })
+    await wrapper.setProps({ account: { ...account, id: 2, extra: { exhaustion_policy: { enabled: false, models: ['qwen3.8-max'], group_ids: [] } } } })
+    expect((field.get('input[type="checkbox"]').element as HTMLInputElement).checked).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('rejects empty enabled policy and allows disabling stale selections', async () => {
+    const account = buildAccount()
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="exhaustion-policy"] input').setValue(true)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).not.toHaveBeenCalled()
+    await wrapper.setProps({ account: { ...account, id: 2, extra: { exhaustion_policy: { enabled: true, models: ['removed-model'], group_ids: [] } } } })
+    await wrapper.get('[data-testid="exhaustion-policy"] input').setValue(false)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.lastCall?.[1]?.extra?.exhaustion_policy.enabled).toBe(false)
+    wrapper.unmount()
+  })
+})

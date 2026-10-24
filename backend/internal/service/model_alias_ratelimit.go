@@ -31,7 +31,7 @@ func (s *RateLimitService) handleModelAlias429(ctx context.Context, a *Account, 
 		return false
 	}
 	// 调用点可能传入已还原的实际模型，也可能传入规范名。
-	if !p.isTreeGroup(canonical) {
+	if !p.isTreeGroup(canonical) && !(a.ExhaustionPolicy().Enabled && exhaustionMatchesModel(ctx, a, model)) {
 		return false
 	}
 	target := model

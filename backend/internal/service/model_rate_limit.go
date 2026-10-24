@@ -76,10 +76,8 @@ func (a *Account) modelRateLimitKeysForRequest(ctx context.Context, requestedMod
 		return nil
 	}
 
-	keys := []string{modelKey}
-	if (&ModelAliasPolicy{Groups: a.modelAliasGroups}).isTreeGroup((&ModelAliasPolicy{Groups: a.modelAliasGroups}).Canonicalize(requestedModel)) {
-		keys = append(keys, modelAliasRateLimitKey(a, modelKey))
-	}
+	// 精确模型冷却跨别名与榨干开关保留，切换基础地址时自然隔离。
+	keys := []string{modelKey, modelAliasRateLimitKey(a, modelKey)}
 	switch a.Platform {
 	case PlatformAntigravity:
 		if isAntigravityGeminiModel(modelKey) && !isAntigravityGeminiImageModel(modelKey) && modelKey != antigravityGeminiModelRateLimitKey {

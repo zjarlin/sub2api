@@ -1,3 +1,4 @@
+import exhaustion from './exhaustion'
 import overview from './overview'
 import channels from './channels'
 import accounts from './accounts'
@@ -10,6 +11,7 @@ import plugins from './plugins'
 import edgeWeather from './edgeWeather'
 
 export default {
+  ...exhaustion,
   ...overview,
   ...channels,
   ...accounts,

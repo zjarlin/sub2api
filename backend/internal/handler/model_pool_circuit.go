@@ -43,7 +43,7 @@ func (r *openAIModelPoolRound) reset(model string) {
 }
 
 func (r *openAIModelPoolRound) allowed(ctx context.Context) bool {
-	if !r.replayable || r.gateway == nil {
+	if service.AccountExhaustionTarget(ctx) > 0 || !r.replayable || r.gateway == nil {
 		return true
 	}
 	if !r.checked {

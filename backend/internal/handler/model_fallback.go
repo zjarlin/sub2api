@@ -28,6 +28,7 @@ type modelFallbackState struct {
 }
 
 type modelFallbackTarget struct {
+	accountID     int64
 	platform      string
 	upstreamModel string
 }
@@ -36,6 +37,9 @@ const modelFallbackStateKey = "model_fallback_state"
 
 // 候选列表固定在本次请求，防止修改档位或别名映射导致循环；有服务端会话状态时不换模型。
 func (h *OpenAIGatewayHandler) nextModelFallback(c *gin.Context, apiKey *service.APIKey, model string, body []byte, compact bool) (modelFallbackAttempt, bool) {
+	if service.AccountExhaustionTarget(c.Request.Context()) > 0 && service.OpenAICompactKeepaliveAdjustedWrittenSize(c) > 0 {
+		return modelFallbackAttempt{}, false
+	}
 	if h.gatewayService == nil {
 		return modelFallbackAttempt{}, false
 	}
@@ -86,7 +90,11 @@ func (h *OpenAIGatewayHandler) nextModelFallback(c *gin.Context, apiKey *service
 		if routed {
 			original = candidate.Model
 		}
-		ctx := context.WithValue(c.Request.Context(), ctxkey.RequestedPublicModel, original)
+		routeCtx := c.Request.Context()
+		if service.AccountExhaustionTarget(routeCtx) > 0 || target.accountID > 0 {
+			routeCtx = service.WithAccountExhaustionRoute(routeCtx, target.accountID, forwardModel)
+		}
+		ctx := context.WithValue(routeCtx, ctxkey.RequestedPublicModel, original)
 		ctx = context.WithValue(ctx, ctxkey.ResolvedUpstreamModel, forwardModel)
 		if routed && target.platform != "" {
 			ctx = service.WithResolvedTargetPlatform(ctx, target.platform)
@@ -121,9 +129,15 @@ func seedAutoModelFallback(c *gin.Context, selected string, routes []autoModelRo
 	// 初选保留既有性价比顺序；只有初选失败才按同模型、同系列和版本前缀排序。
 	// routes 在进入这里前已完成别名归一、能力预检和账号可用性检查。
 	ordered := append([]autoModelRouteCandidate(nil), routes...)
-	sort.SliceStable(ordered, func(i, j int) bool {
-		left := calculateAutoModelFallbackSimilarity(selected, ordered[i].model)
-		right := calculateAutoModelFallbackSimilarity(selected, ordered[j].model)
+	// 榨干候选顺序是管理员配置，只有后面的普通池按相似度排序。
+	normalStart := 0
+	for normalStart < len(ordered) && ordered[normalStart].accountID > 0 {
+		normalStart++
+	}
+	normal := ordered[normalStart:]
+	sort.SliceStable(normal, func(i, j int) bool {
+		left := calculateAutoModelFallbackSimilarity(selected, normal[i].model)
+		right := calculateAutoModelFallbackSimilarity(selected, normal[j].model)
 		return left.less(right)
 	})
 	state := &modelFallbackState{}
@@ -134,7 +148,7 @@ func seedAutoModelFallback(c *gin.Context, selected string, routes []autoModelRo
 			continue
 		}
 		state.candidates = append(state.candidates, service.ModelFallbackCandidate{Model: route.model, Tier: "auto"})
-		state.targets = append(state.targets, modelFallbackTarget{platform: route.targetPlatform, upstreamModel: route.upstreamModel})
+		state.targets = append(state.targets, modelFallbackTarget{accountID: route.accountID, platform: route.targetPlatform, upstreamModel: route.upstreamModel})
 	}
 	c.Set(modelFallbackStateKey, state)
 }
@@ -152,7 +166,7 @@ func seedModelTierFallback(c *gin.Context, selected string, routes []autoModelRo
 			continue
 		}
 		state.candidates = append(state.candidates, service.ModelFallbackCandidate{Model: route.model, Tier: "tier"})
-		state.targets = append(state.targets, modelFallbackTarget{platform: route.targetPlatform, upstreamModel: route.upstreamModel})
+		state.targets = append(state.targets, modelFallbackTarget{accountID: route.accountID, platform: route.targetPlatform, upstreamModel: route.upstreamModel})
 	}
 	c.Set(modelFallbackStateKey, state)
 }

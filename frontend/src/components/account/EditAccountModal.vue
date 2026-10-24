@@ -1882,6 +1882,13 @@
         :type="account.type"
       />
 
+      <ExhaustionPolicyField
+        v-if="platformUsesGateway(account.platform, 'openai')"
+        v-model="exhaustionPolicy"
+        :models="exhaustionModels"
+        :groups="groups.filter(group => form.group_ids.includes(group.id))"
+      />
+
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.concurrency') }}</label>
@@ -3376,6 +3383,9 @@ import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
+import ExhaustionPolicyField from './exhaustion/ExhaustionPolicyField.vue'
+import { readExhaustionPolicy, exhaustionModelOptions } from './exhaustion/policy'
+import { platformUsesGateway } from '@/constants/platformCatalog'
 import UpstreamRequestIdHeaderField from '@/components/account/UpstreamRequestIdHeaderField.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -3861,6 +3871,10 @@ const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
+const exhaustionPolicy = ref(readExhaustionPolicy())
+const exhaustionModels = computed(() => exhaustionModelOptions(
+  buildModelRestrictionMapping(), props.account?.extra as Record<string, unknown> | undefined
+))
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const DEFAULT_POOL_MODE_RETRY_STATUS_CODES = [401, 403, 429]
@@ -4503,6 +4517,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     ? newAccount.status
     : 'active'
   form.group_ids = newAccount.group_ids || []
+  exhaustionPolicy.value = readExhaustionPolicy(newAccount.extra as Record<string, unknown> | undefined)
   form.expires_at = newAccount.expires_at ?? null
 
   // Load intercept warmup requests setting (applies to all account types)
@@ -5571,6 +5586,13 @@ const handleSubmit = async () => {
     return
   }
   const accountID = props.account.id
+  if (exhaustionPolicy.value.enabled && (exhaustionPolicy.value.models.length === 0 ||
+    exhaustionPolicy.value.models.length > 16 ||
+    exhaustionPolicy.value.models.some(model => !exhaustionModels.value.includes(model)) ||
+    exhaustionPolicy.value.group_ids.some(id => !form.group_ids.includes(id)))) {
+    appStore.showError(t('admin.exhaustion.invalid'))
+    return
+  }
 
   if (form.status !== 'active' && form.status !== 'inactive' && form.status !== 'error') {
     appStore.showError(t('admin.accounts.pleaseSelectStatus'))
@@ -6367,6 +6389,10 @@ const handleSubmit = async () => {
         delete newExtra.upstream_request_id_header
       }
       updatePayload.extra = newExtra
+    }
+
+    if (platformUsesGateway(props.account.platform, 'openai')) {
+      updatePayload.extra = { ...(updatePayload.extra as Record<string, unknown>), exhaustion_policy: exhaustionPolicy.value }
     }
 
     const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {

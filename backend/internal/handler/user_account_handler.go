@@ -170,6 +170,10 @@ func (h *UserAccountHandler) Update(c *gin.Context) {
 	if req.Extra != nil {
 		extra = ownedAccountExtra(req.Extra)
 	}
+	// 用户只能维护普通参数，保留管理员设置的调度优先策略。
+	if policy, ok := account.Extra[service.AccountExhaustionExtraKey]; ok {
+		extra[service.AccountExhaustionExtraKey] = policy
+	}
 	skipCheck := req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk
 	updated, err := h.adminService.UpdateAccount(c.Request.Context(), accountID, &service.UpdateAccountInput{
 		Name:                  req.Name,
@@ -202,6 +206,7 @@ func ownedAccountExtra(source map[string]any) map[string]any {
 	for key, value := range source {
 		extra[key] = value
 	}
+	delete(extra, service.AccountExhaustionExtraKey)
 	extra[service.AccountPublicSharingExtraKey] = true
 	return extra
 }

@@ -40,12 +40,13 @@ type RouteArtifact struct {
 }
 
 type AutoModelCandidate struct {
-	Model    string   `json:"model"`
-	Platform string   `json:"platform"`
-	Aliases  []string `json:"aliases,omitempty"`
-	Eligible bool     `json:"eligible"`
-	Order    int      `json:"order,omitempty"`
-	Reason   string   `json:"reason,omitempty"`
+	AccountID int64    `json:"account_id,omitempty"`
+	Model     string   `json:"model"`
+	Platform  string   `json:"platform"`
+	Aliases   []string `json:"aliases,omitempty"`
+	Eligible  bool     `json:"eligible"`
+	Order     int      `json:"order,omitempty"`
+	Reason    string   `json:"reason,omitempty"`
 }
 
 type AutoModelRouteStore interface {
