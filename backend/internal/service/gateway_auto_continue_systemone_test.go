@@ -321,6 +321,19 @@ func TestAutoContinueFallbackTodosSkipRecommendedOptions(t *testing.T) {
 	require.Equal(t, []string{"补充回归测试并运行", "更新文档"}, autoContinueFallbackTodos(text, 8))
 }
 
+func TestAutoContinueFallbackTodosReadsInlineNumberedList(t *testing.T) {
+	// 弱模型常把清单压在同一行，只按行首编号匹配会整份漏掉待办。
+	text := "已定位到空指针在第 42 行。下一步：1. 修改 gateway.go 第 42 行 2. 补充单测 3. 运行 go test 验证"
+	require.Equal(t, []string{"修改 gateway.go 第 42 行", "补充单测", "运行 go test 验证"}, autoContinueFallbackTodos(text, 8))
+}
+
+func TestAutoContinueFallbackTodosIgnoresSingleNumberedSentence(t *testing.T) {
+	// 只有一个编号是叙述而非清单，不能当成待办清单回填。
+	require.Empty(t, autoContinueFallbackTodos("下一步：1. 只需要改一处，稍等。", 8))
+	// 小数会被编号模式误命中，必须跳过而不是把余数当成步骤。
+	require.Empty(t, autoContinueFallbackTodos("下一步：放大到 1.5 倍再看。", 8))
+}
+
 func TestAutoContinueBuildRequestCarriesTodoList(t *testing.T) {
 	decision := &AutoContinueDecision{ID: "d1", Source: "repair", Plan: "修正协议", Reason: "已定位"}
 	body, err := autoContinueBuildRequestWithTodos([]byte(autoContinueTestInput), []byte(`{"output":[]}`), &autoContinueCandidate{}, decision, []string{"修正协议", "运行回归"})

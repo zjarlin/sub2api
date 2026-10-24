@@ -41,6 +41,7 @@ func (s *OpenAIGatewayService) forwardWithAutoContinue(ctx context.Context, c *g
 	var previousBody []byte
 	var previousPricingAt time.Time
 	var decisions []*AutoContinueDecision
+	var lastCandidate *autoContinueCandidate
 	rounds := 0
 	compacted := false
 	for {
@@ -132,6 +133,23 @@ func (s *OpenAIGatewayService) forwardWithAutoContinue(ctx context.Context, c *g
 		if candidate == nil {
 			return result, writer.release()
 		}
+		if rounds > 0 && previousWriter != nil && !writer.live && ctx.Err() == nil && autoContinueSameStall(lastCandidate, candidate) {
+			// 续跑后模型又输出同一个停顿：再判一次只会追加重复报告并耗尽轮次，
+			// 对用户没有任何新信息，因此按「无进展」停止并只保留上一轮的询问。
+			if result != nil {
+				appendAutoContinueUsage(c, account, body, pricingAt, result)
+			}
+			logger.FromContext(ctx).Warn("gateway.auto_continue_no_progress", zap.Int64("account_id", account.ID), zap.Int("round", rounds))
+			previousWriter.reportItems = autoContinueReportItems(previousBody, decisions, getAPIKeyIDFromContext(c), s.cfg.JWT.Secret)
+			previousWriter.Header().Set("X-Sub2API-Auto-Continue", "no_progress")
+			if compacted {
+				previousWriter.Header().Set("X-Sub2API-Auto-Compaction", "retry_failed")
+			}
+			if flushErr := previousWriter.release(); flushErr != nil {
+				return previousResult, flushErr
+			}
+			return previousResult, previousErr
+		}
 		var nextBody []byte
 		var decision *AutoContinueDecision
 		var decisionErr error
@@ -149,22 +167,23 @@ func (s *OpenAIGatewayService) forwardWithAutoContinue(ctx context.Context, c *g
 		if decision == nil {
 			return result, writer.release()
 		}
-		if recordErr := s.recordAutoContinueDecision(ctx, c, body, decision); recordErr != nil {
-			logger.FromContext(ctx).Warn("gateway.auto_continue_record_failed", zap.Error(recordErr))
-			writer.Header().Set("X-Sub2API-Auto-Continue", "record_failed")
-			return result, writer.release()
-		}
 		if nextBody == nil {
 			// 续跑前把遗留工作整理成 TODO；清单失败只用正文编号兜底，不阻塞续跑。
 			// 判据通道不可用时，报告沿用推荐决定，规划改用最高档仲裁的方案。
-			todos := s.planAutoContinueTodos(ctx, c, account, body, candidate, decision)
-			decision.Todo = todos
+			// 必须先规划再落库：裁决记录是事后追溯「实际执行目标」的唯一凭据，
+			// 先写库会让每条记录都留下空待办，无法复盘续跑究竟要求模型做什么。
+			decision.Todo = s.planAutoContinueTodos(ctx, c, account, body, candidate, decision)
 			var buildErr error
-			nextBody, buildErr = autoContinueBuildRequestWithTodos(body, response, candidate, decision, todos)
+			nextBody, buildErr = autoContinueBuildRequestWithTodos(body, response, candidate, decision, decision.Todo)
 			if buildErr != nil {
 				logger.FromContext(ctx).Warn("gateway.auto_continue_replay_failed", zap.Error(buildErr))
 				return result, writer.release()
 			}
+		}
+		if recordErr := s.recordAutoContinueDecision(ctx, c, body, decision); recordErr != nil {
+			logger.FromContext(ctx).Warn("gateway.auto_continue_record_failed", zap.Error(recordErr))
+			writer.Header().Set("X-Sub2API-Auto-Continue", "record_failed")
+			return result, writer.release()
 		}
 		previousWriter, previousResult = writer, result
 		previousErr = nil
@@ -172,9 +191,37 @@ func (s *OpenAIGatewayService) forwardWithAutoContinue(ctx context.Context, c *g
 		body = nextBody
 		compacted = compacted || needsCompaction
 		decisions = append(decisions, decision)
+		lastCandidate = candidate
 		rounds++
 		logger.FromContext(ctx).Info("gateway.auto_continue", zap.Int64("account_id", account.ID), zap.Int("round", rounds), zap.Int("questions", len(candidate.Questions)))
 	}
+}
+
+// autoContinueSameStall 判断续跑后是否又回到同一处停顿。
+// 只比较正文与问题内容：工具调用 ID 每轮都会重新生成，不能作为「有新进展」的依据。
+func autoContinueSameStall(previous, current *autoContinueCandidate) bool {
+	if previous == nil || current == nil {
+		return false
+	}
+	type stalledContent struct {
+		Text      string                 `json:"text"`
+		Questions []autoContinueQuestion `json:"questions"`
+	}
+	normalize := func(candidate *autoContinueCandidate) []byte {
+		encoded, err := json.Marshal(stalledContent{
+			Text:      strings.Join(strings.Fields(candidate.Text), " "),
+			Questions: candidate.Questions,
+		})
+		if err != nil {
+			return nil
+		}
+		return encoded
+	}
+	previousContent := normalize(previous)
+	if previousContent == nil {
+		return false
+	}
+	return bytes.Equal(previousContent, normalize(current))
 }
 
 // 内部成功回合复用已有辅助用量队列，与最终结果分别入账，失败回退也不重复计费。

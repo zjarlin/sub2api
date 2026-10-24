@@ -129,6 +129,8 @@ func TestAutoContinueRecommendedChoiceAndDurableReport(t *testing.T) {
 	_, err = uuid.Parse(store.routes[0].SessionID)
 	require.NoError(t, err)
 	require.Equal(t, "recommended", store.routes[0].Operation.Decision.Source)
+	// 待办必须在落库前规划完成，否则审计记录会留下空清单，无法复盘实际执行目标。
+	require.Equal(t, []string{"合并工作台入口", "运行回归测试"}, store.routes[0].Operation.Decision.Todo)
 	require.Equal(t, "continued", recorder.Header().Get("X-Sub2API-Auto-Continue"))
 	// 执行轮 + TODO 规划轮各自计费。
 	usage := TakeVisionFallbackUsage(c)
@@ -136,6 +138,37 @@ func TestAutoContinueRecommendedChoiceAndDurableReport(t *testing.T) {
 	for _, record := range usage {
 		require.NotEqual(t, record.Result.RequestID, result.RequestID)
 	}
+}
+
+func TestAutoContinueRepeatedStallReportsOnceAndStops(t *testing.T) {
+	svc, account, store, _ := autoContinueTestService(t, "design", func(body []byte, call int) (*http.Response, error) {
+		if strings.HasPrefix(gjson.GetBytes(body, "messages.0.content").String(), autoContinueTodoPlanPromptPrefix) {
+			return visionTestResponse("text-model", `{"todos":["合并工作台入口","运行回归测试"]}`), nil
+		}
+		// 首轮与续跑后回到完全相同的停顿：网关应停止续跑，而不是再判一次并重复报告。
+		return visionTestResponse("text-model", autoContinueTestQuestion), nil
+	})
+	c, recorder := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
+	result, err := svc.Forward(context.Background(), c, account, []byte(autoContinueTestInput))
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, "no_progress", recorder.Header().Get("X-Sub2API-Auto-Continue"))
+	// 只落一条裁决记录，说明第二轮没有被当成新进展再次续跑。
+	require.Len(t, store.routes, 1)
+	require.Equal(t, []string{"合并工作台入口", "运行回归测试"}, store.routes[0].Operation.Decision.Todo)
+	require.Len(t, gjson.Get(recorder.Body.String(), "output").Array(), 2)
+	require.Equal(t, 1, strings.Count(recorder.Body.String(), "已采用以下方案并续跑"))
+	require.Contains(t, recorder.Body.String(), store.routes[0].Operation.Decision.ID)
+}
+
+func TestAutoContinueSameStallIgnoresToolCallIdentity(t *testing.T) {
+	first := &autoContinueCandidate{Text: "请选择方案\n", Questions: []autoContinueQuestion{{ID: "selection_0", Prompt: "选择方案", Options: map[string]string{"1": "按已确认设计", "2": "重写入口"}}}}
+	second := &autoContinueCandidate{Text: "请选择方案\n", Questions: []autoContinueQuestion{{ID: "selection_0", Prompt: "选择方案", Options: map[string]string{"2": "重写入口", "1": "按已确认设计"}}}}
+	require.True(t, autoContinueSameStall(first, second))
+	progressed := &autoContinueCandidate{Text: "已合并并验证\n"}
+	require.False(t, autoContinueSameStall(first, progressed))
+	require.False(t, autoContinueSameStall(nil, first))
+	require.False(t, autoContinueSameStall(first, nil))
 }
 
 func TestAutoContinueDiagnosedDefectImmediatelyRepairs(t *testing.T) {
@@ -348,8 +381,9 @@ func TestAutoContinuePreservesQuestionOnDecisionAndPersistenceFailures(t *testin
 }
 
 func TestAutoContinueBoundedAndSkipsCompletedWork(t *testing.T) {
-	svc, account, store, decisions := autoContinueTestService(t, "repair", func(_ []byte, _ int) (*http.Response, error) {
-		return visionTestResponse("text-model", "已经定位，目前尚未修复。"), nil
+	svc, account, store, decisions := autoContinueTestService(t, "repair", func(_ []byte, call int) (*http.Response, error) {
+		// 每轮措辞必须不同，否则会被判定为「再次回到同一停顿」提前停止，测不到轮次上限。
+		return visionTestResponse("text-model", fmt.Sprintf("已经定位，第 %d 次确认尚未修复。", call)), nil
 	})
 	c, _ := autoContinueTestContext([]byte(autoContinueTestInput), 9, 7)
 	_, err := svc.Forward(context.Background(), c, account, []byte(autoContinueTestInput))

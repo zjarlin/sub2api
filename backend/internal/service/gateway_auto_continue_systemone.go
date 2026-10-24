@@ -52,8 +52,9 @@ var autoContinueNewWorkPhrases = []string{
 
 var autoContinueNumberedLine = regexp.MustCompile(`^\s*(?:[-*+]\s*)?(\d+)[.)、]\s*(.+)$`)
 
-// autoContinueTodoAction 只保留以动作开头的清单项，过滤掉客套和纯说明。
-var autoContinueTodoAction = regexp.MustCompile(`(?i)^(改|修|加|补|删|移|重构|实现|验证|运行|测试|检查|更新|新增|完善|调整|编写|添加|确认|回滚|部署|同步|处理|定位|复现|remove|add|fix|update|implement|verify|run|test|check|refactor|deploy|write|migrate|confirm)`)
+// autoContinueInlineNumbered 只定位正文里内联编号的起点（「下一步：1. 改 A 2. 跑测试」）。
+// Go 的 RE2 不支持前瞻，所以不在这里截断项目正文，而是按相邻起点切片。
+var autoContinueInlineNumbered = regexp.MustCompile(`(?:^|[\s：:；;，,。])\d+[.)、]\s*`)
 
 // autoContinueSystemOneQuestions 保留原始选择题，供判据在续跑时选择推荐之外的方案。
 func autoContinueSystemOneQuestions(candidate *autoContinueCandidate) (map[string]any, error) {
@@ -656,26 +657,70 @@ func decodeAutoContinueTodos(body []byte, limit int) []string {
 }
 
 // autoContinueFallbackTodos 从助手正文提取编号待办，跳过带推荐标记的备选方案，避免把“做哪一个”当成步骤。
+// 模型常把清单写在“下一步：”后面的同一行（1. … 2. … 3. …），只按行首匹配会整份漏掉，
+// 让续跑请求缺少可执行目标，所以行首编号之外也要识别正文中的内联编号。
 func autoContinueFallbackTodos(text string, limit int) []string {
 	var todos []string
 	seen := make(map[string]bool)
-	for _, line := range strings.Split(text, "\n") {
-		match := autoContinueNumberedLine.FindStringSubmatch(line)
-		if match == nil {
-			continue
-		}
-		item := strings.TrimSpace(match[2])
+	add := func(raw string) bool {
+		item := strings.TrimSpace(raw)
 		item = strings.Trim(item, "*` ")
+		item = strings.TrimSpace(strings.TrimRight(item, "；;，,。 "))
 		if item == "" || len(item) > 400 || seen[item] || autoContinueRecommendation.MatchString(item) {
-			continue
+			return false
 		}
 		seen[item] = true
 		todos = append(todos, item)
-		if len(todos) >= limit {
-			break
+		return len(todos) >= limit
+	}
+	for _, line := range strings.Split(text, "\n") {
+		if match := autoContinueNumberedLine.FindStringSubmatch(line); match != nil {
+			if add(match[2]) {
+				return todos
+			}
+			continue
+		}
+		for _, item := range autoContinueInlineTodoItems(line) {
+			if add(item) {
+				return todos
+			}
 		}
 	}
 	return todos
+}
+
+// autoContinueInlineTodoItems 按相邻编号起点切出同一行内的待办正文。
+// 至少要两个编号才当成清单，避免把「第 1 步」这类叙述误判成待办。
+func autoContinueInlineTodoItems(line string) []string {
+	starts := autoContinueInlineNumbered.FindAllStringIndex(line, -1)
+	type numberedStart struct {
+		begin int
+		after int
+	}
+	numbered := make([]numberedStart, 0, len(starts))
+	for _, start := range starts {
+		// 「1.5 倍」这类小数会被数字后的句点误认成编号，跳过而不是把余数当步骤。
+		if start[1] < len(line) && line[start[1]] >= '0' && line[start[1]] <= '9' {
+			continue
+		}
+		numbered = append(numbered, numberedStart{begin: start[0], after: start[1]})
+	}
+	if len(numbered) < 2 {
+		return nil
+	}
+	items := make([]string, 0, len(numbered))
+	for index, start := range numbered {
+		end := len(line)
+		if index+1 < len(numbered) {
+			end = numbered[index+1].begin
+		}
+		item := strings.TrimSpace(strings.TrimRight(line[start.after:end], "；;，,。 "))
+		if item == "" {
+			continue
+		}
+		items = append(items, item)
+	}
+	return items
 }
 
 // autoContinueTodoNote 生成续跑时注入的开发者消息；不冒充用户新授权。
