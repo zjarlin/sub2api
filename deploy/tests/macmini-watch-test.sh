@@ -134,17 +134,38 @@ run_watch
 grep -qx "$head5" "$FAKE_DEPLOY_LOG" || fail "code change must redeploy"
 pass "image-affecting change redeploys"
 
-# 8) WATCH_PATHS 显式置空：任何提交都部署（允许按需放宽）。
+# 8) 新增 Dockerfile.goreleaser 虽不命中旧守卫的列表，也必须重建。
+#    只调整入口脚本的权限位时 Git 仍视为变化，但镜像内容不变，只前进状态。
+mkdir -p "$test_dir/seed/deploy"
+printf '#!/bin/sh\n' > "$test_dir/seed/deploy/docker-entrypoint.sh"
+printf 'FROM scratch\n' > "$test_dir/seed/Dockerfile.goreleaser"
+git_q -C "$test_dir/seed" add -A
+git_q -C "$test_dir/seed" commit --quiet -m "add build inputs"
+build_head="$(git -C "$test_dir/seed" rev-parse HEAD)"
+git_q -C "$test_dir/seed" push --quiet origin HEAD:refs/heads/main
+run_watch
+grep -qx "$build_head" "$FAKE_DEPLOY_LOG" || fail "Dockerfile.goreleaser addition must deploy"
+before_count="$(grep -c . "$FAKE_DEPLOY_LOG")"
+git -C "$test_dir/seed" update-index --chmod=+x deploy/docker-entrypoint.sh
+git_q -C "$test_dir/seed" commit --quiet -m "mode only"
+mode_head="$(git -C "$test_dir/seed" rev-parse HEAD)"
+git_q -C "$test_dir/seed" push --quiet origin HEAD:refs/heads/main
+run_watch
+[ "$(grep -c . "$FAKE_DEPLOY_LOG")" = "$before_count" ] || fail "mode-only commit should not redeploy"
+[ "$(awk '{print $1}' "$work/.macmini-watch.deployed")" = "$mode_head" ] || fail "state not recorded for mode-only commit"
+pass "goreleaser input deploys; mode-only change is tracked"
+
+# 9) WATCH_PATHS 显式置空：跟踪整棵工作树的内容，文档内容变化也要重建。
 printf 'more notes\n' >> "$test_dir/seed/NOTES.md"
 git_q -C "$test_dir/seed" commit --quiet -am "docs only again"
 git_q -C "$test_dir/seed" push --quiet origin HEAD:refs/heads/main
 head6="$(git -C "$test_dir/seed" rev-parse HEAD)"
 PATH="$test_dir/bin:/usr/bin:/bin" REPO_DIR="$work" WATCH_ONCE=1 WATCH_PATHS= \
   FAKE_DEPLOY_LOG="$FAKE_DEPLOY_LOG" bash "$work/deploy/macmini/macmini-watch.sh"
-grep -qx "$head6" "$FAKE_DEPLOY_LOG" || fail "WATCH_PATHS= should deploy every commit"
-pass "empty WATCH_PATHS deploys every commit"
+grep -qx "$head6" "$FAKE_DEPLOY_LOG" || fail "WATCH_PATHS= should track all content changes"
+pass "empty WATCH_PATHS tracks all content changes"
 
-# 9) 缺少 REPO_DIR：必须报错退出，不能静默回退到当前目录。
+# 10) 缺少 REPO_DIR：必须报错退出，不能静默回退到当前目录。
 if PATH="$test_dir/bin:/usr/bin:/bin" WATCH_ONCE=1 bash "$watch_src" 2>/dev/null; then
   fail "missing REPO_DIR should fail"
 fi

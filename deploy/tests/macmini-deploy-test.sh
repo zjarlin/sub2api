@@ -126,6 +126,19 @@ case "${command_args[*]}" in
   'exec -i pgvector pg_dump -U postgres -d sub2api -Fc')
     printf 'PGDMPmock-database-backup\n'
     ;;
+  'exec pgvector psql -U postgres -d sub2api -Atc SELECT count(*) FROM accounts; SELECT count(*) FROM account_groups;')
+    calls=0
+    [ ! -f "$MOCK_STATE/baseline_calls" ] || calls="$(cat "$MOCK_STATE/baseline_calls")"
+    calls=$((calls + 1))
+    printf '%s\n' "$calls" > "$MOCK_STATE/baseline_calls"
+    if [ "$calls" -ge 2 ] && [ "${MOCK_DATA_CHANGED:-0}" = 1 ]; then
+      printf '9\n4\n'
+    elif [ "${MOCK_BAD_BASELINE:-0}" = 1 ]; then
+      printf 'ERROR: relation accounts does not exist\n'
+    else
+      printf '10\n5\n'
+    fi
+    ;;
   exec\ -i\ pgvector\ pg_restore\ -l)
     printf '1; 0 0 TABLE public accounts postgres\n'
     ;;
@@ -164,7 +177,7 @@ run_case() {
   shift 2
   local case_dir="$test_dir/$name"
   local live_dir="$case_dir/data"
-  mkdir -p "$case_dir/deploy" "$case_dir/data" "$case_dir/backups" "$case_dir/logs" "$live_dir"
+  mkdir -p "$case_dir/deploy" "$case_dir/data" "$case_dir/backups" "$case_dir/logs" "$live_dir" "$case_dir/state"
   : > "$case_dir/deploy/docker-compose.yml"
 
   set +e
@@ -179,6 +192,7 @@ run_case() {
     MOCK_CURL_LOG="$case_dir/logs/curl.log" \
     MOCK_BUILD_LOG="$case_dir/logs/build.log" \
     MOCK_COMPOSE_LOG="$case_dir/logs/compose.log" \
+    MOCK_STATE="$case_dir/state" \
     SUB2API_GIT_SHA="0123456789abcdef0123456789abcdef01234567" \
     SUB2API_BUILD=1 \
     CANARY_PORT=19001 \
@@ -212,6 +226,8 @@ test -f "$test_dir/success/deploy/docker-compose.deploy.yml"
 grep -q 'image: zjarlin/sub2api:0123456789ab' "$test_dir/success/deploy/docker-compose.deploy.yml"
 test -s "$test_dir/success/backups/sub2api-before-deploy-"*.dump
 grep -qF -- "-v $test_dir/success/data:/app/data" "$test_dir/success/logs/docker.log"
+grep -q 'account data unchanged by candidate migration: 10 accounts, 5 account-group links' "$test_dir/success/logs/stdout.log"
+grep -qF 'exec pgvector psql -U postgres -d sub2api -Atc' "$test_dir/success/logs/docker.log"
 
 # 场景 2：候选起不来 → 绝对不允许执行 compose 切流。
 run_case canary_failure 1 MOCK_CANARY_FAIL=1
@@ -227,6 +243,15 @@ grep -q 'up -d --no-deps sub2api' "$test_dir/rollback/logs/compose.log"
 grep -q 'rm -f sub2api' "$test_dir/rollback/logs/docker.log"
 test ! -f "$test_dir/rollback/deploy/DEPLOYED_IMAGE"
 
+# 场景 3b：候选迁移后账号数量减少 → 不切流；库查询失败或结果格式错误同样拒绝。
+run_case account_data_changed 1 MOCK_DATA_CHANGED=1
+test ! -s "$test_dir/account_data_changed/logs/compose.log"
+test ! -f "$test_dir/account_data_changed/deploy/DEPLOYED_IMAGE"
+grep -q 'account data changed during candidate migration' "$test_dir/account_data_changed/logs/stdout.log"
+run_case account_data_unreadable 1 MOCK_BAD_BASELINE=1
+test ! -s "$test_dir/account_data_unreadable/logs/compose.log"
+grep -q 'invalid account data baseline' "$test_dir/account_data_unreadable/logs/stdout.log"
+
 # 场景 4：隔离预演（DATA_DIR_MUST_MATCH=0）→ 候选被强制连预演库，且绝不切流。
 mkdir -p "$test_dir/live-data" "$test_dir/canary-data"
 run_case canary_isolated 0 MOCK_DATA_DIR="$test_dir/live-data" DATA_DIR="$test_dir/canary-data" DATA_DIR_MUST_MATCH=0 CANARY_ONLY=1 CANARY_DATABASE_NAME=sub2api_canary_test
@@ -236,6 +261,7 @@ grep -q 'DATABASE_DBNAME=sub2api_canary_test' "$test_dir/canary_isolated/logs/do
 grep -qF -- "-v $test_dir/canary-data:/app/data" "$test_dir/canary_isolated/logs/docker.log"
 # 隔离预演不允许把现役目录带进候选。
 ! grep -qF -- "$test_dir/live-data:/app/data" "$test_dir/canary_isolated/logs/docker.log"
+! grep -q 'psql -U postgres -d sub2api -Atc' "$test_dir/canary_isolated/logs/docker.log"
 
 # 场景 5：隔离预演必须显式给出预演库名，否则直接失败。
 run_case canary_isolated_guard 1 DATA_DIR_MUST_MATCH=0 CANARY_ONLY=1 CANARY_DATABASE_NAME=

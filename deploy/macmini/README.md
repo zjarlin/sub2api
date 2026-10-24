@@ -57,9 +57,12 @@ runner 需要能直接跑 `docker`（`/usr/local/bin` 或 `/opt/homebrew/bin` �
 - 远端没变 → 什么都不做。
 - 远端前进 → `git fetch` 后 `checkout -B main FETCH_HEAD`，再调 `deploy-macmini.sh`
   （带 `SUB2API_GIT_SHA` 与 `EXPECTED_GIT_SHA`，构建/备份/候选预检/切流/回滚全部复用）。
-- `WATCH_PATHS`（默认与 workflow 的 `push.paths` 一致）决定哪些改动值得重建镜像：
+- `WATCH_PATHS`（默认与 workflow 的 `push.paths` 一致）决定哪些**文件内容**值得重建镜像：
   只改文档、`deploy/**` 脚本或测试时只记录提交、**不重启线上容器**；
-  要退化成「任何提交都部署」，显式设 `WATCH_PATHS=`（空）。
+  只调整可执行位而内容不变时也只记录提交。
+  `WATCH_PATHS=`（空）表示检查整棵工作树的内容变化，不把每个新提交都当重建依据。
+- 构建输入包括 `Dockerfile`、`Dockerfile.goreleaser`、`deploy/docker-entrypoint.sh`，
+  内容变化会自动重建；部署测试与轮询规则需同时更新。
 - 工作副本有本地改动 → 只记录并跳过，**不**强改工作区。
 - 部署失败 → 不写状态文件，下个周期重试；日志留在 launchd 的 `stdout/stderr` 文件里。
 - 状态文件 `WATCH_STATE`（默认 `$REPO_DIR/.macmini-watch.deployed`）必须被 `.gitignore` 覆盖，
@@ -85,7 +88,7 @@ cat > "$PLIST" <<PLIST
     <key>DEPLOY_DIR</key><string>$HOME/DockerCompose/dockge/stacks/sub2api</string>
     <key>DATA_DIR</key><string>$HOME/DockerCompose/sub2api/data</string>
     <key>WATCH_INTERVAL</key><string>120</string>
-    <!-- 可选：留空字符串 = 任何提交都部署；删除此项 = 用脚本默认（与 workflow paths 一致） -->
+    <!-- 可选：留空字符串 = 检查整棵工作树；删除此项 = 用脚本默认（与 workflow paths 一致） -->
     <key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
   </dict>
   <key>WorkingDirectory</key><string>$REPO_DIR</string>
@@ -109,12 +112,17 @@ launchctl list | grep sub2api-watch
 2. `SUB2API_BUILD=1` 时用 `docker buildx build --platform linux/arm64 --load` 构建
    `zjarlin/sub2api:<短 SHA>`；`EXPECTED_GIT_SHA` 与仓库 HEAD 不一致时直接拒绝。
 3. 切流前 `pg_dump -Fc` 备份数据库，并用 `pg_restore -l` 校验可读（默认 `BACKUP_DATABASE=1`）。
-4. 在 `127.0.0.1:<CANARY_PORT>` 起候选容器，沿用现役容器的网络、环境变量与 bind 挂载，
+4. 记录现役库的 `accounts` 总数和 `account_groups` 关联总数。
+5. 在 `127.0.0.1:<CANARY_PORT>` 起候选容器，沿用现役容器的网络、环境变量与 bind 挂载，
    等 `/health` 200；候选不健康就退出，**不切流**。
-5. 写 `DEPLOY_DIR/docker-compose.deploy.yml`（只固定镜像），
+6. 候选已执行迁移后核查账号数、账号分组关联数；任一数量变小或读取失败都不切流。
+7. 写 `DEPLOY_DIR/docker-compose.deploy.yml`（只固定镜像），
    执行 `docker compose up -d --no-deps sub2api` 就地切流。
-6. 切流后复查 `/health` 与 `healthy`；失败按上一镜像 ID 回滚。
-7. 写 `DEPLOY_DIR/DEPLOYED_IMAGE` 与 `DEPLOYED_RELEASE`。线上版本以 `docker inspect` 为准。
+8. 切流后复查 `/health` 与 `healthy`；失败按上一镜像 ID 回滚。
+9. 写 `DEPLOY_DIR/DEPLOYED_IMAGE` 与 `DEPLOYED_RELEASE`。线上版本以 `docker inspect` 为准。
+
+账号数基线按现役库读取；可另设 `EXPECTED_ACCOUNT_COUNT` 和 `EXPECTED_ACCOUNT_GROUP_COUNT`
+固定预期的数量。数字不一致即拒绝部署。隔离预演只核对预演库本身，不读取现役库。
 
 脚本拒绝复制 named volume：本机约定所有持久化数据都是 bind mount。
 
@@ -134,7 +142,9 @@ launchctl list | grep sub2api-watch
 | `SUB2API_IMAGE` | `zjarlin/sub2api:<短 SHA>` | 可复用已有镜像 |
 | `SUB2API_PORT` / `CANARY_PORT` | `18080` / 自动 | 宿主端口 / 候选 loopback 端口 |
 | `LIVE_WAIT_SECONDS` | `180` | 切流后健康等待 |
-| `DATABASE_CONTAINER` / `DATABASE_NAME` | `pgvector` / `sub2api` | 备份与迁移目标 |
+| `DATABASE_CONTAINER` / `DATABASE_NAME` | `pgvector` / `sub2api` | 备份、迁移与账号核验目标 |
+| `EXPECTED_ACCOUNT_COUNT` | 切流前现役库实测值 | 可选的账号总数预期 |
+| `EXPECTED_ACCOUNT_GROUP_COUNT` | 切流前现役库实测值 | 可选的账号分组关联数预期 |
 
 仓库变量 `SUB2API_MACMINI_DEPLOY_DIR`、`SUB2API_MACMINI_DATA_DIR` 可选；不配置时用脚本默认值，
 默认值只在这两个地方维护。
@@ -166,7 +176,8 @@ bash deploy/macmini/deploy-macmini.sh
 ## 触发规则
 
 - Actions 通道（恢复后）：只有推送 `main` 且命中 workflow 的 `paths` 才会部署；`pull_request` 不触发。
-- 轮询通道（当前）：`origin/main` 的提交变化即部署，与 Actions 的 `paths` 过滤无关；
+- 轮询通道（当前）：`origin/main` 前进后，只对 `WATCH_PATHS` 内的**文件内容**变化部署；
+  只改权限位、文档或测试时前进部署标记，保持与线上源码提交一致。
   两条通道都部署完成后，会因「已部署提交相同」而互相跳过。
 - TeamCity 的 `Deploy182Gateway` 与 `DeployTianjinMedia` 已把
   `deploy/macmini/**`、`deploy/tests/macmini-deploy-test.sh`、`.github/workflows/macmini-deploy.yml`

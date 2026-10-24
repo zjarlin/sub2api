@@ -24,6 +24,9 @@
 #   CANARY_ONLY             1 = 只起候选做预检，验证后保留候选容器并打印端口，不切流
 #   DATA_DIR_MUST_MATCH     1 = DATA_DIR 必须是现役 /app/data 挂载（默认）
 #   CANARY_DATABASE_NAME    隔离预演库名；DATA_DIR_MUST_MATCH=0 时必填
+#   EXPECTED_ACCOUNT_COUNT  切流前从现役库取出的账号总数；候选后必须一致
+#   EXPECTED_ACCOUNT_GROUP_COUNT
+#                           切流前从现役库取出的账号分组关联总数；候选后必须一致
 #   LIVE_WAIT_SECONDS       切流后健康等待秒数（默认 180）
 #   EXPECTED_GIT_SHA         已构建镜像对应的提交；设置后与 REPO_DIR HEAD 不一致即拒绝部署
 set -euo pipefail
@@ -47,6 +50,8 @@ BACKUP_DATABASE="${BACKUP_DATABASE:-1}"
 DATABASE_CONTAINER="${DATABASE_CONTAINER:-pgvector}"
 DATABASE_NAME="${DATABASE_NAME:-sub2api}"
 DATABASE_USER="${DATABASE_USER:-postgres}"
+EXPECTED_ACCOUNT_COUNT="${EXPECTED_ACCOUNT_COUNT:-}"
+EXPECTED_ACCOUNT_GROUP_COUNT="${EXPECTED_ACCOUNT_GROUP_COUNT:-}"
 SHA="${SUB2API_GIT_SHA:-$(git -C "$REPO_DIR" rev-parse HEAD)}"
 SHORT_SHA="${SHA:0:12}"
 if [ -n "${EXPECTED_GIT_SHA:-}" ] && [ "$EXPECTED_GIT_SHA" != "$SHA" ]; then
@@ -146,6 +151,34 @@ if [ "$DATA_DIR_MUST_MATCH" != "1" ]; then
   env_args+=(-e "DATABASE_DBNAME=${CANARY_DATABASE_NAME}")
 fi
 
+# 候选会执行新镜像的数据库迁移。部署前记录现役库的账号与关联数量；
+# 候选启动后再核对，避免迁移或软删除把已同步的账号从列表里去掉。
+# 隔离预演连接的是预演库，不能用现役库的基线做比较。
+if [ "$DATA_DIR_MUST_MATCH" = "1" ]; then
+  DATABASE_BASELINE="$(docker exec "$DATABASE_CONTAINER" \
+    psql -U "$DATABASE_USER" -d "$DATABASE_NAME" -Atc \
+    'SELECT count(*) FROM accounts; SELECT count(*) FROM account_groups;')" \
+    || { log "cannot read account data baseline from $DATABASE_NAME"; exit 1; }
+  baseline_lines="$(printf '%s' "$DATABASE_BASELINE" | tr -d '\r' | grep -c '' || true)"
+  READ_ACCOUNT_COUNT="$(printf '%s\n' "$DATABASE_BASELINE" | sed -n '1p')"
+  READ_ACCOUNT_GROUP_COUNT="$(printf '%s\n' "$DATABASE_BASELINE" | sed -n '2p')"
+  if ! [[ "$READ_ACCOUNT_COUNT" =~ ^[0-9]+$ && "$READ_ACCOUNT_GROUP_COUNT" =~ ^[0-9]+$ ]] || [ "$baseline_lines" != 2 ]; then
+    log "invalid account data baseline from $DATABASE_NAME (expected two integers)"
+    exit 1
+  fi
+  if [ -n "$EXPECTED_ACCOUNT_COUNT" ] && [ "$READ_ACCOUNT_COUNT" != "$EXPECTED_ACCOUNT_COUNT" ]; then
+    log "live account count $READ_ACCOUNT_COUNT differs from EXPECTED_ACCOUNT_COUNT $EXPECTED_ACCOUNT_COUNT"
+    exit 1
+  fi
+  if [ -n "$EXPECTED_ACCOUNT_GROUP_COUNT" ] && [ "$READ_ACCOUNT_GROUP_COUNT" != "$EXPECTED_ACCOUNT_GROUP_COUNT" ]; then
+    log "live account-group links $READ_ACCOUNT_GROUP_COUNT differ from EXPECTED_ACCOUNT_GROUP_COUNT $EXPECTED_ACCOUNT_GROUP_COUNT"
+    exit 1
+  fi
+  EXPECTED_ACCOUNT_COUNT="$READ_ACCOUNT_COUNT"
+  EXPECTED_ACCOUNT_GROUP_COUNT="$READ_ACCOUNT_GROUP_COUNT"
+  log "account data baseline: $EXPECTED_ACCOUNT_COUNT accounts, $EXPECTED_ACCOUNT_GROUP_COUNT account-group links"
+fi
+
 # 隔离预演时把 /app/data 指向独立数据目录，避免候选读写现役数据；默认沿用现役挂载。
 DATA_OVERRIDE_DIR=""
 if [ "$DATA_DIR_MUST_MATCH" != "1" ]; then
@@ -216,6 +249,28 @@ until curl --fail --silent --max-time 5 "http://127.0.0.1:${CANARY_PORT}/health"
   sleep 2
 done
 log "candidate healthy"
+
+# 启动迁移后再次读取同一个现役库：凡是切流模式，候选与现役共用数据库；
+# 账号数量变少时在切流前失败，避免印一个旧皮肤却静默丢失账号。
+if [ -n "$EXPECTED_ACCOUNT_COUNT" ]; then
+  CANDIDATE_BASELINE="$(docker exec "$DATABASE_CONTAINER" \
+    psql -U "$DATABASE_USER" -d "$DATABASE_NAME" -Atc \
+    'SELECT count(*) FROM accounts; SELECT count(*) FROM account_groups;')" \
+    || { log "cannot read account data after candidate migration"; exit 1; }
+  candidate_lines="$(printf '%s' "$CANDIDATE_BASELINE" | tr -d '\r' | grep -c '' || true)"
+  candidate_account_count="$(printf '%s\n' "$CANDIDATE_BASELINE" | sed -n '1p')"
+  candidate_account_group_count="$(printf '%s\n' "$CANDIDATE_BASELINE" | sed -n '2p')"
+  if ! [[ "$candidate_account_count" =~ ^[0-9]+$ && "$candidate_account_group_count" =~ ^[0-9]+$ ]] || [ "$candidate_lines" != 2 ]; then
+    log "invalid account data after candidate migration (expected two integers)"
+    exit 1
+  fi
+  if [ "$candidate_account_count" != "$EXPECTED_ACCOUNT_COUNT" ] || [ "$candidate_account_group_count" != "$EXPECTED_ACCOUNT_GROUP_COUNT" ]; then
+    log "account data changed during candidate migration: before $EXPECTED_ACCOUNT_COUNT/$EXPECTED_ACCOUNT_GROUP_COUNT, after $candidate_account_count/$candidate_account_group_count; live traffic untouched"
+    exit 1
+  fi
+  log "account data unchanged by candidate migration: $candidate_account_count accounts, $candidate_account_group_count account-group links"
+fi
+
 if [ "${CANARY_ONLY:-0}" = "1" ]; then
   # 预检模式：保留候选容器供人工验证，不切流；用完由调用方删除。
   # 清除退出钩子，保留候选容器供验收；临时文件由当前 shell 清理。
@@ -299,4 +354,5 @@ done
 printf '%s\n' "$IMAGE" > "$DEPLOY_DIR/DEPLOYED_IMAGE"
 printf '%s\n' "$(date -u +%Y%m%dT%H%M%SZ)" > "$DEPLOY_DIR/DEPLOYED_RELEASE"
 log "deployed $IMAGE (rollback image kept: $PREV_IMAGE_ID)"
+log "account data verified: $EXPECTED_ACCOUNT_COUNT accounts, $EXPECTED_ACCOUNT_GROUP_COUNT account-group links"
 log "endpoint http://${APP_HOST}:${PORT}/"
