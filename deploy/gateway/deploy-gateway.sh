@@ -111,10 +111,14 @@ CANARY_NAME="${CONTAINER}-canary-$$"
 
 # mount_work 记录候选挂载计划（见下方 mount-plan.sh）；和候选容器一起清理，
 # 失败退出时也不留临时目录。
+# 清理逻辑放在 deploy/gateway/canary-cleanup.sh：mount_work 清空后
+# `[ -n ... ] && rm -rf` 会返回 1，在 set -e 下会把整个部署脚本中断在
+# 「switching live container」之前（#267 的实际失败原因）。
+# shellcheck source=./canary-cleanup.sh
+source "$SCRIPT_DIR/canary-cleanup.sh"
 mount_work=""
 cleanup() {
-  docker rm -f "$CANARY_NAME" >/dev/null 2>&1 || true
-  [ -n "$mount_work" ] && rm -rf "$mount_work"
+  cleanup_canary "$CANARY_NAME" "$mount_work"
 }
 trap cleanup EXIT
 
