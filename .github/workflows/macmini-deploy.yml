@@ -1,0 +1,74 @@
+name: Deploy Mac mini
+
+# 只在 Mac mini 自托管 runner 上部署 sub2api（与 182 网关、天津媒体完全独立）。
+# 不要加 pull_request 触发器：PR 不允许触碰任何线上实例。
+on:
+  push:
+    branches: [main]
+    paths:
+      - "backend/**"
+      - "frontend/**"
+      - "docs/legal/**"
+      - "Dockerfile"
+      - "deploy/docker-entrypoint.sh"
+      - "deploy/macmini/**"
+      - ".github/workflows/macmini-deploy.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: sub2api-macmini
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify deploy script
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Syntax check
+        run: bash -n deploy/macmini/deploy-macmini.sh
+      - name: Behaviour tests
+        run: bash deploy/tests/macmini-deploy-test.sh
+
+  deploy:
+    name: Deploy on Mac mini
+    needs: verify
+    # 由 Mac mini 上常驻的 GitHub Actions self-hosted runner 承接。
+    runs-on: [self-hosted, macOS, ARM64, macmini-sub2api]
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Deploy from this commit
+        working-directory: ${{ github.workspace }}
+        env:
+          EXPECTED_GIT_SHA: ${{ github.sha }}
+          SUB2API_GIT_SHA: ${{ github.sha }}
+          DEPLOY_DIR: ${{ vars.SUB2API_MACMINI_DEPLOY_DIR }}
+          DATA_DIR: ${{ vars.SUB2API_MACMINI_DATA_DIR }}
+        run: |
+          set -euo pipefail
+          # 自托管 runner 的登录 shell 未必带 Homebrew 路径，docker 在这里是必需品。
+          export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
+          command -v docker >/dev/null || { echo "docker not found on runner" >&2; exit 1; }
+          # 目录默认值只在脚本里维护（DEPLOY_DIR/DATA_DIR），这里仅在仓库变量已配置时覆盖。
+          [ -n "${DEPLOY_DIR:-}" ] && export DEPLOY_DIR
+          [ -n "${DATA_DIR:-}" ] && export DATA_DIR
+          export REPO_DIR="$GITHUB_WORKSPACE"
+          export SUB2API_BUILD=1
+          bash deploy/macmini/deploy-macmini.sh
+      - name: Report deployed image
+        if: success()
+        run: |
+          set -euo pipefail
+          export PATH="/usr/local/bin:/opt/homebrew/bin:$PATH"
+          DEPLOY_DIR="${SUB2API_MACMINI_DEPLOY_DIR:-$HOME/DockerCompose/dockge/stacks/sub2api}"
+          echo "deployed image: $(docker inspect -f '{{.Config.Image}}' sub2api 2>/dev/null || echo unknown)"
+          echo "deployed image id: $(docker inspect -f '{{.Image}}' sub2api 2>/dev/null || echo unknown)"
+          echo "deployed release: $(cat "$DEPLOY_DIR/DEPLOYED_RELEASE" 2>/dev/null || echo unknown)"
+          curl -fsS "http://127.0.0.1:18080/health" >/dev/null && echo "health: 200"
