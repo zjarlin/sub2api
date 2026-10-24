@@ -18,6 +18,11 @@ const degenerateTailRunes = "。\n\n（写。）\n\n我输出。\n\n写。\n\n�
 // 反复交替。单行很短，但整段周期超过 MaxPeriod 时只能靠行级通道抓到。
 var degenerateLineCycle = []string{"Let me write.", "Go.", "Now.", "OK.", "Emit.", "OK."}
 
+// degenerateMarkupCycle 是 2026-10-23 事故样本的重复单元：上游把一次 wait_agent 调用
+// 写坏后，无限复读一串闭合标签。周期 53 rune 超出生产 MaxPeriod(48)，且上游本身
+// 不保证发换行（客户端看到的是软折行），period / line 两条通道都会漏掉。
+const degenerateMarkupCycle = "</invoke> </parameter> </invoke> </invoke> </invoke> "
+
 // degenerateLongLineCycle 是同一形态的长行版本：整段周期约 300 rune，超出 MaxPeriod，
 // period 通道必然抓不到，用于固定行级通道的独立性。
 var degenerateLongLineCycle = []string{
@@ -78,6 +83,71 @@ func TestChatDegenerationGuard_DetectsLineLevelRepetition(t *testing.T) {
 	require.Equal(t, "reasoning", detected.Channel)
 	require.GreaterOrEqual(t, detected.Repeats, guard.LineMinCount)
 	require.LessOrEqual(t, detected.DistinctLines, guard.LineMaxDistinct)
+}
+
+// TestChatDegenerationGuard_DetectsMarkupFloodWithoutNewlines 固定 2026-10-23 事故形态：
+// 复读的闭合标签连成一行（上游没有任何换行），period 通道因周期超限、line 通道因
+// 取不到行而双双失效，必须由 markup 通道兜住。
+func TestChatDegenerationGuard_DetectsMarkupFloodWithoutNewlines(t *testing.T) {
+	// 生产阈值：MaxPeriod=48 < 单元周期 53，且窗口只有 2048 rune。
+	guard := ChatDegenerationGuard{
+		MinTotalRunes:    12000,
+		WindowRunes:      2048,
+		MinPeriod:        4,
+		MaxPeriod:        48,
+		MinRepeats:       40,
+		CheckEveryBytes:  8192,
+		LineWindow:       96,
+		LineMinCount:     48,
+		LineMaxDistinct:  10,
+		LineMaxRunes:     48,
+		LineTailBytes:    16 << 10,
+		MarkupTailBytes:  16 << 10,
+		MarkupMinCloses:  120,
+		MarkupMinDensity: 0.55,
+	}.Normalize()
+
+	text := strings.Repeat(degenerateMarkupCycle, 900)
+	require.Greater(t, len([]rune(degenerateMarkupCycle)), guard.MaxPeriod,
+		"前提：单元周期必须超出 period 通道上限，period 通道才抓不到")
+	require.GreaterOrEqual(t, len([]rune(text)), guard.MinTotalRunes)
+
+	detected := guard.Detect(text, "message")
+	require.NotNil(t, detected, "连成一行的闭合标签复读必须被判定为退化重复")
+	require.Equal(t, "markup", detected.Kind)
+	require.Equal(t, "message", detected.Channel)
+	require.GreaterOrEqual(t, detected.MarkupCloses, guard.MarkupMinCloses)
+}
+
+// TestChatDegenerationGuard_MarkupFloodSurvivesSoftWrapping 覆盖"上游不换行、客户端
+// 软折行"的真实形态：把同一段复读插进不同数量的换行，都必须命中同一类判定。
+func TestChatDegenerationGuard_MarkupFloodSurvivesSoftWrapping(t *testing.T) {
+	guard := ChatDegenerationGuard{MinTotalRunes: 12000, MaxPeriod: 48, MinRepeats: 40, WindowRunes: 2048}.Normalize()
+	cases := map[string]string{
+		"无换行":  strings.Repeat(degenerateMarkupCycle, 900),
+		"周期换行": repeatLines([]string{degenerateMarkupCycle}, 900),
+		"夹空行":  strings.Repeat(degenerateMarkupCycle+"\n\n", 900),
+	}
+	for name, text := range cases {
+		t.Run(name, func(t *testing.T) {
+			detected := guard.Detect(text, "message")
+			require.NotNil(t, detected, "闭合标签复读不得因为换行形态不同而漏判")
+		})
+	}
+}
+
+// TestChatDegenerationGuard_KeepsLegitimateMarkup 确认 markup 通道不会把正常的工具
+// 标记正文误判：一次真实调用、成对开闭、密度低。
+func TestChatDegenerationGuard_KeepsLegitimateMarkup(t *testing.T) {
+	guard := ChatDegenerationGuard{MinTotalRunes: 12000, MaxPeriod: 48, MinRepeats: 40, WindowRunes: 2048}.Normalize()
+	var b strings.Builder
+	for i := 0; i < 400; i++ {
+		b.WriteString("<|DSML|invoke name=\"exec\"><|DSML|parameter name=\"input\" string=\"true\">pwd</|DSML|parameter></|DSML|invoke>\n")
+	}
+	require.GreaterOrEqual(t, len([]rune(b.String())), guard.MinTotalRunes)
+	// 每行都是完整成对的调用，闭合标签密度不到一半；即便被判退化也应是别的通道，
+	// 这里只确认 markup 通道本身不误判。
+	require.Nil(t, guard.detectMarkupFlood(b.String(), "message", len([]rune(b.String()))))
 }
 
 func TestChatDegenerationGuard_KeepsLegitimateOutput(t *testing.T) {

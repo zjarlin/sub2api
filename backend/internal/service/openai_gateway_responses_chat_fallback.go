@@ -354,6 +354,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 				zap.Int("period_runes", degenerated.PeriodRunes),
 				zap.Int("repeats", degenerated.Repeats),
 				zap.Int("distinct_lines", degenerated.DistinctLines),
+				zap.Int("markup_closes", degenerated.MarkupCloses),
 				zap.Int("total_runes", degenerated.TotalRunes),
 				zap.Int("output_tokens", totalUsage.OutputTokens),
 			)

@@ -1420,6 +1420,10 @@ type GatewayDegenerationConfig struct {
 	LineMinCount    int `mapstructure:"line_min_count"`
 	LineMaxDistinct int `mapstructure:"line_max_distinct"`
 	LineMaxRunes    int `mapstructure:"line_max_runes"`
+	// MarkupMinCloses / MarkupMinDensity 是 markup 通道阈值：尾部取样窗口内闭合标签
+	// 个数与占比同时达标才判退化。不依赖换行，覆盖上游把写坏的调用标记连成一行的复读。
+	MarkupMinCloses  int     `mapstructure:"markup_min_closes"`
+	MarkupMinDensity float64 `mapstructure:"markup_min_density"`
 }
 
 // GatewayWeatherConfig 控制边缘天气服务；/api/v1/weather 的查询与发现端点共用该开关。
@@ -2876,6 +2880,8 @@ func setDefaults() {
 	viper.SetDefault("gateway.degeneration.line_min_count", 48)
 	viper.SetDefault("gateway.degeneration.line_max_distinct", 10)
 	viper.SetDefault("gateway.degeneration.line_max_runes", 48)
+	viper.SetDefault("gateway.degeneration.markup_min_closes", 120)
+	viper.SetDefault("gateway.degeneration.markup_min_density", 0.55)
 	// 实测只在 deepseek flash 兼容路径（cline-pass 转发）出现过跑到 65536 输出上限的
 	// 纯复读，所以默认只钳制该族模型，并把上限砍半。
 	viper.SetDefault("gateway.degeneration.max_output_tokens_models", []string{"deepseek-v4.1-flash"})

@@ -15,10 +15,17 @@ import (
 //   - 2026-10-13 11:1x deepseek-harness 走同一 relay，逐行复读
 //     `Let me write. / Go. / Now. / OK. / Emit.`（周期约 100 rune，远超旧上限 48）。
 //
-// 所以检测分两条通道：先看尾部是否为"短周期重复"，再看尾部若干行是否只由极少数短行
-// 反复组成（覆盖周期较长、或准周期交替的复读）。
+// 所以检测分三条通道：先看尾部是否为"短周期重复"，再看尾部若干行是否只由极少数短行
+// 反复组成（覆盖周期较长、或准周期交替的复读），最后看尾部是否被"只含标签的碎片"
+// 占满（覆盖上游根本不发换行、整段标签连成一行的复读）。
+//
+// 2026-10-23 样本：上游把一次 `<token name="wait_agent">` 调用写坏，随后无限复读
+// `</invoke> </parameter> </invoke> </invoke> </invoke> `（53 rune/周期），界面软折行，
+// 上游本身一个换行都没有。period 通道因周期 53 > MaxPeriod(48) 抓不到，line 通道因
+// 没有换行把整段当成一个"超长行"直接放弃，于是跑到输出上限才停。
 type ChatDegeneration struct {
-	// Kind 是命中的检测通道："period"（尾部短周期重复）或 "line"（行级复读）。
+	// Kind 是命中的检测通道："period"（尾部短周期重复）、"line"（行级复读）
+	// 或 "markup"（尾部被纯标签碎片占满）。
 	Kind string
 	// Channel 是判定命中的输出通道："reasoning"（DeepSeek 式思考通道）或 "message"。
 	Channel string
@@ -28,6 +35,8 @@ type ChatDegeneration struct {
 	Repeats int
 	// DistinctLines 是行级检测里判定窗口内的不同短行数，仅 line 通道有效。
 	DistinctLines int
+	// MarkupCloses 是 markup 通道在判定窗口内数到的闭合标签数。
+	MarkupCloses int
 	// TotalRunes 是判定时该通道累积的 rune 数。
 	TotalRunes int
 }
@@ -63,6 +72,14 @@ type ChatDegenerationGuard struct {
 	LineMaxRunes int
 	// LineTailBytes 是 line 通道取样时读取的尾部字节数。
 	LineTailBytes int
+
+	// MarkupTailBytes 是 markup 通道取样时读取的尾部字节数。
+	MarkupTailBytes int
+	// MarkupMinCloses 是 markup 通道要求的最少闭合标签数，避免把正常的少量标签当成复读。
+	MarkupMinCloses int
+	// MarkupMinDensity 是 markup 通道要求的最低闭合标签密度：闭合标签占据的 rune 数
+	// 至少占取样窗口的这么多比例（0~1）。
+	MarkupMinDensity float64
 }
 
 // DefaultChatDegenerationGuard 返回生产默认阈值。
@@ -80,6 +97,10 @@ func DefaultChatDegenerationGuard() ChatDegenerationGuard {
 		LineMaxDistinct: 10,
 		LineMaxRunes:    48,
 		LineTailBytes:   16 << 10,
+
+		MarkupTailBytes:  16 << 10,
+		MarkupMinCloses:  120,
+		MarkupMinDensity: 0.55,
 	}
 }
 
@@ -128,6 +149,18 @@ func (g ChatDegenerationGuard) Normalize() ChatDegenerationGuard {
 	if g.LineMinCount < g.LineMaxDistinct {
 		g.LineMinCount = g.LineMaxDistinct
 	}
+	if g.MarkupTailBytes <= 0 {
+		g.MarkupTailBytes = def.MarkupTailBytes
+	}
+	if g.MarkupMinCloses <= 0 {
+		g.MarkupMinCloses = def.MarkupMinCloses
+	}
+	if g.MarkupMinDensity <= 0 {
+		g.MarkupMinDensity = def.MarkupMinDensity
+	}
+	if g.MarkupMinDensity > 1 {
+		g.MarkupMinDensity = 1
+	}
 	return g
 }
 
@@ -144,7 +177,38 @@ func (g ChatDegenerationGuard) Detect(text, channel string) *ChatDegeneration {
 	if detected := g.detectPeriod(tailRunes(text, g.WindowRunes), channel, totalRunes); detected != nil {
 		return detected
 	}
-	return g.detectLineRepetition(lastBytes(text, g.LineTailBytes), channel, totalRunes)
+	if detected := g.detectLineRepetition(lastBytes(text, g.LineTailBytes), channel, totalRunes); detected != nil {
+		return detected
+	}
+	return g.detectMarkupFlood(lastBytes(text, g.MarkupTailBytes), channel, totalRunes)
+}
+
+// detectMarkupFlood 检查尾部是否被"只含标签的碎片"占满。
+//
+// 这条通道不依赖换行：上游复读写坏的调用标记时，整段可以没有任何换行（界面上的折行
+// 只是软换行），period 通道受 MaxPeriod 限制、line 通道按行取样，两者都会漏掉。
+// 判据是"闭合标签足够多，且这些标签本身占满窗口的大部分"——正常正文里即便出现
+// 少量闭合标签，密度也远达不到阈值。
+func (g ChatDegenerationGuard) detectMarkupFlood(tail, channel string, totalRunes int) *ChatDegeneration {
+	windowRunes := utf8.RuneCountInString(tail)
+	if windowRunes == 0 {
+		return nil
+	}
+	// 闭合标签数量与占比同时达标才算复读：正常正文里的少数标签数量不够。
+	closes, covered := countMarkupCloses(tail)
+	if closes < g.MarkupMinCloses {
+		return nil
+	}
+	if float64(covered)/float64(windowRunes) < g.MarkupMinDensity {
+		return nil
+	}
+	return &ChatDegeneration{
+		Kind:         "markup",
+		Channel:      channel,
+		Repeats:      closes,
+		MarkupCloses: closes,
+		TotalRunes:   totalRunes,
+	}
 }
 
 // detectPeriod 检查尾部窗口是否为短周期重复。
@@ -220,6 +284,51 @@ func (g ChatDegenerationGuard) detectLineRepetition(tail, channel string, totalR
 		DistinctLines: len(distinct),
 		TotalRunes:    totalRunes,
 	}
+}
+
+// markupCloseTags 是 markup 通道认的闭合标签。都是上游写坏调用时反复吐出的同族标签；
+// 正常正文里不会成百上千次出现。
+var markupCloseTags = []string{
+	"</invoke>",
+	"</parameter>",
+	"</function_calls>",
+	"</tool_calls>",
+	"</tool_call>",
+	"</function_call>",
+	"</antml:invoke>",
+	"</antml:parameter>",
+	// DeepSeek 系上游用 <|DSML|invoke> 这族标记，闭合形式是 </|DSML|invoke>。
+	"</|DSML|invoke>",
+	"</|DSML|parameter>",
+	"</|DSML|tool_calls>",
+	"</|dsml|invoke>",
+	"</|dsml|parameter>",
+	"</|dsml|tool_calls>",
+}
+
+// countMarkupCloses 统计文本中闭合标签的个数，以及这些标签合计占用的字节数。
+// 按最长匹配优先，保证 </function_calls> 不会被当成 </function_call> 重复计数；
+// 非 '<' 的字节直接跳过，不做标签比对。
+//
+// markupCloseTags 全是 ASCII，所以字节数即 rune 数，可直接与窗口的 rune 数相比。
+func countMarkupCloses(text string) (closes int, covered int) {
+	for i := 0; i < len(text); i++ {
+		if text[i] != '<' {
+			continue
+		}
+		matched := 0
+		for _, tag := range markupCloseTags {
+			if len(tag) > matched && strings.HasPrefix(text[i:], tag) {
+				matched = len(tag)
+			}
+		}
+		if matched > 0 {
+			closes++
+			covered += matched
+			i += matched - 1
+		}
+	}
+	return closes, covered
 }
 
 // degenerateUnit 判断文本是否像"模型退化"而不是正常排版：必须含字母/数字（含 CJK），

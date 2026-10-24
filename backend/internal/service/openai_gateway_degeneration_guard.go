@@ -31,6 +31,9 @@ func (s *OpenAIGatewayService) chatDegenerationGuard() *apicompat.ChatDegenerati
 		LineMinCount:    cfg.LineMinCount,
 		LineMaxDistinct: cfg.LineMaxDistinct,
 		LineMaxRunes:    cfg.LineMaxRunes,
+
+		MarkupMinCloses:  cfg.MarkupMinCloses,
+		MarkupMinDensity: cfg.MarkupMinDensity,
 	}.Normalize()
 	return &guard
 }
