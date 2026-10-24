@@ -109,7 +109,13 @@ if [ "$CANARY_PORT" = "auto" ]; then
 fi
 CANARY_NAME="${CONTAINER}-canary-$$"
 
-cleanup() { docker rm -f "$CANARY_NAME" >/dev/null 2>&1 || true; }
+# mount_work 记录候选挂载计划（见下方 mount-plan.sh）；和候选容器一起清理，
+# 失败退出时也不留临时目录。
+mount_work=""
+cleanup() {
+  docker rm -f "$CANARY_NAME" >/dev/null 2>&1 || true
+  [ -n "$mount_work" ] && rm -rf "$mount_work"
+}
 trap cleanup EXIT
 
 NETWORK="$(docker inspect -f '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' "$CONTAINER")"
@@ -121,17 +127,30 @@ while IFS= read -r kv; do
   case "$kv" in PATH=*) continue ;; esac
   env_args+=(-e "$kv")
 done < <(docker inspect -f '{{range .Config.Env}}{{println .}}{{end}}' "$CONTAINER")
-# 用 JSON 解析挂载点：docker 的格式化模板在空字段处会留下空格，
-# 逐行 + 分隔符拼接容易被空白污染。
+# 复用现役容器的挂载点（/app/data 等）。解析放在 deploy/gateway/mount-plan.sh：
+# 那里用 Python 直接产出结果文件，避免 shell 逐字段 read 时因空字段/连续分隔符
+# 把 bind 挂载整条丢掉（历史缺陷：候选通过了健康检查，切流后却丢了 /app/data）。
+# shellcheck source=./mount-plan.sh
+source "$SCRIPT_DIR/mount-plan.sh"
+mount_work="$(mktemp -d "${TMPDIR:-/tmp}/sub2api-mount-plan.XXXXXX")"
+docker inspect -f '{{json .Mounts}}' "$CONTAINER" > "$mount_work/mounts.json" \
+  || { log "docker inspect mounts failed"; exit 1; }
+write_mount_plan "$mount_work/mounts.json" "$mount_work/specs" "$mount_work/dests" \
+  || { log "failed to build mount plan"; exit 1; }
 mount_flags=()
-while IFS=$'\t' read -r mtype mname msrc mdst; do
-  [ -n "$mdst" ] || continue
-  if [ "$mtype" = "volume" ]; then mount_flags+=(-v "$mname:$mdst"); else mount_flags+=(-v "$msrc:$mdst"); fi
-done < <(docker inspect -f '{{json .Mounts}}' "$CONTAINER" | python3 -c '
-import json, sys
-for m in json.load(sys.stdin) or []:
-    print("\t".join([m.get("Type") or "", m.get("Name") or "", m.get("Source") or "", m.get("Destination") or ""]))
-')
+while IFS= read -r spec; do
+  [ -n "$spec" ] || continue
+  mount_flags+=(-v "$spec")
+done < "$mount_work/specs"
+mount_destinations=()
+while IFS= read -r dest; do
+  [ -n "$dest" ] || continue
+  mount_destinations+=("$dest")
+done < "$mount_work/dests"
+rm -rf "$mount_work"; mount_work=""
+if [ "${#mount_destinations[@]}" -eq 0 ]; then
+  log "current container reports no mounts; continuing without mount replication"
+fi
 
 log "starting candidate $CANARY_NAME on 127.0.0.1:$CANARY_PORT"
 docker run -d --name "$CANARY_NAME" \
@@ -139,8 +158,22 @@ docker run -d --name "$CANARY_NAME" \
   -p "127.0.0.1:${CANARY_PORT}:8080" \
   "${env_args[@]}" \
   ${adapter_env_args[@]+"${adapter_env_args[@]}"} \
-  "${mount_flags[@]}" \
+  ${mount_flags[@]+"${mount_flags[@]}"} \
   "$IMAGE" >/dev/null
+
+# 候选必须挂到与现役相同的路径集合：少挂 /app/data 这类目录时
+# 候选健康检查仍会通过，但切流后业务数据目录就丢了，必须在这里拦住。
+canary_dests="$(docker inspect -f '{{json .Mounts}}' "$CANARY_NAME" | python3 -c '
+import json, sys
+print(",".join(sorted(m.get("Destination") or "" for m in json.load(sys.stdin) or [])))
+')"
+expected_dests="$(printf '%s\n' ${mount_destinations[@]+"${mount_destinations[@]}"} | sed '/^$/d' | sort | paste -sd, -)"
+if [ "$canary_dests" != "$expected_dests" ]; then
+  log "candidate mount mismatch: expected [$expected_dests] got [$canary_dests]"
+  docker rm -f "$CANARY_NAME" >/dev/null 2>&1 || true
+  trap - EXIT
+  exit 1
+fi
 
 deadline=$(( $(date +%s) + CANARY_WAIT_SECONDS ))
 until curl --fail --silent --max-time 5 "http://127.0.0.1:${CANARY_PORT}/health" >/dev/null 2>&1; do

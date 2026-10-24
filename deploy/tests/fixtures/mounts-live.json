@@ -1,0 +1,10 @@
+[
+  {
+    "Type": "bind",
+    "Source": "/root/DockerCompose/sub2api/data",
+    "Destination": "/app/data",
+    "Mode": "rw",
+    "RW": true,
+    "Propagation": "rprivate"
+  }
+]
