@@ -229,15 +229,35 @@ func (s *openAIFirstOutputStage) Close() error {
 	return closeErr
 }
 
-func (s *OpenAIGatewayService) openAIFirstOutputTimeout(reasoningEffort string) time.Duration {
-	if s == nil || s.cfg == nil || s.cfg.Gateway.OpenAIFirstOutputTimeoutSeconds <= 0 {
+func (s *OpenAIGatewayService) openAIFirstOutputTimeout(ctx context.Context, reasoningEffort string) time.Duration {
+	if s == nil {
 		return 0
 	}
-	seconds := s.cfg.Gateway.OpenAIFirstOutputTimeoutSeconds
+	standardSeconds, highEffortSeconds := 0, 0
+	if s.cfg != nil {
+		standardSeconds = s.cfg.Gateway.OpenAIFirstOutputTimeoutSeconds
+		highEffortSeconds = s.cfg.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds
+	}
+	// 运行时设置优先于启动配置：DB settings 写入后最多 60s 生效，无需重建容器。
+	// 标准键同时作为高推理档默认值；高推理键存在时才单独覆盖。
+	if s.settingService != nil {
+		runtime := s.settingService.GetOpenAIFirstOutputTimeouts(ctx)
+		if runtime.standardConfigured {
+			standardSeconds = runtime.standardSeconds
+			highEffortSeconds = runtime.standardSeconds
+		}
+		if runtime.highEffortConfigured {
+			highEffortSeconds = runtime.highEffortSeconds
+		}
+	}
+	if standardSeconds <= 0 {
+		return 0
+	}
+	seconds := standardSeconds
 	switch strings.ToLower(strings.TrimSpace(reasoningEffort)) {
 	case "high", "xhigh", "max":
-		if override := s.cfg.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds; override > 0 {
-			seconds = override
+		if highEffortSeconds > 0 {
+			seconds = highEffortSeconds
 		}
 	}
 	return time.Duration(seconds) * time.Second

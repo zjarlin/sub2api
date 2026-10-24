@@ -507,6 +507,9 @@ type OpenAIGatewayService struct {
 	openAIModelsCache                   openAIModelsCache
 	openaiCompatSessionResponses        sync.Map
 	openaiCompatAnthropicDigestSessions sync.Map
+	// openaiFallbackCompactionCooldown 记录账号+模型维度的摘要失败冷却，
+	// 防止上游 429/5xx/402 时每个请求都重复发起摘要回合形成压缩风暴。
+	openaiFallbackCompactionCooldown sync.Map // key: string, value: time.Time
 	// openaiCodexTurnStateOrigins: 下游会话 seed → openAICodexTurnStateOrigin，
 	// 记录最近一次向该会话下发 x-codex-turn-state 的铸造账号，供出站守卫
 	// 剥离跨账号回带（openai_codex_turn_state.go）。

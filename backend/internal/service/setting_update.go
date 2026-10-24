@@ -720,6 +720,8 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		value:     settings.BackendModeEnabled,
 		expiresAt: time.Now().Add(backendModeCacheTTL).UnixNano(),
 	})
+	// 首字超时是 DB 运行时设置，面板保存后必须立即失效，不能等 60s TTL。
+	invalidateOpenAIFirstOutputTimeoutsCache()
 	gatewayForwardingSF.Forget("gateway_forwarding")
 	gatewayForwardingCache.Store(&cachedGatewayForwardingSettings{
 		openAITTFTMode:                   normalizeOpenAITTFTMode(settings.OpenAITTFTMode),

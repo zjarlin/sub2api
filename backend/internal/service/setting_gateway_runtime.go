@@ -74,6 +74,46 @@ const gatewayForwardingCacheTTL = 60 * time.Second
 const gatewayForwardingErrorTTL = 5 * time.Second
 const gatewayForwardingDBTimeout = 5 * time.Second
 
+// cachedOpenAIFirstOutputTimeouts 缓存首字超时（进程内缓存，60s TTL）。
+// 该配置能在不重建容器的情况下通过 settings 表热更新；0 表示显式禁用。
+type openAIFirstOutputTimeouts struct {
+	standardSeconds      int
+	highEffortSeconds    int
+	standardConfigured   bool
+	highEffortConfigured bool
+}
+
+type cachedOpenAIFirstOutputTimeouts struct {
+	openAIFirstOutputTimeouts
+	expiresAt int64 // unix nano
+}
+
+var openAIFirstOutputTimeoutsCache atomic.Value // *cachedOpenAIFirstOutputTimeouts
+var openAIFirstOutputTimeoutsSF singleflight.Group
+
+// invalidateOpenAIFirstOutputTimeoutsCache 同时清理 singleflight 与 atomic 缓存。
+// 只 Forget 不会让已缓存的旧值失效，设置更新后必须走这里。
+func invalidateOpenAIFirstOutputTimeoutsCache() {
+	openAIFirstOutputTimeoutsSF.Forget("openai_first_output_timeouts")
+	openAIFirstOutputTimeoutsCache.Store(&cachedOpenAIFirstOutputTimeouts{})
+}
+
+const openAIFirstOutputTimeoutsCacheTTL = 60 * time.Second
+const openAIFirstOutputTimeoutsErrorTTL = 5 * time.Second
+const openAIFirstOutputTimeoutsDBTimeout = 5 * time.Second
+
+func parseOpenAIFirstOutputTimeoutSetting(raw string, maxSeconds int) (int, bool) {
+	value := strings.TrimSpace(raw)
+	if value == "" {
+		return 0, false
+	}
+	seconds, err := strconv.Atoi(value)
+	if err != nil || seconds < 0 || seconds > maxSeconds || (seconds > 0 && seconds < 30) {
+		return 0, false
+	}
+	return seconds, true
+}
+
 // cachedAccountSchedulingThresholds 缓存平台自动停调阈值（进程内缓存，60s TTL）
 type cachedAccountSchedulingThresholds struct {
 	thresholds map[string]int
@@ -983,6 +1023,61 @@ func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context)
 // GetOpenAITTFTMode 返回 Responses first_token_ms 的统计口径。
 func (s *SettingService) GetOpenAITTFTMode(ctx context.Context) string {
 	return s.getGatewayForwardingSettingsCached(ctx).openAITTFTMode
+}
+
+// GetOpenAIFirstOutputTimeouts 返回首字超时的运行时覆盖值。
+// 任一键存在即视为已配置；standard 同时作为 high effort 的默认值，
+// 只有 high effort 键存在时才单独覆盖高推理档。
+func (s *SettingService) GetOpenAIFirstOutputTimeouts(ctx context.Context) openAIFirstOutputTimeouts {
+	if s == nil || s.settingRepo == nil {
+		return openAIFirstOutputTimeouts{}
+	}
+	now := time.Now().UnixNano()
+	if cached, ok := openAIFirstOutputTimeoutsCache.Load().(*cachedOpenAIFirstOutputTimeouts); ok && cached != nil && now < cached.expiresAt {
+		return cached.openAIFirstOutputTimeouts
+	}
+	val, _, _ := openAIFirstOutputTimeoutsSF.Do("openai_first_output_timeouts", func() (any, error) {
+		now := time.Now().UnixNano()
+		if cached, ok := openAIFirstOutputTimeoutsCache.Load().(*cachedOpenAIFirstOutputTimeouts); ok && cached != nil && now < cached.expiresAt {
+			return cached.openAIFirstOutputTimeouts, nil
+		}
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), openAIFirstOutputTimeoutsDBTimeout)
+		defer cancel()
+		values, err := s.settingRepo.GetMultiple(dbCtx, []string{
+			SettingKeyOpenAIFirstOutputTimeoutSeconds,
+			SettingKeyOpenAIHighEffortFirstOutputTimeoutSeconds,
+		})
+		if err != nil {
+			slog.Warn("failed to get openai first output timeout settings", "error", err)
+			openAIFirstOutputTimeoutsCache.Store(&cachedOpenAIFirstOutputTimeouts{
+				expiresAt: time.Now().Add(openAIFirstOutputTimeoutsErrorTTL).UnixNano(),
+			})
+			return openAIFirstOutputTimeouts{}, nil
+		}
+		result := openAIFirstOutputTimeouts{}
+		if seconds, ok := parseOpenAIFirstOutputTimeoutSetting(values[SettingKeyOpenAIFirstOutputTimeoutSeconds], 600); ok {
+			result.standardSeconds, result.standardConfigured = seconds, true
+		} else if raw := strings.TrimSpace(values[SettingKeyOpenAIFirstOutputTimeoutSeconds]); raw != "" {
+			slog.Warn("invalid openai first output timeout setting", "key", SettingKeyOpenAIFirstOutputTimeoutSeconds, "value", raw)
+		}
+		if seconds, ok := parseOpenAIFirstOutputTimeoutSetting(values[SettingKeyOpenAIHighEffortFirstOutputTimeoutSeconds], 1800); ok {
+			result.highEffortSeconds, result.highEffortConfigured = seconds, true
+		} else if raw := strings.TrimSpace(values[SettingKeyOpenAIHighEffortFirstOutputTimeoutSeconds]); raw != "" {
+			slog.Warn("invalid openai high effort first output timeout setting", "key", SettingKeyOpenAIHighEffortFirstOutputTimeoutSeconds, "value", raw)
+		}
+		openAIFirstOutputTimeoutsCache.Store(&cachedOpenAIFirstOutputTimeouts{
+			openAIFirstOutputTimeouts: result,
+			expiresAt:                 time.Now().Add(openAIFirstOutputTimeoutsCacheTTL).UnixNano(),
+		})
+		return result, nil
+	})
+	if result, ok := val.(openAIFirstOutputTimeouts); ok {
+		return result
+	}
+	return openAIFirstOutputTimeouts{}
 }
 
 // GetGatewayForwardingSettings returns cached gateway forwarding settings.

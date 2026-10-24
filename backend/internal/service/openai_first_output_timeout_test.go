@@ -185,10 +185,53 @@ func TestOpenAIFirstOutputTimeoutForReasoningEffort(t *testing.T) {
 		OpenAIHighEffortFirstOutputTimeoutSeconds: 300,
 	}}}
 
-	require.Equal(t, 120*time.Second, svc.openAIFirstOutputTimeout("low"))
-	require.Equal(t, 300*time.Second, svc.openAIFirstOutputTimeout("high"))
-	require.Equal(t, 300*time.Second, svc.openAIFirstOutputTimeout("xhigh"))
-	require.Equal(t, 300*time.Second, svc.openAIFirstOutputTimeout("max"))
+	require.Equal(t, 120*time.Second, svc.openAIFirstOutputTimeout(context.Background(), "low"))
+	require.Equal(t, 300*time.Second, svc.openAIFirstOutputTimeout(context.Background(), "high"))
+	require.Equal(t, 300*time.Second, svc.openAIFirstOutputTimeout(context.Background(), "xhigh"))
+	require.Equal(t, 300*time.Second, svc.openAIFirstOutputTimeout(context.Background(), "max"))
+}
+
+func TestOpenAIFirstOutputTimeoutPrefersRuntimeSettingsAndHonorsExplicitDisable(t *testing.T) {
+	resetGatewayForwardingSettingsCacheForTest(t)
+	cfg := &config.Config{Gateway: config.GatewayConfig{
+		OpenAIFirstOutputTimeoutSeconds:           120,
+		OpenAIHighEffortFirstOutputTimeoutSeconds: 300,
+	}}
+	repo := &gatewayTTLSettingRepo{data: map[string]string{}}
+	svc := &OpenAIGatewayService{cfg: cfg, settingService: NewSettingService(repo, cfg)}
+
+	// 未写运行时键时沿用启动配置。
+	require.Equal(t, 120*time.Second, svc.openAIFirstOutputTimeout(context.Background(), "low"))
+	require.Equal(t, 300*time.Second, svc.openAIFirstOutputTimeout(context.Background(), "high"))
+
+	// 标准键接管：高推理档默认跟随标准值。
+	repo.data[SettingKeyOpenAIFirstOutputTimeoutSeconds] = "180"
+	invalidateOpenAIFirstOutputTimeoutsCache()
+	require.Equal(t, 180*time.Second, svc.openAIFirstOutputTimeout(context.Background(), "low"))
+	require.Equal(t, 180*time.Second, svc.openAIFirstOutputTimeout(context.Background(), "high"))
+
+	// 高推理键单独覆盖。
+	repo.data[SettingKeyOpenAIHighEffortFirstOutputTimeoutSeconds] = "420"
+	invalidateOpenAIFirstOutputTimeoutsCache()
+	require.Equal(t, 180*time.Second, svc.openAIFirstOutputTimeout(context.Background(), "low"))
+	require.Equal(t, 420*time.Second, svc.openAIFirstOutputTimeout(context.Background(), "xhigh"))
+
+	// 运行时 0 是显式禁用，不能被启动配置重新打开。
+	repo.data[SettingKeyOpenAIFirstOutputTimeoutSeconds] = "0"
+	invalidateOpenAIFirstOutputTimeoutsCache()
+	require.Zero(t, svc.openAIFirstOutputTimeout(context.Background(), "low"))
+	require.Zero(t, svc.openAIFirstOutputTimeout(context.Background(), "high"))
+}
+
+func TestOpenAIFirstOutputTimeoutRejectsInvalidRuntimeValues(t *testing.T) {
+	resetGatewayForwardingSettingsCacheForTest(t)
+	cfg := &config.Config{Gateway: config.GatewayConfig{OpenAIFirstOutputTimeoutSeconds: 120}}
+	repo := &gatewayTTLSettingRepo{data: map[string]string{SettingKeyOpenAIFirstOutputTimeoutSeconds: "5"}}
+	invalidateOpenAIFirstOutputTimeoutsCache()
+	svc := &OpenAIGatewayService{cfg: cfg, settingService: NewSettingService(repo, cfg)}
+
+	// 5 秒低于安全下限，视为未配置而不是把生产阈值压到 5 秒。
+	require.Equal(t, 120*time.Second, svc.openAIFirstOutputTimeout(context.Background(), "low"))
 }
 
 func TestOpenAIFirstOutputStageDefaultLimitIsIndependentFromScannerLimit(t *testing.T) {

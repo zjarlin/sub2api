@@ -715,6 +715,12 @@ const (
 	SettingKeyOpenAITTFTMode = "openai_ttft_mode"
 	OpenAITTFTModeSemantic   = "semantic"
 	OpenAITTFTModeVisible    = "visible"
+	// SettingKeyOpenAIFirstOutputTimeoutSeconds 是 OpenAI 流式首字超时的运行时覆盖值（秒）。
+	// 0 = 显式禁用；非 0 时运行值优先于 config.gateway.openai_first_output_timeout_seconds。
+	SettingKeyOpenAIFirstOutputTimeoutSeconds = "openai_first_output_timeout_seconds"
+	// SettingKeyOpenAIHighEffortFirstOutputTimeoutSeconds 是高推理档（high/xhigh/max）的运行时覆盖值（秒）。
+	// 0 = 不单独覆盖，沿用标准档；非 0 时优先于 config.gateway.openai_high_effort_first_output_timeout_seconds。
+	SettingKeyOpenAIHighEffortFirstOutputTimeoutSeconds = "openai_first_output_timeout_high_effort_seconds"
 	// SettingKeyEnableFingerprintUnification 是否统一 OAuth 账号的 X-Stainless-* 指纹头（默认 true）
 	SettingKeyEnableFingerprintUnification = "enable_fingerprint_unification"
 	// SettingKeyEnableMetadataPassthrough 是否透传客户端原始 metadata.user_id（默认 false）

@@ -3,11 +3,17 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
+	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
+
+const openAIFallbackCompactionCooldown = 5 * time.Minute
 
 // 降级模型接收普通文本摘要，不携带原模型的推理密文、会话游标或压缩协议状态。
 // 摘要回合复用有界分块和辅助用量记账，客户端会话不发生切换。
@@ -63,6 +69,13 @@ func (s *OpenAIGatewayService) CompactOpenAIFailoverHistory(ctx context.Context,
 	if !hasUser || visibleHistory < 2 {
 		return cleaned, false, nil
 	}
+	cooldownKey := openAIFallbackCompactionCooldownKey(account, gjson.GetBytes(cleaned, "model").String())
+	if s.openAIFallbackCompactionCoolingDown(cooldownKey) {
+		logger.LegacyPrintf("service.openai_gateway_fallback",
+			"[OpenAI] Model fallback skips compaction during cooldown (account: %d, history_bytes: %d)",
+			account.ID, len(cleaned))
+		return cleaned, false, nil
+	}
 	next, _, err := s.compactAutoContinue(ctx, c, account, cleaned, "", true)
 	if errors.Is(err, errAutoCompactionNotReduced) || errors.Is(err, errAutoCompactionNoHistory) {
 		// 短历史已经可移植，摘要更长时直接保留可读原文。
@@ -71,12 +84,68 @@ func (s *OpenAIGatewayService) CompactOpenAIFailoverHistory(ctx context.Context,
 	if err != nil {
 		// 摘要回合失败不能连累主请求：可移植的明文历史已经算好，直接用它
 		// 继续降级，最多损失压缩率，不会把客户端请求变成 502。
+		if openAIFallbackCompactionTransient(err) {
+			s.markOpenAIFallbackCompactionCooldown(cooldownKey)
+		}
 		logger.LegacyPrintf("service.openai_gateway_fallback",
-			"[OpenAI] Model fallback keeps cleaned history after compaction failure (account: %d, history_bytes: %d): %v",
-			account.ID, len(cleaned), err)
+			"[OpenAI] Model fallback keeps cleaned history after compaction failure (account: %d, history_bytes: %d, cooldown: %t): %v",
+			account.ID, len(cleaned), openAIFallbackCompactionTransient(err), err)
 		return cleaned, false, nil
 	}
 	return next, true, nil
+}
+
+func openAIFallbackCompactionCooldownKey(account *Account, model string) string {
+	if account == nil {
+		return ""
+	}
+	return fmt.Sprintf("%d|%s", account.ID, strings.TrimSpace(model))
+}
+
+func (s *OpenAIGatewayService) openAIFallbackCompactionCoolingDown(key string) bool {
+	if s == nil || key == "" {
+		return false
+	}
+	value, ok := s.openaiFallbackCompactionCooldown.Load(key)
+	if !ok {
+		return false
+	}
+	until, _ := value.(time.Time)
+	if time.Now().Before(until) {
+		return true
+	}
+	s.openaiFallbackCompactionCooldown.Delete(key)
+	return false
+}
+
+func (s *OpenAIGatewayService) markOpenAIFallbackCompactionCooldown(key string) {
+	if s == nil || key == "" {
+		return
+	}
+	s.openaiFallbackCompactionCooldown.Store(key, time.Now().Add(openAIFallbackCompactionCooldown))
+}
+
+// 只有账号维度的临时故障才值得冷却：429/402/5xx 换账号或稍后重试可能恢复；
+// 400 等确定性错误和客户端取消不应阻止后续请求尝试摘要。
+func openAIFallbackCompactionTransient(err error) bool {
+	if err == nil {
+		return false
+	}
+	var failover *UpstreamFailoverError
+	if errors.As(err, &failover) && failover != nil {
+		switch failover.StatusCode {
+		case http.StatusPaymentRequired, http.StatusTooManyRequests:
+			return true
+		}
+		return failover.StatusCode >= 500
+	}
+	message := err.Error()
+	for _, status := range []string{" 402 ", " 429 ", " 500 ", " 502 ", " 503 ", " 504 "} {
+		if strings.Contains(message, status) {
+			return true
+		}
+	}
+	return false
 }
 
 // 当前工具结果及对应调用必须原样成对保留；图片等非文本输入不能靠摘要猜测内容。
