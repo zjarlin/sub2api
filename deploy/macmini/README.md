@@ -57,6 +57,9 @@ runner 需要能直接跑 `docker`（`/usr/local/bin` 或 `/opt/homebrew/bin` �
 - 远端没变 → 什么都不做。
 - 远端前进 → `git fetch` 后 `checkout -B main FETCH_HEAD`，再调 `deploy-macmini.sh`
   （带 `SUB2API_GIT_SHA` 与 `EXPECTED_GIT_SHA`，构建/备份/候选预检/切流/回滚全部复用）。
+- `WATCH_PATHS`（默认与 workflow 的 `push.paths` 一致）决定哪些改动值得重建镜像：
+  只改文档、`deploy/**` 脚本或测试时只记录提交、**不重启线上容器**；
+  要退化成「任何提交都部署」，显式设 `WATCH_PATHS=`（空）。
 - 工作副本有本地改动 → 只记录并跳过，**不**强改工作区。
 - 部署失败 → 不写状态文件，下个周期重试；日志留在 launchd 的 `stdout/stderr` 文件里。
 - 状态文件 `WATCH_STATE`（默认 `$REPO_DIR/.macmini-watch.deployed`）必须被 `.gitignore` 覆盖，
@@ -82,6 +85,7 @@ cat > "$PLIST" <<PLIST
     <key>DEPLOY_DIR</key><string>$HOME/DockerCompose/dockge/stacks/sub2api</string>
     <key>DATA_DIR</key><string>$HOME/DockerCompose/sub2api/data</string>
     <key>WATCH_INTERVAL</key><string>120</string>
+    <!-- 可选：留空字符串 = 任何提交都部署；删除此项 = 用脚本默认（与 workflow paths 一致） -->
     <key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
   </dict>
   <key>WorkingDirectory</key><string>$REPO_DIR</string>

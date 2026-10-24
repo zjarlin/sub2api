@@ -11,7 +11,10 @@
 #   WATCH_INTERVAL    轮询间隔秒（默认 120）
 #   WATCH_BRANCH      跟随的分支（默认 main）
 #   WATCH_REMOTE      远端名（默认 origin）
-#   WATCH_STATE       「已部署提交」记录文件（默认 $REPO_DIR/.macmini-watch.deployed）
+#   WATCH_STATE       「已处理提交」记录文件（默认 $REPO_DIR/.macmini-watch.deployed）
+#   WATCH_PATHS       触发重构建的路径（空格分隔，git pathspec；空 = 任何提交都部署）
+#                    默认与 .github/workflows/macmini-deploy.yml 的 push.paths 一致：
+#                    只改文档/deploy 脚本不会为了重建镜像去重启线上容器。
 #   其余变量（DEPLOY_DIR / DATA_DIR / SUB2API_*）原样透传给 deploy-macmini.sh。
 #
 # 安全边界：
@@ -28,6 +31,8 @@ WATCH_INTERVAL="${WATCH_INTERVAL:-120}"
 WATCH_BRANCH="${WATCH_BRANCH:-main}"
 WATCH_REMOTE="${WATCH_REMOTE:-origin}"
 WATCH_STATE="${WATCH_STATE:-$REPO_DIR/.macmini-watch.deployed}"
+# 必须与 workflow 的 push.paths 保持一致，否则两条通道语义不同。
+WATCH_PATHS="${WATCH_PATHS-backend/** frontend/** docs/legal/** Dockerfile deploy/docker-entrypoint.sh deploy/macmini/** deploy/tests/macmini-deploy-test.sh deploy/tests/macmini-watch-test.sh .github/workflows/macmini-deploy.yml}"
 DEPLOY_SCRIPT="$SCRIPT_DIR/deploy-macmini.sh"
 
 [ -d "$REPO_DIR/.git" ] || { log "REPO_DIR is not a git checkout: $REPO_DIR"; exit 1; }
@@ -97,8 +102,23 @@ deploy_once() {
   bash "$DEPLOY_SCRIPT"
 }
 
+# 判断 base..target 是否改动了需要重构建镜像的路径。
+# WATCH_PATHS 为空时退化为「任何提交都部署」。
+paths_changed() {
+  local base="$1" target="$2"
+  [ -n "${WATCH_PATHS:-}" ] || return 0
+  [ -n "$base" ] || return 0
+  local -a spec=() changed
+  # 用 read 按空白拆词：`spec=($WATCH_PATHS)` 在部分 bash 版本会把字符串拆成字符。
+  read -r -a spec <<< "$WATCH_PATHS"
+  # 用变量捕获再判断：set -e + pipefail 下 `$(... | head -1)` 空输出会让整个判断出错。
+  changed="$(git -C "$REPO_DIR" diff --name-only "$base" "$target" -- "${spec[@]}" || true)"
+  if [ "${WATCH_DEBUG:-0}" = "1" ]; then printf '[macmini-watch] debug: base=%s target=%s spec_n=%s changed=[%s]\n' "$base" "$target" "${#spec[@]}" "$changed" >&2; fi
+  [ -n "$changed" ]
+}
+
 tick() {
-  local remote local_head deployed
+  local remote local_head deployed base
   remote="$(remote_sha || true)"
   [ -n "$remote" ] || { log "cannot resolve $WATCH_REMOTE/$WATCH_BRANCH (network?); will retry"; return 0; }
   local_head="$(git -C "$REPO_DIR" rev-parse HEAD 2>/dev/null || true)"
@@ -120,6 +140,15 @@ tick() {
   fi
 
   [ "$local_head" = "$remote" ] || { log "HEAD $local_head != remote $remote; skip"; return 0; }
+
+  base="$(last_deployed)"
+  if [ -n "$base" ] && ! paths_changed "$base" "$remote"; then
+    # 只改了不入镜像的路径（文档、部署脚本、测试）：记下已处理，不重建线上容器。
+    if record_deployed "$remote"; then
+      log "recorded $remote without redeploy (no image-affecting changes since $base)"
+    fi
+    return 0
+  fi
 
   if deploy_once "$remote"; then
     record_deployed "$remote" && log "deployed $remote"

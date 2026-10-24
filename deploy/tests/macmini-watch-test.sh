@@ -33,7 +33,8 @@ actual_head="$(git -C "$REPO_DIR" rev-parse HEAD)"
 exit 0
 SH
 chmod +x "$test_dir/seed/deploy/macmini/deploy-macmini.sh"
-printf 'v1\n' > "$test_dir/seed/app.txt"
+mkdir -p "$test_dir/seed/backend"
+printf 'v1\n' > "$test_dir/seed/backend/app.go"
 # 状态文件落在工作副本里，必须被忽略，否则它自己会把工作区弄脏。
 printf '.macmini-watch.deployed\n' > "$test_dir/seed/.gitignore"
 git_q -C "$test_dir/seed" add -A
@@ -80,7 +81,7 @@ run_watch
 pass "unchanged remote does not redeploy"
 
 # 3) 远端前进一个提交：工作副本被快进并部署新提交。
-printf 'v2\n' > "$test_dir/seed/app.txt"
+printf 'v2\n' > "$test_dir/seed/backend/app.go"
 git_q -C "$test_dir/seed" commit --quiet -am "v2"
 git_q -C "$test_dir/seed" push --quiet origin HEAD:refs/heads/main
 head2="$(git -C "$test_dir/seed" rev-parse HEAD)"
@@ -91,7 +92,7 @@ pass "new remote commit is deployed"
 
 # 4) 工作副本有本地未提交改动且远端又前进：只跳过，不改工作区。
 printf 'local-only\n' > "$work/uncommitted.txt"
-printf 'v3\n' > "$test_dir/seed/app.txt"
+printf 'v3\n' > "$test_dir/seed/backend/app.go"
 git_q -C "$test_dir/seed" commit --quiet -am "v3"
 git_q -C "$test_dir/seed" push --quiet origin HEAD:refs/heads/main
 head3="$(git -C "$test_dir/seed" rev-parse HEAD)"
@@ -110,7 +111,40 @@ grep -qx "$head3" "$FAKE_DEPLOY_LOG" || fail "expected retry deploy of $head3"
 [ "$(awk '{print $1}' "$work/.macmini-watch.deployed")" = "$head3" ] || fail "state not advanced after successful retry"
 pass "failed deploy is retried on next tick"
 
-# 6) 缺少 REPO_DIR：必须报错退出，不能静默回退到当前目录。
+# 6) 只改不入镜像的路径：记录已处理，但不重建线上容器。
+printf 'notes\n' > "$test_dir/seed/NOTES.md"
+git_q -C "$test_dir/seed" add -A
+git_q -C "$test_dir/seed" commit --quiet -m "docs only"
+git_q -C "$test_dir/seed" push --quiet origin HEAD:refs/heads/main
+head4="$(git -C "$test_dir/seed" rev-parse HEAD)"
+before_count="$(grep -c . "$FAKE_DEPLOY_LOG")"
+run_watch
+[ "$(git -C "$work" rev-parse HEAD)" = "$head4" ] || fail "worktree not updated to $head4"
+[ "$(grep -c . "$FAKE_DEPLOY_LOG")" = "$before_count" ] || fail "doc-only commit should not redeploy"
+[ "$(awk '{print $1}' "$work/.macmini-watch.deployed")" = "$head4" ] || fail "state not recorded for doc-only commit"
+pass "doc-only commit is recorded without redeploy"
+
+# 7) 改入镜像的路径：必须重新部署。
+printf '// change\n' >> "$test_dir/seed/backend/app.go"
+git_q -C "$test_dir/seed" add -A
+git_q -C "$test_dir/seed" commit --quiet -m "code change"
+git_q -C "$test_dir/seed" push --quiet origin HEAD:refs/heads/main
+head5="$(git -C "$test_dir/seed" rev-parse HEAD)"
+run_watch
+grep -qx "$head5" "$FAKE_DEPLOY_LOG" || fail "code change must redeploy"
+pass "image-affecting change redeploys"
+
+# 8) WATCH_PATHS 显式置空：任何提交都部署（允许按需放宽）。
+printf 'more notes\n' >> "$test_dir/seed/NOTES.md"
+git_q -C "$test_dir/seed" commit --quiet -am "docs only again"
+git_q -C "$test_dir/seed" push --quiet origin HEAD:refs/heads/main
+head6="$(git -C "$test_dir/seed" rev-parse HEAD)"
+PATH="$test_dir/bin:/usr/bin:/bin" REPO_DIR="$work" WATCH_ONCE=1 WATCH_PATHS= \
+  FAKE_DEPLOY_LOG="$FAKE_DEPLOY_LOG" bash "$work/deploy/macmini/macmini-watch.sh"
+grep -qx "$head6" "$FAKE_DEPLOY_LOG" || fail "WATCH_PATHS= should deploy every commit"
+pass "empty WATCH_PATHS deploys every commit"
+
+# 9) 缺少 REPO_DIR：必须报错退出，不能静默回退到当前目录。
 if PATH="$test_dir/bin:/usr/bin:/bin" WATCH_ONCE=1 bash "$watch_src" 2>/dev/null; then
   fail "missing REPO_DIR should fail"
 fi
