@@ -8,7 +8,8 @@
 
 | 项 | 值 |
 | --- | --- |
-| 打包流水线 | `.github/workflows/macmini-deploy.yml`（GitHub Actions） |
+| 流水线 A（首选） | `.github/workflows/macmini-deploy.yml`（GitHub Actions，需仓库启用 Actions） |
+| 流水线 B（当前生效） | `macmini-watch.sh` + launchd，Mac mini 本机轮询 `origin/main` |
 | 执行机 | Mac mini 自托管 runner，标签 `self-hosted, macOS, ARM64, macmini-sub2api` |
 | compose 目录 | `DEPLOY_DIR`（默认 `~/DockerCompose/dockge/stacks/sub2api`） |
 | 数据目录 | `DATA_DIR`（默认 `~/DockerCompose/sub2api/data`） |
@@ -29,6 +30,73 @@
    labels 含 `macmini-sub2api`。
 
 runner 需要能直接跑 `docker`（`/usr/local/bin` 或 `/opt/homebrew/bin` 在 PATH 里）。
+
+## 触发方式：Actions 与轮询守护
+
+两条通道**调用同一个 `deploy-macmini.sh`**，不维护第二套部署实现。
+
+### 现状：本 fork 的 GitHub Actions 被仓库级禁用
+
+2026-10-24 实测：仓库 `zjarlin/sub2api` 是 `Wei-Shaw/sub2api` 的 fork，
+`gh workflow run` 返回 `HTTP 422: Actions has been disabled for this repository`，
+而 `GET /repos/zjarlin/sub2api/actions/permissions` 仍返回 `enabled: true, allowed_actions: all`，
+`PUT` 重新启用也无效；同账号的非 fork 仓库可正常派发，因此不是账号级限制。
+`.yml` 已注册为 `active`，但推送不会产生 run。
+
+结论：**不要在故障期间依赖 Actions 自动触发**。恢复步骤（需要人在 GitHub 网页操作）：
+
+1. `https://github.com/zjarlin/sub2api/settings/actions` 确认 Actions 为启用状态；
+   若看到 fork 相关提示，按页面指引 Enable 一次。
+2. 用 `gh workflow run macmini-deploy.yml --ref main` 验证能派发成功（应返回 204/无报错）。
+3. 之后推送 `main` 命中 `paths` 即自动部署；runner 已在 `online`。
+
+### 当前生效的通道：`macmini-watch.sh`
+
+`macmini-watch.sh` 每 `WATCH_INTERVAL` 秒比对 `origin/main` 与「已部署提交」：
+
+- 远端没变 → 什么都不做。
+- 远端前进 → `git fetch` 后 `checkout -B main FETCH_HEAD`，再调 `deploy-macmini.sh`
+  （带 `SUB2API_GIT_SHA` 与 `EXPECTED_GIT_SHA`，构建/备份/候选预检/切流/回滚全部复用）。
+- 工作副本有本地改动 → 只记录并跳过，**不**强改工作区。
+- 部署失败 → 不写状态文件，下个周期重试；日志留在 launchd 的 `stdout/stderr` 文件里。
+- 状态文件 `WATCH_STATE`（默认 `$REPO_DIR/.macmini-watch.deployed`）必须被 `.gitignore` 覆盖，
+  否则它自己会把工作区弄脏。
+
+launchd 安装（在 Mac mini 上，路径都从变量取）：
+
+```bash
+REPO_DIR="$HOME/sub2api-deploy-src"                       # 源码工作副本
+PLIST="$HOME/Library/LaunchAgents/site.addzero.sub2api-watch.plist"
+mkdir -p "$HOME/Library/Logs"
+cat > "$PLIST" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>site.addzero.sub2api-watch</string>
+  <key>ProgramArguments</key><array>
+    <string>/bin/bash</string>
+    <string>$REPO_DIR/deploy/macmini/macmini-watch.sh</string>
+  </array>
+  <key>EnvironmentVariables</key><dict>
+    <key>REPO_DIR</key><string>$REPO_DIR</string>
+    <key>DEPLOY_DIR</key><string>$HOME/DockerCompose/dockge/stacks/sub2api</string>
+    <key>DATA_DIR</key><string>$HOME/DockerCompose/sub2api/data</string>
+    <key>WATCH_INTERVAL</key><string>120</string>
+    <key>PATH</key><string>/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin</string>
+  </dict>
+  <key>WorkingDirectory</key><string>$REPO_DIR</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>StandardOutPath</key><string>$HOME/Library/Logs/sub2api-watch.log</string>
+  <key>StandardErrorPath</key><string>$HOME/Library/Logs/sub2api-watch.err.log</string>
+</dict></plist>
+PLIST
+launchctl unload "$PLIST" 2>/dev/null || true
+launchctl load -w "$PLIST"
+launchctl list | grep sub2api-watch
+```
+
+手动验证（只跑一个周期）：`WATCH_ONCE=1 REPO_DIR="$REPO_DIR" bash "$REPO_DIR/deploy/macmini/macmini-watch.sh"`。
 
 ## 部署流程（`deploy-macmini.sh`）
 
@@ -93,7 +161,9 @@ bash deploy/macmini/deploy-macmini.sh
 
 ## 触发规则
 
-- 只有推送 `main` 且命中 workflow 的 `paths` 才会部署；`pull_request` 不触发。
+- Actions 通道（恢复后）：只有推送 `main` 且命中 workflow 的 `paths` 才会部署；`pull_request` 不触发。
+- 轮询通道（当前）：`origin/main` 的提交变化即部署，与 Actions 的 `paths` 过滤无关；
+  两条通道都部署完成后，会因「已部署提交相同」而互相跳过。
 - TeamCity 的 `Deploy182Gateway` 与 `DeployTianjinMedia` 已把
   `deploy/macmini/**`、`deploy/tests/macmini-deploy-test.sh`、`.github/workflows/macmini-deploy.yml`
   排除出 `triggerRules`，所以改本目录不会重启 182 网关或天津媒体服务。
@@ -102,5 +172,7 @@ bash deploy/macmini/deploy-macmini.sh
 
 ```bash
 bash -n deploy/macmini/deploy-macmini.sh
+bash -n deploy/macmini/macmini-watch.sh
 bash deploy/tests/macmini-deploy-test.sh   # 用假的 docker/curl，不连接任何真实主机
+bash deploy/tests/macmini-watch-test.sh    # 用临时 git 仓库和假部署脚本，不调用 docker
 ```

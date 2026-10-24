@@ -13,6 +13,7 @@ on:
       - "deploy/docker-entrypoint.sh"
       - "deploy/macmini/**"
       - "deploy/tests/macmini-deploy-test.sh"
+      - "deploy/tests/macmini-watch-test.sh"
       - ".github/workflows/macmini-deploy.yml"
   workflow_dispatch:
 
@@ -31,9 +32,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Syntax check
-        run: bash -n deploy/macmini/deploy-macmini.sh
+        run: |
+          bash -n deploy/macmini/deploy-macmini.sh
+          bash -n deploy/macmini/macmini-watch.sh
       - name: Behaviour tests
-        run: bash deploy/tests/macmini-deploy-test.sh
+        run: |
+          bash deploy/tests/macmini-deploy-test.sh
+          bash deploy/tests/macmini-watch-test.sh
 
   deploy:
     name: Deploy on Mac mini
