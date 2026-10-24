@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # deploy/macmini/deploy-macmini.sh 的行为测试：用假的 docker/curl 驱动完整流程，
-# 覆盖「候选成功切流」「候选失败不切流」「切流后不健康自动回滚」三条路径。
+# 覆盖切流/回滚、隔离预演、预演库守卫和 named volume 拒绝等路径。
 #
 # 只在本地/CI 使用，不连接任何真实主机。
 set -euo pipefail
@@ -19,7 +19,7 @@ cat > "$test_dir/bin/docker" <<'SH'
 set -euo pipefail
 ORIGINAL_PATH="$PATH"
 # macOS 没有 GNU dirname 时会回落到桌面版 docker，必须锁定假命令目录。
-PATH="/opt/cloud-dev/bin:/usr/local/bin:/usr/bin:/bin"
+PATH="/opt/cloud-dev/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
 export PATH
 printf '%s\n' "$*" >> "$MOCK_DOCKER_LOG"
 

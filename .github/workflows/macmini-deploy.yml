@@ -12,6 +12,7 @@ on:
       - "Dockerfile"
       - "deploy/docker-entrypoint.sh"
       - "deploy/macmini/**"
+      - "deploy/tests/macmini-deploy-test.sh"
       - ".github/workflows/macmini-deploy.yml"
   workflow_dispatch:
 

@@ -219,6 +219,7 @@ log "candidate healthy"
 if [ "${CANARY_ONLY:-0}" = "1" ]; then
   # 预检模式：保留候选容器供人工验证，不切流；用完由调用方删除。
   # 清除退出钩子，保留候选容器供验收；临时文件由当前 shell 清理。
+  CANARY_STARTED=0
   trap - EXIT
   rm -f "$ENV_FILE" "$MOUNTS_FILE" "$MOUNTS_LIST_FILE"
   log "candidate-only mode: $CANARY_NAME listening on 127.0.0.1:$CANARY_PORT (live traffic untouched)"
