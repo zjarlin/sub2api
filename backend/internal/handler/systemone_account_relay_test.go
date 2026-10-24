@@ -48,6 +48,23 @@ func TestSystemOneFallbackPlatformOnlyForJev(t *testing.T) {
 	require.False(t, ok)
 }
 
+func TestSystemOneUpstreamErrorStatusNeverWritesSuccess(t *testing.T) {
+	// 传输层失败没有真实 HTTP 状态；Gin 的 c.JSON(0, ...) 会写成 200，
+	// 让「上游不可达」在客户端变成「请求成功」。
+	require.Equal(t, http.StatusBadGateway, systemOneUpstreamErrorStatus(0))
+	require.NotEqual(t, http.StatusOK, systemOneUpstreamErrorStatus(0))
+
+	// 3xx/1xx 不是上游业务错误，也不应作为最终响应回放。
+	for _, status := range []int{101, 301, 302, 304} {
+		require.Equal(t, http.StatusBadGateway, systemOneUpstreamErrorStatus(status), "status=%d", status)
+	}
+
+	// 真实的上游拒绝保持原样，便于客户端区分 401/429/5xx。
+	for _, status := range []int{http.StatusBadRequest, http.StatusUnauthorized, http.StatusTooManyRequests, http.StatusBadGateway, http.StatusServiceUnavailable} {
+		require.Equal(t, status, systemOneUpstreamErrorStatus(status), "status=%d", status)
+	}
+}
+
 func TestSystemOneRelayFailureShouldFallback(t *testing.T) {
 	// 仅 JEV 请求、且属于可用性故障时才回退。
 	require.True(t, systemOneRelayFailureShouldFallback(service.SystemOneProviderJev, 0, errors.New("timeout")))

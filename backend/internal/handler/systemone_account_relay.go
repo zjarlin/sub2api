@@ -269,11 +269,9 @@ func (h *GatewayHandler) SystemOneRelay(c *gin.Context) {
 		logger.L().With(zap.String("component", "handler.systemone")).Warn("relay_failed",
 			zap.Int64("account_id", selection.Account.ID), zap.String("provider", provider),
 			zap.Int("upstream_status", status), zap.Bool("fallback_used", fallbackUsed), zap.Error(relayErr))
-		if status < http.StatusOK || status >= http.StatusMultipleChoices {
-			c.JSON(status, gin.H{"error": gin.H{"type": "upstream_error", "message": "System One upstream returned an error"}})
-			return
-		}
-		c.JSON(http.StatusBadGateway, gin.H{"error": gin.H{"type": "upstream_error", "message": "System One service unavailable"}})
+		// status 为 0（DNS/连接/超时等传输层失败）或 3xx 时不能直接交给
+		// c.JSON：Gin 会把非法状态码写成 200，客户端于是把失败当成功。
+		c.JSON(systemOneUpstreamErrorStatus(status), gin.H{"error": gin.H{"type": "upstream_error", "message": "System One upstream returned an error"}})
 		return
 	}
 	account = selection.Account
@@ -304,6 +302,18 @@ func (h *GatewayHandler) SystemOneRelay(c *gin.Context) {
 		return
 	}
 	c.Data(status, "application/json", payload)
+}
+
+// systemOneUpstreamErrorStatus 把上游结果收敛成客户端可用的错误状态。
+//
+// 只有真实的 4xx/5xx 才原样透传；传输层失败（status == 0）、1xx/3xx 以及
+// 非法状态一律映射为 502。否则 Gin 的 c.JSON(0, ...) 会写成 HTTP 200，
+// 让「上游不可达」在客户端表现为「请求成功但 body 是 error」。
+func systemOneUpstreamErrorStatus(status int) int {
+	if status >= http.StatusBadRequest && status <= 599 {
+		return status
+	}
+	return http.StatusBadGateway
 }
 
 // systemOneAccountBaseURL 兜底给出平台的默认上游地址（账号未显式配置 base_url 时）。
