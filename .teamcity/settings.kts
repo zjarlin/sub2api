@@ -45,9 +45,18 @@ object Deploy182Gateway : BuildType({
             // 避免因为改流水线文案把线上网关/天津服务重启一遍。
             // Mac mini 由 GitHub Actions 自托管 runner 部署（.github/workflows/macmini-deploy.yml），
             // 其部署脚本/测试/文档的改动不得触发 182 网关或天津媒体重建。
+            // 注意：triggerRules 是「一行一条规则」，不能写成冒号拼接的单行。
+            // 单行写法会被当成一条以 `.:-:.teamcity/**...` 为模式的规则，什么都匹配不到，
+            // 触发器的效果就是「永远不排队」（2026-10-24 实际踩过）。
             param(
                 "triggerRules",
-                "+:.:-:.teamcity/**:-:deploy/macmini/**:-:deploy/tests/macmini-deploy-test.sh:-:.github/workflows/macmini-deploy.yml"
+                """
+                +:.
+                -:.teamcity/**
+                -:deploy/macmini/**
+                -:deploy/tests/macmini-deploy-test.sh
+                -:.github/workflows/macmini-deploy.yml
+                """.trimIndent()
             )
         }
     }
@@ -129,9 +138,18 @@ object DeployTianjinMedia : BuildType({
             // 避免因为改流水线文案把线上网关/天津服务重启一遍。
             // Mac mini 由 GitHub Actions 自托管 runner 部署（.github/workflows/macmini-deploy.yml），
             // 其部署脚本/测试/文档的改动不得触发 182 网关或天津媒体重建。
+            // 注意：triggerRules 是「一行一条规则」，不能写成冒号拼接的单行。
+            // 单行写法会被当成一条以 `.:-:.teamcity/**...` 为模式的规则，什么都匹配不到，
+            // 触发器的效果就是「永远不排队」（2026-10-24 实际踩过）。
             param(
                 "triggerRules",
-                "+:.:-:.teamcity/**:-:deploy/macmini/**:-:deploy/tests/macmini-deploy-test.sh:-:.github/workflows/macmini-deploy.yml"
+                """
+                +:.
+                -:.teamcity/**
+                -:deploy/macmini/**
+                -:deploy/tests/macmini-deploy-test.sh
+                -:.github/workflows/macmini-deploy.yml
+                """.trimIndent()
             )
         }
     }
